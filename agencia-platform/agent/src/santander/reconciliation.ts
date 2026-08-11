@@ -121,13 +121,18 @@ export class SantanderReconciliationReader {
         const remittances = rowTexts.map(parseSepaRemittanceRow).filter((item): item is SepaRemittanceRow => Boolean(item))
           .filter((item) => item.status === "Contabilizada" && new Date(item.dueAt) >= startsAt);
         for (const remittance of remittances) {
+          let opened = false;
+          try {
           const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
-          await row.getByRole("button").click();
+          await row.getByRole("button").click({ timeout: 8000 });
+          opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await receipts.isVisible().catch(() => false)) continue;
           await receipts.click();
           const receiptFrame = await this.waitReceiptFrame(page, remittance.remittanceNumber);
           if (!receiptFrame) continue;
+          const receiptBody = await receiptFrame.locator("body").innerText().catch(() => "");
+          if (/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(receiptBody)) throw new Error("Santander cerró la sesión durante la conciliación");
           const receiptTexts: string[] = await receiptFrame.locator("table tbody tr").allInnerTexts().catch(() => []);
           for (const text of receiptTexts) {
             const receipt = parseSepaReceiptRow(text);
@@ -145,8 +150,14 @@ export class SantanderReconciliationReader {
               debtorIbanLast4: receipt.debtorIbanLast4
             });
           }
-          await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-          frame = await this.waitFrame(page, /Remesas de un acreedor/i) ?? frame;
+          } catch (error) {
+            if (/cerró la sesión/i.test(String(error))) throw error;
+          } finally {
+            if (opened) {
+              await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+              frame = await this.waitFrame(page, /Remesas de un acreedor/i) ?? frame;
+            }
+          }
         }
         const next = frame.getByRole("button", { name: /^Ver siguientes$/i });
         if (!await next.isVisible().catch(() => false) || !await next.isEnabled().catch(() => false)) break;
@@ -162,9 +173,17 @@ export class SantanderReconciliationReader {
   }
 
   private async ensureAuthenticated(context: any): Promise<boolean> {
-    if (context.pages().some((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin))) return true;
-    const page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
-    if (!page) return false;
+    const authenticated = context.pages().find((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin));
+    if (authenticated) {
+      const text = await authenticated.locator("body").innerText().catch(() => "");
+      if (!/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(text)) return true;
+      await authenticated.goto(`${this.opts.santanderOrigin}/paas/loginnwe/?forcedLogout=true`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+    }
+    let page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
+    if (!page) {
+      page = await context.newPage();
+      await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, { waitUntil: "domcontentloaded", timeout: 20000 });
+    }
     const reconnect = page.getByRole("button", { name: /^volver a conectar$/i });
     if (await reconnect.count() === 1 && await reconnect.isVisible().catch(() => false)) {
       await reconnect.click();
