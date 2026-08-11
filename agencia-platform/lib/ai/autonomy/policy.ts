@@ -116,14 +116,29 @@ export function idempotencyKeyFor(a: ActionDescriptor, ctx: ActionContext): stri
 }
 
 /**
- * Riesgo EFECTIVO del servidor: si el sensitive-tool gate (Fase 1) lo marca
- * peligroso → "sensitive" (dinero/mensajería/Make mutante). Si no, usa la pista
- * o "low" por defecto. Nunca lo rebaja por debajo de lo que dice el gate.
+ * Clasificación de riesgo AUTORÍA DEL SERVIDOR para acciones NO cubiertas por el
+ * gate de Fase 1 (reversibles conocidas). Cualquier acción desconocida → medium
+ * (techo A2 = solo borrador). Así el modelo no puede rebajar el riesgo con una
+ * pista para autoejecutar una acción no gateada.
+ */
+export const ACTION_RISK: Record<string, ActionRisk> = {
+  create_task: "low",
+  update_task: "low",
+  post_comment: "low",
+  schedule_followup: "low",
+  add_label: "low",
+  make_raw_api: "medium" // solo GET/HEAD/OPTIONS llegan aquí (el resto es sensitive)
+};
+
+/**
+ * Riesgo EFECTIVO: si el sensitive-tool gate (Fase 1) lo marca peligroso →
+ * "sensitive". Si no, se deriva de la tabla del SERVIDOR (nunca del hint del
+ * modelo); lo no listado → "medium" (conservador). El campo `a.risk` es solo
+ * informativo y NO influye en la decisión.
  */
 export function effectiveRisk(a: ActionDescriptor): ActionRisk {
   if (toolDanger(a.action, a.input) !== null) return "sensitive";
-  const hint = a.risk ?? "low";
-  return hint;
+  return ACTION_RISK[a.action] ?? "medium";
 }
 
 /**

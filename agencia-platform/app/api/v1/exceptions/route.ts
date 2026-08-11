@@ -11,9 +11,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
+import { callerIsAdmin } from "@/lib/api/permissions";
 import { getExceptionInbox } from "@/lib/exceptions/inbox";
 import { exceptionsEnabled } from "@/lib/exceptions/flags";
-import type { ExceptionFilters } from "@/lib/exceptions/engine";
+import { coerceFilters } from "@/lib/exceptions/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +23,13 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
     return NextResponse.json({ error: { code: "disabled", message: "Bandeja de excepciones desactivada" } }, { status: 404 });
   }
   const sp = new URL(req.url).searchParams;
-  const filters: ExceptionFilters = {
-    source: (sp.get("source") as any) || undefined,
-    kind: (sp.get("kind") as any) || undefined,
-    severity: (sp.get("severity") as any) || undefined,
-    clientId: sp.get("clientId") || undefined
-  };
+  const filters = coerceFilters({ source: sp.get("source"), kind: sp.get("kind"), severity: sp.get("severity"), clientId: sp.get("clientId") });
   const limit = Number(sp.get("limit")) || undefined;
 
-  const inbox = await getExceptionInbox(prisma, { workspaceId: api.workspaceId, filters, limit });
+  // Los ítems de facturación (facturas vencidas) solo se incluyen para admin,
+  // igual que el gestor de facturas (requireAdmin). No-admin no los ve.
+  const includeBilling = await callerIsAdmin(api);
+
+  const inbox = await getExceptionInbox(prisma, { workspaceId: api.workspaceId, filters, limit, includeBilling });
   return NextResponse.json(inbox);
 });

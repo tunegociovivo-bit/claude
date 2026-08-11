@@ -5,8 +5,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateMock, prisma } = vi.hoisted(() => ({
+const { authenticateMock, callerIsAdminMock, prisma } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
+  callerIsAdminMock: vi.fn(),
   prisma: {
     aiDraft: { findMany: vi.fn() },
     aiAgentRun: { findMany: vi.fn() },
@@ -19,7 +20,7 @@ vi.mock("@/lib/api/auth", async (importActual) => {
   const actual = (await importActual()) as any;
   return { ...actual, authenticate: authenticateMock };
 });
-vi.mock("@/lib/api/permissions", () => ({ callerIsAdmin: vi.fn(async () => true) }));
+vi.mock("@/lib/api/permissions", () => ({ callerIsAdmin: callerIsAdminMock }));
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: () => ({ ok: true, remaining: 100, resetAt: Date.now() + 60_000 }) }));
 
 import { GET } from "../route";
@@ -29,6 +30,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.HUB_EXCEPTIONS;
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
+  callerIsAdminMock.mockResolvedValue(true);
   prisma.aiDraft.findMany.mockResolvedValue([]);
   prisma.aiAgentRun.findMany.mockResolvedValue([]);
   prisma.invoice.findMany.mockResolvedValue([]);
@@ -70,6 +72,24 @@ describe("GET /api/v1/exceptions", () => {
     expect(JSON.stringify(body)).not.toMatch(/5000,00|5\.000|€/);
     expect(body.items[0].why).toBeTruthy();
     expect(body.items[0].needsFromMe).toBeTruthy();
+  });
+
+  it("no-admin: NO consulta facturas (billing excluido); admin sí", async () => {
+    callerIsAdminMock.mockResolvedValue(false);
+    await call();
+    expect(prisma.invoice.findMany).not.toHaveBeenCalled();
+    vi.clearAllMocks();
+    authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
+    callerIsAdminMock.mockResolvedValue(true);
+    for (const m of [prisma.aiDraft, prisma.aiAgentRun, prisma.invoice, prisma.task]) m.findMany.mockResolvedValue([]);
+    await call();
+    expect(prisma.invoice.findMany).toHaveBeenCalled();
+  });
+
+  it("filtro inválido → sin filtro (bandeja completa, no vacía)", async () => {
+    prisma.task.findMany.mockResolvedValue([{ id: "t1", title: "X", dueDate: new Date(Date.now() - 2 * 86_400_000), completedAt: null, clientId: null }]);
+    const body = await (await call("?severity=NOPE")).json();
+    expect(body.total).toBe(1); // el valor inválido se ignora, no filtra a vacío
   });
 
   it("filtro por source", async () => {

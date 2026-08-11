@@ -72,7 +72,9 @@ export function fromAiDrafts(rows: AiDraftRow[], now: Date): ExceptionItem[] {
     } else if (r.status === "FAILED") {
       out.push({
         id: `ai_draft:${r.id}`,
-        dedupeKey: `failed:ai_draft:${r.id}`,
+        // Si el borrador viene de una tarea, comparte dedupeKey con el fallo del
+        // run de esa tarea → una sola incidencia (no doble conteo).
+        dedupeKey: r.taskId ? `failed:task:${r.taskId}` : `failed:ai_draft:${r.id}`,
         source: "ai_draft",
         kind: "automation_failed",
         severity: "high",
@@ -105,7 +107,7 @@ export function fromAiRuns(rows: AiRunRow[], now: Date): ExceptionItem[] {
         kind: age > 2 * DAY ? "sla_breached" : "message_unresolved",
         severity: age > 2 * DAY ? "high" : "medium",
         title: "SONIA necesita ayuda para continuar",
-        detail: r.summary ?? "SONIA pausó la tarea a la espera de una decisión humana.",
+        detail: (r.summary ?? "SONIA pausó la tarea a la espera de una decisión humana.").slice(0, 200),
         ownerUserId: null,
         clientId: null,
         createdAt: r.createdAt.toISOString(),
@@ -215,6 +217,23 @@ export function sortExceptions(items: ExceptionItem[]): ExceptionItem[] {
 }
 
 export type ExceptionFilters = { source?: ExceptionSource; kind?: ExceptionKind; severity?: Severity; clientId?: string };
+
+export const EXCEPTION_SOURCES: ExceptionSource[] = ["ai_draft", "ai_run", "invoice", "task", "lead_inbox", "cron"];
+export const EXCEPTION_KINDS: ExceptionKind[] = ["approval_pending", "automation_failed", "sla_breached", "billing_problem", "message_unresolved", "task_blocked"];
+export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
+
+/** Coacciona filtros de query: valores no reconocidos → undefined (sin filtro),
+ *  para que un typo muestre la bandeja completa (dirección segura) y no vacía. */
+export function coerceFilters(raw: { source?: string | null; kind?: string | null; severity?: string | null; clientId?: string | null }): ExceptionFilters {
+  const one = <T extends string>(v: string | null | undefined, allowed: readonly T[]): T | undefined =>
+    v && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
+  return {
+    source: one(raw.source, EXCEPTION_SOURCES),
+    kind: one(raw.kind, EXCEPTION_KINDS),
+    severity: one(raw.severity, SEVERITIES),
+    clientId: (raw.clientId ?? "").trim() || undefined
+  };
+}
 export function applyFilters(items: ExceptionItem[], f: ExceptionFilters): ExceptionItem[] {
   return items.filter(
     (it) =>

@@ -25,8 +25,14 @@ en este slice. UI = Fase 4b.
   severity/clientId. **Resumen** por severidad para badges.
 - **Tenant:** cada consulta va scoped por `workspaceId`. **Privacidad:** los
   ítems **no exponen importes €** (la factura vencida lleva antigüedad, no
-  cantidad) → seguro para `clients:read`.
+  cantidad); además, los ítems de **facturación solo se incluyen para admin**
+  (mismo patrón que el gestor de facturas). No-admin recibe la bandeja sin ellos.
+- **Sin bajo-reporte silencioso:** cada fuente se ordena por antigüedad (los
+  peores primero) antes del tope de carga, y la respuesta trae `capped` si alguna
+  fuente llegó al tope → nunca un falso "todo en orden".
 - **Kill-switch:** `HUB_EXCEPTIONS=off` → 404 (fallback: la UI actual no depende).
+- **Índices** (migración generada, NO aplicada `db/migrations/2026-08-11-exceptions-indices.sql`):
+  `Invoice(workspaceId,status,dueDate)` y `Task(workspaceId,dueDate)` parcial.
 
 ## 2. Autonomía A0–A4 (por acción, explicable)
 
@@ -37,7 +43,10 @@ en este slice. UI = Fase 4b.
   solo bajo política + aprobación previa.
 - **El modelo NUNCA se autoeleva:** `resolveAutonomy` calcula el nivel EFECTIVO
   desde la política + la clasificación de riesgo del **servidor**. Una pista
-  `risk:"none"` sobre una tool sensible sigue siendo `sensitive` → A4.
+  `risk:"none"` sobre una tool sensible sigue siendo `sensitive` → A4. Para
+  acciones NO sensibles (no gateadas), el riesgo también es del servidor
+  (tabla `ACTION_RISK`); lo desconocido → `medium` (solo borrador). El campo
+  `risk` del descriptor es informativo y **no influye** en la decisión.
 
 ## 3. Política determinista server-side (reutiliza el gate de Fase 1)
 

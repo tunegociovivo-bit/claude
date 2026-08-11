@@ -22,9 +22,13 @@ describe("effectiveRisk — el gate de Fase 1 manda", () => {
     expect(effectiveRisk({ action: "stripe_refund_charge", risk: "low" })).toBe("sensitive");
     expect(effectiveRisk({ action: "make_raw_api", input: { method: "DELETE" }, risk: "none" })).toBe("sensitive");
   });
-  it("make_raw_api GET no es sensible; acción benigna respeta pista", () => {
-    expect(effectiveRisk({ action: "make_raw_api", input: { method: "GET" } })).toBe("low");
-    expect(effectiveRisk({ action: "create_task", risk: "low" })).toBe("low");
+  it("riesgo del SERVIDOR (tabla), no del hint del modelo", () => {
+    // make_raw_api GET no es sensible → medium (server), no la 'low' del modelo.
+    expect(effectiveRisk({ action: "make_raw_api", input: { method: "GET" }, risk: "none" as any })).toBe("medium");
+    // reversible conocida en tabla → low, aunque no venga hint.
+    expect(effectiveRisk({ action: "create_task" })).toBe("low");
+    // acción desconocida → medium (conservador), aunque el modelo diga 'none'.
+    expect(effectiveRisk({ action: "unknown_action", risk: "none" as any })).toBe("medium");
   });
 });
 

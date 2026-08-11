@@ -11,6 +11,7 @@ import {
   sortExceptions,
   applyFilters,
   summarize,
+  coerceFilters,
   type ExceptionItem
 } from "../engine";
 
@@ -115,5 +116,20 @@ describe("dedupe / sort / filtros / resumen", () => {
     const s = summarize(items);
     expect(s.total).toBe(2);
     expect(s.critical).toBe(1);
+  });
+
+  it("dedupe cross-source: draft FAILED + run FAILED de la MISMA tarea → 1 ítem", () => {
+    const draftFail = fromAiDrafts([{ id: "d", kind: "WHATSAPP", status: "FAILED", taskId: "t9", reviewedById: null, createdAt: daysAgo(1) }], NOW);
+    const runFail = fromAiRuns([{ id: "r", status: "FAILED", taskId: "t9", summary: null, error: "x", createdAt: daysAgo(1) }], NOW);
+    expect(dedupe([...draftFail, ...runFail])).toHaveLength(1);
+  });
+});
+
+describe("coerceFilters", () => {
+  it("valores inválidos → undefined (sin filtro); válidos pasan", () => {
+    expect(coerceFilters({ severity: "NOPE" }).severity).toBeUndefined();
+    expect(coerceFilters({ severity: "high" }).severity).toBe("high");
+    expect(coerceFilters({ source: "invoice", kind: "bad" })).toMatchObject({ source: "invoice", kind: undefined });
+    expect(coerceFilters({ clientId: "  c1  " }).clientId).toBe("c1");
   });
 });
