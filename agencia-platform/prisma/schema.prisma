@@ -256,6 +256,7 @@ model Workspace {
   invoiceIssuers            InvoiceIssuer[]
   invoiceCounters           InvoiceCounter[]
   recurringTemplates        RecurringInvoiceTemplate[]
+  recurringPreviews         RecurringInvoicePreview[]
   expenses                  Expense[]
   panelNotes                PanelNote[]
 }
@@ -415,11 +416,38 @@ model RecurringInvoiceTemplate {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  previews  RecurringInvoicePreview[]
 
   @@unique([workspaceId, source, externalId])
   @@index([workspaceId, status])
   @@index([workspaceId, nextIssueAt])
+}
+
+// Previsualización SHADOW de lo que el motor nativo EMITIRÍA para una plantilla en
+// una fecha de ocurrencia (Slice C). NO es una factura: no tiene número legal, no
+// se emite/envía/cobra. `@@unique([workspaceId, templateId, occurrenceDate])` es la
+// PROTECCIÓN ANTI DOBLE FACTURA (una preview por plantilla+ocurrencia). Aditiva.
+model RecurringInvoicePreview {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  templateId     String
+  occurrenceDate DateTime // fecha de emisión simulada (date-only, UTC)
+  idempotencyKey String // traza `${templateId}:${YYYY-MM-DD}` (el guard REAL es el @@unique de abajo)
+  status         String   @default("preview") // preview (nunca ISSUED)
+  currency       String   @default("EUR")
+  subtotalCents  Int      @default(0)
+  taxCents       Int      @default(0)
+  totalCents     Int      @default(0)
+  payload        Json // snapshot de lo que se emitiría (líneas/snapshots)
+  createdAt      DateTime @default(now())
+
+  workspace Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  template  RecurringInvoiceTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, templateId, occurrenceDate])
+  @@index([workspaceId, templateId])
+  @@index([workspaceId, occurrenceDate])
 }
 
 model Invoice {

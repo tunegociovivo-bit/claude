@@ -18,3 +18,12 @@ export function recurringInvoicesEnabled(env: NodeJS.ProcessEnv = process.env): 
 export function recurringSeparationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.HUB_RECURRING_SEPARATE ?? "").trim().toLowerCase() === "on";
 }
+
+/**
+ * Motor recurrente nativo en SHADOW (Slice C). OPT-IN (default OFF). Cuando está
+ * ON, el endpoint de shadow-run calcula ocurrencias y persiste PREVIEWS (nunca
+ * facturas). No hay cron automático: solo se ejecuta bajo demanda por admin.
+ */
+export function recurringEngineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.HUB_RECURRING_ENGINE ?? "").trim().toLowerCase() === "on";
+}
