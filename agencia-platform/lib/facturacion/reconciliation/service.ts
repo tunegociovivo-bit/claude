@@ -238,10 +238,21 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, bookedAt }, preparedJobs)
       : null;
     const candidate = sepaCandidate ?? genericCandidate;
+    const aggregateTransaction = movement.remittanceNumber && movement.debtorIbanLast4
+      ? await prisma.bankTransaction.findFirst({
+          where: {
+            workspaceId,
+            provider: "SANTANDER",
+            status: "UNMATCHED",
+            amountCents: movement.amountCents,
+            reference: { contains: movement.remittanceNumber }
+          },
+          select: { id: true }
+        })
+      : null;
 
     await prisma.$transaction(async (tx) => {
-      await tx.bankTransaction.create({
-        data: {
+      const transactionData = {
           workspaceId,
           provider: "SANTANDER",
           externalId: movement.externalId.slice(0, 200),
@@ -257,8 +268,13 @@ export async function importAndReconcileMovements(workspaceId: string, movements
           matchedInvoiceId: candidate?.invoiceId,
           matchConfidence: candidate?.confidence,
           matchedAt: candidate ? new Date() : null
-        }
-      });
+      };
+      if (aggregateTransaction) {
+        const { workspaceId: _workspaceId, provider: _provider, externalId: _externalId, ...repairData } = transactionData;
+        await tx.bankTransaction.update({ where: { id: aggregateTransaction.id }, data: repairData });
+      } else {
+        await tx.bankTransaction.create({ data: transactionData });
+      }
       if (candidate) {
         const invoice = invoices.find((item) => item.id === candidate.invoiceId)!;
         await tx.invoice.updateMany({

@@ -113,11 +113,18 @@ export class SantanderReconciliationReader {
       await frame.getByRole("button", { name: /^Remesas$/i }).click();
       frame = await this.waitFrame(page, /Remesas de un acreedor/i);
       if (!frame) throw new Error("Santander no cargó el listado de remesas");
-      await this.applyDateFilter(frame, startsAt, new Date());
-
       const unique = new Map<string, BrowserMovement>();
+      const seenPages = new Set<string>();
       for (let pageIndex = 0; pageIndex < 50; pageIndex++) {
-        const rowTexts: string[] = await frame.locator("table tbody tr").allInnerTexts().catch(() => []);
+        let rowTexts: string[] = [];
+        for (let attempt = 0; attempt < 20; attempt++) {
+          rowTexts = await frame.getByRole("row").allInnerTexts().catch(() => []);
+          if (rowTexts.length > 1) break;
+          await frame.waitForTimeout(500);
+        }
+        const pageSignature = rowTexts.join("|");
+        if (!pageSignature || seenPages.has(pageSignature)) break;
+        seenPages.add(pageSignature);
         const remittances = rowTexts.map(parseSepaRemittanceRow).filter((item): item is SepaRemittanceRow => Boolean(item))
           .filter((item) => item.status === "Contabilizada" && new Date(item.dueAt) >= startsAt);
         for (const remittance of remittances) {
@@ -131,7 +138,6 @@ export class SantanderReconciliationReader {
             reference: `Remesa SEPA ${remittance.remittanceNumber} · ${remittance.status}`,
             remittanceNumber: remittance.remittanceNumber
           });
-          continue;
           let opened = false;
           try {
           const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
@@ -144,10 +150,16 @@ export class SantanderReconciliationReader {
           if (!receiptFrame) continue;
           const receiptBody = await receiptFrame.locator("body").innerText().catch(() => "");
           if (/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(receiptBody)) throw new Error("Santander cerró la sesión durante la conciliación");
-          const receiptTexts: string[] = await receiptFrame.locator("table tbody tr").allInnerTexts().catch(() => []);
+          let receiptTexts: string[] = [];
+          for (let attempt = 0; attempt < 30; attempt++) {
+            receiptTexts = await receiptFrame.getByRole("row").allInnerTexts().catch(() => []);
+            const currentReceipt = receiptTexts.map(parseSepaReceiptRow).find((item) => item?.amountCents === remittance.amountCents);
+            if (currentReceipt) break;
+            await receiptFrame.waitForTimeout(500);
+          }
           for (const text of receiptTexts) {
             const receipt = parseSepaReceiptRow(text);
-            if (!receipt || receipt.status !== "Orden liquidada") continue;
+            if (!receipt || receipt.status !== "Orden liquidada" || receipt.amountCents !== remittance.amountCents) continue;
             const externalId = createHash("sha256").update(`${remittance.remittanceNumber}|${receipt.receiptNumber}`).digest("hex");
             unique.set(externalId, {
               externalId,
@@ -170,9 +182,19 @@ export class SantanderReconciliationReader {
             }
           }
         }
-        // El filtro diario cabe en la primera página. Santander puede dejar una
-        // máscara invisible tras cerrar un menú y bloquear la paginación.
-        break;
+        // Santander puede ignorar el filtro de fechas; se recorren las páginas
+        // y se corta si el control no cambia realmente el contenido.
+        const next = frame.getByRole("button", { name: /^Ver siguientes$/i });
+        if (await next.count() !== 1 || !await next.isEnabled().catch(() => false)) break;
+        await next.press("Enter");
+        await frame.waitForTimeout(800);
+        let nextRows = await frame.getByRole("row").allInnerTexts().catch(() => []);
+        if (nextRows.join("|") === pageSignature) {
+          await next.click({ force: true });
+          await frame.waitForTimeout(800);
+          nextRows = await frame.getByRole("row").allInnerTexts().catch(() => []);
+        }
+        if (nextRows.join("|") === pageSignature) break;
       }
       try {
         for (const movement of await this.scanAccountMovements(page, startsAt)) unique.set(movement.externalId, movement);
