@@ -127,7 +127,8 @@ export async function getExceptionInbox(
       take: SOURCE_CAP
     }),
     prisma.aiAgentRun.findMany({
-      where: { workspaceId, status: "SUCCEEDED", createdAt: { gte: since } },
+      // taskId no nulo → el enlace /tareas?task= siempre es válido.
+      where: { workspaceId, status: "SUCCEEDED", taskId: { not: null }, createdAt: { gte: since } },
       select: { id: true, taskId: true, summary: true, finishedAt: true, createdAt: true },
       orderBy: { createdAt: "desc" },
       take: DONE_CAP

@@ -48,16 +48,20 @@ type InboxResponse = {
   clusters: Cluster[];
 };
 
-type Tab = "priorities" | "today" | "billing" | "clients" | "done" | "archive";
+type Tab = "priorities" | "today" | "blockers" | "billing" | "clients" | "done" | "archive";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "priorities", label: "Prioridades" },
   { key: "today", label: "Hoy" },
+  { key: "blockers", label: "Bloqueos reales" },
   { key: "billing", label: "Cobros y SLA" },
   { key: "clients", label: "Clientes en riesgo" },
   { key: "done", label: "Hecho por SONIA" },
   { key: "archive", label: "Histórico" }
 ];
+
+// Tabs cuyo contenido es una lista de ExceptionItem (mismo renderizador de tarjeta).
+const ITEM_TABS: Tab[] = ["priorities", "today", "blockers", "billing", "archive"];
 
 function uiDisabled(): boolean {
   if (process.env.NEXT_PUBLIC_EXCEPTIONS_UI === "off") return true;
@@ -171,8 +175,22 @@ export default function ExceptionsInbox() {
 
   const sections = data?.sections;
   const currentItems: ExceptionItem[] =
-    tab === "priorities" ? data?.items ?? [] : tab === "today" ? sections?.today ?? [] : tab === "billing" ? sections?.billingSla ?? [] : tab === "archive" ? archive?.items ?? [] : [];
+    tab === "priorities"
+      ? data?.items ?? []
+      : tab === "today"
+        ? sections?.today ?? []
+        : tab === "blockers"
+          ? sections?.blockers ?? []
+          : tab === "billing"
+            ? sections?.billingSla ?? []
+            : tab === "archive"
+              ? archive?.items ?? []
+              : [];
   const visible = applyLocal(currentItems);
+  // Ocultas EN LA PESTAÑA ACTUAL (no solo en Prioridades) → estados honestos.
+  const hiddenHere = currentItems.filter((it) => dismissed.includes(dismissKey(it))).length;
+  // ¿La lista de prioridades está recortada por `limit`/cap? (transparencia)
+  const prioritiesTruncated = tab === "priorities" && !!data && (data.capped || data.total > data.items.length);
 
   return (
     <section aria-label="Bandeja de excepciones" className="space-y-4">
@@ -186,7 +204,10 @@ export default function ExceptionsInbox() {
             <button
               key={t.key}
               role="tab"
+              id={`exc-tab-${t.key}`}
+              aria-controls="exc-tabpanel"
               aria-selected={tab === t.key}
+              tabIndex={tab === t.key ? 0 : -1}
               onClick={() => setTab(t.key)}
               className={`px-3 py-1.5 text-xs rounded-t-lg border-b-2 ${tab === t.key ? "border-indigo-500 text-indigo-700 font-semibold" : "border-transparent text-slate-500 hover:text-slate-700"}`}
             >
@@ -258,6 +279,15 @@ export default function ExceptionsInbox() {
         </div>
       )}
 
+      {/* Transparencia: la lista de prioridades está recortada */}
+      {prioritiesTruncated && data && (
+        <div className="text-xs px-3 py-2 rounded-lg border bg-amber-50 text-amber-800 border-amber-200" role="status">
+          Mostrando las {data.items.length} incidencias más prioritarias de {data.total}. Afina los filtros (severidad/origen) para ver el resto.
+        </div>
+      )}
+
+      {/* Panel de la pestaña activa */}
+      <div role="tabpanel" id="exc-tabpanel" aria-labelledby={`exc-tab-${tab}`} tabIndex={0}>
       {/* Estados */}
       {state === "loading" && (
         <p className="text-sm text-slate-500" role="status">
@@ -368,12 +398,22 @@ export default function ExceptionsInbox() {
               )}
               {archiveState === "ready" && (
                 <>
+                  {/* Total real (de los count() de la vista activa) + aviso de muestra */}
+                  {data?.historical && data.historical.total > 0 && (
+                    <p className="text-xs text-slate-500 mb-2" role="status">
+                      Histórico total: {data.historical.total} incidencia(s) vencidas hace más de {archive?.activeWindowDays ?? data.activeWindowDays} días.
+                      {archive?.capped ? " Se muestra una muestra (hay más de las que caben en una carga)." : ""}
+                    </p>
+                  )}
                   {archive?.clusters?.length ? (
                     <ul className="space-y-1.5 mb-3">
                       {archive.clusters.slice(0, 12).map((c) => (
                         <li key={c.key} className="text-xs px-3 py-2 rounded-lg border bg-slate-50 text-slate-600 flex items-center gap-2">
                           <Archive aria-hidden className="h-3.5 w-3.5 text-slate-400" />
-                          <span>{c.label}</span>
+                          <span>
+                            {archive?.capped ? "≥ " : ""}
+                            {c.label}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -383,8 +423,8 @@ export default function ExceptionsInbox() {
             </>
           )}
 
-          {/* Lista de ítems (priorities / today / billing / archive) */}
-          {(tab === "priorities" || tab === "today" || tab === "billing" || tab === "archive") &&
+          {/* Lista de ítems (priorities / today / blockers / billing / archive) */}
+          {ITEM_TABS.includes(tab) &&
             (visible.length > 0 ? (
               <ul className="space-y-2">
                 {visible.map((it) => (
@@ -393,13 +433,14 @@ export default function ExceptionsInbox() {
               </ul>
             ) : tab !== "archive" || archiveState === "ready" ? (
               <p className="text-sm text-slate-500" role="status">
-                {hiddenCount > 0 && tab === "priorities"
-                  ? `No hay incidencias visibles, pero tienes ${hiddenCount} oculta(s). Pulsa "Ver ocultas".`
+                {hiddenHere > 0
+                  ? `No hay incidencias visibles aquí, pero tienes ${hiddenHere} oculta(s). Pulsa "Ver ocultas".`
                   : "No hay incidencias que requieran tu intervención aquí. 🎉"}
               </p>
             ) : null)}
         </>
       )}
+      </div>
     </section>
   );
 }
@@ -411,6 +452,8 @@ function tabCount(key: Tab, data: InboxResponse | null, archive: InboxResponse |
       return data.total;
     case "today":
       return data.sections?.today.length ?? 0;
+    case "blockers":
+      return data.sections?.blockers.length ?? 0;
     case "billing":
       return data.sections?.billingSla.length ?? 0;
     case "clients":
@@ -418,7 +461,9 @@ function tabCount(key: Tab, data: InboxResponse | null, archive: InboxResponse |
     case "done":
       return data.done?.length ?? 0;
     case "archive":
-      return archive?.total ?? data.historical?.total ?? null;
+      // El total REAL del histórico viene de los count() de la vista activa;
+      // el `archive.total` es solo la muestra cargada (≤cap) → no lo usamos aquí.
+      return data.historical?.total ?? archive?.total ?? null;
   }
 }
 
