@@ -251,7 +251,15 @@ export async function executeSoniaTool(opts: {
 
     return JSON.stringify({ error: `Herramienta desconocida: ${name}` });
   } catch (err: any) {
-    return JSON.stringify({ error: `Error interno: ${err?.message ?? "desconocido"}` });
+    console.error("[sonia-tool] fallo", {
+      workspaceId,
+      name,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return JSON.stringify({
+      error: "No se pudo completar la operación por un problema técnico del servidor",
+      instruccion: "No confirmes la cita. Ofrece que el equipo contacte al cliente.",
+    });
   }
 }
 

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { findOrCreateContactByPhone, moveContactToStage } from "@/lib/contacts";
 import { getWorkspaceSettings } from "@/lib/settings";
 import { syncAppointmentToGoogle } from "@/lib/google-calendar";
@@ -8,6 +9,12 @@ export type BookingResult =
   | { ok: false; error: string; conflicts?: { startsAt: string; durationMin: number }[] };
 
 const BUSINESS_TIME_ZONE = "Europe/Madrid";
+
+export const APPOINTMENT_TRANSACTION_OPTIONS = {
+  maxWait: 5_000,
+  timeout: 10_000,
+  isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+} as const;
 
 export function zonedDateTime(dateISO: string, hour: number, minute: number): Date {
   const [year, month, day] = dateISO.split("-").map(Number);
@@ -245,10 +252,6 @@ export async function bookAppointment(opts: {
 
   const dateISO = businessDateISO(startsAt);
   const result: BookingResult = await prisma.$transaction(async (tx: any): Promise<BookingResult> => {
-    await tx.$queryRawUnsafe(
-      "SELECT pg_advisory_xact_lock(hashtext($1))",
-      `${opts.workspaceId}:${dateISO}`
-    );
     const existing = opts.customerPhone
       ? await tx.appointment.findFirst({
           where: {
@@ -300,7 +303,7 @@ export async function bookAppointment(opts: {
       },
     });
     return { ok: true, appointmentId: appointment.id, startsAt: startsAt.toISOString() };
-  }, { timeout: 10_000 });
+  }, APPOINTMENT_TRANSACTION_OPTIONS);
 
   if (result.ok && contactId) await moveContactToStage(contactId, "citas");
   if (result.ok) {
