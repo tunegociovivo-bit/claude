@@ -86,14 +86,28 @@ describe("commitBackfill — idempotente, solo draft, tenant", () => {
     expect(data.status).toBe("draft");
     expect(data.source).toBe("LEGACY_INVOICE");
   });
-  it("mismo checksum → unchanged (idempotente, no escribe)", async () => {
+  it("mismo checksum + mismo schedule → unchanged y NO reescribe", async () => {
     const { mapLegacy } = await import("../backfill");
     prisma.invoice.findMany.mockResolvedValue([legacyRow("a")]);
-    const sum = mapLegacy(legacyRow("a")).data!.checksum;
-    prisma.recurringInvoiceTemplate.findFirst.mockResolvedValue({ id: "e1", checksum: sum });
+    const m = mapLegacy(legacyRow("a")).data!;
+    prisma.recurringInvoiceTemplate.findFirst.mockResolvedValue({ id: "e1", checksum: m.checksum, nextIssueAt: m.nextIssueAt });
     const r = await commitBackfill(prisma as any, "w1", "u1");
     expect(r.unchanged).toBe(1);
     expect(prisma.recurringInvoiceTemplate.create).not.toHaveBeenCalled();
+    expect(prisma.recurringInvoiceTemplate.updateMany).not.toHaveBeenCalled(); // schedule no cambió
+  });
+  it("mismo checksum PERO schedule avanzó → re-sincroniza nextIssueAt (unchanged de contenido)", async () => {
+    const { mapLegacy } = await import("../backfill");
+    prisma.invoice.findMany.mockResolvedValue([legacyRow("a")]);
+    const m = mapLegacy(legacyRow("a")).data!;
+    prisma.recurringInvoiceTemplate.findFirst.mockResolvedValue({ id: "e1", checksum: m.checksum, nextIssueAt: new Date("2020-01-01Z") });
+    prisma.recurringInvoiceTemplate.updateMany.mockResolvedValue({ count: 1 });
+    const r = await commitBackfill(prisma as any, "w1", "u1");
+    expect(r.unchanged).toBe(1);
+    expect(prisma.recurringInvoiceTemplate.updateMany).toHaveBeenCalled();
+    const data = prisma.recurringInvoiceTemplate.updateMany.mock.calls[0][0].data;
+    expect(data.nextIssueAt).toBeTruthy();
+    expect(data.nextIssueAt).not.toHaveProperty("checksum"); // solo campos de schedule
   });
   it("P2002 concurrente → unchanged (no rompe)", async () => {
     prisma.invoice.findMany.mockResolvedValue([legacyRow("a")]);

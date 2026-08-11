@@ -189,7 +189,12 @@ function BackfillPanel({ onChanged }: { onChanged: () => void }) {
           else if (mode === "preview") setReport(d);
           else if (mode === "commit") {
             setMsg(`Migradas: ${d.created} nuevas, ${d.updated} actualizadas, ${d.unchanged} sin cambios, ${d.conflicts} con conflicto${Array.isArray(d.errors) && d.errors.length ? `, ⚠ ${d.errors.length} error(es)` : ""}.`);
-            setReport(null);
+            // Mantén visible el detalle de conflictos de la migración (no silencioso).
+            setReport(
+              Array.isArray(d.conflictItems) && d.conflictItems.length
+                ? { total: d.created + d.updated + d.unchanged + d.conflicts, toCreate: 0, toUpdate: 0, unchanged: d.unchanged, conflicts: d.conflicts, items: d.conflictItems.map((c: any) => ({ legacyInvoiceId: c.legacyInvoiceId, action: "conflict", clientName: null, conflicts: c.conflicts })) }
+                : null
+            );
             onChanged();
           } else {
             setMsg(`Revertidas ${d.deleted} plantilla(s) migradas del legado.`);

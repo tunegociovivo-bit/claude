@@ -105,21 +105,23 @@ export function mapLegacy(row: LegacyInvoiceRow): BackfillItem {
   const clientSnap = (row.clientSnapshot as any) ?? null;
   const clientName = clientSnap?.name ?? null;
 
-  const interval = Math.floor(Number(cfg.intervalMonths));
-  const intervalOk = Number.isFinite(interval) && interval >= 1 && interval <= 60;
-  const intervalMonths = intervalOk ? interval : 1;
-  const dayRaw = cfg.dayOfMonth;
-  const dayOfMonth = dayRaw == null || dayRaw === "" ? null : Math.floor(Number(dayRaw));
+  // NORMALIZACIÓN espejo del motor legado (recurring.ts): NO son conflictos —
+  // estas plantillas están HOY generando facturas reales, así que deben migrar.
+  //  - interval faltante/0/NaN → 1 (mensual), como Math.max(1, x||1).
+  //  - dayOfMonth 29-31 → se acota a 28 (fin de mes seguro, como addMonths).
+  const rawInterval = Math.floor(Number(cfg.intervalMonths));
+  const intervalMonths = Number.isFinite(rawInterval) && rawInterval >= 1 ? Math.min(120, rawInterval) : 1;
+  const rawDay = cfg.dayOfMonth == null || cfg.dayOfMonth === "" ? null : Math.floor(Number(cfg.dayOfMonth));
+  const dayOfMonth = rawDay == null || !Number.isFinite(rawDay) ? null : Math.min(28, Math.max(1, rawDay));
   const nextIssueAt = toDate(cfg.nextRunAt) ?? toDate(row.issueDate);
   const endDate = toDate(cfg.endsAt);
   const anchor = toDate(row.issueDate);
   const lines = Array.isArray(row.lines) ? row.lines : [];
 
-  // Conflictos (se reporta y NO se importa la fila).
+  // Conflictos REALES (se reportan y NO se importa la fila): datos rotos, no
+  // periodicidades normalizables.
   if (lines.length === 0) conflicts.push({ code: "no_lines", message: "La plantilla legada no tiene líneas" });
   if (!row.clientId && !clientSnap) conflicts.push({ code: "no_client", message: "Sin cliente identificable" });
-  if (!intervalOk) conflicts.push({ code: "bad_interval", message: `Periodicidad legada inválida (${cfg.intervalMonths}); se usaría 1` });
-  if (dayOfMonth != null && (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 28)) conflicts.push({ code: "bad_day", message: `Día de mes inválido (${dayRaw})` });
   if (endDate && anchor && endDate < anchor) conflicts.push({ code: "end_before_start", message: "La fecha de fin es anterior al inicio" });
 
   const base: Omit<BackfillTemplateData, "checksum"> = {
@@ -137,7 +139,7 @@ export function mapLegacy(row: LegacyInvoiceRow): BackfillItem {
     taxCents: row.taxCents,
     totalCents: row.totalCents,
     intervalMonths,
-    dayOfMonth: dayOfMonth != null && Number.isInteger(dayOfMonth) && dayOfMonth >= 1 && dayOfMonth <= 28 ? dayOfMonth : null,
+    dayOfMonth,
     anchorDate: anchor,
     startDate: anchor,
     endDate,

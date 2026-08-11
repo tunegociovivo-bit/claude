@@ -59,14 +59,23 @@ describe("mapLegacy — conflictos (se reportan, no se importan)", () => {
     const m = mapLegacy(base({ clientId: null, clientSnapshot: null }));
     expect(m.conflicts.some((c) => c.code === "no_client")).toBe(true);
   });
-  it("interval inválido y día inválido", () => {
-    expect(mapLegacy(base({ recurrenceConfig: { intervalMonths: 0 } })).conflicts.some((c) => c.code === "bad_interval")).toBe(true);
-    expect(mapLegacy(base({ recurrenceConfig: { intervalMonths: 99 } })).conflicts.some((c) => c.code === "bad_interval")).toBe(true);
-    expect(mapLegacy(base({ recurrenceConfig: { intervalMonths: 1, dayOfMonth: 31 } })).conflicts.some((c) => c.code === "bad_day")).toBe(true);
-  });
   it("fin antes de inicio", () => {
     const m = mapLegacy(base({ issueDate: new Date("2026-06-01Z"), recurrenceConfig: { intervalMonths: 1, endsAt: "2026-01-01T00:00:00Z" } }));
     expect(m.conflicts.some((c) => c.code === "end_before_start")).toBe(true);
+  });
+});
+
+describe("normalización espejo del legado (no conflicto — deben migrar)", () => {
+  it("interval faltante/0/NaN → 1 (mensual), sin conflicto", () => {
+    expect(mapLegacy(base({ recurrenceConfig: { intervalMonths: 0 } })).ok).toBe(true);
+    expect(mapLegacy(base({ recurrenceConfig: { intervalMonths: 0 } })).data!.intervalMonths).toBe(1);
+    expect(mapLegacy(base({ recurrenceConfig: {} })).data!.intervalMonths).toBe(1);
+    expect(mapLegacy(base({ recurrenceConfig: { intervalMonths: "x" } })).data!.intervalMonths).toBe(1);
+  });
+  it("dayOfMonth 29-31 → se acota a 28 (fin de mes seguro), sin conflicto", () => {
+    const m = mapLegacy(base({ recurrenceConfig: { intervalMonths: 1, dayOfMonth: 31 } }));
+    expect(m.ok).toBe(true);
+    expect(m.data!.dayOfMonth).toBe(28);
   });
 });
 

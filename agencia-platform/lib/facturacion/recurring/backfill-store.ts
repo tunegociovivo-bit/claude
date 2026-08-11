@@ -65,24 +65,43 @@ export async function previewBackfill(prisma: PrismaLike, workspaceId: string): 
   return report;
 }
 
-export type BackfillCommitResult = { created: number; updated: number; unchanged: number; conflicts: number; errors: { externalId: string; error: string }[] };
+export type BackfillCommitResult = {
+  created: number;
+  updated: number;
+  unchanged: number;
+  conflicts: number;
+  conflictItems: { legacyInvoiceId: string; conflicts: BackfillConflict[] }[];
+  errors: { externalId: string; error: string }[];
+};
 
 /** COMMIT idempotente: escribe/actualiza plantillas `draft` (source LEGACY_INVOICE). */
 export async function commitBackfill(prisma: PrismaLike, workspaceId: string, createdById: string | null): Promise<BackfillCommitResult> {
   const legacy = await loadLegacy(prisma, workspaceId);
-  const res: BackfillCommitResult = { created: 0, updated: 0, unchanged: 0, conflicts: 0, errors: [] };
+  const res: BackfillCommitResult = { created: 0, updated: 0, unchanged: 0, conflicts: 0, conflictItems: [], errors: [] };
   for (const row of legacy) {
     const m = mapLegacy(row);
     if (!m.ok || !m.data) {
       res.conflicts++;
+      res.conflictItems.push({ legacyInvoiceId: m.legacyInvoiceId, conflicts: m.conflicts });
       continue;
     }
     try {
       const existing = await prisma.recurringInvoiceTemplate.findFirst({
         where: { workspaceId, source: "LEGACY_INVOICE", externalId: m.externalId },
-        select: { id: true, checksum: true }
+        select: { id: true, checksum: true, nextIssueAt: true }
       });
       if (existing && existing.checksum === m.data.checksum) {
+        // Contenido igual, pero el schedule legado avanza en cada emisión:
+        // re-sincroniza nextIssueAt/anchorDate/endDate si cambió, para no llegar
+        // al corte (slice E) con una próxima emisión obsoleta.
+        const cur = existing.nextIssueAt ? new Date(existing.nextIssueAt).getTime() : null;
+        const next = m.data.nextIssueAt ? m.data.nextIssueAt.getTime() : null;
+        if (cur !== next) {
+          await prisma.recurringInvoiceTemplate.updateMany({
+            where: { id: existing.id, workspaceId },
+            data: { nextIssueAt: m.data.nextIssueAt, anchorDate: m.data.anchorDate, endDate: m.data.endDate }
+          });
+        }
         res.unchanged++;
         continue;
       }
