@@ -16,6 +16,11 @@ export function validateAccessKey(value: string): string {
   return value;
 }
 
+export function hasLoginCredentialError(text: string): boolean {
+  const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return normalized.includes("credenciales introducidas no son correctas");
+}
+
 export function decideLoginAction(facts: LoginFacts): LoginAction {
   try {
     const current = new URL(facts.currentUrl);

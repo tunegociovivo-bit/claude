@@ -13,7 +13,7 @@ import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
 import { parseSantanderMovementText } from "../src/santander/reconciliation.js";
-import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -80,6 +80,8 @@ async function main() {
   ok("requiere una credencial local cifrada", decideLoginAction({ ...safeLogin, hasStoredCredential: false }) === "PAUSE");
   ok("acepta la pantalla completa de nueve campos con usuario cifrado", decideLoginAction({ ...safeLogin, visibleKeyFields: 9, rememberedUser: false, hasStoredUsername: true }) === "SUBMIT_SAVED_CREDENTIALS");
   ok("no rellena la pantalla completa si falta el usuario cifrado", decideLoginAction({ ...safeLogin, visibleKeyFields: 9, rememberedUser: false, hasStoredUsername: false }) === "PAUSE");
+  ok("detecta el rechazo explícito de credenciales", hasLoginCredentialError("Lo sentimos. Las credenciales introducidas no son correctas."));
+  ok("no confunde una sesión caducada con credenciales rechazadas", !hasLoginCredentialError("Tu sesión ha sido cerrada por inactividad"));
   ok("reconoce la portada autenticada oficial", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/posglobal", safeLogin.allowedOrigin));
   ok("reconoce el módulo autenticado de remesas", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/portal/distribuidoras/remesas", safeLogin.allowedOrigin));
   ok("no confunde el login con una sesión autenticada", !isAuthenticatedSantanderUrl(safeLogin.currentUrl, safeLogin.allowedOrigin));

@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, hasEncryptedUsername, readEncryptedAccessKey, readEncryptedUsername } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -252,6 +252,10 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       let sessionReady = false;
       let authenticatedUrl = false;
       for (let attempt = 0; attempt <= 30; attempt++) {
+        const loginText = await page.locator("body").innerText().catch(() => "");
+        if (hasLoginCredentialError(loginText)) {
+          return { ok: false, reason: "Santander ha rechazado el usuario o la clave local. Vuelve a guardar las credenciales antes de reintentar para evitar bloquear el acceso." };
+        }
         sessionReady = await this.locator(page, selectors.sessionReady).first().isVisible().catch(() => false);
         authenticatedUrl = isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin);
         if (!shouldWaitForLoginCompletion(sessionReady, authenticatedUrl, attempt, 30)) break;
