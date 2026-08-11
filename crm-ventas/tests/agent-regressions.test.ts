@@ -30,7 +30,7 @@ test("la voz usa horas naturales, teléfonos por cifras y se limita al negocio",
   const prompt = buildSoniaSystemPrompt(settings, "llamada");
   assert.match(prompt, /nueve y media/);
   assert.match(prompt, /máximo de tres opciones/i);
-  assert.match(prompt, /cada cifra por separado/i);
+  assert.match(prompt, /nueve cifras una por una/i);
   assert.match(prompt, /nunca digas «dieciséis»/i);
   assert.match(prompt, /No eres una asistente de cultura general/i);
   assert.match(prompt, /URL exacta/i);
