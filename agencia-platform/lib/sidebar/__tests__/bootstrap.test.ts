@@ -27,7 +27,7 @@ beforeEach(() => {
   prisma.workspace.findUnique.mockResolvedValue({ id: "w1", name: "WS", slug: "ws", logo: null, settings: {} });
   prisma.user.findUnique.mockResolvedValue({ id: "u1", name: "U", email: "u@x", image: null });
   prisma.project.findMany.mockResolvedValue([{ id: "p1", name: "P1" }]);
-  prisma.client.findMany.mockResolvedValue([{ id: "c1", name: "C1" }]);
+  prisma.client.findMany.mockResolvedValue([{ id: "c1", name: "C1", mrr: 500 }]);
   prisma.aiUsage.findMany.mockResolvedValue([
     { projectId: "p1", costMicros: 100, feature: "reviews_generate" },
     { projectId: null, costMicros: 50, feature: "leads_opener" }
@@ -44,6 +44,7 @@ describe("getSidebarBootstrap", () => {
     expect(d.platforms.items[0].key).toBe("reviews");
     expect(d.projects.items).toHaveLength(1);
     expect(d.clients.items).toHaveLength(1);
+    expect((d.clients.items[0] as any).mrr).toBe(500); // ADMIN conserva mrr
     // usage: proyecto p1=100 (reviews) y plataforma reviews=100, nv_leads=50
     expect(d.usage.projects).toEqual([{ id: "p1", micros: 100 }]);
     expect(d.usage.maxMicros).toBe(100);
@@ -62,6 +63,13 @@ describe("getSidebarBootstrap", () => {
     await getSidebarBootstrap("w1", "u1");
     const where = prisma.project.findMany.mock.calls[0][0].where;
     expect(where.OR).toEqual([{ members: { some: { userId: "u1" } } }, { members: { none: {} } }]);
+  });
+
+  it("MIEMBRO → redacta mrr de los clientes (no filtra ingresos)", async () => {
+    prisma.membership.findFirst.mockResolvedValue({ role: "MEMBER", features: null });
+    const d = await getSidebarBootstrap("w1", "u1");
+    expect((d.clients.items[0] as any).mrr).toBeUndefined();
+    expect(d.clients.items[0].name).toBe("C1"); // el resto intacto
   });
 
   it("sin userId (API key) → me.user null y projects sin filtro de usuario", async () => {

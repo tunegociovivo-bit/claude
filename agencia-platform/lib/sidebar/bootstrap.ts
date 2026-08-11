@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { effectiveFeatures } from "@/lib/features";
 import { platformsVisibleTo } from "@/lib/platforms";
+import { redactMrrList } from "@/lib/api/permissions";
 
 // Espejo de app/api/v1/sidebar-usage/route.ts (mapa pequeño y estable).
 const FEATURE_TO_PLATFORM: Record<string, string> = {
@@ -34,10 +35,11 @@ export async function getSidebarBootstrap(workspaceId: string, userId: string | 
   const isAdmin = role === "ADMIN";
 
   // ── me ──
+  // Solo lo que consume el Sidebar (name/email/image); no enviamos phone/2FA.
   const user = userId
     ? await prisma.user.findUnique({
         where: { id: userId },
-        select: { id: true, name: true, email: true, image: true, phone: true, role: true, emailVerified: true, totpEnabledAt: true }
+        select: { id: true, name: true, email: true, image: true }
       })
     : null;
   const features = role ? effectiveFeatures(role, (membership as any)?.features ?? null) : [];
@@ -65,12 +67,14 @@ export async function getSidebarBootstrap(workspaceId: string, userId: string | 
     orderBy: { createdAt: "desc" }
   });
 
-  // ── clients ── (mismo cap que /api/v1/clients por defecto: 500)
-  const clients = await prisma.client.findMany({
+  // ── clients ── (paridad con /api/v1/clients: mismo cap 500 y MISMA redacción
+  // de mrr para no-admin; sin esto el agregado filtraría ingresos a MEMBER/GUEST).
+  const clientRows = await prisma.client.findMany({
     where: { workspaceId, deletedAt: null } as any,
     take: 500,
     orderBy: { createdAt: "desc" }
   });
+  const clients = redactMrrList(clientRows as any, isAdmin);
 
   // ── usage (7 días) ──
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
