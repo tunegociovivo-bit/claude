@@ -50,13 +50,30 @@ Además, el índice `LeadInboxMessage(workspaceId, receivedAt DESC)` convierte e
 
 ---
 
-## Pendiente (próximos slices, plan concreto)
+## Slice UI entregado (obj 3, 4, 5, 6)
 
-- **Obj 1 (completar)** — paginación cursor/limit + count SQL en **tareas** y **conversaciones de leads**. La conversación agrupa en JS (`buildConversations`); requiere cuidado para no cambiar la semántica de `total`/`unread`. El endpoint de clientes ya expone el patrón cursor a copiar.
-- **Obj 3** — combobox async accesible en TareasClient (recientes + búsqueda + paginación) consumiendo `/clients/search`. Sustituye los `<select>` nativos con cientos de opciones. UI grande → slice propio con test de accesibilidad (roles ARIA, teclado).
-- **Obj 4** — virtualización de listas/tablas grandes (react-window o equivalente) donde más pesa (tablón de tareas, inbox), sin rediseño visual.
-- **Obj 5** — endpoint agregado `sidebar-bootstrap` (1 llamada en vez de 6 `no-store`) + cache cliente con invalidación explícita al crear proyecto. Requiere componer 6 fuentes sin drift de forma → extraer helpers de los handlers actuales.
-- **Obj 6 (cablear)** — reemplazar los 7+ `setInterval` de LeadsClient por `usePollingChannel` (la base ya está aquí y testeada).
+### Obj 3/4 — Combobox async accesible + virtualización (TareasClient)
+- `components/tareas/ClientCombobox.tsx` sustituye el `<select>` nativo con cientos de `<option>` del filtro de clientes.
+- ARIA combobox: `role=combobox` + `listbox`/`option`, `aria-expanded`, `aria-activedescendant`, teclado completo (↑/↓/Home/End/Enter/Esc/Tab), foco al abrir y retorno al cerrar.
+- Búsqueda remota con **debounce** (`useClientSearch` → `/clients/search`), **recientes** en localStorage, **carga incremental** por cursor al hacer scroll, y **lista virtualizada** (solo filas visibles → DOM acotado).
+- Lógica pura testeada (`lib/client/combobox-logic.ts`): dedupe, recientes, teclado, ventana virtual.
+- **Requests/payload:** antes el `<select>` dependía de los ~500 clientes cargados en SSR (payload completo); ahora la primera apertura pide **20 filas mínimas (~1,8 KB)** y sólo carga más bajo demanda.
+
+### Obj 5 — Sidebar: 1 carga agregada con fallback
+- `GET /api/v1/sidebar-bootstrap` (compositor `lib/sidebar/bootstrap.ts`) devuelve en **1 respuesta** lo que antes eran **6 fetch `no-store`** (projects/clients/me/platforms/workspace/usage).
+- El Sidebar lo usa como camino preferente y **cae a los 6 fetch** si falla → sin regresión. Invalidación explícita al cerrar el modal de proyecto (dep `newProjectOpen`).
+- **Requests:** 6 → 1 por carga del Sidebar (−83 % de peticiones), reutilizando `effectiveFeatures`/`platformsVisibleTo` y el filtro de permisos de projects (testeado).
+
+### Obj 6 — LeadsClient: polling consolidado y pausable
+- `lib/client/poller.ts` + `usePollingChannel` cableados en LeadsClient: **5 `setInterval` de red solapables** (badge no-leídos 30s, panel 45s + tick 60s, items 60s, conversaciones 12s, hilo 8s) → canales **sin solapamiento** y **pausados al ocultar la pestaña** (reanudan disparando al volver).
+- Mantiene la carga inicial y la recarga por filtros/selección. **Kill-switch:** `localStorage['disable-smart-polling']='1'` o `NEXT_PUBLIC_DISABLE_SMART_POLLING=1` desactiva la pausa por visibilidad.
+- **Requests en segundo plano:** con la pestaña oculta pasan de ~5 pollers activos a **0** (antes seguían golpeando el backend indefinidamente).
+
+## Pendiente real (próximo slice)
+
+- **Obj 1 (completar)** — paginación cursor/limit + count SQL en **tareas** y **conversaciones de leads**. La conversación agrupa en JS (`buildConversations`); requiere cuidado para no cambiar la semántica de `total`/`unread`. El patrón cursor de `/clients/search` es el molde.
+- **Obj 4 (ampliar)** — virtualización también del **tablón de tareas** e **inbox** (además del combobox), donde el volumen lo justifique.
+- **Obj 6 (resto)** — queda 1 poller acotado a un modal de ajustes (12s, sólo con el modal abierto): bajo impacto, se puede migrar igual.
 
 ---
 
