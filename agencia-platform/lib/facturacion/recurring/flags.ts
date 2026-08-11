@@ -8,3 +8,13 @@
 export function recurringInvoicesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.HUB_RECURRING_INVOICES ?? "").trim().toLowerCase() === "on";
 }
+
+/**
+ * Separación de la lista de facturas (Slice B): cuando está ON, `GET /invoices`
+ * EXCLUYE las plantillas recurrentes legadas (`recurring:true`) para no mezclarlas
+ * con las emitidas. OPT-IN (default OFF → comportamiento actual intacto; el motor
+ * legado sigue funcionando igual, esto solo afecta al LISTADO).
+ */
+export function recurringSeparationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.HUB_RECURRING_SEPARATE ?? "").trim().toLowerCase() === "on";
+}

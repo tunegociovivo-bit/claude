@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
 import { invoiceCreateSchema } from "@/lib/api/schemas";
 import { buildInvoiceData } from "@/lib/invoicing/persist";
+import { recurringSeparationEnabled } from "@/lib/facturacion/recurring/flags";
 
 export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   await requireAdmin(api);
@@ -16,6 +17,9 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   const q = url.searchParams.get("q")?.trim();
 
   const where: any = { workspaceId: api.workspaceId, deletedAt: null };
+  // Slice B (opt-in): separar plantillas recurrentes legadas del listado de
+  // facturas. Default OFF → comportamiento actual intacto (siguen apareciendo).
+  if (recurringSeparationEnabled()) where.recurring = false;
   if (type) where.type = type;
   if (status) where.status = status;
   if (clientId) where.clientId = clientId;
