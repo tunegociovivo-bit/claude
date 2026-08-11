@@ -47,9 +47,12 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
       client: { select: { id: true, name: true } },
       issuer: { select: { id: true, name: true } }
     },
-    orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ number: "desc" }, { createdAt: "desc" }],
     take: 500
   });
+  const sequence = (number: string | null) => Number(number?.match(/(\d+)(?!.*\d)/)?.[1] ?? -1);
+  items.sort((a, b) => sequence(b.number) - sequence(a.number)
+    || String(a.number ?? "").localeCompare(String(b.number ?? ""), "es", { numeric: true }));
   return NextResponse.json({ items });
 });
 
