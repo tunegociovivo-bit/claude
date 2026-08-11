@@ -87,9 +87,11 @@ Además, el índice `LeadInboxMessage(workspaceId, receivedAt DESC)` convierte e
 - `lib/client/virtual-list.ts`: `buildOffsets` (prefix-sum) + `variableWindow` (búsqueda binaria → rango + padding) para listas de **filas de distinta altura** (tarjetas de tablón/inbox), con kill-switch (`NEXT_PUBLIC_DISABLE_VIRTUAL` / `localStorage 'disable-virtual'`). Testeada (offsets, binaria, ventanas, alturas variables, vacío).
 - **Diferido con motivo (honesto):** el cableado en el **tablón Kanban (dnd-kit)** exige preservar drag/drop, selección, foco y medición de alturas → validación INTERACTIVA que no puede hacerse sin navegador; se entrega como slice propio sobre esta primitiva. El combobox ya va virtualizado (fila fija) y sirve de referencia.
 
-### Benchmarks (requests/payload)
-- Conversaciones: la ruta actual carga 1000–5000 mensajes por request y agrupa en JS; el índice devuelve **≤ limit+1 filas ya agrupadas** (p.ej. 31 filas para 30/pág) con `unread`/`total` por SQL → coste O(limit) por página en vez de O(mensajes).
-- Tareas: `getTasksForUi` trae hasta 1500 filas con include+firma de imágenes; `/tasks/page` devuelve `limit+1` filas mínimas por página.
+### Benchmarks (requests/payload) — con matiz de coste HONESTO
+- Conversaciones: la ruta actual carga 1000–5000 mensajes por request, agrupa en JS y devuelve **todo**; el índice devuelve **≤ limit+1 filas ya agrupadas** por página con `unread`/`total`/`totalUnread` correctos por SQL (payload por página mucho menor).
+  - **IMPORTANTE (no engañoso):** la AGRUPACIÓN (`GROUP BY` sobre los mensajes del workspace) sigue siendo ~O(mensajes) por página, **incluso con** el índice `(workspaceId,receivedAt)` de la migración obj 7 — el índice reduce escaneo/orden pero NO evita el hash-aggregate completo. El coste O(limit) real por página exigiría una **tabla de summary por conversación mantenida** (last_at/unread incrementales); queda como evolución a escala. Por eso el endpoint está **gated en EXPLAIN y no cableado**.
+  - El índice `LeadInboxMessage(workspaceId,receivedAt)` está en la migración **generada/no-aplicada** `db/migrations/2026-08-11-perf-indices.sql` (no en `schema.prisma`, para no auto-aplicarlo en el boot `db push`).
+- Tareas: `getTasksForUi` trae hasta 1500 filas con include+firma de imágenes; `/tasks/page` devuelve `limit+1` filas mínimas por página (keyset real O(limit) por página).
 
 ## Pendiente real (siguiente slice)
 

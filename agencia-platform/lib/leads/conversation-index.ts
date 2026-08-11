@@ -23,10 +23,17 @@
  *         (ambos con los MISMOS filtros que la página, sin cursor ni limit).
  *
  * ALCANCE de filtros en esta versión: `account` (instanceName) y rango de fecha
- * (`receivedAt`), que son puros sobre LeadInboxMessage. Los filtros `blocked`
- * (LeadOptout) y `q` (búsqueda por texto) NO se cubren aquí a propósito: la ruta
- * completa existente los sigue sirviendo. No se expone una paginación que finja
- * soportarlos.
+ * (`receivedAt`, dateFrom y dateTo INDEPENDIENTES), que son puros sobre
+ * LeadInboxMessage. Los filtros `blocked` (LeadOptout) y `q` (búsqueda por texto)
+ * NO se cubren aquí a propósito: la ruta completa existente los sigue sirviendo.
+ * No se expone una paginación que finja soportarlos.
+ *
+ * COSTE (honesto): el `GROUP BY` recorre los mensajes del workspace en CADA
+ * página; el índice `(workspaceId,receivedAt)` (migración obj 7, no aplicada)
+ * reduce escaneo/orden pero NO evita el hash-aggregate completo → per-página
+ * ~O(mensajes), no O(limit). Para O(limit) real a escala haría falta una tabla
+ * de summary por conversación mantenida. Por eso este endpoint está gated en
+ * EXPLAIN y no cableado a la UI.
  */
 import { Prisma } from "@prisma/client";
 import { DEFAULT_ACCOUNT } from "./inbox-conversations";
@@ -52,9 +59,11 @@ export function parseConvIndexParams(sp: URLSearchParams): ConvIndexParams {
   const toRaw = sp.get("dateTo");
   const from = fromRaw ? new Date(fromRaw) : null;
   const to = toRaw ? new Date(toRaw) : null;
+  // dateFrom y dateTo son independientes: un "desde" abierto (solo dateFrom) SÍ
+  // filtra receivedAt >= dateFrom; no se ignora.
   const dateFrom = from && !isNaN(from.getTime()) ? from : null;
   const dateTo = to && !isNaN(to.getTime()) ? to : null;
-  return { limit, cursor: decodeConvCursor(sp.get("cursor")), account, dateFrom, dateTo: dateFrom && dateTo ? dateTo : null };
+  return { limit, cursor: decodeConvCursor(sp.get("cursor")), account, dateFrom, dateTo };
 }
 
 /** cursor opaco = base64("<lastAtISO>|<phone>"). El phone puede no llevar '|'. */
@@ -83,7 +92,8 @@ function innerWhere(workspaceId: string, p: ConvIndexParams): Prisma.Sql {
     if (p.account === DEFAULT_ACCOUNT) conds.push(Prisma.sql`"instanceName" IS NULL`);
     else conds.push(Prisma.sql`"instanceName" = ${p.account}`);
   }
-  if (p.dateFrom && p.dateTo) conds.push(Prisma.sql`"receivedAt" >= ${p.dateFrom} AND "receivedAt" < ${p.dateTo}`);
+  if (p.dateFrom) conds.push(Prisma.sql`"receivedAt" >= ${p.dateFrom}`);
+  if (p.dateTo) conds.push(Prisma.sql`"receivedAt" < ${p.dateTo}`);
   return Prisma.join(conds, " AND ");
 }
 

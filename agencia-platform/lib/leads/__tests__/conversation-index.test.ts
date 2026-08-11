@@ -23,13 +23,16 @@ describe("parseConvIndexParams", () => {
     expect(parseConvIndexParams(sp({ limit: "9999" })).limit).toBe(CONV_INDEX_MAX_LIMIT);
     expect(parseConvIndexParams(sp({ limit: "0" })).limit).toBe(CONV_INDEX_DEFAULT_LIMIT);
   });
-  it("dateTo solo cuenta si dateFrom también es válida", () => {
-    const p = parseConvIndexParams(sp({ dateTo: "2026-01-02T00:00:00Z" }));
-    expect(p.dateFrom).toBeNull();
-    expect(p.dateTo).toBeNull();
-    const q = parseConvIndexParams(sp({ dateFrom: "2026-01-01T00:00:00Z", dateTo: "2026-01-02T00:00:00Z" }));
-    expect(q.dateFrom).toBeInstanceOf(Date);
-    expect(q.dateTo).toBeInstanceOf(Date);
+  it("dateFrom y dateTo son INDEPENDIENTES (un 'desde' abierto no se ignora)", () => {
+    const onlyFrom = parseConvIndexParams(sp({ dateFrom: "2026-01-01T00:00:00Z" }));
+    expect(onlyFrom.dateFrom).toBeInstanceOf(Date);
+    expect(onlyFrom.dateTo).toBeNull();
+    const onlyTo = parseConvIndexParams(sp({ dateTo: "2026-01-02T00:00:00Z" }));
+    expect(onlyTo.dateFrom).toBeNull();
+    expect(onlyTo.dateTo).toBeInstanceOf(Date);
+    const both = parseConvIndexParams(sp({ dateFrom: "2026-01-01T00:00:00Z", dateTo: "2026-01-02T00:00:00Z" }));
+    expect(both.dateFrom).toBeInstanceOf(Date);
+    expect(both.dateTo).toBeInstanceOf(Date);
   });
 });
 
@@ -78,6 +81,14 @@ describe("buildConvIndexQuery (SQL parametrizada)", () => {
     expect(def.values).toEqual(["w1", 31]);
     const named: any = buildConvIndexQuery("w1", { limit: 30, cursor: null, account: "ZTE-2", dateFrom: null, dateTo: null });
     expect(named.values).toEqual(["w1", "ZTE-2", 31]);
+  });
+
+  it("dateFrom solo → añade predicado receivedAt >= (un binding de fecha)", () => {
+    const from = new Date("2026-01-01T00:00:00.000Z");
+    const q: any = buildConvIndexQuery("w1", { limit: 30, cursor: null, account: null, dateFrom: from, dateTo: null });
+    expect(q.values).toEqual(["w1", from, 31]);
+    expect(q.sql).toMatch(/"receivedAt" >=/);
+    expect(q.sql).not.toMatch(/"receivedAt" </);
   });
 });
 
