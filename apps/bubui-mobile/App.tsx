@@ -17,7 +17,7 @@ import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture } from "./src/lib/referral-pending";
-import { initDealCapture, claimPendingDeal, traceLifecycle } from "./src/lib/deal-pending";
+import { initDealCapture, claimPendingDeal, traceLifecycle, waitForDealCapture, getPendingDeal } from "./src/lib/deal-pending";
 import { retoTokenFromPath } from "./src/lib/links";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
@@ -93,13 +93,25 @@ function AppInner() {
     const fontsReady = fontsLoaded || !!fontsError || fontsTimedOut;
     const { colors, dark } = useThemeMeta();
 
+  // Bootstrap ÚNICO: espera el resultado TERMINAL del Install Referrer ANTES de
+  // decidir Feed vs Onboarding. Motivo (auditoría Auto Backup): una sesión
+  // restaurada del backup mandaba a Feed y el referrer restaurado se saltaba; si
+  // hay un reto capturado, el reto MANDA (registro para reclamarlo, nunca
+  // invitado), aunque exista una sesión.
   useEffect(() => {
         (async () => {
+                initDealCapture(); // asegura que la captura del referrer ha arrancado
                 const session = await CheckSession();
-                setInitial(session ? "Feed" : "Onboarding");
-                // Si ya hay sesión y el cliente venía de un enlace de reto (deep
-                // link o Install Referrer), lo reclamamos al arrancar.
-                if (session) void claimPendingDeal(session.customerId);
+                await waitForDealCapture(); // espera (acotada) al resultado del referrer
+                const pending = await getPendingDeal();
+                if (session) {
+                        setInitial("Feed");
+                        if (pending) void claimPendingDeal(session.customerId); // el reto aparece en Feed
+                } else {
+                        // Sin sesión: Onboarding. Con reto pendiente, el onboarding
+                        // fuerza el registro y muestra el reto (nunca invitado).
+                        setInitial("Onboarding");
+                }
         })();
   }, []);
 

@@ -34,6 +34,7 @@
     "android": {
       "package": "com.negociovivo.bubui",
       "versionCode": 30,
+      "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
@@ -145,7 +146,8 @@
       "./plugins/withReleaseSigning",
       "./plugins/withFmtConstevalFix",
       "./plugins/withOptionalGoogleServices",
-      "./plugins/withIosNotificationServiceExtension"
+      "./plugins/withIosNotificationServiceExtension",
+      "./plugins/withDisableAndroidBackup"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",

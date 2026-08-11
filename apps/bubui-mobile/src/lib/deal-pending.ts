@@ -14,19 +14,17 @@ import { CheckSession } from "./session";
  *     recuperamos el token. (iOS no tiene Install Referrer → el cliente vuelve a
  *     pulsar el enlace tras instalar y el deep link lo captura.)
  *
- * Este módulo replica el ENDURECIMIENTO que ya tenía referral-pending.ts y que
- * a este le faltaba (por eso el reto se perdía en la prueba real del 9-ago):
- *   - IR_DONE se marca SOLO tras una respuesta TERMINAL del API de Play; un
- *     error transitorio o el módulo ausente NO lo marcan → se reintenta en el
- *     siguiente arranque (antes se marcaba ANTES del callback y un fallo puntual
- *     perdía el referrer para siempre).
+ * Endurecimiento:
+ *   - NO se persiste ningún flag "ya comprobado el referrer": Android Auto Backup
+ *     restaura AsyncStorage tras reinstalar y ese flag hacía saltar la lectura del
+ *     referrer nuevo. Se lee en cada arranque en frío (guard en-memoria) hasta que
+ *     haya token pendiente.
  *   - waitForDealCapture(): el alta espera (acotado) a que la captura termine
  *     antes de concluir que no hay reto → cierra la carrera captura/registro.
  *   - Cargador del módulo nativo inyectable para poder testear la captura.
  */
 
 const KEY = "bubui.pendingDeal";
-const IR_DONE = "bubui.installReferrerDealChecked";
 
 // "Token" centinela (16 hex) para eventos de CICLO DE VIDA/diagnóstico que no van
 // ligados a un reto concreto (arranque de la app, estado del Install Referrer,
@@ -105,13 +103,20 @@ async function captureFromUrl(url: string | null): Promise<void> {
 }
 
 /**
- * Android: lee el Install Referrer (instalación diferida). IR_DONE se marca SOLO
- * tras una respuesta TERMINAL válida del API de Play — un error transitorio o el
- * módulo ausente dejan el flag SIN poner y se reintenta en el siguiente arranque.
+ * Android: lee el Install Referrer (instalación diferida).
+ *
+ * CAUSA RAÍZ (auditoría Auto Backup): ANTES se persistía un flag IR_DONE tras
+ * leer el referrer. Android Auto Backup RESTAURA AsyncStorage tras reinstalar,
+ * así que ese flag volvía como "1" en la instalación NUEVA y hacía SALTAR la
+ * lectura del referrer nuevo → el reto se perdía. Ahora NO se persiste ningún
+ * flag: se lee el referrer en cada arranque en frío (barato; el guard
+ * en-memoria `inited` evita releer dentro del mismo proceso) y solo se omite si
+ * YA hay un reto pendiente capturado.
  */
-async function captureInstallReferrerOnce(): Promise<void> {
+async function captureInstallReferrer(): Promise<void> {
   try {
-    if (await AsyncStorage.getItem(IR_DONE)) { signalDealCaptureDone(); return; }
+    // Si ya hay un reto pendiente, no hace falta releer el referrer.
+    if (await getPendingDeal()) { signalDealCaptureDone(); return; }
     let mod: any = null;
     try {
       mod = pirLoader();
@@ -124,7 +129,7 @@ async function captureInstallReferrerOnce(): Promise<void> {
     if (!PIR?.getInstallReferrerInfo) { traceLifecycle("app_ref_no_api"); signalDealCaptureDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
       if (err) { traceLifecycle("app_ref_error"); signalDealCaptureDone(); return; } // transitorio → reintento próximo arranque
-      void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
+      // NO se persiste ningún flag "ya comprobado" (ver causa raíz arriba).
       const token = parseDealFromString(info?.installReferrer);
       if (!token) {
         // Llegó un referrer pero SIN token de reto (p. ej. instalación orgánica
@@ -158,7 +163,7 @@ export function initDealCapture(): void {
   inited = true;
   Linking.getInitialURL().then(captureFromUrl).catch(() => {});
   Linking.addEventListener("url", (e) => { void captureFromUrl(e.url); });
-  if (Platform.OS === "android") void captureInstallReferrerOnce();
+  if (Platform.OS === "android") void captureInstallReferrer();
   else signalDealCaptureDone(); // sin Install Referrer fuera de Android
 }
 

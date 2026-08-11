@@ -220,3 +220,42 @@ describe("REACCIÓN a captura TARDÍA (fix de la carrera del onboarding)", () =>
     expect(stages).toContain("app_ref_no_module");
   });
 });
+
+describe("REGRESIÓN Auto Backup: estado RESTAURADO no debe bloquear un referrer nuevo", () => {
+  const NEW = "aaac414dd4505807"; // token del nuevo reto
+
+  it("flag antiguo IR_DONE + sesión restaurados + referrer reto_NUEVO → SÍ se lee y se reclama", async () => {
+    // Simula lo que restaura Android Auto Backup tras reinstalar:
+    H.store.set("bubui.installReferrerDealChecked", "1"); // flag antiguo persistido
+    H.session.CheckSession.mockResolvedValue({ customerId: "cust-old", token: "t" }); // sesión restaurada
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    // ANTES (con IR_DONE): la lectura se saltaba → claimDeal nunca se llamaba.
+    // AHORA: se lee el referrer nuevo y se reclama para la sesión restaurada.
+    expect(H.api.claimDeal).toHaveBeenCalledWith(NEW, "cust-old");
+  });
+
+  it("flag antiguo IR_DONE restaurado + SIN sesión → captura el token para el onboarding", async () => {
+    H.store.set("bubui.installReferrerDealChecked", "1");
+    H.session.CheckSession.mockResolvedValue(null);
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    expect(await m.getPendingDeal()).toBe(NEW); // disponible para el registro
+  });
+
+  it("ya NO persiste el flag 'installReferrerDealChecked' (era lo que restauraba el backup)", async () => {
+    H.session.CheckSession.mockResolvedValue(null);
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    expect(H.store.get("bubui.installReferrerDealChecked")).toBeUndefined();
+  });
+});
