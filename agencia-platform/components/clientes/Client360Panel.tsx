@@ -84,13 +84,16 @@ export default function Client360Panel({ clientId }: { clientId: string }) {
       {/* Salud / SLA */}
       <div className="bg-white rounded-xl border p-5">
         <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm">
-          <HeartPulse className="h-4 w-4 text-slate-400" /> Salud de cuenta
+          <HeartPulse aria-hidden className="h-4 w-4 text-slate-400" /> Salud de cuenta
         </h2>
         <div className="flex items-center gap-3">
           <div className={`text-3xl font-bold tabular-nums ${bc.ring}`} aria-hidden>
             {health.score}
           </div>
-          <span className={`text-xs px-2 py-0.5 rounded-full border ${bc.badge}`} role="status">
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full border ${bc.badge}`}
+            aria-label={`Salud de cuenta: ${bandLabel(health.band)}, ${health.score} de 100`}
+          >
             {bandLabel(health.band)} · {health.score}/100
           </span>
         </div>
@@ -132,7 +135,7 @@ export default function Client360Panel({ clientId }: { clientId: string }) {
       {/* Rentabilidad (solo si el server la marca visible = admin) */}
       <div className="bg-white rounded-xl border p-5">
         <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm">
-          <TrendingUp className="h-4 w-4 text-slate-400" /> Rentabilidad
+          <TrendingUp aria-hidden className="h-4 w-4 text-slate-400" /> Rentabilidad
         </h2>
         {data.billing.visible && prof ? (
           <dl className="space-y-1.5 text-sm">
@@ -159,7 +162,7 @@ export default function Client360Panel({ clientId }: { clientId: string }) {
       <div className="bg-white rounded-xl border p-5 space-y-4">
         <div>
           <h2 className="font-semibold mb-2 flex items-center gap-2 text-sm">
-            <Activity className="h-4 w-4 text-slate-400" /> Actividad
+            <Activity aria-hidden className="h-4 w-4 text-slate-400" /> Actividad
           </h2>
           <p className="text-sm text-slate-700">{activityLabel(data.activity.daysSinceLastActivity)}</p>
           <p className="text-xs text-slate-500 mt-1">
@@ -168,7 +171,7 @@ export default function Client360Panel({ clientId }: { clientId: string }) {
         </div>
         <div>
           <h2 className="font-semibold mb-2 flex items-center gap-2 text-sm">
-            <Users className="h-4 w-4 text-slate-400" /> Responsables
+            <Users aria-hidden className="h-4 w-4 text-slate-400" /> Responsables
           </h2>
           {data.responsables.managers.length > 0 ? (
             <ul className="text-sm text-slate-700 space-y-0.5">
