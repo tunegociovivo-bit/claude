@@ -53,7 +53,7 @@ async function main() {
   console.log("Conciliación de cobros:");
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
-  ok("ignora un cargo Santander", parseSantanderMovementText("10/08/2026 COMISIÓN -12,00 EUR") === null);
+  ok("lee un cargo Santander para registrarlo como gasto", parseSantanderMovementText("10/08/2026 COMISIÓN -12,00 EUR")?.amountCents === -1200);
 
   ok("no concilia antes de las 08:00 de Madrid", !shouldRunDailyReconciliation(new Date("2026-08-11T05:59:00Z"), null, "08:00", "Europe/Madrid"));
   ok("concilia después de las 08:00 si hoy no se ejecutó", shouldRunDailyReconciliation(new Date("2026-08-11T06:01:00Z"), new Date("2026-08-10T07:00:00Z"), "08:00", "Europe/Madrid"));

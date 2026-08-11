@@ -28,6 +28,8 @@ function fingerprint(workspaceId: string, movement: IncomingBankMovement): strin
 }
 
 export async function ensureReconciliationConfig(workspaceId: string) {
+  const existing = await prisma.bankReconciliationConfig.findUnique({ where: { workspaceId } });
+  const oldVersion = Number((existing?.profile as Record<string, unknown> | null)?.schemaVersion ?? 0);
   return prisma.bankReconciliationConfig.upsert({
     where: { workspaceId },
     create: {
@@ -37,9 +39,9 @@ export async function ensureReconciliationConfig(workspaceId: string) {
       provider: "SANTANDER",
       pollMinutes: 1440,
       profile: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         santanderOrigin: "https://empresas3.gruposantander.es",
-        reconciliationMode: "sepa-core-receipts",
+        reconciliationMode: "sepa-core-receipts-and-account-expenses",
         dailyAt: "08:00",
         timeZone: "Europe/Madrid",
         storesBankCredentials: false
@@ -48,15 +50,47 @@ export async function ensureReconciliationConfig(workspaceId: string) {
     update: {
       pollMinutes: 1440,
       profile: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         santanderOrigin: "https://empresas3.gruposantander.es",
-        reconciliationMode: "sepa-core-receipts",
+        reconciliationMode: "sepa-core-receipts-and-account-expenses",
         dailyAt: "08:00",
         timeZone: "Europe/Madrid",
         storesBankCredentials: false
-      }
+      },
+      ...(oldVersion < 3 ? { lastSyncAt: null } : {})
     }
   });
+}
+
+function expenseDetails(reference: string | null) {
+  const text = reference ?? "Movimiento Santander";
+  if (/liquidacion por emision|comision/i.test(text)) return { supplier: "Banco Santander", category: "BANCO", paymentMethod: "OTHER" };
+  if (/simyo/i.test(text)) return { supplier: "Simyo", category: "SUMINISTROS", paymentMethod: "REMITTANCE" };
+  if (/openai/i.test(text)) return { supplier: "OpenAI", category: "SOFTWARE", paymentMethod: "CARD" };
+  if (/banahosting/i.test(text)) return { supplier: "BanaHosting", category: "SOFTWARE", paymentMethod: "CARD" };
+  if (/zadarma/i.test(text)) return { supplier: "Zadarma", category: "SOFTWARE", paymentMethod: "CARD" };
+  if (/twilio/i.test(text)) return { supplier: "Twilio", category: "SOFTWARE", paymentMethod: "CARD" };
+  if (/piensasolutions/i.test(text)) return { supplier: "Piensa Solutions", category: "SOFTWARE", paymentMethod: "CARD" };
+  if (/paypal/i.test(text)) return { supplier: "PayPal", category: "OTROS", paymentMethod: "REMITTANCE" };
+  return { supplier: null, category: "OTROS", paymentMethod: "OTHER" };
+}
+
+async function repairDuplicateSepaReceipts(workspaceId: string) {
+  const rows = await prisma.bankTransaction.findMany({
+    where: { workspaceId, status: "UNMATCHED", reference: { contains: "Recibo" } },
+    select: { id: true, reference: true }
+  });
+  const groups = new Map<string, Array<{ id: string; remittance: string }>>();
+  for (const row of rows) {
+    const receipt = row.reference?.match(/Recibo\s+([A-Z0-9]+)/i)?.[1];
+    const remittance = row.reference?.match(/Remesa SEPA\s+([A-Z0-9]+)/i)?.[1];
+    if (!receipt || !remittance) continue;
+    const list = groups.get(receipt) ?? [];
+    list.push({ id: row.id, remittance });
+    groups.set(receipt, list);
+  }
+  const invalidIds = [...groups.values()].filter((list) => new Set(list.map((item) => item.remittance)).size > 1).flatMap((list) => list.map((item) => item.id));
+  if (invalidIds.length) await prisma.bankTransaction.deleteMany({ where: { workspaceId, id: { in: invalidIds }, status: "UNMATCHED" } });
 }
 
 function clientName(snapshot: unknown): string {
@@ -66,6 +100,7 @@ function clientName(snapshot: unknown): string {
 
 export async function importAndReconcileMovements(workspaceId: string, movements: IncomingBankMovement[]) {
   const config = await ensureReconciliationConfig(workspaceId);
+  await repairDuplicateSepaReceipts(workspaceId);
   if (!config.enabled) return { imported: 0, matched: 0, ignored: movements.length };
   let imported = 0;
   let matched = 0;
@@ -82,6 +117,28 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       select: { id: true }
     });
     if (existing) continue;
+
+    if (movement.amountCents < 0) {
+      const issuer = await prisma.invoiceIssuer.findFirst({ where: { workspaceId, deletedAt: null }, orderBy: { isDefault: "desc" }, select: { id: true } });
+      const details = expenseDetails(clean(movement.reference));
+      await prisma.$transaction(async (tx) => {
+        await tx.bankTransaction.create({ data: {
+          workspaceId, provider: "SANTANDER", externalId: movement.externalId.slice(0, 200), fingerprint: fingerprint(workspaceId, movement),
+          bookedAt, valueAt: movement.valueAt ? new Date(movement.valueAt) : null, amountCents: movement.amountCents,
+          currency: (movement.currency ?? "EUR").slice(0, 3), counterpartyName: clean(movement.counterpartyName, 200),
+          reference: clean(movement.reference), accountMasked: clean(movement.accountMasked, 40), status: "EXPENSE"
+        }});
+        await tx.expense.create({ data: {
+          workspaceId, issuerId: issuer?.id, date: movement.valueAt ? new Date(movement.valueAt) : bookedAt,
+          category: details.category, supplier: details.supplier, concept: clean(movement.reference), currency: (movement.currency ?? "EUR").slice(0, 3),
+          paymentMethod: details.paymentMethod, status: "PAID", baseCents: Math.abs(movement.amountCents), taxRate: 0,
+          taxCents: 0, totalCents: Math.abs(movement.amountCents), deductible: false,
+          notes: `Importado automáticamente desde Santander (${movement.externalId.slice(0, 12)}). Revisar IVA y adjuntar justificante.`
+        }});
+      });
+      imported++;
+      continue;
+    }
 
     const recentRemittances = await prisma.sepaRemittanceRequest.findMany({
       where: { workspaceId, createdAt: { gte: config.startsAt }, archivedAt: null },
@@ -166,9 +223,10 @@ export async function importAndReconcileMovements(workspaceId: string, movements
 
 export async function reconciliationDashboard(workspaceId: string) {
   const config = await ensureReconciliationConfig(workspaceId);
+  await repairDuplicateSepaReceipts(workspaceId);
   const [items, matched, unmatched] = await Promise.all([
     prisma.bankTransaction.findMany({
-      where: { workspaceId, bookedAt: { gte: config.startsAt } },
+      where: { workspaceId, bookedAt: { gte: config.startsAt }, status: { in: ["MATCHED", "UNMATCHED"] } },
       orderBy: { bookedAt: "desc" },
       take: 200,
       include: { invoice: { select: { id: true, number: true, clientSnapshot: true, totalCents: true } } }

@@ -65,14 +65,15 @@ export function parseSantanderMovementText(text: string, now = new Date()): Brow
   const compact = text.replace(/\s+/g, " ").trim();
   const dateMatch = compact.match(/\b(\d{2})[\/.-](\d{2})(?:[\/.-](\d{2,4}))?\b/);
   const amountMatches = [...compact.matchAll(/([+-]?)\s*(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})\s*(?:EUR|€)/gi)];
-  const amountMatch = amountMatches.at(-1);
-  if (!dateMatch || !amountMatch || amountMatch[1] === "-") return null;
+  const amountMatch = amountMatches.find((match) => match[1] === "+" || match[1] === "-") ?? amountMatches[0];
+  if (!dateMatch || !amountMatch) return null;
   const yearToken = dateMatch[3];
   const year = yearToken ? (yearToken.length === 2 ? 2000 + Number(yearToken) : Number(yearToken)) : now.getFullYear();
   const booked = new Date(Date.UTC(year, Number(dateMatch[2]) - 1, Number(dateMatch[1]), 12));
   if (!Number.isFinite(booked.getTime())) return null;
-  const amountCents = Number(amountMatch[2].replace(/\./g, "")) * 100 + Number(amountMatch[3]);
-  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return null;
+  const unsignedCents = Number(amountMatch[2].replace(/\./g, "")) * 100 + Number(amountMatch[3]);
+  const amountCents = amountMatch[1] === "-" ? -unsignedCents : unsignedCents;
+  if (!Number.isSafeInteger(amountCents) || amountCents === 0) return null;
   const reference = compact.slice(0, 500);
   const externalId = createHash("sha256").update(`${booked.toISOString()}|${amountCents}|${reference}`).digest("hex");
   const withoutDateAmount = compact.replace(dateMatch[0], " ").replace(amountMatch[0], " ").replace(/\s+/g, " ").trim();
@@ -125,7 +126,7 @@ export class SantanderReconciliationReader {
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await receipts.isVisible().catch(() => false)) continue;
           await receipts.click();
-          const receiptFrame = await this.waitFrame(page, /Recibos de una remesa/i);
+          const receiptFrame = await this.waitReceiptFrame(page, remittance.remittanceNumber);
           if (!receiptFrame) continue;
           const receiptTexts: string[] = await receiptFrame.locator("table tbody tr").allInnerTexts().catch(() => []);
           for (const text of receiptTexts) {
@@ -152,6 +153,7 @@ export class SantanderReconciliationReader {
         await next.click();
         await frame.waitForTimeout(400);
       }
+      for (const movement of await this.scanAccountMovements(page, startsAt)) unique.set(movement.externalId, movement);
       return [...unique.values()];
     } finally {
       if (page) await page.close().catch(() => {});
@@ -217,6 +219,42 @@ export class SantanderReconciliationReader {
       await page.waitForTimeout(300);
     }
     return null;
+  }
+
+  private async waitReceiptFrame(page: any, remittanceNumber: string, attempts = 50): Promise<any | null> {
+    const expected = remittanceNumber.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      for (const frame of page.frames()) {
+        const text = await frame.locator("body").innerText().catch(() => "");
+        const normalized = text.replace(/[^a-z0-9]/gi, "").toUpperCase();
+        if (/Recibos de una remesa/i.test(text) && normalized.includes(expected)) return frame;
+      }
+      await page.waitForTimeout(300);
+    }
+    return null;
+  }
+
+  private async scanAccountMovements(page: any, startsAt: Date): Promise<BrowserMovement[]> {
+    await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/cuentas/subhome`, { waitUntil: "domcontentloaded", timeout: 20000 });
+    const frame = await this.waitFrame(page, /Movimientos/i);
+    if (!frame) return [];
+    const rows: string[] = await frame.locator("p").evaluateAll((nodes: Element[]) => nodes.map((node) => {
+      let current: Element | null = node;
+      for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
+        const text = (current as HTMLElement).innerText?.replace(/\s+/g, " ").trim() ?? "";
+        if (/\d{2}\/\d{2}\/\d{4}/.test(text) && /[+-]\s*\d[\d.]*,\d{2}\s*EUR/i.test(text) && text.length < 1200) return text;
+      }
+      return "";
+    })).catch(() => []);
+    const unique = new Map<string, BrowserMovement>();
+    for (const text of rows) {
+      const movement = parseSantanderMovementText(text);
+      if (!movement || new Date(movement.bookedAt) < startsAt) continue;
+      // Los abonos SEPA se concilian desde el detalle de recibos, nunca desde el agregado de cuenta.
+      if (movement.amountCents > 0 && /Emision Remesa Sepa Sdd/i.test(movement.reference)) continue;
+      unique.set(movement.externalId, movement);
+    }
+    return [...unique.values()];
   }
 
   private async applyDateFilter(frame: any, startsAt: Date, endsAt: Date): Promise<void> {

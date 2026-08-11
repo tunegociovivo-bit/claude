@@ -38,7 +38,7 @@ function normalize(value: string): string {
 }
 
 export function shouldImportMovement(movement: { bookedAt: Date; amountCents: number }, startsAt: Date): boolean {
-  return movement.amountCents > 0 && movement.bookedAt.getTime() >= startsAt.getTime();
+  return movement.amountCents !== 0 && movement.bookedAt.getTime() >= startsAt.getTime();
 }
 
 export function matchIncomingPayment(payment: IncomingPayment, invoices: ReconciliationInvoice[]): PaymentMatch | null {

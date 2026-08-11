@@ -10,9 +10,9 @@ const invoices = [
 ];
 
 describe("conciliación bancaria desde la fecha de corte", () => {
-  it("ignora movimientos anteriores al inicio y cargos negativos", () => {
+  it("ignora movimientos anteriores, pero importa cargos como gastos", () => {
     expect(shouldImportMovement({ bookedAt: new Date("2026-08-09T21:59:59Z"), amountCents: 36300 }, cutoff)).toBe(false);
-    expect(shouldImportMovement({ bookedAt: cutoff, amountCents: -36300 }, cutoff)).toBe(false);
+    expect(shouldImportMovement({ bookedAt: cutoff, amountCents: -36300 }, cutoff)).toBe(true);
     expect(shouldImportMovement({ bookedAt: cutoff, amountCents: 36300 }, cutoff)).toBe(true);
   });
 
