@@ -255,6 +255,7 @@ model Workspace {
   invoices                  Invoice[]
   invoiceIssuers            InvoiceIssuer[]
   invoiceCounters           InvoiceCounter[]
+  recurringTemplates        RecurringInvoiceTemplate[]
   expenses                  Expense[]
   panelNotes                PanelNote[]
 }
@@ -369,6 +370,56 @@ model InvoiceCounter {
 
   @@unique([workspaceId, series, year])
   @@index([workspaceId])
+}
+
+// Plantilla de FACTURA RECURRENTE (módulo nuevo). Tabla PROPIA: separa las
+// plantillas de las facturas emitidas (no como el overload actual Invoice.recurring).
+// Aditiva → `prisma db push` la crea sin lock. String status (patrón del repo).
+// Importes en céntimos enteros. No emite nada por sí sola (motor en shadow, slice C).
+model RecurringInvoiceTemplate {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  issuerId         String?
+  clientId         String?
+  issuerSnapshot   Json? // fiscal congelado del emisor
+  clientSnapshot   Json? // fiscal congelado del cliente
+  lines            Json // [{description, quantity, unitPriceCents, taxRate, discountPct}]
+  currency         String    @default("EUR")
+  subtotalCents    Int       @default(0)
+  taxCents         Int       @default(0)
+  totalCents       Int       @default(0)
+  // Periodicidad / calendario.
+  intervalMonths   Int       @default(1)
+  dayOfMonth       Int? // 1-28 (fin de mes seguro)
+  anchorDate       DateTime?
+  startDate        DateTime?
+  endDate          DateTime?
+  nextIssueAt      DateTime?
+  timezone         String    @default("Europe/Madrid")
+  // Ciclo de vida.
+  status           String    @default("draft") // active | paused | draft | archived
+  series           String?
+  paymentMethod    String    @default("TRANSFER")
+  sepa             Boolean   @default(false)
+  // Procedencia + trazabilidad de importación (idempotencia).
+  source           String    @default("HUB") // HUB | HOLDED_IMPORT | CSV_IMPORT
+  externalId       String?
+  originalSnapshot Json? // fila cruda de origen (auditoría)
+  checksum         String? // hash normalizado (dedupe/idempotencia)
+  syncStatus       String    @default("ok") // ok | error | pending
+  syncError        String?
+  // Pausa remota (Holded) — informativo, verificado a mano (no hay API de pausa).
+  pausedInHolded   Boolean   @default(false)
+  pausedInHoldedAt DateTime?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, source, externalId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, nextIssueAt])
 }
 
 model Invoice {

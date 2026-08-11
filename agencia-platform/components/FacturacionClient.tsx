@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload, Download, Landmark } from "lucide-react";
+import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload, Download, Landmark, Repeat } from "lucide-react";
+import RecurringTemplatesClient from "@/components/facturacion/RecurringTemplatesClient";
+
+const RECURRING_UI = process.env.NEXT_PUBLIC_RECURRING_INVOICES !== "off";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
 import GastosClient from "@/components/GastosClient";
@@ -71,7 +74,7 @@ export default function FacturacionClient({
     }
   }
   const [seeding, setSeeding] = useState(false);
-  const [tab, setTab] = useState<"facturas" | "gastos" | "importar" | "conciliacion">("facturas");
+  const [tab, setTab] = useState<"facturas" | "gastos" | "importar" | "conciliacion" | "recurrentes">("facturas");
 
   const missingDefaults = DEFAULT_NAMES.filter(
     (n) => !issuers.some((i) => i.name.toLowerCase().trim() === n.toLowerCase().trim())
@@ -303,11 +306,18 @@ export default function FacturacionClient({
           <TabButton active={tab === "conciliacion"} onClick={() => setTab("conciliacion")} icon={<Landmark className="h-4 w-4" />}>
             Conciliación bancaria
           </TabButton>
+          {RECURRING_UI && (
+            <TabButton active={tab === "recurrentes"} onClick={() => setTab("recurrentes")} icon={<Repeat className="h-4 w-4" />}>
+              Facturas recurrentes
+            </TabButton>
+          )}
         </div>
       )}
 
       {/* Contenido de la pestaña activa, limitado a la empresa elegida */}
-      {tab === "conciliacion" && selected ? (
+      {tab === "recurrentes" && selected && RECURRING_UI ? (
+        <RecurringTemplatesClient />
+      ) : tab === "conciliacion" && selected ? (
         <ReconciliationClient />
       ) : tab === "gastos" && selected ? (
         <GastosClient key={`g-${selected.id}`} issuerId={selected.id} onExpensesChanged={bump} />
