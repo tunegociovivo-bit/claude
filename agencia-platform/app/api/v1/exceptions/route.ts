@@ -14,7 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { callerIsAdmin } from "@/lib/api/permissions";
 import { getExceptionInbox } from "@/lib/exceptions/inbox";
-import { exceptionsEnabled } from "@/lib/exceptions/flags";
+import { exceptionsEnabled, exceptionActionsEnabled } from "@/lib/exceptions/flags";
 import { coerceFilters } from "@/lib/exceptions/engine";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +27,7 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   const filters = coerceFilters({ source: sp.get("source"), kind: sp.get("kind"), severity: sp.get("severity"), clientId: sp.get("clientId") });
   const limit = Number(sp.get("limit")) || undefined;
   const view = sp.get("view") === "archive" ? "archive" : "active";
+  const includeHidden = sp.get("includeHidden") === "1";
   const awd = Number(sp.get("activeWindowDays"));
   const activeWindowDays = Number.isFinite(awd) && awd > 0 ? Math.min(3650, Math.floor(awd)) : undefined;
 
@@ -34,6 +35,15 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
   // igual que el gestor de facturas (requireAdmin). No-admin no los ve.
   const includeBilling = await callerIsAdmin(api);
 
-  const inbox = await getExceptionInbox(prisma, { workspaceId: api.workspaceId, filters, limit, includeBilling, view, activeWindowDays });
+  const inbox = await getExceptionInbox(prisma, {
+    workspaceId: api.workspaceId,
+    filters,
+    limit,
+    includeBilling,
+    view,
+    activeWindowDays,
+    applyActions: exceptionActionsEnabled(),
+    includeHidden
+  });
   return NextResponse.json(inbox);
 });

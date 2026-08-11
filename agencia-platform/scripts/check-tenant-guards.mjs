@@ -79,7 +79,7 @@ for (const file of walk(API_DIR)) {
   const parts = src.split(/(?=export\s+(?:const|async\s+function)\s+(?:GET|POST|PUT|PATCH|DELETE))/);
   for (const part of parts) {
     // Busca prisma.<modelo>.update|delete( y analiza su where completo.
-    for (const call of part.matchAll(/prisma\.(\w+)\.(update|delete|updateMany|deleteMany)\(/g)) {
+    for (const call of part.matchAll(/prisma\.(\w+)\.(update|delete|updateMany|deleteMany|upsert)\(/g)) {
       const [, model, op] = call;
       if (!tenantModels.has(model)) continue; // modelo sin workspaceId
       const whereBody = whereBodyAt(part, call.index + call[0].length);
