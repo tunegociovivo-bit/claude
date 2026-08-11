@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import AvatarStack from "@/components/AvatarStack";
 import ClienteDetailActions from "@/components/clientes/ClienteDetailActions";
+import Client360Panel from "@/components/clientes/Client360Panel";
 import {
   getClientsForUi,
   getProjectsForUi,
@@ -61,6 +62,11 @@ export default async function ClienteDetailPage({ params }: { params: { id: stri
           />
         }
       />
+
+      {/* FASE 3b: panel 360 ADITIVO (salud/rentabilidad/actividad/responsables).
+          Se auto-oculta si el endpoint /overview está desactivado o falla → la
+          pantalla de abajo es el fallback intacto. */}
+      <Client360Panel clientId={client.id} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
