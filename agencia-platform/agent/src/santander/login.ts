@@ -1,4 +1,4 @@
-export type LoginAction = "SUBMIT_SAVED_KEY" | "PAUSE";
+export type LoginAction = "SUBMIT_SAVED_KEY" | "SUBMIT_SAVED_CREDENTIALS" | "PAUSE";
 
 export interface LoginFacts {
   currentUrl: string;
@@ -6,6 +6,7 @@ export interface LoginFacts {
   visibleKeyFields: number;
   rememberedUser: boolean;
   hasStoredCredential: boolean;
+  hasStoredUsername: boolean;
 }
 
 export function validateAccessKey(value: string): string {
@@ -23,8 +24,10 @@ export function decideLoginAction(facts: LoginFacts): LoginAction {
       && allowed.protocol === "https:"
       && current.origin === allowed.origin
       && current.pathname.startsWith("/paas/loginnwe/");
-    return officialLogin && facts.visibleKeyFields === 8 && facts.rememberedUser && facts.hasStoredCredential
-      ? "SUBMIT_SAVED_KEY" : "PAUSE";
+    if (!officialLogin || !facts.hasStoredCredential) return "PAUSE";
+    if (facts.visibleKeyFields === 8 && facts.rememberedUser) return "SUBMIT_SAVED_KEY";
+    if (facts.visibleKeyFields === 9 && !facts.rememberedUser && facts.hasStoredUsername) return "SUBMIT_SAVED_CREDENTIALS";
+    return "PAUSE";
   } catch { return "PAUSE"; }
 }
 

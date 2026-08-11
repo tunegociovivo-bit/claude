@@ -20,7 +20,7 @@ import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from 
 import { isForbiddenActionLabel } from "./types.js";
 import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
-import { hasEncryptedCredential, readEncryptedAccessKey } from "../credential-store.js";
+import { hasEncryptedCredential, hasEncryptedUsername, readEncryptedAccessKey, readEncryptedUsername } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
 
@@ -220,17 +220,32 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       allowedOrigin: this.opts.santanderOrigin,
       visibleKeyFields: visibleFields.length,
       rememberedUser,
-      hasStoredCredential: hasEncryptedCredential(this.opts.credentialFile)
+      hasStoredCredential: hasEncryptedCredential(this.opts.credentialFile),
+      hasStoredUsername: hasEncryptedUsername(this.opts.credentialFile)
     });
-    if (action !== "SUBMIT_SAVED_KEY") {
-      return { ok: false, reason: "El acceso automático no cumple las garantías: dominio oficial, usuario recordado, ocho casillas y clave local cifrada. Revisa la configuración." };
+    if (action === "PAUSE") {
+      if (visibleFields.length === 9 && !rememberedUser && !hasEncryptedUsername(this.opts.credentialFile)) {
+        return { ok: false, reason: "Santander muestra el acceso completo, pero falta el usuario cifrado local. Ejecuta de nuevo la configuración bancaria en este PC." };
+      }
+      return { ok: false, reason: "La pantalla de acceso de Santander no coincide con un formato seguro conocido o falta la credencial local cifrada." };
     }
 
     let key = "";
+    let username = "";
     try {
       key = readEncryptedAccessKey(this.opts.credentialFile);
-      for (let i = 0; i < visibleFields.length; i++) await visibleFields[i].fill(key[i]);
+      const keyFields = action === "SUBMIT_SAVED_CREDENTIALS" ? visibleFields.slice(1) : visibleFields;
+      if (action === "SUBMIT_SAVED_CREDENTIALS") {
+        username = readEncryptedUsername(this.opts.credentialFile);
+        await visibleFields[0].fill(username);
+        const remember = page.getByRole("checkbox", { name: /recordar usuario/i });
+        if (await remember.count() === 1 && await remember.isVisible().catch(() => false) && !await remember.isChecked().catch(() => false)) {
+          await remember.check({ timeout: STEP_TIMEOUT_MS });
+        }
+      }
+      for (let i = 0; i < keyFields.length; i++) await keyFields[i].fill(key[i]);
       key = "";
+      username = "";
       const enter = page.getByRole("button", { name: /^entrar$/i });
       if (await enter.count() !== 1) return { ok: false, reason: "No encuentro un único botón Entrar verificable en Santander." };
       await enter.click({ timeout: STEP_TIMEOUT_MS });
@@ -250,6 +265,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       return { ok: false, reason: "No se pudo usar la clave cifrada local. Vuelve a configurarla en este PC." };
     } finally {
       key = "";
+      username = "";
     }
   }
 
