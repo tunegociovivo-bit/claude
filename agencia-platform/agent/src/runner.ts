@@ -34,6 +34,9 @@ export class Runner {
 
     try {
       while (!this.stopped) {
+        // Una conciliación solicitada (lastSyncAt=null) debe poder adelantarse
+        // a trabajos en cola; nunca interrumpe un trabajo ya iniciado.
+        await this.maybeReconcile();
         let job: ClaimedJob | null = null;
         try {
           job = await this.hub.claim();
@@ -43,7 +46,6 @@ export class Runner {
         if (job) {
           await this.processJob(job);
         } else {
-          await this.maybeReconcile();
           await sleep(this.cfg.pollSeconds * 1000, () => this.stopped);
         }
       }
