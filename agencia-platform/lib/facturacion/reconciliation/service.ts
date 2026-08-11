@@ -39,7 +39,7 @@ export async function ensureReconciliationConfig(workspaceId: string) {
       provider: "SANTANDER",
       pollMinutes: 1440,
       profile: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         santanderOrigin: "https://empresas3.gruposantander.es",
         reconciliationMode: "sepa-core-receipts-and-account-expenses",
         dailyAt: "08:00",
@@ -50,14 +50,14 @@ export async function ensureReconciliationConfig(workspaceId: string) {
     update: {
       pollMinutes: 1440,
       profile: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         santanderOrigin: "https://empresas3.gruposantander.es",
         reconciliationMode: "sepa-core-receipts-and-account-expenses",
         dailyAt: "08:00",
         timeZone: "Europe/Madrid",
         storesBankCredentials: false
       },
-      ...(oldVersion < 3 ? { lastSyncAt: null } : {})
+      ...(oldVersion < 4 ? { lastSyncAt: null } : {})
     }
   });
 }
