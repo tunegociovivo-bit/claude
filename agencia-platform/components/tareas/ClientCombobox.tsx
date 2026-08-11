@@ -47,6 +47,7 @@ export default function ClientCombobox({ value, onChange, knownClients = [], all
 
   const rootId = useId();
   const listId = `${rootId}-listbox`;
+  const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -83,6 +84,16 @@ export default function ClientCombobox({ value, onChange, knownClients = [], all
     if (returnFocus) requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
+  // Cerrar al hacer click/foco fuera del combobox (además de Esc/Tab/selección).
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close(false);
+    };
+    document.addEventListener("pointerdown", onDocDown);
+    return () => document.removeEventListener("pointerdown", onDocDown);
+  }, [open, close]);
+
   const select = useCallback(
     (opt: ClientOption) => {
       onChange(opt.id);
@@ -92,13 +103,19 @@ export default function ClientCombobox({ value, onChange, knownClients = [], all
     [onChange, close, store]
   );
 
-  // Mantén el activo dentro de la ventana visible al navegar por teclado.
+  // Mantén el activo dentro de la ventana visible al navegar por teclado. Además
+  // de mover el scroll, SINCRONIZA scrollTop de estado para que la ventana
+  // virtual recalcule YA e incluya el <li> activo (si no, aria-activedescendant
+  // apuntaría a un id aún no renderizado en Home/End/wrap).
   const ensureVisible = useCallback((idx: number) => {
     const el = listRef.current;
     if (!el) return;
     const top = idx * ROW_H;
-    if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
+    let next = el.scrollTop;
+    if (top < el.scrollTop) next = top;
+    else if (top + ROW_H > el.scrollTop + el.clientHeight) next = top + ROW_H - el.clientHeight;
+    if (next !== el.scrollTop) el.scrollTop = next;
+    setScrollTop(next);
   }, []);
 
   const onKeyDown = useCallback(
@@ -150,7 +167,7 @@ export default function ClientCombobox({ value, onChange, knownClients = [], all
   const visible = options.slice(win.start, win.end);
 
   return (
-    <div className={`relative inline-block ${className ?? ""}`}>
+    <div ref={rootRef} className={`relative inline-block ${className ?? ""}`}>
       <button
         ref={triggerRef}
         type="button"
@@ -204,6 +221,8 @@ export default function ClientCombobox({ value, onChange, knownClients = [], all
                   id={`${rootId}-opt-${idx}`}
                   role="option"
                   aria-selected={selected}
+                  aria-setsize={options.length}
+                  aria-posinset={idx + 1}
                   onMouseDown={(e) => e.preventDefault()} // no robar foco al input
                   onClick={() => select(opt)}
                   onMouseEnter={() => setActive(idx)}
@@ -218,12 +237,12 @@ export default function ClientCombobox({ value, onChange, knownClients = [], all
             })}
             <li aria-hidden style={{ height: win.padBottom }} />
             {loading && (
-              <li role="option" aria-disabled className="px-2 py-1.5 text-xs text-slate-400" style={{ height: ROW_H }}>
+              <li role="presentation" aria-live="polite" className="px-2 py-1.5 text-xs text-slate-400" style={{ height: ROW_H }}>
                 Cargando…
               </li>
             )}
             {error && !loading && (
-              <li role="option" aria-disabled className="px-2 py-1.5 text-xs text-rose-500" style={{ height: ROW_H }}>
+              <li role="presentation" aria-live="assertive" className="px-2 py-1.5 text-xs text-rose-500" style={{ height: ROW_H }}>
                 Error al buscar. Reintenta.
               </li>
             )}

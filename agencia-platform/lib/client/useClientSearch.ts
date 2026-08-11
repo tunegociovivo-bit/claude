@@ -46,7 +46,9 @@ export function useClientSearch(query: string, enabled: boolean, debounceMs = 25
       if (e?.name === "AbortError") return; // reemplazada por una búsqueda más nueva
       setError(true);
     } finally {
-      setLoading(false);
+      // No bajar loading si esta petición fue abortada: su reemplazo ya está en
+      // vuelo (loading=true) y bajarlo aquí provocaría un parpadeo del estado.
+      if (!ac.signal.aborted) setLoading(false);
     }
   }, []);
 
