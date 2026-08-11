@@ -173,7 +173,50 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
 
   useEffect(() => {
     let aborted = false;
+    // F2.5: una sola carga agregada. Si falla (o el endpoint no existiera),
+    // se cae al camino de abajo con los 6 fetch individuales → sin regresión.
+    async function tryAggregate(): Promise<boolean> {
+      try {
+        const r = await fetch("/api/v1/sidebar-bootstrap", { cache: "no-store" });
+        if (!r.ok) return false;
+        const d = await r.json();
+        if (aborted) return true;
+        if (d.usage) {
+          const projMap: Record<string, number> = {};
+          const platMap: Record<string, number> = {};
+          (d.usage.projects ?? []).forEach((p: any) => (projMap[p.id] = p.micros));
+          (d.usage.platforms ?? []).forEach((p: any) => (platMap[p.key] = p.micros));
+          setUsage({ projects: projMap, platforms: platMap, maxMicros: d.usage.maxMicros ?? 0 });
+        }
+        if (d.workspace) setWorkspace({ name: d.workspace.name, logo: d.workspace.logo });
+        setProjects(
+          (d.projects?.items ?? []).map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            color: p.color ?? "bg-brand-500",
+            emoji: p.emoji ?? null,
+            managerImage: p.manager?.image ?? null,
+            managerName: p.manager?.name ?? null
+          }))
+        );
+        setClients(d.clients?.items ?? []);
+        if (d.me?.user) {
+          setMe({
+            name: d.me.user.name,
+            email: d.me.user.email,
+            image: d.me.user.image ?? null,
+            role: d.me.role,
+            features: Array.isArray(d.me.features) ? d.me.features : []
+          });
+        }
+        setPlatforms(d.platforms?.items ?? []);
+        return true;
+      } catch {
+        return false;
+      }
+    }
     (async () => {
+      if (await tryAggregate()) return;
       try {
         const [pr, cr, mr, plr, wr, ur] = await Promise.all([
           fetch("/api/v1/projects", { cache: "no-store" }),
