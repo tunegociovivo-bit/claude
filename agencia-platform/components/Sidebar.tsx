@@ -31,7 +31,8 @@ import {
   Megaphone,
   Puzzle,
   Store,
-  Landmark
+  Landmark,
+  AlertTriangle
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -85,6 +86,8 @@ const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
 const nav = [
   { href: "/", label: "Inicio", icon: LayoutDashboard, feature: "inicio" as const },
   { href: "/mi-dia", label: "Mi día", icon: Sunrise, feature: "inicio" as const },
+  // FASE 4b: bandeja de excepciones (discreta, gated por NEXT_PUBLIC_EXCEPTIONS_UI).
+  { href: "/excepciones", label: "Excepciones", icon: AlertTriangle, feature: "inicio" as const },
   { href: "/tareas", label: "Tareas", icon: KanbanSquare, feature: "tareas" as const },
   { href: "/clientes", label: "Clientes", icon: Users, feature: "clientes" as const },
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
@@ -268,6 +271,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           })
           // Preferencia personal: pestañas ocultadas en /admin/personalizar.
           .filter((item) => !isHidden(item.href))
+          // Kill-switch de la bandeja de excepciones (FASE 4b): oculta el enlace
+          // si NEXT_PUBLIC_EXCEPTIONS_UI=off. Reversible, no rompe el resto.
+          .filter((item) => item.href !== "/excepciones" || process.env.NEXT_PUBLIC_EXCEPTIONS_UI !== "off")
           .map((item) => {
           const Icon = item.icon;
           const active =

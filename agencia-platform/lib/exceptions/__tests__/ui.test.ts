@@ -1,0 +1,101 @@
+/**
+ * Contrato FASE 4b - presentacion pura: A0-A4 por tipo, filtros/busqueda, edad,
+ * enlace seguro, ocultar-local reversible (clave por id+severidad).
+ */
+import { describe, it, expect } from "vitest";
+import { autonomyForKind, severityMeta, formatAge, safeLink, filterItems, loadDismissed, toggleDismissed, dismissKey } from "../ui";
+import type { ExceptionItem } from "../engine";
+
+const item = (o: Partial<ExceptionItem>): ExceptionItem => ({
+  id: "x",
+  dedupeKey: "x",
+  source: "task",
+  kind: "task_blocked",
+  severity: "medium",
+  title: "T",
+  detail: "D",
+  ownerUserId: null,
+  clientId: null,
+  createdAt: new Date().toISOString(),
+  ageMs: 0,
+  link: "/tareas",
+  why: "",
+  soniaWillDo: null,
+  needsFromMe: "",
+  ...o
+});
+
+describe("autonomyForKind (determinista, no inventa)", () => {
+  it("mapea cada tipo a su nivel + aprobacion", () => {
+    expect(autonomyForKind("approval_pending")).toMatchObject({ level: "A4", requiresApproval: true });
+    expect(autonomyForKind("billing_problem")).toMatchObject({ level: "A2", requiresApproval: true });
+    expect(autonomyForKind("message_unresolved")).toMatchObject({ level: "A1", requiresApproval: false });
+    expect(autonomyForKind("sla_breached").level).toBe("A1");
+    expect(autonomyForKind("automation_failed")).toMatchObject({ level: "A0", requiresApproval: false });
+    expect(autonomyForKind("task_blocked").level).toBe("A0");
+  });
+});
+
+describe("severityMeta / formatAge", () => {
+  it("severidad con etiqueta y clases (texto+color)", () => {
+    expect(severityMeta("critical").label).toMatch(/r.tica/i);
+    expect(severityMeta("critical").dot).toContain("rose");
+  });
+  it("edad legible", () => {
+    expect(formatAge(30_000)).toMatch(/1 min/);
+    expect(formatAge(5 * 60_000)).toMatch(/5 min/);
+    expect(formatAge(3 * 3_600_000)).toMatch(/3 h/);
+    expect(formatAge(2 * 86_400_000)).toMatch(/2 d/);
+  });
+});
+
+describe("safeLink - solo rutas internas", () => {
+  it("acepta relativas; rechaza absolutas/protocolo/host/control/backslash", () => {
+    expect(safeLink("/tareas?task=1")).toBe("/tareas?task=1");
+    expect(safeLink("https://evil.com")).toBeNull();
+    expect(safeLink("//evil.com")).toBeNull();
+    expect(safeLink("javascript:alert(1)")).toBeNull();
+    expect(safeLink("/ok" + String.fromCharCode(1) + "x")).toBeNull(); // caracter de control
+    expect(safeLink(null)).toBeNull();
+    // backslash: los navegadores normalizan "\\"->"/", asi "/\\evil" seria "//evil".
+    expect(safeLink("/" + String.fromCharCode(92) + "evil.com")).toBeNull();
+    expect(safeLink("/a" + String.fromCharCode(92) + "b")).toBeNull();
+  });
+});
+
+describe("dismissKey - reaparece al escalar la severidad", () => {
+  it("la clave incluye la severidad; ocultar la media NO oculta la critica", () => {
+    expect(dismissKey({ id: "invoice:i1", severity: "medium" })).toBe("invoice:i1|medium");
+    const dismissed = ["invoice:i1|medium"];
+    expect(dismissed.includes(dismissKey({ id: "invoice:i1", severity: "critical" }))).toBe(false);
+  });
+});
+
+describe("filterItems", () => {
+  const items = [
+    item({ id: "a", severity: "critical", source: "invoice", title: "Factura vencida", detail: "40 dias" }),
+    item({ id: "b", severity: "medium", source: "task", title: "Tarea X", needsFromMe: "reprogramar" })
+  ];
+  it("filtra por severidad/origen y busca en titulo/detalle/needs", () => {
+    expect(filterItems(items, { severity: "critical" }).map((i) => i.id)).toEqual(["a"]);
+    expect(filterItems(items, { source: "task" }).map((i) => i.id)).toEqual(["b"]);
+    expect(filterItems(items, { q: "reprogramar" }).map((i) => i.id)).toEqual(["b"]);
+    expect(filterItems(items, { severity: "all", source: "all" })).toHaveLength(2);
+    expect(filterItems(items, { q: "nada-que-coincide" })).toHaveLength(0);
+  });
+});
+
+describe("ocultar local reversible", () => {
+  function mem() {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  }
+  it("toggle anade y quita; sin store -> []", () => {
+    const s = mem();
+    expect(toggleDismissed(s, "a")).toEqual(["a"]);
+    expect(toggleDismissed(s, "b")).toEqual(["a", "b"]);
+    expect(toggleDismissed(s, "a")).toEqual(["b"]);
+    expect(loadDismissed(s)).toEqual(["b"]);
+    expect(loadDismissed(null)).toEqual([]);
+  });
+});
