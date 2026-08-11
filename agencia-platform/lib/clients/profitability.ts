@@ -56,8 +56,10 @@ export function computeProfitability(input: { mrrEuros: number; invoices: Invoic
   let overdueCount = 0;
 
   for (const inv of billed) {
-    const total = Math.max(0, inv.totalCents | 0);
-    const paid = Math.max(0, Math.min(inv.paidCents | 0, total));
+    // Math.trunc (no `| 0`): `| 0` es coerción a int32 y desbordaría importes
+    // > ~21,5M € haciéndolos negativos → clamp a 0 → factura perdida en silencio.
+    const total = Math.max(0, Math.trunc(inv.totalCents) || 0);
+    const paid = Math.max(0, Math.min(Math.trunc(inv.paidCents) || 0, total));
     billedCents += total;
     paidCents += paid;
     const outstanding = total - paid;
@@ -68,7 +70,9 @@ export function computeProfitability(input: { mrrEuros: number; invoices: Invoic
   }
   const pendingCents = Math.max(0, billedCents - paidCents);
 
-  const hasInvoices = invoices.length > 0;
+  // hasInvoices se basa en facturas EMITIDAS (billed), no en la lista sin filtrar:
+  // un cliente con solo borradores/presupuestos no tiene facturación real.
+  const hasInvoices = billed.length > 0;
   const hasMrr = mrrEuros > 0;
   const notes: string[] = [];
   if (!hasInvoices) notes.push("Este cliente no tiene facturas emitidas registradas.");
@@ -76,7 +80,7 @@ export function computeProfitability(input: { mrrEuros: number; invoices: Invoic
   notes.push("Costes por cliente no disponibles en el modelo actual (ver rentabilidad al 100% requeriría imputar gastos/horas).");
 
   return {
-    recurring: { mrrEuros: Math.max(0, mrrEuros | 0), hasMrr },
+    recurring: { mrrEuros: Math.max(0, Math.trunc(mrrEuros) || 0), hasMrr },
     invoiced: { count: billed.length, billedCents, paidCents, pendingCents, overdueCents, overdueCount },
     cost: { available: false, reason: COST_REASON },
     margin: { available: false, reason: MARGIN_REASON },

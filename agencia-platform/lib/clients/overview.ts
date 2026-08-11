@@ -133,8 +133,13 @@ export async function getClientOverview(prisma: PrismaLike, opts: ClientOverview
 
   // ── Responsables ──
   const managerIds = [...new Set(projects.map((p: any) => p.managerUserId).filter(Boolean))] as string[];
+  // Defense-in-depth: aunque los managerIds vienen de proyectos ya scopeados al
+  // workspace, exigimos además que el usuario tenga membership en este workspace.
   const managerUsers = managerIds.length
-    ? await prisma.user.findMany({ where: { id: { in: managerIds } }, select: { id: true, name: true } })
+    ? await prisma.user.findMany({
+        where: { id: { in: managerIds }, memberships: { some: { workspaceId } } },
+        select: { id: true, name: true }
+      })
     : [];
 
   // ── Esenciales (con redacción por rol; accesos NUNCA) ──

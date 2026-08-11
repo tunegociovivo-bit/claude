@@ -59,6 +59,14 @@ describe("getClientOverview — tenant", () => {
     expect(prisma.comment.findFirst.mock.calls[0][0].where).toMatchObject({ workspaceId: "w1", targetType: "CLIENT", targetId: "c1" });
   });
 
+  it("managers: user.findMany va scopeado por membership del workspace (defense-in-depth)", async () => {
+    prisma.project.findMany.mockResolvedValue([{ id: "p1", name: "P", progress: 50, managerUserId: "m1" }]);
+    await getClientOverview(prisma, { workspaceId: "w1", clientId: "c1", isAdmin: true, now });
+    const where = prisma.user.findMany.mock.calls[0][0].where;
+    expect(where.id).toEqual({ in: ["m1"] });
+    expect(where.memberships).toEqual({ some: { workspaceId: "w1" } });
+  });
+
   it("cliente inexistente → null (404 en la ruta)", async () => {
     prisma.client.findFirst.mockResolvedValue(null);
     const r = await getClientOverview(prisma, { workspaceId: "w1", clientId: "nope", isAdmin: true, now });

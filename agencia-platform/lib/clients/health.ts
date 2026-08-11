@@ -38,11 +38,36 @@ export const DEFAULT_HEALTH_CONFIG: HealthConfig = {
   thresholds: { staleActivityDays: 30, stalledProgressPct: 20, bandGood: 80, bandWarn: 50 }
 };
 
-/** Merge seguro de una config parcial (de settings) sobre los defaults. */
+/**
+ * Merge SANEADO de una config parcial (de settings) sobre los defaults.
+ * Cada valor debe ser finito y ≥ 0; cualquier NaN/negativo/no-numérico cae al
+ * default. Esto preserva el determinismo (un peso NaN daría score NaN, y un peso
+ * negativo convertiría una penalización en bonificación, enmascarando riesgo).
+ */
+function safeNum(v: unknown, def: number): number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : def;
+}
 export function mergeHealthConfig(partial?: Partial<{ weights: Partial<HealthConfig["weights"]>; thresholds: Partial<HealthConfig["thresholds"]> }> | null): HealthConfig {
+  const dw = DEFAULT_HEALTH_CONFIG.weights;
+  const dt = DEFAULT_HEALTH_CONFIG.thresholds;
+  const pw = (partial?.weights ?? {}) as Record<string, unknown>;
+  const pt = (partial?.thresholds ?? {}) as Record<string, unknown>;
   return {
-    weights: { ...DEFAULT_HEALTH_CONFIG.weights, ...(partial?.weights ?? {}) },
-    thresholds: { ...DEFAULT_HEALTH_CONFIG.thresholds, ...(partial?.thresholds ?? {}) }
+    weights: {
+      overduePerInvoice: safeNum(pw.overduePerInvoice, dw.overduePerInvoice),
+      overdueInvoiceCap: safeNum(pw.overdueInvoiceCap, dw.overdueInvoiceCap),
+      staleActivity: safeNum(pw.staleActivity, dw.staleActivity),
+      overdueTaskPerItem: safeNum(pw.overdueTaskPerItem, dw.overdueTaskPerItem),
+      overdueTaskCap: safeNum(pw.overdueTaskCap, dw.overdueTaskCap),
+      noMrrActive: safeNum(pw.noMrrActive, dw.noMrrActive),
+      stalledProject: safeNum(pw.stalledProject, dw.stalledProject)
+    },
+    thresholds: {
+      staleActivityDays: safeNum(pt.staleActivityDays, dt.staleActivityDays),
+      stalledProgressPct: safeNum(pt.stalledProgressPct, dt.stalledProgressPct),
+      bandGood: safeNum(pt.bandGood, dt.bandGood),
+      bandWarn: safeNum(pt.bandWarn, dt.bandWarn)
+    }
   };
 }
 

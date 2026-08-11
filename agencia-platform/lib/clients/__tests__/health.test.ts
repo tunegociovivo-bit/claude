@@ -63,6 +63,20 @@ describe("computeHealth — determinista y explicable", () => {
     expect(r.factors.find((f) => f.key === "stale_activity")?.points).toBe(-50);
   });
 
+  it("mergeHealthConfig SANEA NaN/negativos/no-numéricos → default (preserva determinismo)", () => {
+    const cfg = mergeHealthConfig({
+      weights: { staleActivity: NaN as any, overduePerInvoice: -20 as any, noMrrActive: "x" as any },
+      thresholds: { staleActivityDays: -5 as any }
+    });
+    expect(cfg.weights.staleActivity).toBe(DEFAULT_HEALTH_CONFIG.weights.staleActivity);
+    expect(cfg.weights.overduePerInvoice).toBe(DEFAULT_HEALTH_CONFIG.weights.overduePerInvoice);
+    expect(cfg.weights.noMrrActive).toBe(DEFAULT_HEALTH_CONFIG.weights.noMrrActive);
+    expect(cfg.thresholds.staleActivityDays).toBe(DEFAULT_HEALTH_CONFIG.thresholds.staleActivityDays);
+    // y el score sigue siendo un número finito
+    const r = computeHealth({ ...base, overdueInvoiceCount: 2, overdueAmountCents: 1 }, cfg);
+    expect(Number.isFinite(r.score)).toBe(true);
+  });
+
   it("cliente no ACTIVE → factor informativo (0 puntos), no penaliza por sin-MRR", () => {
     const r = computeHealth({ ...base, status: "PAUSED", hasMrr: false });
     expect(r.factors.find((f) => f.key === "status")?.points).toBe(0);

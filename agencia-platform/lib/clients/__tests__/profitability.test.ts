@@ -57,6 +57,19 @@ describe("computeProfitability", () => {
     expect(r.dataQuality.hasMrr).toBe(true);
   });
 
+  it("hasInvoices se basa en facturas EMITIDAS (solo borradores → false)", () => {
+    const r = computeProfitability({ mrrEuros: 0, now: NOW, invoices: [inv({ status: "DRAFT", totalCents: 9999 })] });
+    expect(r.dataQuality.hasInvoices).toBe(false);
+    expect(r.invoiced.billedCents).toBe(0);
+  });
+
+  it("importes enormes no desbordan (Math.trunc, no `| 0`)", () => {
+    const big = 5_000_000_00; // 5.000.000,00 € en céntimos (> int32)
+    const r = computeProfitability({ mrrEuros: 0, now: NOW, invoices: [inv({ status: "PAID", totalCents: big, paidCents: big })] });
+    expect(r.invoiced.billedCents).toBe(big);
+    expect(r.invoiced.paidCents).toBe(big);
+  });
+
   it("clampa valores negativos/incoherentes (paid>total)", () => {
     const r = computeProfitability({ mrrEuros: -5, now: NOW, invoices: [inv({ status: "PAID", totalCents: 1000, paidCents: 9999 })] });
     expect(r.recurring.mrrEuros).toBe(0);
