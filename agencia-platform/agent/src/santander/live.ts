@@ -18,7 +18,7 @@
  */
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
-import { loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
+import { exactRoleNamePattern, loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, hasEncryptedUsername, readEncryptedAccessKey, readEncryptedUsername } from "../credential-store.js";
 
@@ -281,7 +281,10 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       const loc = page.locator(expand(spec.css));
       return spec.hasText ? loc.filter({ hasText: expand(spec.hasText) }) : loc;
     }
-    if (spec.role) return page.getByRole(spec.role.role, spec.role.name ? { name: expand(spec.role.name) } : undefined);
+    if (spec.role) {
+      const name = expand(spec.role.name);
+      return page.getByRole(spec.role.role, name ? { name: exactRoleNamePattern(name) } : undefined);
+    }
     if (spec.text) return page.getByText(expand(spec.text), { exact: false });
     if (spec.xpath) return page.locator(`xpath=${expand(spec.xpath)}`);
     throw new Error(`Selector sin localizador utilizable: ${spec.describe}`);

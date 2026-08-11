@@ -66,6 +66,11 @@ export interface SantanderSelectors {
   signLaterAction: SelectorSpec;
 }
 
+export function exactRoleNamePattern(name: string): RegExp {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}$`, "i");
+}
+
 const REQUIRED_KEYS: (keyof SantanderSelectors)[] = [
   "sessionReady", "remittancesNav", "previousRemittance", "rowMenuAction", "editAction",
   "modifyRemittanceAction", "chargeDateField", "continueAction", "amountLabel", "amountField", "clientLabel",
