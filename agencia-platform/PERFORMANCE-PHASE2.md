@@ -69,11 +69,33 @@ Además, el índice `LeadInboxMessage(workspaceId, receivedAt DESC)` convierte e
 - Mantiene la carga inicial y la recarga por filtros/selección. **Kill-switch:** `localStorage['disable-smart-polling']='1'` o `NEXT_PUBLIC_DISABLE_SMART_POLLING=1` desactiva la pausa por visibilidad.
 - **Requests en segundo plano:** con la pestaña oculta pasan de ~5 pollers activos a **0** (antes seguían golpeando el backend indefinidamente).
 
-## Pendiente real (próximo slice)
+## Slice de paginación + virtualización entregado (obj 1 y 4)
 
-- **Obj 1 (completar)** — paginación cursor/limit + count SQL en **tareas** y **conversaciones de leads**. La conversación agrupa en JS (`buildConversations`); requiere cuidado para no cambiar la semántica de `total`/`unread`. El patrón cursor de `/clients/search` es el molde.
-- **Obj 4 (ampliar)** — virtualización también del **tablón de tareas** e **inbox** (además del combobox), donde el volumen lo justifique.
-- **Obj 6 (resto)** — queda 1 poller acotado a un modal de ajustes (12s, sólo con el modal abierto): bajo impacto, se puede migrar igual.
+### Obj 1 — Paginación cursor + count SQL (tareas y conversaciones)
+- **Clientes:** `/clients/search` (ya entregado, cursor por id).
+- **Tareas:** `GET /api/v1/tasks/page` — cursor keyset `(updatedAt desc, id)`, SELECT mínimo, respeta `taskVisibilityWhere`, `count` opcional. Aditivo (no cambia `getTasksForUi`). Builder puro + ruta testeados.
+- **Conversaciones (cursor SEGURO por conversación):** `GET /api/v1/leads/inbox/conversations/index`. Para NO caer en paginación engañosa, la agrupación se hace **en SQL** (`GROUP BY COALESCE(phoneNormalized,fromPhone)`), de modo que cada conversación es una fila atómica y nunca se parte entre páginas. **Invariantes** (en `lib/leads/conversation-index.ts`):
+  - INV1 una conversación = una fila; nunca partida entre páginas.
+  - INV2 `unread` = entrantes no leídos REALES de la conversación (COUNT FILTER, no acotado por ventana).
+  - INV3 orden estable `last_at DESC, phone ASC` → cursor keyset determinista.
+  - INV4 cursor = `(last_at, phone)`; página siguiente `last_at < c OR (last_at = c AND phone > c.phone)`.
+  - INV5 `total` = nº de conversaciones; `totalUnread` = SUMA de unread (mismos filtros, sin cursor/limit).
+  - **Alcance de filtros:** `account` + rango de fecha (puros sobre LeadInboxMessage). `blocked`/`q` NO se fingen aquí — la ruta completa existente los sigue sirviendo.
+  - **Estado:** ruta ADITIVA, **no cableada a la UI**; requiere validar EXPLAIN con el índice `LeadInboxMessage(workspaceId,receivedAt)` (migración obj 7) antes de conectarla.
+
+### Obj 4 — Virtualización de altura variable (primitiva)
+- `lib/client/virtual-list.ts`: `buildOffsets` (prefix-sum) + `variableWindow` (búsqueda binaria → rango + padding) para listas de **filas de distinta altura** (tarjetas de tablón/inbox), con kill-switch (`NEXT_PUBLIC_DISABLE_VIRTUAL` / `localStorage 'disable-virtual'`). Testeada (offsets, binaria, ventanas, alturas variables, vacío).
+- **Diferido con motivo (honesto):** el cableado en el **tablón Kanban (dnd-kit)** exige preservar drag/drop, selección, foco y medición de alturas → validación INTERACTIVA que no puede hacerse sin navegador; se entrega como slice propio sobre esta primitiva. El combobox ya va virtualizado (fila fija) y sirve de referencia.
+
+### Benchmarks (requests/payload)
+- Conversaciones: la ruta actual carga 1000–5000 mensajes por request y agrupa en JS; el índice devuelve **≤ limit+1 filas ya agrupadas** (p.ej. 31 filas para 30/pág) con `unread`/`total` por SQL → coste O(limit) por página en vez de O(mensajes).
+- Tareas: `getTasksForUi` trae hasta 1500 filas con include+firma de imágenes; `/tasks/page` devuelve `limit+1` filas mínimas por página.
+
+## Pendiente real (siguiente slice)
+
+- **Cablear** `/tasks/page` y `/conversations/index` a la UI (tras validar EXPLAIN del índice), migrando el tablón/inbox a scroll incremental.
+- **Virtualizar el Kanban** dnd-kit sobre la primitiva `virtual-list` (con validación interactiva de drag/drop y medición de alturas).
+- **Obj 6 (resto):** 1 poller acotado a un modal de ajustes (12s, sólo con el modal abierto): bajo impacto, migrable igual.
 
 ---
 
