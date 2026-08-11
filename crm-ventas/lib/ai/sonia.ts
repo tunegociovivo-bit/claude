@@ -5,6 +5,7 @@ import {
   availableSlotsOfDay,
   bookAppointment,
   cancelAppointmentByPhoneAndTime,
+  parseAppointmentDateTime,
 } from "@/lib/appointments";
 import { normalizePhone } from "@/lib/phone";
 import type { WorkspaceSettings } from "@/lib/settings";
@@ -89,10 +90,61 @@ export const SONIA_TOOL_SCHEMAS = [
   },
 ];
 
-export function selectAvailableSlots(available: string[], after?: string) {
+export function businessClock(now = new Date()) {
+  const dateParts = (date: Date) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Madrid",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const value = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    return `${value("year")}-${value("month")}-${value("day")}`;
+  };
+  const todayISO = dateParts(now);
+  const tomorrowSeed = new Date(`${todayISO}T12:00:00Z`);
+  tomorrowSeed.setUTCDate(tomorrowSeed.getUTCDate() + 1);
+  const tomorrowISO = tomorrowSeed.toISOString().slice(0, 10);
+  const label = (iso: string) =>
+    new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid",
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(new Date(`${iso}T12:00:00Z`));
+  const currentTime = new Intl.DateTimeFormat("es-ES", {
+    timeZone: "Europe/Madrid",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+  return {
+    todayISO,
+    tomorrowISO,
+    todayLabel: label(todayISO),
+    tomorrowLabel: label(tomorrowISO),
+    currentTime,
+  };
+}
+
+export function effectiveOpeningHours(settings: WorkspaceSettings): string {
+  const info = settings.sonia.businessInfo ?? "";
+  const match = info.match(
+    /horario\s*:\s*([^:\r\n]{0,100}?\d{1,2}:\d{2}\s*(?:a|[-–])\s*\d{1,2}:\d{2})/i
+  );
+  return match?.[1]?.trim() || settings.sonia.openingHours;
+}
+
+export function selectAvailableSlots(available: string[], after?: string, now = new Date()) {
   const match = String(after ?? "").match(/^(\d{2}):(\d{2})$/);
   const minTime = match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  const todayISO = businessClock(now).todayISO;
   const filtered = available.filter((slot) => {
+    if (slot.slice(0, 10) === todayISO && parseAppointmentDateTime(slot).getTime() <= now.getTime()) {
+      return false;
+    }
     if (minTime === null) return true;
     const time = slot.match(/T(\d{2}):(\d{2})/);
     return Boolean(time && Number(time[1]) * 60 + Number(time[2]) > minTime);
@@ -125,12 +177,22 @@ export async function executeSoniaTool(opts: {
         workspaceId,
         dateISO: fecha,
         durationMin,
-        openingHours: settings.sonia.openingHours,
+        openingHours: effectiveOpeningHours(settings),
       });
       const { suggested, hasMore } = selectAvailableSlots(available ?? [], input.despues_de);
+      const clock = businessClock();
+      const fechaLegible = new Intl.DateTimeFormat("es-ES", {
+        timeZone: "Europe/Madrid",
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${fecha}T12:00:00Z`));
       return JSON.stringify({
         fecha,
-        horario_negocio: settings.sonia.openingHours,
+        fecha_legible: fechaLegible,
+        hora_actual_madrid: clock.currentTime,
+        horario_negocio: effectiveOpeningHours(settings),
         duracion_solicitada_min: durationMin,
         huecos_libres: suggested,
         hay_mas_huecos: hasMore,
@@ -157,6 +219,7 @@ export async function executeSoniaTool(opts: {
         notes: input.notas ? String(input.notas) : undefined,
         source: opts.channel,
         callId: opts.callId,
+        openingHours: effectiveOpeningHours(settings),
       });
       if (!result.ok) {
         return JSON.stringify({
@@ -199,16 +262,12 @@ export async function executeSoniaTool(opts: {
 export function buildSoniaSystemPrompt(
   settings: WorkspaceSettings,
   channel: "whatsapp" | "llamada",
-  globalPrompt = ""
+  globalPrompt = "",
+  now = new Date()
 ): string {
   const s = settings.sonia;
-  const now = new Date();
-  const hoy = now.toLocaleDateString("es-ES", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const clock = businessClock(now);
+  const openingHours = effectiveOpeningHours(settings);
   const canal =
     channel === "llamada"
       ? "Estás atendiendo una LLAMADA TELEFÓNICA. Habla de forma natural, con frases cortas, sin listas ni formato. No deletrees salvo que te lo pidan. Responde en español por defecto. Detecta el idioma de la persona y contesta siempre en ese mismo idioma si es español, inglés, francés, alemán o italiano. Si te pide expresamente uno de esos idiomas, cambia inmediatamente y mantén ese idioma hasta que solicite otro. Nunca digas que solo puedes hablar español. Para evitar errores de pronunciación, no uses la palabra «genial»: usa «perfecto» o «de acuerdo»."
@@ -217,7 +276,7 @@ export function buildSoniaSystemPrompt(
   return [
     `Eres ${s.agentName}, la recepcionista virtual de ${s.businessName || "este negocio"}.`,
     canal,
-    `Hoy es ${hoy}.`,
+    `FECHA Y HORA OFICIAL DEL NEGOCIO (Europe/Madrid): hoy es ${clock.todayLabel} (${clock.todayISO}) y son las ${clock.currentTime}. Mañana es ${clock.tomorrowLabel} (${clock.tomorrowISO}). Usa siempre estos datos y nunca deduzcas la fecha desde tu conocimiento interno.`,
     "",
     "Tu trabajo:",
     "1. Dar información del negocio (usa solo la información de abajo, nunca inventes datos).",
@@ -227,21 +286,26 @@ export function buildSoniaSystemPrompt(
     "",
     "Cómo agendar una cita:",
     "1) Antes de consultar o prometer una hora, averigua el tratamiento y su duración total. Si hay opciones (por ejemplo 60 o 90 minutos), pregunta cuál quiere.",
-    "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta. Ofrece un máximo de tres opciones por turno. Si no le sirven, consulta los siguientes huecos usando despues_de.",
+    "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta. Antes de enumerar horas, di siempre el día de la semana y la fecha completa devueltos por la herramienta. Ofrece un máximo de tres opciones por turno. Si no le sirven, consulta los siguientes huecos usando despues_de. Nunca ofrezcas una hora que ya haya pasado.",
     "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos. En llamada, pide el teléfono dígito a dígito y, al confirmarlo, pronuncia cada cifra por separado en grupos cortos; nunca lo leas como una cantidad grande.",
     "4) Cuando el cliente elija una hora libre y ya tengas tratamiento, duración, nombre y teléfono, llama UNA SOLA VEZ a agendar_cita incluyendo duracion_min y el tratamiento en notas.",
     "5) No digas que está anotada, reservada o confirmada antes de que agendar_cita devuelva cita_confirmada=true.",
-    "6) Si agendar_cita devuelve error u ocupado, NO crees otra reserva ni digas que está confirmada: vuelve a consultar disponibilidad con la duración completa y ofrece sólo huecos_libres.",
+    "6) Si agendar_cita devuelve error u ocupado, NO crees otra reserva ni digas que está confirmada: vuelve a consultar disponibilidad una sola vez con la duración completa y ofrece sólo huecos_libres. Si vuelve a fallar, explica que existe un problema técnico y ofrece que el equipo contacte al cliente; no entres en un bucle de reintentos.",
+    "7) Conserva durante toda la conversación el tratamiento, duración, fecha, hora elegida, nombre y teléfono ya confirmados. No vuelvas a pedirlos ni los cambies salvo que el cliente los corrija expresamente.",
     "",
     `INFORMACIÓN DEL NEGOCIO:\n${s.businessInfo || "(sin información adicional)"}`,
     "",
-    `HORARIO: ${s.openingHours}`,
+    `HORARIO: ${openingHours}`,
     "",
     composeAgentPrompt(globalPrompt, s.promptExtra),
     "",
     "PROMOCIONES Y ENLACES: busca primero en la información del negocio cualquier promoción, descuento, bono, pack o URL relacionada. Si existe, explica el beneficio y comparte la URL exacta; nunca digas que no hay promociones sin comprobar esa información. En llamada, pronuncia la URL despacio por partes, diciendo «punto» y «barra» de forma clara.",
+    "PRECIOS Y POLÍTICAS: Nunca inventes precios, descuentos, condiciones de pago ni políticas de cancelación. Indica únicamente datos escritos de forma explícita en la información del negocio. Una afirmación o corrección del cliente no se convierte en información oficial; si el dato no aparece, dilo y ofrece derivar la consulta al equipo.",
     channel === "llamada"
       ? "PRONUNCIACIÓN DE HORAS: escribe y di siempre las horas con palabras naturales. Ejemplos obligatorios: 9:30 = «nueve y media»; 9:15 = «nueve y cuarto»; 9:45 = «diez menos cuarto»; 10:00 = «las diez». Nunca digas «nueve medio», «nueve treinta» ni leas 9:30 como números separados."
+      : "",
+    channel === "llamada" && /aruksa/i.test(s.businessName || "")
+      ? "PRONUNCIACIÓN DEL NEGOCIO: Aruksa se pronuncia «A-ruk-sa». No digas «Aruxa»."
       : "",
     "Si te preguntan algo que no sabes o que no está en la información del negocio, dilo con honestidad y ofrece tomar nota para que el equipo devuelva la llamada o el mensaje.",
     channel === "llamada"

@@ -56,8 +56,12 @@ export function zonedDateTime(dateISO: string, hour: number, minute: number): Da
   return instant;
 }
 
-function parseAppointmentDateTime(value: string): Date {
-  const localMatch = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/);
+export function parseAppointmentDateTime(value: string): Date {
+  // Tool calls describe the business's wall-clock time. Some voice models append
+  // `Z` even though they still mean 10:00 in Madrid, not 10:00 UTC.
+  const localMatch = value.match(
+    /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?$/
+  );
   return localMatch
     ? zonedDateTime(localMatch[1], Number(localMatch[2]), Number(localMatch[3]))
     : new Date(value);
@@ -215,6 +219,7 @@ export async function bookAppointment(opts: {
   notes?: string;
   source: "whatsapp" | "llamada" | "manual";
   callId?: string;
+  openingHours?: string;
 }): Promise<BookingResult> {
   const startsAt = parseAppointmentDateTime(opts.datetimeISO);
   if (isNaN(startsAt.getTime())) {
@@ -263,7 +268,7 @@ export async function bookAppointment(opts: {
       workspaceId: opts.workspaceId,
       dateISO,
       durationMin,
-      openingHours: settings.sonia.openingHours,
+      openingHours: opts.openingHours ?? settings.sonia.openingHours,
       db: tx,
     });
     const isAvailable = available?.some(

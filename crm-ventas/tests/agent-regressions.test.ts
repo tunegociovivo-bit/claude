@@ -34,11 +34,12 @@ test("la disponibilidad devuelve tres opciones y permite paginar", () => {
   const slots = ["09:00", "09:30", "10:00", "10:30", "11:00"].map(
     (time) => `2026-08-11T${time}:00`
   );
-  assert.deepEqual(selectAvailableSlots(slots), {
+  const beforeOpening = new Date("2026-08-11T05:00:00Z");
+  assert.deepEqual(selectAvailableSlots(slots, undefined, beforeOpening), {
     suggested: slots.slice(0, 3),
     hasMore: true,
   });
-  assert.deepEqual(selectAvailableSlots(slots, "10:00"), {
+  assert.deepEqual(selectAvailableSlots(slots, "10:00", beforeOpening), {
     suggested: slots.slice(3),
     hasMore: false,
   });
@@ -58,7 +59,7 @@ test("la fecha de voz incluye hoy y maÃ±ana sin depender de la zona del servid
   assert.match(prompt, /2026-08-12/);
   assert.match(prompt, /Nunca ofrezcas una hora que ya haya pasado/i);
   assert.match(prompt, /Nunca inventes precios/i);
-  assert.match(prompt, /conserva.*nombre.*telÃ©fono/i);
+  assert.match(prompt, /conserva.*nombre.*teléfono/i);
 });
 
 test("usa el horario escrito en la informaciÃ³n del negocio", () => {
