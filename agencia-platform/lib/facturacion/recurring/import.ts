@@ -132,16 +132,32 @@ const VALID_TAX_RATES = new Set([0, 4, 10, 21]);
 const VALID_CURRENCIES = new Set(["EUR", "USD"]);
 const VALID_PAYMENT = new Set(["TRANSFER", "STRIPE", "REMITTANCE", "CARD", "CASH", "OTHER"]);
 const MAX_ROWS = 5000;
+const MAX_CENTS = 2_147_483_647; // int4 (columna Int en BD): rechazar por encima
+
+/** IVA estricto: acepta "21", "21%", "21,00%"; vacío/no numérico → null (ERROR,
+ *  nunca se asume 21% por defecto → evita sobre/infra-facturar). */
+function parseTaxRate(v: string | undefined): number | null {
+  const s = String(v ?? "").trim().replace("%", "").replace(",", ".").trim();
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
 
 /** Hash estable (djb2) del contenido normalizado → base36. Para dedupe/idempotencia. */
 export function checksumOf(t: Omit<ParsedTemplate, "checksum" | "original" | "subtotalCents" | "taxCents" | "totalCents">): string {
+  const day = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : "");
   const norm = JSON.stringify({
     issuer: (t.issuerTaxId ?? t.issuerName ?? "").trim().toLowerCase(),
     client: (t.clientTaxId ?? t.clientName ?? "").trim().toLowerCase(),
+    email: (t.clientEmail ?? "").trim().toLowerCase(),
     lines: t.lines.map((l) => [l.description?.trim().toLowerCase(), l.quantity, l.unitPriceCents, l.taxRate, l.discountPct ?? 0]),
     interval: t.intervalMonths,
     day: t.dayOfMonth,
-    currency: t.currency
+    currency: t.currency,
+    payment: t.paymentMethod,
+    series: t.series ?? "",
+    start: day(t.startDate),
+    end: day(t.endDate)
   });
   let h = 5381;
   for (let i = 0; i < norm.length; i++) h = ((h << 5) + h + norm.charCodeAt(i)) | 0;
@@ -150,17 +166,24 @@ export function checksumOf(t: Omit<ParsedTemplate, "checksum" | "original" | "su
 
 /** Convierte filas (agrupadas por externalId) en plantillas validadas. */
 export function buildTemplates(rows: ImportRow[]): ImportItemResult[] {
-  // Agrupa por externalId; si falta, cada fila es su propia plantilla (id sintético estable).
+  // Agrupa por externalId. Si falta, la clave se marca "sintética": NO se usa la
+  // posición (colisiona entre ficheros distintos y machaca datos), sino que se
+  // deriva del CONTENIDO (`auto-<checksum>`) más abajo → idempotente y sin colisión.
   const groups = new Map<string, ImportRow[]>();
+  const syntheticKeys = new Set<string>();
   let synthetic = 0;
   for (const r of rows) {
     const ext = (r.externalId ?? r.externalid ?? r.id ?? "").trim();
-    const key = ext || `row-${synthetic++}`;
+    let key = ext;
+    if (!key) {
+      key = `__syn-${synthetic++}`;
+      syntheticKeys.add(key);
+    }
     groups.set(key, [...(groups.get(key) ?? []), r]);
   }
 
   const out: ImportItemResult[] = [];
-  for (const [externalId, grp] of groups) {
+  for (const [groupKey, grp] of groups) {
     const errors: RowError[] = [];
     const head = grp[0];
     const num = (v: string | undefined, def?: number) => {
@@ -176,14 +199,17 @@ export function buildTemplates(rows: ImportRow[]): ImportItemResult[] {
       const desc = sanitizeCell((r.description ?? r.concepto ?? "").trim());
       const qty = num(r.quantity ?? r.cantidad, 1)!;
       const unit = eurosToCents(r.unitPrice ?? r.precio ?? r.importe ?? "");
-      const taxRate = num(r.taxRate ?? r.iva, 21)!;
+      const taxRate = parseTaxRate(r.taxRate ?? r.iva); // null = error explícito (no 21% por defecto)
       const discountPct = num(r.discountPct ?? r.descuento, 0)!;
       if (!desc) errors.push({ field: `lines[${idx}].description`, message: "Descripción vacía" });
       if (unit == null) errors.push({ field: `lines[${idx}].unitPrice`, message: "Importe no numérico" });
-      if (!VALID_TAX_RATES.has(taxRate)) errors.push({ field: `lines[${idx}].taxRate`, message: `IVA no válido: ${taxRate}` });
+      else if (unit < 0) errors.push({ field: `lines[${idx}].unitPrice`, message: "Importe negativo no permitido" });
+      else if (Math.abs(unit) > MAX_CENTS) errors.push({ field: `lines[${idx}].unitPrice`, message: "Importe demasiado grande" });
+      if (taxRate == null) errors.push({ field: `lines[${idx}].taxRate`, message: "IVA no numérico" });
+      else if (!VALID_TAX_RATES.has(taxRate)) errors.push({ field: `lines[${idx}].taxRate`, message: `IVA no válido: ${taxRate} (permitido 0/4/10/21)` });
       if (qty <= 0) errors.push({ field: `lines[${idx}].quantity`, message: "Cantidad debe ser > 0" });
       if (discountPct < 0 || discountPct > 100) errors.push({ field: `lines[${idx}].discountPct`, message: "Descuento fuera de 0-100" });
-      lines.push({ description: desc, quantity: qty, unitPriceCents: unit ?? 0, taxRate, discountPct });
+      lines.push({ description: desc, quantity: qty, unitPriceCents: unit ?? 0, taxRate: taxRate ?? 0, discountPct });
     });
 
     // Campos de plantilla (de la primera fila).
@@ -196,7 +222,7 @@ export function buildTemplates(rows: ImportRow[]): ImportItemResult[] {
     const endDate = parseIsoDate(head.endDate ?? head.fin);
 
     if (!Number.isInteger(interval) || interval < 1 || interval > 60) errors.push({ field: "intervalMonths", message: "Periodicidad debe ser 1-60 meses" });
-    if (dayOfMonth != null && (dayOfMonth < 1 || dayOfMonth > 28)) errors.push({ field: "dayOfMonth", message: "Día debe ser 1-28 (fin de mes seguro)" });
+    if (dayOfMonth != null && (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 28)) errors.push({ field: "dayOfMonth", message: "Día debe ser un entero 1-28 (fin de mes seguro)" });
     if (!VALID_CURRENCIES.has(currency)) errors.push({ field: "currency", message: `Moneda no soportada: ${currency}` });
     if (!VALID_PAYMENT.has(payment)) errors.push({ field: "paymentMethod", message: `Método de pago no válido: ${payment}` });
     if ((head.startDate ?? head.inicio) && !startDate) errors.push({ field: "startDate", message: "Fecha de inicio no válida" });
@@ -205,8 +231,11 @@ export function buildTemplates(rows: ImportRow[]): ImportItemResult[] {
     if (!(head.clientName ?? head.cliente ?? head.clientTaxId ?? head.nif)) errors.push({ field: "client", message: "Falta identificar el cliente (nombre o NIF)" });
 
     const totals = computeTotals(lines);
+    // externalId definitivo: si venía del fichero, se respeta; si era sintético
+    // (fila sin id), se deriva del CONTENIDO (checksum) para ser idempotente y no
+    // colisionar entre importaciones distintas.
     const base = {
-      externalId,
+      externalId: groupKey, // provisional; se sustituye por auto-<checksum> si sintético
       issuerTaxId: (head.issuerTaxId ?? head.emisorNif ?? "").trim() || null,
       issuerName: sanitizeCell((head.issuerName ?? head.emisor ?? "").trim()) || null,
       clientName: sanitizeCell((head.clientName ?? head.cliente ?? "").trim()) || null,
@@ -221,12 +250,15 @@ export function buildTemplates(rows: ImportRow[]): ImportItemResult[] {
       paymentMethod: payment,
       series: (head.series ?? head.serie ?? "").trim() || null
     };
+    const checksum = checksumOf(base);
+    const externalId = syntheticKeys.has(groupKey) ? `auto-${checksum}` : groupKey;
     const template: ParsedTemplate = {
       ...base,
+      externalId,
       subtotalCents: totals.subtotalCents,
       taxCents: totals.taxCents,
       totalCents: totals.totalCents,
-      checksum: checksumOf(base),
+      checksum,
       original: grp
     };
     out.push({ externalId, ok: errors.length === 0, errors, template: errors.length === 0 ? template : undefined });
@@ -255,14 +287,14 @@ export function previewJson(records: ImportRow[]): ImportPreview {
 }
 
 function finalize(items: ImportItemResult[]): ImportPreview {
-  // Duplicados DENTRO del fichero: mismo externalId+checksum aparece 2+ veces.
+  // Duplicados DENTRO del fichero: mismo CONTENIDO (checksum) en 2+ plantillas
+  // (aunque tengan externalId distinto) → probable duplicado real.
   const seen = new Map<string, number>();
   let dupes = 0;
   for (const it of items) {
     if (!it.template) continue;
-    const k = `${it.externalId}|${it.template.checksum}`;
-    const c = (seen.get(k) ?? 0) + 1;
-    seen.set(k, c);
+    const c = (seen.get(it.template.checksum) ?? 0) + 1;
+    seen.set(it.template.checksum, c);
     if (c > 1) dupes++;
   }
   return {

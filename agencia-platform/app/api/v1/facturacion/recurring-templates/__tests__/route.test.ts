@@ -27,7 +27,7 @@ const CSV = "externalId,clientName,description,unitPrice,taxRate\nT1,Acme,Cuota,
 const ORIG = { ...process.env };
 beforeEach(() => {
   vi.clearAllMocks();
-  delete process.env.HUB_RECURRING_INVOICES;
+  process.env.HUB_RECURRING_INVOICES = "on"; // opt-in: activado para estos tests
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
   prisma.membership.findFirst.mockResolvedValue({ role: "ADMIN" });
   prisma.recurringInvoiceTemplate.findFirst.mockResolvedValue(null);
@@ -43,7 +43,9 @@ const commit = (body: any) => COMMIT(new NextRequest("https://h/x", { method: "P
 const list = () => LIST(new NextRequest("https://h/api/v1/facturacion/recurring-templates", { method: "GET" }), { params: {} });
 
 describe("preview", () => {
-  it("flag off → 404", async () => {
+  it("flag OFF por defecto (opt-in) → 404", async () => {
+    delete process.env.HUB_RECURRING_INVOICES; // sin activar
+    expect((await preview({ format: "csv", content: CSV })).status).toBe(404);
     process.env.HUB_RECURRING_INVOICES = "off";
     expect((await preview({ format: "csv", content: CSV })).status).toBe(404);
   });

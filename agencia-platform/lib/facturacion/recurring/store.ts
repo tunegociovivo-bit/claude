@@ -79,7 +79,7 @@ export type TemplateListItem = {
   syncStatus: string;
 };
 
-export async function listTemplates(prisma: PrismaLike, workspaceId: string, opts: { status?: string; q?: string; limit?: number }): Promise<{ items: TemplateListItem[]; summary: { active: number; paused: number; draft: number; error: number; monthlyCents: number; annualCents: number } }> {
+export async function listTemplates(prisma: PrismaLike, workspaceId: string, opts: { status?: string; limit?: number }): Promise<{ items: TemplateListItem[]; summary: { active: number; paused: number; draft: number; error: number; monthlyCents: number; annualCents: number } }> {
   const where: any = { workspaceId };
   if (opts.status && ["active", "paused", "draft", "archived"].includes(opts.status)) where.status = opts.status;
   const rows = await prisma.recurringInvoiceTemplate.findMany({

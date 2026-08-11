@@ -21,7 +21,8 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   await requireAdmin(api);
   const sp = new URL(req.url).searchParams;
   const status = sp.get("status") ?? undefined;
-  const q = sp.get("q") ?? undefined;
-  const data = await listTemplates(prisma, api.workspaceId, { status, q });
+  // La búsqueda por texto es client-side (dataset acotado); no se expone `q`
+  // server-side para no dar una falsa sensación de filtrado tras el `take`.
+  const data = await listTemplates(prisma, api.workspaceId, { status });
   return NextResponse.json(data);
 });

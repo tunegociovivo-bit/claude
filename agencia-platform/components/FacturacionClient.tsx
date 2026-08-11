@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Users, X, Loader2, Search, Check, FileText, Wallet, Upload, Download, Landmark, Repeat } from "lucide-react";
 import RecurringTemplatesClient from "@/components/facturacion/RecurringTemplatesClient";
 
-const RECURRING_UI = process.env.NEXT_PUBLIC_RECURRING_INVOICES !== "off";
+// Opt-in: módulo financiero nuevo, oculto salvo activación explícita.
+const RECURRING_UI = process.env.NEXT_PUBLIC_RECURRING_INVOICES === "on";
 import { formatMoney } from "@/lib/invoicing/core";
 import FacturasClient from "@/components/admin/FacturasClient";
 import GastosClient from "@/components/GastosClient";

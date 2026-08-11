@@ -127,17 +127,59 @@ describe("dedupe / idempotencia (checksum)", () => {
     const changed = previewCsv(CSV_OK.replace("100,1,21", "200,1,21")).items[0].template!;
     expect(changed.checksum).not.toBe(a.checksum);
   });
-  it("duplicado dentro del fichero se cuenta", () => {
+  it("duplicado por CONTENIDO se cuenta (aunque el externalId difiera)", () => {
     const csv = [
       "externalId,clientName,description,unitPrice,taxRate",
       "DUP,Acme,C,10,21",
-      "DUP2,Acme,C,10,21"
+      "DUP2,Acme,C,10,21" // mismo contenido, distinto externalId → 1 duplicado
     ].join("\n");
-    // externalId distintos → no dup; pero mismo externalId+checksum sí:
-    const dupCsv = "externalId,clientName,description,unitPrice,taxRate\nSAME,Acme,C,10,21\nSAME,Acme,C,10,21";
-    // 'SAME' agrupa en UNA plantilla multi-línea → 1 item, no dup. Verificamos el path multi-fila distinto:
-    expect(previewCsv(csv).duplicatesInFile).toBe(0);
-    expect(previewCsv(dupCsv).total).toBe(1);
+    expect(previewCsv(csv).total).toBe(2);
+    expect(previewCsv(csv).duplicatesInFile).toBe(1);
+    // 'SAME' repetido agrupa en UNA plantilla multi-línea → 1 item
+    const same = "externalId,clientName,description,unitPrice,taxRate\nSAME,Acme,C,10,21\nSAME,Acme,C,10,21";
+    expect(previewCsv(same).total).toBe(1);
+  });
+});
+
+describe("folded review — IVA estricto, sin fallback a 21%", () => {
+  it("'10%' / 'exento' / vacío → ERROR de IVA (no se asume 21%)", () => {
+    const mk = (iva: string) => `externalId,clientName,description,unitPrice,taxRate\nX,Cli,C,10,${iva}`;
+    expect(previewCsv(mk("10%")).items[0].errors.some((e) => e.field.includes("taxRate"))).toBe(false); // 10% → 10 válido
+    expect(previewCsv(mk("10%")).items[0].template!.lines[0].taxRate).toBe(10);
+    expect(previewCsv(mk("exento")).items[0].errors.some((e) => e.field.includes("taxRate"))).toBe(true);
+    expect(previewCsv(mk("")).items[0].errors.some((e) => e.field.includes("taxRate"))).toBe(true);
+    expect(previewCsv(mk("17")).items[0].errors.some((e) => e.field.includes("taxRate"))).toBe(true); // no permitido
+  });
+});
+
+describe("folded review — importe negativo / overflow / día no entero", () => {
+  it("negativo y overflow se rechazan", () => {
+    expect(previewCsv("externalId,clientName,description,unitPrice,taxRate\nX,Cli,C,-10,21").items[0].errors.some((e) => e.message.includes("negativo"))).toBe(true);
+    expect(previewCsv("externalId,clientName,description,unitPrice,taxRate\nX,Cli,C,50000000,21").items[0].errors.some((e) => e.message.includes("grande"))).toBe(true);
+  });
+  it("dayOfMonth no entero se rechaza", () => {
+    expect(previewCsv("externalId,clientName,description,unitPrice,taxRate,dayOfMonth\nX,Cli,C,10,21,15.5").items[0].errors.some((e) => e.field === "dayOfMonth")).toBe(true);
+  });
+});
+
+describe("folded review — externalId sintético es CONTENT-based (sin colisión entre ficheros)", () => {
+  it("filas sin externalId → clave auto-<checksum>, no posición", () => {
+    const a = previewCsv("clientName,description,unitPrice,taxRate\nAcme,C,10,21").items[0].externalId;
+    const b = previewCsv("clientName,description,unitPrice,taxRate\nBeta,D,20,21").items[0].externalId;
+    expect(a).toMatch(/^auto-/);
+    expect(b).toMatch(/^auto-/);
+    expect(a).not.toBe(b); // contenido distinto → clave distinta (no machaca)
+    // mismo contenido → misma clave (idempotente entre ficheros)
+    const a2 = previewCsv("clientName,description,unitPrice,taxRate\nAcme,C,10,21").items[0].externalId;
+    expect(a2).toBe(a);
+  });
+});
+
+describe("folded review — checksum sensible a método de pago/fechas", () => {
+  it("cambiar paymentMethod cambia el checksum (no se salta el update)", () => {
+    const base = "externalId,clientName,description,unitPrice,taxRate,paymentMethod\nT,Cli,C,10,21,TRANSFER";
+    const changed = "externalId,clientName,description,unitPrice,taxRate,paymentMethod\nT,Cli,C,10,21,REMITTANCE";
+    expect(previewCsv(base).items[0].template!.checksum).not.toBe(previewCsv(changed).items[0].template!.checksum);
   });
 });
 

@@ -194,7 +194,12 @@ function ImportWizard({ onImported }: { onImported: () => void }) {
       .then((d) => {
         if (d?.error) setMsg(d.error.message);
         else {
-          setMsg(`Importado: ${d.created} nuevas, ${d.updated} actualizadas, ${d.unchanged} sin cambios${d.skippedInvalid ? `, ${d.skippedInvalid} inválidas omitidas` : ""}.`);
+          const failed = Array.isArray(d.errors) ? d.errors.length : 0;
+          setMsg(
+            `Importado: ${d.created} nuevas, ${d.updated} actualizadas, ${d.unchanged} sin cambios` +
+              `${d.skippedInvalid ? `, ${d.skippedInvalid} inválidas omitidas` : ""}` +
+              `${failed ? `, ⚠ ${failed} fallaron al guardar` : ""}.`
+          );
           setPreview(null);
           onImported();
         }
