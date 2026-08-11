@@ -7,7 +7,11 @@ import {
   businessClock,
   effectiveOpeningHours,
 } from "../lib/ai/sonia";
-import { parseAppointmentDateTime, zonedDateTime } from "../lib/appointments";
+import {
+  APPOINTMENT_TRANSACTION_OPTIONS,
+  parseAppointmentDateTime,
+  zonedDateTime,
+} from "../lib/appointments";
 import type { WorkspaceSettings } from "../lib/settings";
 
 const settings = {
@@ -87,4 +91,9 @@ test("no ofrece huecos de hoy que ya han pasado", () => {
     suggested: ["2026-08-11T11:00:00"],
     hasMore: false,
   });
+});
+
+test("las reservas usan una transacción portable sin bloqueos de sesión", () => {
+  assert.equal(APPOINTMENT_TRANSACTION_OPTIONS.isolationLevel, "Serializable");
+  assert.equal(APPOINTMENT_TRANSACTION_OPTIONS.timeout, 10_000);
 });
