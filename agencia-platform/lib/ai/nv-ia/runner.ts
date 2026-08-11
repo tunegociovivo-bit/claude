@@ -14,6 +14,7 @@ import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
 import { deepSanitizeStrings, stripLoneSurrogates } from "@/lib/ai/sanitize";
 import { prisma } from "@/lib/db/prisma";
 import { logAiUsage } from "@/lib/ai/usage";
+import { toolGateMode, toolDanger, blockedToolResult } from "@/lib/ai/nv-ia/tool-gate";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS, type ToolContext } from "./tools";
 import { DEFAULT_AGENT_CONFIG, type AgentLogStep, type AgentRunResult, type AiAgentConfig } from "./types";
 import {
@@ -1578,12 +1579,27 @@ export async function executeAgentRun(opts: {
           output = { error: `Tool desconocida: ${tu.name}` };
           isError = true;
         } else {
-          try {
-            output = await executor(tu.input as any, ctx);
-            if (output && typeof output === "object" && "error" in output) isError = true;
-          } catch (e: any) {
-            output = { error: String(e?.message ?? e) };
+          // GATE SERVER-SIDE OBLIGATORIO: las tools mutantes peligrosas (dinero,
+          // mensajería, Make mutante) NO se ejecutan de forma autónoma. La
+          // decisión de peligro la toma el SERVIDOR (tool-gate), no el modelo.
+          const danger = toolDanger(tu.name, tu.input);
+          const gateMode = toolGateMode();
+          if (danger && gateMode === "enforce") {
+            output = blockedToolResult(tu.name, danger);
             isError = true;
+          } else {
+            if (danger && gateMode === "log") {
+              console.warn(
+                `[ai-tool-gate:log] ${tu.name} (${danger}) se ejecuta en modo shadow; en 'enforce' requeriría aprobación humana.`
+              );
+            }
+            try {
+              output = await executor(tu.input as any, ctx);
+              if (output && typeof output === "object" && "error" in output) isError = true;
+            } catch (e: any) {
+              output = { error: String(e?.message ?? e) };
+              isError = true;
+            }
           }
         }
         // En CUALQUIER acción de Meta (campañas, publicaciones, descargas de
