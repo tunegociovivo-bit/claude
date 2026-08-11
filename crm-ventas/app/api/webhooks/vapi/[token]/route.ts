@@ -6,6 +6,7 @@ import {
   buildSoniaSystemPrompt,
   executeSoniaTool,
   SONIA_TOOL_SCHEMAS,
+  voiceFirstMessage,
 } from "@/lib/ai/sonia";
 import {
   findWorkspaceByToken,
@@ -47,7 +48,7 @@ function buildAssistant(settings: WorkspaceSettings, token: string, globalPrompt
   const baseUrl = publicBaseUrl();
   return {
     name: `${s.agentName} — ${s.businessName || "recepción"}`,
-    firstMessage: s.firstMessage,
+    firstMessage: voiceFirstMessage(settings),
     model: {
       provider: s.vapiModelProvider,
       model: s.vapiModel,

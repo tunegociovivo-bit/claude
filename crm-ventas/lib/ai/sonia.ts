@@ -137,6 +137,14 @@ export function effectiveOpeningHours(settings: WorkspaceSettings): string {
   return match?.[1]?.trim() || settings.sonia.openingHours;
 }
 
+export function voiceFirstMessage(settings: WorkspaceSettings): string {
+  let message = settings.sonia.firstMessage.trim().replace(/\b([\p{L}]+)(\s+\1)\b/giu, "$1");
+  if (/aruksa/i.test(settings.sonia.websiteUrl || "")) {
+    message = message.replace(/aruxa/gi, "Aruksa");
+  }
+  return message;
+}
+
 export function selectAvailableSlots(available: string[], after?: string, now = new Date()) {
   const match = String(after ?? "").match(/^(\d{2}):(\d{2})$/);
   const minTime = match ? Number(match[1]) * 60 + Number(match[2]) : null;
@@ -295,11 +303,12 @@ export function buildSoniaSystemPrompt(
     "Cómo agendar una cita:",
     "1) Antes de consultar o prometer una hora, averigua el tratamiento y su duración total. Si hay opciones (por ejemplo 60 o 90 minutos), pregunta cuál quiere.",
     "2) Usa consultar_disponibilidad con la fecha y la duración. Ofrece EXCLUSIVAMENTE horas incluidas en huecos_libres; nunca calcules ni inventes horas por tu cuenta. Antes de enumerar horas, di siempre el día de la semana y la fecha completa devueltos por la herramienta. Ofrece un máximo de tres opciones por turno. Si no le sirven, consulta los siguientes huecos usando despues_de. Nunca ofrezcas una hora que ya haya pasado.",
-    "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos. En llamada, pide el teléfono dígito a dígito y, al confirmarlo, pronuncia cada cifra por separado en grupos cortos; nunca lo leas como una cantidad grande.",
+    "3) Pide nombre y teléfono si no los tienes. Nunca inventes ninguno de los dos. En llamada, pide el teléfono dígito a dígito y, al confirmarlo, pronuncia las nueve cifras una por una, con una pausa breve entre ellas. Ejemplo: 680167881 se confirma «seis, ocho, cero, uno, seis, siete, ocho, ocho, uno»; nunca digas «dieciséis», «ochenta» ni leas el teléfono como una cantidad.",
     "4) Cuando el cliente elija una hora libre y ya tengas tratamiento, duración, nombre y teléfono, llama UNA SOLA VEZ a agendar_cita incluyendo duracion_min y el tratamiento en notas.",
     "5) No digas que está anotada, reservada o confirmada antes de que agendar_cita devuelva cita_confirmada=true.",
     "6) Si agendar_cita devuelve error u ocupado, NO crees otra reserva ni digas que está confirmada: vuelve a consultar disponibilidad una sola vez con la duración completa y ofrece sólo huecos_libres. Si vuelve a fallar, explica que existe un problema técnico y ofrece que el equipo contacte al cliente; no entres en un bucle de reintentos.",
     "7) Conserva durante toda la conversación el tratamiento, duración, fecha, hora elegida, nombre y teléfono ya confirmados. No vuelvas a pedirlos ni los cambies salvo que el cliente los corrija expresamente.",
+    "8) Ejecuta las consultas y reservas directamente. No repitas frases como «ahora voy a consultar», no digas «un momento» más de una vez y no dejes frases cortadas mientras utilizas una herramienta.",
     "",
     `INFORMACIÓN DEL NEGOCIO:\n${s.businessInfo || "(sin información adicional)"}`,
     "",

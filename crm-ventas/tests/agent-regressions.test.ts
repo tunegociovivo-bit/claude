@@ -6,6 +6,7 @@ import {
   whatsappFallbackReply,
   businessClock,
   effectiveOpeningHours,
+  voiceFirstMessage,
 } from "../lib/ai/sonia";
 import {
   APPOINTMENT_TRANSACTION_OPTIONS,
@@ -30,6 +31,7 @@ test("la voz usa horas naturales, teléfonos por cifras y se limita al negocio",
   assert.match(prompt, /nueve y media/);
   assert.match(prompt, /máximo de tres opciones/i);
   assert.match(prompt, /cada cifra por separado/i);
+  assert.match(prompt, /nunca digas «dieciséis»/i);
   assert.match(prompt, /No eres una asistente de cultura general/i);
   assert.match(prompt, /URL exacta/i);
 });
@@ -52,6 +54,21 @@ test("la disponibilidad devuelve tres opciones y permite paginar", () => {
 test("WhatsApp dispone de respuesta segura incluso si falla la IA", () => {
   assert.match(whatsappFallbackReply(settings, true), /Paula/);
   assert.match(whatsappFallbackReply(settings, false), /repetírmelo/i);
+});
+
+test("limpia el saludo de voz y respeta la marca indicada por la web", () => {
+  const configured = {
+    ...settings,
+    sonia: {
+      ...settings.sonia,
+      websiteUrl: "https://aruksathaimassage.com",
+      firstMessage: "Hola, soy soy Paula, la asistente de Aruxa Thai Massage.",
+    },
+  } as WorkspaceSettings;
+  assert.equal(
+    voiceFirstMessage(configured),
+    "Hola, soy Paula, la asistente de Aruksa Thai Massage."
+  );
 });
 
 test("la fecha de voz incluye hoy y maÃ±ana sin depender de la zona del servidor", () => {
