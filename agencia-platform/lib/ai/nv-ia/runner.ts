@@ -15,6 +15,7 @@ import { deepSanitizeStrings, stripLoneSurrogates } from "@/lib/ai/sanitize";
 import { prisma } from "@/lib/db/prisma";
 import { logAiUsage } from "@/lib/ai/usage";
 import { toolGateMode, toolDanger, blockedToolResult } from "@/lib/ai/nv-ia/tool-gate";
+import { maybeRecordAutonomyShadow } from "@/lib/ai/orchestrator/runner-hook";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS, type ToolContext } from "./tools";
 import { DEFAULT_AGENT_CONFIG, type AgentLogStep, type AgentRunResult, type AiAgentConfig } from "./types";
 import {
@@ -1583,6 +1584,10 @@ export async function executeAgentRun(opts: {
           // mensajería, Make mutante) NO se ejecutan de forma autónoma. La
           // decisión de peligro la toma el SERVIDOR (tool-gate), no el modelo.
           const danger = toolDanger(tu.name, tu.input);
+          // SHADOW (Slice 2c): registra la decisión A0–A4 que tomaría el
+          // orquestador para esta tool-call. No cambia el comportamiento; no-op
+          // cuando HUB_AUTONOMY_SHADOW está off.
+          maybeRecordAutonomyShadow(prisma, { workspaceId: ctx.workspaceId, action: tu.name, input: tu.input });
           const gateMode = toolGateMode();
           if (danger && gateMode === "enforce") {
             output = blockedToolResult(tu.name, danger);

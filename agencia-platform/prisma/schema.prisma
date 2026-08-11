@@ -240,6 +240,9 @@ model Workspace {
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
+  aiOrchestrations          AiOrchestration[]
+  aiRunSteps                AiRunStep[]
+  aiApprovals               AiApproval[]
   aiClientMemories          AiClientMemory[]
   aiAgentLessons            AiAgentLesson[]
   taskTemplates             TaskTemplate[]
@@ -2193,6 +2196,84 @@ model AuditLog {
 
   @@index([workspaceId])
   @@index([createdAt])
+}
+
+// ── Orquestador resiliente de SONIA (Slice 2c) ──────────────────────────────
+// Plano de control ADITIVO. NO cambia AiAgentRunStatus. OFF por defecto
+// (flag AI_RUN_ORCHESTRATOR); shadow/dry-run. `state`/`phase` son String (no
+// enum) siguiendo el patrón del repo. `version` = concurrencia optimista.
+model AiOrchestration {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  taskId       String
+  runId        String? // AiAgentRun.id asociado (si lo hay)
+  state        String    @default("queued") // máquina de estados (state-machine.ts)
+  version      Int       @default(0) // optimistic concurrency
+  mode         String    @default("shadow") // shadow | live
+  strategy     String? // estrategia actual (strategy.ts)
+  plan         Json? // DAG de subtareas (dag.ts)
+  limits       Json? // BudgetLimits
+  usage        Json? // BudgetUsage acumulado
+  fingerprints Json? // huellas de intentos (loop detector)
+  decision     Json? // último DecisionPacket (si escaló)
+  lastError    String?   @db.Text
+  nextRunAt    DateTime? // cuándo salir de waiting_backoff
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  steps     AiRunStep[]
+
+  @@unique([workspaceId, taskId]) // una orquestación viva por tarea (idempotencia)
+  @@index([workspaceId, state])
+  @@index([workspaceId, nextRunAt])
+}
+
+// Log APPEND-ONLY de intentos/pasos (source of truth tipada para escalada/panel).
+model AiRunStep {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  orchestrationId String
+  seq             Int
+  phase           String // fase de la máquina de estados en ese paso
+  strategy        String?
+  provider        String? // slot de proveedor (Slice 3)
+  model           String?
+  ok              Boolean?
+  diagnosis       String? // clase de diagnóstico
+  costUsd         Decimal? @db.Decimal(10, 4)
+  tokensIn        Int?
+  tokensOut       Int?
+  fingerprint     String?
+  error           String?  @db.Text
+  evidence        Json? // qué se verificó y resultado (sin PII sensible)
+  createdAt       DateTime @default(now())
+
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orchestration AiOrchestration @relation(fields: [orchestrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, orchestrationId, seq])
+}
+
+// Aprobaciones REUTILIZABLES (scope/importe/volumen/caducidad/revocación).
+// NUNCA hay aprobación implícita: A4/sensible requiere una fila viva que la cubra.
+model AiApproval {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  action         String // acción o patrón ("a.*", "*")
+  scope          String? // clientId u otro; null/"*" = amplio
+  maxAmountCents Int?
+  maxVolume      Int?
+  remaining      Int? // usos restantes (null = ilimitado dentro de límites)
+  grantedById    String?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, action, expiresAt])
 }
 
 // ====================================================================
