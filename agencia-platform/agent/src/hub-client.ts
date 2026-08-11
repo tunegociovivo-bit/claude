@@ -25,7 +25,9 @@ export interface ClaimedJob {
 export interface ReconciliationConfig {
   enabled: boolean;
   startsAt: string;
-  pollMinutes: number;
+  dailyAt: string;
+  timeZone: string;
+  lastSyncAt: string | null;
 }
 
 export class HubClient {

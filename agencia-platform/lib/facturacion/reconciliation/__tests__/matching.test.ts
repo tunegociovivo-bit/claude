@@ -20,8 +20,12 @@ describe("conciliación bancaria desde la fecha de corte", () => {
     expect(matchIncomingPayment({ amountCents: 36300, reference: "Cobro FAC-003024", counterpartyName: "" }, invoices)).toMatchObject({ invoiceId: "new", confidence: "EXACT_REFERENCE" });
   });
 
-  it("elige la factura pendiente más reciente cuando cliente e importe coinciden", () => {
-    expect(matchIncomingPayment({ amountCents: 36300, reference: "Adeudo SEPA", counterpartyName: "RS ADVOCATS" }, invoices)).toMatchObject({ invoiceId: "new", confidence: "CLIENT_AMOUNT" });
+  it("deja en revisión cliente e importe cuando hay más de una factura posible", () => {
+    expect(matchIncomingPayment({ amountCents: 36300, reference: "Adeudo SEPA", counterpartyName: "RS ADVOCATS" }, invoices)).toBeNull();
+  });
+
+  it("concilia por cliente e importe solo si la factura es única", () => {
+    expect(matchIncomingPayment({ amountCents: 36300, reference: "Adeudo SEPA", counterpartyName: "RS ADVOCATS" }, [invoices[0], invoices[2]])).toMatchObject({ invoiceId: "new", confidence: "CLIENT_AMOUNT" });
   });
 
   it("no concilia automáticamente cuando solo coincide el importe", () => {

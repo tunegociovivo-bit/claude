@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     enabled: config.enabled,
     startsAt: config.startsAt.toISOString(),
-    pollMinutes: config.pollMinutes,
+    dailyAt: "08:00",
+    timeZone: "Europe/Madrid",
+    lastSyncAt: config.lastSyncAt?.toISOString() ?? null,
     provider: config.provider,
     profile: config.profile
   });

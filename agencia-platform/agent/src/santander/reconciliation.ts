@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { isAuthenticatedSantanderUrl } from "./login.js";
+import { decideLoginAction, isAuthenticatedSantanderUrl } from "./login.js";
+import { hasEncryptedCredential, hasEncryptedUsername, readEncryptedAccessKey, readEncryptedUsername } from "../credential-store.js";
 
 export type BrowserMovement = {
   externalId: string;
@@ -8,7 +9,57 @@ export type BrowserMovement = {
   currency: "EUR";
   counterpartyName: string | null;
   reference: string;
+  remittanceNumber?: string;
+  debtorIbanLast4?: string;
+  accountMasked?: string;
 };
+
+function localParts(date: Date, timeZone: string): Record<string, string> {
+  return Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+
+export function shouldRunDailyReconciliation(now: Date, lastSyncAt: Date | null, dailyAt = "08:00", timeZone = "Europe/Madrid"): boolean {
+  if (!Number.isFinite(now.getTime())) return false;
+  const [hour, minute] = dailyAt.split(":").map(Number);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
+  const current = localParts(now, timeZone);
+  if (Number(current.hour) * 60 + Number(current.minute) < hour * 60 + minute) return false;
+  if (!lastSyncAt || !Number.isFinite(lastSyncAt.getTime())) return true;
+  const last = localParts(lastSyncAt, timeZone);
+  return `${last.year}-${last.month}-${last.day}` !== `${current.year}-${current.month}-${current.day}`;
+}
+
+export type SepaRemittanceRow = { dueAt: string; amountCents: number; remittanceNumber: string; status: string };
+
+export function parseSepaRemittanceRow(text: string): SepaRemittanceRow | null {
+  const compact = text.replace(/\s+/g, " ").trim();
+  const match = compact.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+\d+\s+(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})\s+EUR\s+(\d{4}\s+\d{4}\s+\S+)/i);
+  if (!match) return null;
+  const amountCents = Number(match[4].replace(/\./g, "")) * 100 + Number(match[5]);
+  const remittanceNumber = match[6].replace(/\s+/g, "");
+  const status = compact.includes("Contabilizada") ? "Contabilizada" : compact.slice(-80);
+  return { dueAt: `${match[3]}-${match[2]}-${match[1]}T12:00:00.000Z`, amountCents, remittanceNumber, status };
+}
+
+export type SepaReceiptRow = { receiptNumber: string; amountCents: number; debtorIbanLast4: string; status: string };
+
+export function parseSepaReceiptRow(text: string): SepaReceiptRow | null {
+  const compact = text.replace(/\s+/g, " ").trim();
+  const amount = compact.match(/(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})\s+EUR/i);
+  const receipt = compact.match(/^(\d{4}\s+\d{4}\s+\S+)/);
+  const iban = compact.match(/IBAN\s+ES\d{2}(?:\s*\d{4}){5}/i);
+  if (!amount || !receipt || !iban) return null;
+  const ibanDigits = iban[0].replace(/\D/g, "");
+  const status = /orden\s+liquidada/i.test(compact) ? "Orden liquidada" : (/devuelt/i.test(compact) ? "Orden devuelta" : "Otro");
+  return {
+    receiptNumber: receipt[1].replace(/\s+/g, ""),
+    amountCents: Number(amount[1].replace(/\./g, "")) * 100 + Number(amount[2]),
+    debtorIbanLast4: ibanDigits.slice(-4),
+    status
+  };
+}
 
 export function parseSantanderMovementText(text: string, now = new Date()): BrowserMovement | null {
   const compact = text.replace(/\s+/g, " ").trim();
@@ -29,7 +80,7 @@ export function parseSantanderMovementText(text: string, now = new Date()): Brow
 }
 
 export class SantanderReconciliationReader {
-  constructor(private opts: { cdpUrl: string; santanderOrigin: string }) {}
+  constructor(private opts: { cdpUrl: string; santanderOrigin: string; credentialFile: string }) {}
 
   async scan(startsAt: Date): Promise<BrowserMovement[]> {
     const { chromium } = await import("playwright-core");
@@ -38,32 +89,141 @@ export class SantanderReconciliationReader {
     try {
       const context = browser.contexts()[0];
       if (!context) return [];
-      const authenticated = context.pages().some((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin));
-      if (!authenticated) return [];
+      if (!await this.ensureAuthenticated(context)) return [];
       page = await context.newPage();
-      await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/posglobal`, { waitUntil: "domcontentloaded", timeout: 20000 });
-      let home: any = null;
-      for (let attempt = 0; attempt < 30; attempt++) {
-        home = page.frames().find((frame: any) => frame.url().includes("/paas/posglobal/home"));
-        if (home) break;
-        await page.waitForTimeout(300);
-      }
-      if (!home) return [];
-      const movements = home.getByText(/movimientos nuevos en .* cuentas/i).first();
-      if (await movements.count()) await movements.click().catch(() => {});
-      await page.waitForTimeout(1200);
-      const candidates: string[] = await home.locator("tr:visible, li:visible, article:visible, [role=row]:visible").evaluateAll((elements: Element[]) =>
-        elements.map((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim()).filter((text) => text.length >= 8 && text.length <= 700)
-      ).catch(() => []);
+      await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: 20000 });
+      let frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
+      if (!frame) return [];
+      const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
+      if (!await consultation.isVisible().catch(() => false)) return [];
+      await consultation.click();
+      frame = await this.waitFrame(page, /Tipo de remesa/i);
+      if (!frame) return [];
+      await frame.getByRole("listbox", { name: /Elige una opción/i }).click();
+      await frame.getByRole("option", { name: /^Domiciliaciones$/i }).click();
+      await frame.getByRole("listbox", { name: /^Todos$/i }).click();
+      await frame.getByRole("option", { name: /Domiciliaciones \(CORE\)/i }).click();
+      await frame.getByRole("button", { name: /^Aplicar$/i }).click();
+      frame = await this.waitFrame(page, /Cuenta abono[\s\S]*Identificador[\s\S]*Acreedor/i);
+      if (!frame) return [];
+      const account = frame.getByText(/\d{4}\s+\d{4}\s+\d{10}/).first();
+      const accountToggle = account.locator("xpath=ancestor::*[.//button][1]//button").first();
+      await accountToggle.click();
+      await frame.getByRole("button", { name: /^Remesas$/i }).click();
+      frame = await this.waitFrame(page, /Remesas de un acreedor/i);
+      if (!frame) return [];
+      await this.applyDateFilter(frame, startsAt, new Date());
+
       const unique = new Map<string, BrowserMovement>();
-      for (const text of candidates) {
-        const parsed = parseSantanderMovementText(text);
-        if (parsed && new Date(parsed.bookedAt) >= startsAt) unique.set(parsed.externalId, parsed);
+      for (let pageIndex = 0; pageIndex < 50; pageIndex++) {
+        const rowTexts: string[] = await frame.locator("table tbody tr").allInnerTexts().catch(() => []);
+        const remittances = rowTexts.map(parseSepaRemittanceRow).filter((item): item is SepaRemittanceRow => Boolean(item))
+          .filter((item) => item.status === "Contabilizada" && new Date(item.dueAt) >= startsAt);
+        for (const remittance of remittances) {
+          const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
+          await row.getByRole("button").click();
+          const receipts = row.getByRole("link", { name: /^Recibos$/i });
+          if (!await receipts.isVisible().catch(() => false)) continue;
+          await receipts.click();
+          const receiptFrame = await this.waitFrame(page, /Recibos de una remesa/i);
+          if (!receiptFrame) continue;
+          const receiptTexts: string[] = await receiptFrame.locator("table tbody tr").allInnerTexts().catch(() => []);
+          for (const text of receiptTexts) {
+            const receipt = parseSepaReceiptRow(text);
+            if (!receipt || receipt.status !== "Orden liquidada") continue;
+            const externalId = createHash("sha256").update(`${remittance.remittanceNumber}|${receipt.receiptNumber}`).digest("hex");
+            unique.set(externalId, {
+              externalId,
+              bookedAt: remittance.dueAt,
+              amountCents: receipt.amountCents,
+              currency: "EUR",
+              counterpartyName: null,
+              reference: `Remesa SEPA ${remittance.remittanceNumber} · Recibo ${receipt.receiptNumber} · ${receipt.status}`,
+              accountMasked: `****${receipt.debtorIbanLast4}`,
+              remittanceNumber: remittance.remittanceNumber,
+              debtorIbanLast4: receipt.debtorIbanLast4
+            });
+          }
+          await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+          frame = await this.waitFrame(page, /Remesas de un acreedor/i) ?? frame;
+        }
+        const next = frame.getByRole("button", { name: /^Ver siguientes$/i });
+        if (!await next.isVisible().catch(() => false) || !await next.isEnabled().catch(() => false)) break;
+        await next.click();
+        await frame.waitForTimeout(400);
       }
       return [...unique.values()];
     } finally {
       if (page) await page.close().catch(() => {});
       await browser.close().catch(() => {});
     }
+  }
+
+  private async ensureAuthenticated(context: any): Promise<boolean> {
+    if (context.pages().some((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin))) return true;
+    const page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
+    if (!page) return false;
+    const reconnect = page.getByRole("button", { name: /^volver a conectar$/i });
+    if (await reconnect.count() === 1 && await reconnect.isVisible().catch(() => false)) {
+      await reconnect.click();
+      await page.waitForTimeout(500);
+    }
+    const fields = page.locator('input[type="text"]');
+    const visible: any[] = [];
+    for (let index = 0; index < await fields.count(); index++) {
+      const field = fields.nth(index);
+      if (await field.isVisible().catch(() => false)) visible.push(field);
+    }
+    const rememberedUser = await page.getByText(/cambiar usuario/i).first().isVisible().catch(() => false);
+    const action = decideLoginAction({
+      currentUrl: page.url(), allowedOrigin: this.opts.santanderOrigin, visibleKeyFields: visible.length, rememberedUser,
+      hasStoredCredential: hasEncryptedCredential(this.opts.credentialFile), hasStoredUsername: hasEncryptedUsername(this.opts.credentialFile)
+    });
+    if (action === "PAUSE") return false;
+    let key = "";
+    let username = "";
+    try {
+      key = readEncryptedAccessKey(this.opts.credentialFile);
+      const keyFields = action === "SUBMIT_SAVED_CREDENTIALS" ? visible.slice(1) : visible;
+      if (action === "SUBMIT_SAVED_CREDENTIALS") {
+        username = readEncryptedUsername(this.opts.credentialFile);
+        await visible[0].fill(username);
+      }
+      for (let index = 0; index < keyFields.length; index++) await keyFields[index].fill(key[index]);
+      key = "";
+      username = "";
+      const enter = page.getByRole("button", { name: /^entrar$/i });
+      if (await enter.count() !== 1) return false;
+      await enter.click();
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin)) return true;
+        await page.waitForTimeout(500);
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      key = "";
+      username = "";
+    }
+  }
+
+  private async waitFrame(page: any, pattern: RegExp, attempts = 40): Promise<any | null> {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      for (const frame of page.frames()) {
+        const text = await frame.locator("body").innerText().catch(() => "");
+        if (pattern.test(text)) return frame;
+      }
+      await page.waitForTimeout(300);
+    }
+    return null;
+  }
+
+  private async applyDateFilter(frame: any, startsAt: Date, endsAt: Date): Promise<void> {
+    const format = (date: Date) => new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Madrid" }).format(date);
+    await frame.getByRole("textbox", { name: /^Desde$/i }).fill(format(startsAt));
+    await frame.getByRole("textbox", { name: /^Hasta$/i }).fill(format(endsAt));
+    await frame.getByRole("button", { name: /^Aplicar filtros$/i }).click();
+    await frame.waitForTimeout(500);
   }
 }

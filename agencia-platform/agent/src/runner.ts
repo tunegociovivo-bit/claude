@@ -14,12 +14,11 @@ import { HubClient, type ClaimedJob } from "./hub-client.js";
 import type { SantanderAdapter, AdapterHooks, AuthorizedJob } from "./santander/types.js";
 import { MockSantanderAdapter } from "./santander/mock.js";
 import { LiveSantanderAdapter } from "./santander/live.js";
-import { SantanderReconciliationReader } from "./santander/reconciliation.js";
+import { SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
 
 export class Runner {
   private stopped = false;
   private hub: HubClient;
-  private lastReconciliationAt = 0;
 
   constructor(private cfg: AgentConfig, private log: Logger) {
     this.hub = new HubClient(cfg);
@@ -58,12 +57,9 @@ export class Runner {
     try {
       const config = await this.hub.reconciliationConfig();
       if (!config?.enabled) return;
-      const interval = Math.max(5, config.pollMinutes || 30) * 60_000;
-      if (Date.now() - this.lastReconciliationAt < interval) return;
-      this.lastReconciliationAt = Date.now();
-      const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin });
+      if (!shouldRunDailyReconciliation(new Date(), config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
+      const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin, credentialFile: this.cfg.santanderCredentialFile });
       const movements = await reader.scan(new Date(config.startsAt));
-      if (!movements.length) return;
       const result = await this.hub.reportMovements(movements);
       this.log.info(`Conciliación: ${result.imported} movimientos nuevos, ${result.matched} facturas conciliadas.`);
     } catch (e: any) {

@@ -12,8 +12,9 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { parseSantanderMovementText } from "../src/santander/reconciliation.js";
+import { parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
+import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
@@ -53,6 +54,23 @@ async function main() {
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
   ok("ignora un cargo Santander", parseSantanderMovementText("10/08/2026 COMISIÓN -12,00 EUR") === null);
+
+  ok("no concilia antes de las 08:00 de Madrid", !shouldRunDailyReconciliation(new Date("2026-08-11T05:59:00Z"), null, "08:00", "Europe/Madrid"));
+  ok("concilia después de las 08:00 si hoy no se ejecutó", shouldRunDailyReconciliation(new Date("2026-08-11T06:01:00Z"), new Date("2026-08-10T07:00:00Z"), "08:00", "Europe/Madrid"));
+  ok("solo concilia una vez por día local", !shouldRunDailyReconciliation(new Date("2026-08-11T12:00:00Z"), new Date("2026-08-11T06:01:00Z"), "08:00", "Europe/Madrid"));
+  const sepaRemittance = parseSepaRemittanceRow("11/08/2026 1 181,50 EUR 0049 6611 7530000602 0049 6611 2317784712 Contabilizada ui-btn");
+  ok("lee una remesa SEPA contabilizada", sepaRemittance?.amountCents === 18150 && sepaRemittance.remittanceNumber === "004966117530000602");
+  const sepaReceipt = parseSepaReceiptRow("0049 6611 7540000WXZ 000001226783926062611103080 423,50 EUR IBAN ES57 2080 0646 5730 4185 1845 Orden liquidada ui-btn");
+  ok("lee un recibo liquidado con IBAN del deudor", sepaReceipt?.amountCents === 42350 && sepaReceipt.debtorIbanLast4 === "1845" && sepaReceipt.status === "Orden liquidada");
+  ok("distingue una orden devuelta", parseSepaReceiptRow("0049 6611 7540000WXZ REF 423,50 EUR IBAN ES57 2080 0646 5730 4185 1845 Orden devuelta")?.status === "Orden devuelta");
+  const exactSepa = matchSepaReceipt({ amountCents: 42350, debtorIbanLast4: "1845", bookedAt: new Date("2026-08-11T12:00:00Z") }, [
+    { invoiceId: "invoice-1", amountCents: 42350, ibanMasked: "ES** **** **** **** **** 1845", chargeDate: new Date("2026-08-11T07:00:00Z") }
+  ]);
+  ok("vincula un recibo por fecha, importe e IBAN", exactSepa?.invoiceId === "invoice-1" && exactSepa.confidence === "SEPA_RECEIPT");
+  ok("deja en revisión una coincidencia SEPA ambigua", matchSepaReceipt({ amountCents: 42350, debtorIbanLast4: "1845", bookedAt: new Date("2026-08-11T12:00:00Z") }, [
+    { invoiceId: "invoice-1", amountCents: 42350, ibanMasked: "****1845", chargeDate: new Date("2026-08-11T07:00:00Z") },
+    { invoiceId: "invoice-2", amountCents: 42350, ibanMasked: "****1845", chargeDate: new Date("2026-08-11T07:30:00Z") }
+  ]) === null);
 
   console.log("Acceso seguro a Santander:");
   ok("acepta una clave de acceso de ocho caracteres", validateAccessKey("12345678") === "12345678");

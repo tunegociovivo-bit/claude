@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
-import { matchIncomingPayment, shouldImportMovement } from "./matching";
+import { matchIncomingPayment, matchSepaReceipt, shouldImportMovement } from "./matching";
 
 export const NEGOCIO_VIVO_RECONCILIATION_START = new Date("2026-08-09T22:00:00.000Z");
 
@@ -13,6 +13,8 @@ export type IncomingBankMovement = {
   counterpartyName?: string | null;
   reference?: string | null;
   accountMasked?: string | null;
+  remittanceNumber?: string | null;
+  debtorIbanLast4?: string | null;
 };
 
 function clean(value: unknown, max = 500): string | null {
@@ -33,15 +35,27 @@ export async function ensureReconciliationConfig(workspaceId: string) {
       enabled: true,
       startsAt: NEGOCIO_VIVO_RECONCILIATION_START,
       provider: "SANTANDER",
-      pollMinutes: 30,
+      pollMinutes: 1440,
       profile: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         santanderOrigin: "https://empresas3.gruposantander.es",
-        reconciliationMode: "account-movements",
+        reconciliationMode: "sepa-core-receipts",
+        dailyAt: "08:00",
+        timeZone: "Europe/Madrid",
         storesBankCredentials: false
       }
     },
-    update: {}
+    update: {
+      pollMinutes: 1440,
+      profile: {
+        schemaVersion: 2,
+        santanderOrigin: "https://empresas3.gruposantander.es",
+        reconciliationMode: "sepa-core-receipts",
+        dailyAt: "08:00",
+        timeZone: "Europe/Madrid",
+        storesBankCredentials: false
+      }
+    }
   });
 }
 
@@ -74,6 +88,17 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       select: { invoiceId: true }
     });
     const remittanceInvoiceIds = recentRemittances.map((item) => item.invoiceId);
+    const preparedJobs = movement.remittanceNumber && movement.debtorIbanLast4
+      ? await prisma.remittanceJob.findMany({
+          where: {
+            workspaceId,
+            status: "PREPARED_PENDING_SIGNATURE",
+            amountCents: movement.amountCents,
+            chargeDate: { gte: config.startsAt }
+          },
+          select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true }
+        })
+      : [];
     const invoices = await prisma.invoice.findMany({
       where: {
         workspaceId,
@@ -90,11 +115,15 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       orderBy: { issueDate: "desc" },
       take: 500
     });
-    const candidate = matchIncomingPayment({
+    const genericCandidate = matchIncomingPayment({
       amountCents: movement.amountCents,
       reference: clean(movement.reference) ?? "",
       counterpartyName: clean(movement.counterpartyName, 200) ?? ""
     }, invoices.map((invoice) => ({ ...invoice, clientName: clientName(invoice.clientSnapshot) })));
+    const sepaCandidate = movement.debtorIbanLast4
+      ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, bookedAt }, preparedJobs)
+      : null;
+    const candidate = sepaCandidate ?? genericCandidate;
 
     await prisma.$transaction(async (tx) => {
       await tx.bankTransaction.create({
