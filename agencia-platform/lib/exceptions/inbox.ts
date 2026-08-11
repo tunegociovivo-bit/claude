@@ -27,9 +27,20 @@ import {
   type Severity
 } from "./engine";
 import { sortByPriority, partition, clusterHistorical, buildSections, fromDoneRuns, type Cluster, type Sections, type DoneItem } from "./priority";
+import { applyHidden, liveHiddenKeys, hideKey, type PersistedAction } from "./actions";
 
 type PrismaLike = any;
 const DAY = 86_400_000;
+
+/** Consulta las acciones VIVAS (no revocadas, no caducadas) del workspace, para
+ *  ocultar de la bandeja lo archivado/ignorado/pospuesto (Slice 2b). */
+async function liveActions(prisma: PrismaLike, workspaceId: string, now: Date): Promise<PersistedAction[]> {
+  const rows = await prisma.exceptionAction.findMany({
+    where: { workspaceId, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+    select: { exceptionId: true, action: true, severity: true, expiresAt: true, revokedAt: true }
+  });
+  return rows as PersistedAction[];
+}
 
 export type HistoricalSummary = { source: ExceptionSource; count: number; label: string };
 
@@ -40,6 +51,8 @@ export type ExceptionInbox = {
   capped: boolean;
   view: "active" | "archive";
   activeWindowDays: number;
+  actionsEnabled: boolean; // Slice 2b: persistencia server-side de acciones activa
+  hiddenIds: string[]; // exceptionIds ocultos vivos (solo si includeHidden)
   sections: Sections | null; // solo en view=active
   done: DoneItem[]; // solo en view=active
   historical: { total: number; bySource: HistoricalSummary[] };
@@ -60,6 +73,8 @@ export async function getExceptionInbox(
     includeBilling?: boolean;
     view?: "active" | "archive";
     activeWindowDays?: number;
+    applyActions?: boolean; // Slice 2b: ocultar server-side lo archivado/ignorado/pospuesto
+    includeHidden?: boolean; // devolver TAMBIÉN los ocultos (marcados) para poder mostrarlos
   }
 ): Promise<ExceptionInbox> {
   const { workspaceId } = opts;
@@ -97,7 +112,11 @@ export async function getExceptionInbox(
     const all = [...fromTasks(tasks.map(mapTask) as any, now), ...fromInvoices(invoices.map(mapTask) as any, now)];
     const deduped = dedupe(all);
     const filtered = applyFilters(deduped, opts.filters ?? {});
-    const sorted = sortByPriority(filtered);
+    const hidden = opts.applyActions ? await liveActions(prisma, workspaceId, now) : [];
+    const shown = opts.includeHidden ? filtered : applyHidden(filtered, hidden, now);
+    const sorted = sortByPriority(shown);
+    const hiddenKeys = liveHiddenKeys(hidden, now);
+    const hiddenIds = opts.includeHidden ? sorted.filter((it) => hiddenKeys.has(hideKey(it.id, it.severity))).map((it) => it.id) : [];
     return {
       items: sorted.slice(0, limit),
       summary: summarize(sorted),
@@ -105,6 +124,8 @@ export async function getExceptionInbox(
       capped,
       view,
       activeWindowDays,
+      actionsEnabled: !!opts.applyActions,
+      hiddenIds,
       sections: null,
       done: [],
       historical: { total: sorted.length, bySource: [] },
@@ -166,10 +187,14 @@ export async function getExceptionInbox(
 
   const deduped = dedupe(all);
   const filtered = applyFilters(deduped, opts.filters ?? {});
+  const hidden = opts.applyActions ? await liveActions(prisma, workspaceId, now) : [];
+  const shownItems = opts.includeHidden ? filtered : applyHidden(filtered, hidden, now);
   // Todo lo consultado ya está dentro de la ventana → `active`. `partition` es
   // defensivo por si un colector emitiera algo más antiguo.
-  const { active } = partition(filtered, activeWindowDays);
+  const { active } = partition(shownItems, activeWindowDays);
   const sorted = sortByPriority(active);
+  const hiddenKeys = liveHiddenKeys(hidden, now);
+  const hiddenIds = opts.includeHidden ? sorted.filter((it) => hiddenKeys.has(hideKey(it.id, it.severity))).map((it) => it.id) : [];
 
   const bySource: HistoricalSummary[] = [];
   if (oldTaskCount > 0) bySource.push({ source: "task", count: oldTaskCount, label: `${oldTaskCount} tareas vencidas hace más de ${activeWindowDays} días` });
@@ -182,6 +207,8 @@ export async function getExceptionInbox(
     capped,
     view,
     activeWindowDays,
+    actionsEnabled: !!opts.applyActions,
+    hiddenIds,
     sections: buildSections(sorted, now),
     done: fromDoneRuns(doneRuns as any, now),
     historical: { total: oldTaskCount + oldInvoiceCount, bySource },

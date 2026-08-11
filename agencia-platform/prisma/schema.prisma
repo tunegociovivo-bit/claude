@@ -240,6 +240,7 @@ model Workspace {
   metaCampaigns             MetaCampaign[]
   aiAgentRuns               AiAgentRun[]
   aiDrafts                  AiDraft[]
+  exceptionActions          ExceptionAction[]
   aiClientMemories          AiClientMemory[]
   aiAgentLessons            AiAgentLesson[]
   taskTemplates             TaskTemplate[]
@@ -2193,6 +2194,41 @@ model AuditLog {
 
   @@index([workspaceId])
   @@index([createdAt])
+}
+
+// Estado server-side de una acción sobre una EXCEPCIÓN (Slice 2b). Sustituye el
+// "ocultar" que solo vivía en localStorage: persistente, idempotente y auditado.
+// Aditivo: tabla nueva → `prisma db push` la crea sin lock. `status` es String
+// (no enum) siguiendo el patrón del repo (db push maneja mejor String que enums).
+model ExceptionAction {
+  id          String    @id @default(cuid())
+  workspaceId String
+  // Identidad ESTABLE de la excepción (engine.ts): `${source}:${rowId}`.
+  exceptionId String
+  dedupeKey   String // clave cross-source, persiste tras escalar la severidad
+  source      String // ai_draft|ai_run|invoice|task
+  kind        String
+  // archive | ignore | snooze | reschedule | assign | cleanup_batch
+  action      String
+  reason      String?
+  // Caducidad de la ocultación: al pasar `expiresAt`, la excepción re-aparece.
+  expiresAt   DateTime?
+  // Severidad en el momento de la acción (si escala, la clave cambia y re-aparece).
+  severity    String?
+  // Metadatos NO sensibles (p.ej. reprogramación propuesta, ids del lote).
+  meta        Json?
+  actorId     String?
+  // Revertir sin borrar histórico: una acción revocada deja de estar "viva".
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Idempotencia: una acción "viva" por (workspace, exceptionId, action).
+  @@unique([workspaceId, exceptionId, action])
+  @@index([workspaceId, expiresAt])
+  @@index([workspaceId, dedupeKey])
 }
 
 // ====================================================================

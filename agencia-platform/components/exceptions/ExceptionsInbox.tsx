@@ -42,6 +42,8 @@ type InboxResponse = {
   capped: boolean;
   view: "active" | "archive";
   activeWindowDays: number;
+  actionsEnabled: boolean;
+  hiddenIds: string[];
   sections: Sections | null;
   done: DoneItem[];
   historical: { total: number; bySource: HistoricalSummary[] };
@@ -83,19 +85,20 @@ export default function ExceptionsInbox() {
   const [showHidden, setShowHidden] = useState(false);
   const store = typeof window !== "undefined" ? window.localStorage : null;
 
-  const qs = useCallback((view: "active" | "archive", f: UiFilters) => {
+  const qs = useCallback((view: "active" | "archive", f: UiFilters, includeHidden?: boolean) => {
     const sp = new URLSearchParams();
     if (view === "archive") sp.set("view", "archive");
     if (f.severity && f.severity !== "all") sp.set("severity", f.severity);
     if (f.source && f.source !== "all") sp.set("source", f.source);
+    if (includeHidden) sp.set("includeHidden", "1");
     const s = sp.toString();
     return s ? `?${s}` : "";
   }, []);
 
   const load = useCallback(
-    (f: UiFilters, signal?: AbortSignal) => {
+    (f: UiFilters, signal?: AbortSignal, includeHidden?: boolean) => {
       setState("loading");
-      fetch(`/api/v1/exceptions${qs("active", f)}`, { cache: "no-store", signal })
+      fetch(`/api/v1/exceptions${qs("active", f, includeHidden)}`, { cache: "no-store", signal })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
         .then((d: InboxResponse) => {
           setData(d);
@@ -129,7 +132,7 @@ export default function ExceptionsInbox() {
     }
     setDismissed(loadDismissed(store));
     const ac = new AbortController();
-    load(filters, ac.signal);
+    load(filters, ac.signal, showHidden);
     // Al cambiar filtros, el histórico cargado queda obsoleto.
     setArchive(null);
     setArchiveState("idle");
@@ -140,19 +143,29 @@ export default function ExceptionsInbox() {
     if (tab === "archive" && archiveState === "idle") loadArchive(filters);
   }, [tab, archiveState, loadArchive, filters]);
 
+  // Modo servidor (persistencia activa): al alternar "ver ocultas" se re-consulta
+  // con includeHidden (las ocultas viven en el servidor, no en el cliente).
+  useEffect(() => {
+    if (data?.actionsEnabled && !uiDisabled()) load(filters, undefined, showHidden);
+  }, [showHidden]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const serverMode = !!data?.actionsEnabled;
+
+  const isHidden = useCallback(
+    (it: ExceptionItem) => (serverMode ? (data?.hiddenIds?.includes(it.id) ?? false) : dismissed.includes(dismissKey(it))),
+    [serverMode, data, dismissed]
+  );
+
   const applyLocal = useCallback(
     (items: ExceptionItem[]) => {
       const q = (filters.q ?? "").trim();
       const searched = q ? filterItems(items, { q }) : items;
+      // En modo servidor las ocultas ya las gestiona el backend (includeHidden).
+      if (serverMode) return searched;
       return showHidden ? searched : searched.filter((it) => !dismissed.includes(dismissKey(it)));
     },
-    [filters.q, showHidden, dismissed]
+    [filters.q, showHidden, dismissed, serverMode]
   );
-
-  const hiddenCount = useMemo(() => {
-    const items = data?.items ?? [];
-    return items.filter((it) => dismissed.includes(dismissKey(it))).length;
-  }, [data, dismissed]);
 
   const onCopy = useCallback((it: ExceptionItem) => {
     const text = `[${KIND_LABEL[it.kind]}] ${it.title}\nPor qué: ${it.why}\nQué necesita: ${it.needsFromMe}\nEnlace: ${safeLink(it.link) ?? "(interno)"}`;
@@ -163,7 +176,27 @@ export default function ExceptionsInbox() {
     }
   }, []);
 
-  const onDismiss = useCallback((key: string) => setDismissed(toggleDismissed(store, key)), [store]);
+  // Ocultar/mostrar: server-side (idempotente, auditado) si la persistencia está
+  // activa; si no, localStorage (fallback, comportamiento previo).
+  const onToggleHide = useCallback(
+    (it: ExceptionItem, hidden: boolean) => {
+      if (serverMode) {
+        const body = hidden
+          ? { revoke: true, exceptionId: it.id, action: "archive" }
+          : { exceptionId: it.id, dedupeKey: it.dedupeKey, source: it.source, kind: it.kind, action: "archive", severity: it.severity };
+        fetch("/api/v1/exceptions/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+          .then((r) => {
+            if (r.ok) load(filters, undefined, showHidden);
+          })
+          .catch(() => {});
+      } else {
+        setDismissed(toggleDismissed(store, dismissKey(it)));
+      }
+    },
+    [serverMode, filters, showHidden, store, load]
+  );
+
+  const hiddenCount = useMemo(() => (data?.items ?? []).filter(isHidden).length, [data, isHidden]);
 
   if (state === "disabled") {
     return (
@@ -188,7 +221,7 @@ export default function ExceptionsInbox() {
               : [];
   const visible = applyLocal(currentItems);
   // Ocultas EN LA PESTAÑA ACTUAL (no solo en Prioridades) → estados honestos.
-  const hiddenHere = currentItems.filter((it) => dismissed.includes(dismissKey(it))).length;
+  const hiddenHere = currentItems.filter(isHidden).length;
   // ¿La lista de prioridades está recortada por `limit`/cap? (transparencia)
   const prioritiesTruncated = tab === "priorities" && !!data && (data.capped || data.total > data.items.length);
 
@@ -428,7 +461,7 @@ export default function ExceptionsInbox() {
             (visible.length > 0 ? (
               <ul className="space-y-2">
                 {visible.map((it) => (
-                  <ExceptionCard key={it.id} it={it} dismissed={dismissed.includes(dismissKey(it))} onCopy={onCopy} onDismiss={onDismiss} />
+                  <ExceptionCard key={it.id} it={it} hidden={isHidden(it)} onCopy={onCopy} onToggleHide={onToggleHide} />
                 ))}
               </ul>
             ) : tab !== "archive" || archiveState === "ready" ? (
@@ -467,11 +500,10 @@ function tabCount(key: Tab, data: InboxResponse | null, archive: InboxResponse |
   }
 }
 
-function ExceptionCard({ it, dismissed, onCopy, onDismiss }: { it: ExceptionItem; dismissed: boolean; onCopy: (it: ExceptionItem) => void; onDismiss: (key: string) => void }) {
+function ExceptionCard({ it, hidden, onCopy, onToggleHide }: { it: ExceptionItem; hidden: boolean; onCopy: (it: ExceptionItem) => void; onToggleHide: (it: ExceptionItem, hidden: boolean) => void }) {
   const sev = severityMeta(it.severity);
   const au = autonomyForKind(it.kind);
   const href = safeLink(it.link);
-  const dk = dismissKey(it);
   return (
     <li className="bg-white rounded-xl border p-4">
       <div className="flex items-start gap-3">
@@ -519,11 +551,11 @@ function ExceptionCard({ it, dismissed, onCopy, onDismiss }: { it: ExceptionItem
             </button>
             <button
               type="button"
-              onClick={() => onDismiss(dk)}
-              aria-pressed={dismissed}
+              onClick={() => onToggleHide(it, hidden)}
+              aria-pressed={hidden}
               className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-600 hover:bg-slate-50"
             >
-              <EyeOff aria-hidden className="h-3.5 w-3.5" /> {dismissed ? "Mostrar" : "Ocultar"}
+              <EyeOff aria-hidden className="h-3.5 w-3.5" /> {hidden ? "Mostrar" : "Ocultar"}
             </button>
           </div>
         </div>

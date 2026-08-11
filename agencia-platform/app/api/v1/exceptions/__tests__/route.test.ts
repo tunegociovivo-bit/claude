@@ -29,6 +29,7 @@ const ORIG = { ...process.env };
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.HUB_EXCEPTIONS;
+  delete process.env.HUB_EXCEPTIONS_ACTIONS; // acciones server off en estos tests (localStorage)
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
   callerIsAdminMock.mockResolvedValue(true);
   prisma.aiDraft.findMany.mockResolvedValue([]);
