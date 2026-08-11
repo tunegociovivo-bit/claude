@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
-import { callerIsAdmin, redactMrrList } from "@/lib/api/permissions";
+import { callerIsAdmin } from "@/lib/api/permissions";
+import { serializeClient, CLIENT_ADMIN_FIELDS, CLIENT_NEVER_FIELDS } from "@/lib/api/client-serializer";
 import { indexEntity } from "@/lib/search/embeddings";
 import { textForClient } from "@/lib/search/indexers";
 
@@ -32,7 +33,14 @@ export const GET = withApi({ scope: "clients:read" }, async (req, { api }) => {
     callerIsAdmin(api)
   ]);
 
-  return NextResponse.json({ items: redactMrrList(items as any, isAdmin), total, limit: take, offset: skip });
+  // Misma allowlist por rol que /clients/[id]: la lista tampoco debe filtrar
+  // accesos/sepa/stripe/meta/fiscal a no-admin (la UI la pide con limit=500).
+  return NextResponse.json({
+    items: (items as any[]).map((i) => serializeClient(i, isAdmin)),
+    total,
+    limit: take,
+    offset: skip
+  });
 });
 
 export const POST = withApi({ scope: "clients:write" }, async (req, { api }) => {
@@ -40,10 +48,11 @@ export const POST = withApi({ scope: "clients:write" }, async (req, { api }) => 
   const parsed = clientCreateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  // Si el caller no es admin, ignoramos cualquier mrr que venga en el
-  // payload para que un MEMBER no pueda saltarse el gate vía API.
+  // Un no-admin no puede ESCRIBIR campos sensibles (mrr/accesos/sepa/fiscal ni
+  // stripe/meta) al crear, ni recibirlos en la respuesta.
   const isAdmin = await callerIsAdmin(api);
-  const data = isAdmin ? parsed.data : { ...parsed.data, mrr: undefined as any };
+  const data: any = { ...parsed.data };
+  if (!isAdmin) for (const k of [...CLIENT_ADMIN_FIELDS, ...CLIENT_NEVER_FIELDS]) delete data[k];
 
   const client = await prisma.client.create({
     data: { ...data, workspaceId: api.workspaceId, since: new Date() }
@@ -54,5 +63,5 @@ export const POST = withApi({ scope: "clients:write" }, async (req, { api }) => 
     entityId: client.id,
     text: textForClient(client as any)
   }).catch(() => {});
-  return NextResponse.json(redactMrrList([client as any], isAdmin)[0], { status: 201 });
+  return NextResponse.json(serializeClient(client as any, isAdmin), { status: 201 });
 });

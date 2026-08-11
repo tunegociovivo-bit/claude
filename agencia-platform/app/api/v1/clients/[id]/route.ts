@@ -4,7 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
 import { callerIsAdmin } from "@/lib/api/permissions";
-import { serializeClient, CLIENT_ADMIN_FIELDS } from "@/lib/api/client-serializer";
+import { serializeClient, CLIENT_ADMIN_FIELDS, CLIENT_NEVER_FIELDS } from "@/lib/api/client-serializer";
 import { auditFromReq } from "@/lib/audit/log";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
@@ -34,7 +34,7 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
   // Coherente con la allowlist de lectura: un no-admin no puede ESCRIBIR los
   // campos sensibles (mrr/accesos/sepa/fiscal). Esto además evita que el modal,
   // que ya no los prefilla para no-admin, los borre (accesos:null) al guardar.
-  if (!isAdmin) for (const k of CLIENT_ADMIN_FIELDS) delete data[k];
+  if (!isAdmin) for (const k of [...CLIENT_ADMIN_FIELDS, ...CLIENT_NEVER_FIELDS]) delete data[k];
 
   // Snapshot anterior para el audit log si va a cambiar algo sensible.
   const previous = await prisma.client.findFirst({
