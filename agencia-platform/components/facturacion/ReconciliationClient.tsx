@@ -19,6 +19,7 @@ export default function ReconciliationClient() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -27,6 +28,29 @@ export default function ReconciliationClient() {
     setLoading(false);
   }
   useEffect(() => { void load(); }, []);
+
+  async function forceSync() {
+    setSyncing(true);
+    try {
+      const response = await fetch("/api/v1/facturacion/reconciliation", { method: "POST" });
+      if (!response.ok) throw new Error("No se pudo solicitar la resincronización");
+      await load();
+      const startedAt = Date.now();
+      const timer = window.setInterval(async () => {
+        const current = await fetch("/api/v1/facturacion/reconciliation", { cache: "no-store" });
+        if (!current.ok) return;
+        const next = await current.json() as Dashboard;
+        setData(next);
+        if (next.config.lastSyncAt || Date.now() - startedAt > 120_000) {
+          window.clearInterval(timer);
+          setSyncing(false);
+        }
+      }, 5000);
+    } catch (error: any) {
+      setSyncing(false);
+      window.alert(error?.message ?? "No se pudo solicitar la resincronización");
+    }
+  }
 
   async function downloadInstaller() {
     const name = window.prompt("Nombre de este ordenador", "PC-Oficina Negocio Vivo");
@@ -55,6 +79,9 @@ export default function ReconciliationClient() {
           </div>
           {data && <div className="text-xs text-slate-500 mt-1">Última sincronización: {data.config.lastSyncAt ? new Date(data.config.lastSyncAt).toLocaleString("es-ES") : "pendiente del primer cobro"}</div>}
         </div>
+        <button onClick={() => void forceSync()} disabled={syncing} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">
+          {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} {syncing ? "Resincronizando…" : "Forzar resincronización"}
+        </button>
         <button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Actualizar
         </button>

@@ -236,3 +236,11 @@ export async function reconciliationDashboard(workspaceId: string) {
   ]);
   return { config, summary: { matched, unmatched }, items };
 }
+
+export async function requestReconciliation(workspaceId: string) {
+  await ensureReconciliationConfig(workspaceId);
+  return prisma.bankReconciliationConfig.update({
+    where: { workspaceId },
+    data: { lastSyncAt: null, lastError: null }
+  });
+}
