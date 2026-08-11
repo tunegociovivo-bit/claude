@@ -37,6 +37,7 @@ export async function GET() {
       countryCode: settings.whatsapp.countryCode,
       autoReplyEnabled: settings.whatsapp.autoReplyEnabled,
     },
+    urgentAlerts: settings.urgentAlerts,
     pipeline: settings.pipeline,
     webhooks: {
       vapi: `${base}/api/webhooks/vapi/${settings.vapiWebhookToken}`,
@@ -71,6 +72,11 @@ const putSchema = z.object({
     })
     .partial()
     .optional(),
+  urgentAlerts: z.object({
+    enabled: z.boolean(),
+    email: z.union([z.string().trim().email(), z.literal("")]).transform((value) => value.toLowerCase()),
+    phone: z.string().max(30),
+  }).partial().optional(),
 });
 
 export async function PUT(req: NextRequest) {
@@ -85,13 +91,14 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const current = await getWorkspaceSettings(workspaceId);
-  const { whatsapp, sonia } = parsed.data;
+  const { whatsapp, sonia, urgentAlerts } = parsed.data;
 
   // Solo campos funcionales: la fontanería de WAHA (URL/key/sesión) nunca se
   // toca desde aquí, así que lo guardado en BD se conserva intacto.
   await saveWorkspaceSettings(workspaceId, {
     sonia: { ...current.sonia, ...(sonia ?? {}) },
     whatsapp: { ...current.whatsapp, ...(whatsapp ?? {}) },
+    urgentAlerts: { ...current.urgentAlerts, ...(urgentAlerts ?? {}) },
   });
   return NextResponse.json({ ok: true });
 }

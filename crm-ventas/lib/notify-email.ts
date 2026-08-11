@@ -24,6 +24,7 @@ function escapeHtml(text: string): string {
 
 export async function sendOpsEmail(opts: {
   subject: string;
+  to?: string;
   // Pares etiqueta → valor ya seguros (sin secretos); se escapan al renderizar.
   rows: Array<[string, string]>;
   actionUrl?: string;
@@ -46,7 +47,7 @@ export async function sendOpsEmail(opts: {
         method: "POST",
         signal: controller.signal,
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: opsEmailSender(), to: [opsEmailRecipient()], subject: opts.subject, html }),
+        body: JSON.stringify({ from: opsEmailSender(), to: [opts.to || opsEmailRecipient()], subject: opts.subject, html }),
       });
       if (!response.ok) {
         // El cuerpo de error de Resend no se registra entero por si citara cabeceras.

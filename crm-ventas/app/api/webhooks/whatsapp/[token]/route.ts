@@ -5,6 +5,7 @@ import { normalizePhone } from "@/lib/phone";
 import { runSoniaWhatsappAgent, whatsappFallbackReply } from "@/lib/ai/sonia";
 import { sendText } from "@/lib/waha";
 import { findWorkspaceByToken, type WorkspaceSettings } from "@/lib/settings";
+import { notifyWorkspaceUrgentAlert } from "@/lib/urgent-alert-delivery";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -269,6 +270,7 @@ export async function POST(
         data: { meta: { pushName: pushName ?? null, from: rawFrom, autoReplyStatus: "pending" } },
       });
       console.error("[sonia-whatsapp] no se pudo enviar; solicitando reintento:", err?.message);
+      await notifyWorkspaceUrgentAlert(ws.id, "CRM_MESSAGE_ERROR", "No se pudo generar o enviar la respuesta automática.").catch((alertError) => console.error("[urgent-alerts] notification failed:", alertError?.message));
       return NextResponse.json(
         { error: "No se pudo enviar la respuesta; reintentar" },
         { status: 503, headers: { "Retry-After": "3" } }

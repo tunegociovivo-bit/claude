@@ -27,6 +27,18 @@ model Workspace {
   calls        Call[]
   vapiPhoneConnection VapiPhoneConnection?
   googleCalendarConnection GoogleCalendarConnection?
+  urgentAlertState UrgentAlertState?
+}
+
+model UrgentAlertState {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  lastCode    String?
+  lastSentAt  DateTime?
+  lastError   String?   @db.Text
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model GoogleCalendarConnection {

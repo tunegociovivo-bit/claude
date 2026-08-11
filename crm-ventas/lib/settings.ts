@@ -63,12 +63,19 @@ export type BrandingSettings = {
   logoDataUrl: string;
 };
 
+export type UrgentAlertSettings = {
+  enabled: boolean;
+  email: string;
+  phone: string;
+};
+
 export type WorkspaceSettings = {
   // "sonia" es el nombre técnico histórico de la config del asistente; el
   // nombre visible del asistente es PAULA.
   sonia: SoniaSettings;
   whatsapp: WhatsappSettings;
   branding: BrandingSettings;
+  urgentAlerts: UrgentAlertSettings;
   vapiWebhookToken: string;
   whatsappWebhookToken: string;
   pipeline: { columns: PipelineColumn[] };
@@ -103,6 +110,12 @@ export const DEFAULT_WHATSAPP: WhatsappSettings = {
   autoReplyEnabled: true,
 };
 
+export const DEFAULT_URGENT_ALERTS: UrgentAlertSettings = {
+  enabled: true,
+  email: "",
+  phone: "",
+};
+
 export function readSettings(raw: unknown): WorkspaceSettings {
   const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
   const sonia: SoniaSettings = { ...DEFAULT_SONIA, ...(s.sonia ?? {}) };
@@ -116,6 +129,7 @@ export function readSettings(raw: unknown): WorkspaceSettings {
       logoDataUrl:
         typeof s.branding?.logoDataUrl === "string" ? s.branding.logoDataUrl : "",
     },
+    urgentAlerts: { ...DEFAULT_URGENT_ALERTS, ...(s.urgentAlerts ?? {}) },
     vapiWebhookToken: typeof s.vapiWebhookToken === "string" ? s.vapiWebhookToken : "",
     whatsappWebhookToken:
       typeof s.whatsappWebhookToken === "string" ? s.whatsappWebhookToken : "",
@@ -152,6 +166,7 @@ export async function saveWorkspaceSettings(
     sonia: { ...current.sonia, ...(patch.sonia ?? {}) },
     whatsapp: { ...current.whatsapp, ...(patch.whatsapp ?? {}) },
     branding: { ...current.branding, ...(patch.branding ?? {}) },
+    urgentAlerts: { ...current.urgentAlerts, ...(patch.urgentAlerts ?? {}) },
     pipeline: patch.pipeline ?? current.pipeline,
   };
   await prisma.workspace.update({

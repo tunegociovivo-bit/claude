@@ -92,13 +92,17 @@ export async function sendText(opts: {
   text: string;
 }): Promise<{ messageId: string }> {
   const cfg = await getWahaConfig(opts.workspaceId);
+  return sendTextWithConfig(cfg, opts.to, opts.text);
+}
+
+async function sendTextWithConfig(cfg: WahaConfig, to: string, text: string) {
   const res = await fetch(`${cfg.baseUrl}/api/sendText`, {
     method: "POST",
     headers: headers(cfg),
     body: JSON.stringify({
       session: cfg.session,
-      chatId: toChatId(opts.to),
-      text: opts.text,
+      chatId: toChatId(to),
+      text,
     }),
     redirect: "error",
     signal: AbortSignal.timeout(30_000),
@@ -115,6 +119,12 @@ export async function sendText(opts: {
     throw new Error("WAHA devolvió 200 sin id de mensaje: la sesión no parece operativa");
   }
   return { messageId };
+}
+
+export async function sendOperationalWhatsapp(opts: { workspaceId: string; to: string; text: string }) {
+  const cfg = await getWahaConfig(opts.workspaceId);
+  cfg.session = process.env.URGENT_ALERT_WAHA_SESSION || "default";
+  return sendTextWithConfig(cfg, opts.to, opts.text);
 }
 
 export async function getSessionStatus(workspaceId: string): Promise<string | null> {

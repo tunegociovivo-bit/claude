@@ -26,6 +26,11 @@ type SettingsData = {
     countryCode: string;
     autoReplyEnabled: boolean;
   };
+  urgentAlerts: {
+    enabled: boolean;
+    email: string;
+    phone: string;
+  };
   webhooks: { vapi: string };
 };
 
@@ -78,6 +83,9 @@ export default function AjustesClient() {
   ) {
     setData((d) => (d ? { ...d, whatsapp: { ...d.whatsapp, [key]: value } } : d));
   }
+  function patchUrgentAlerts<K extends keyof SettingsData["urgentAlerts"]>(key: K, value: SettingsData["urgentAlerts"][K]) {
+    setData((current) => current ? { ...current, urgentAlerts: { ...current.urgentAlerts, [key]: value } } : current);
+  }
 
   function changeAgentName(value: string) {
     setData((current) => {
@@ -104,6 +112,7 @@ export default function AjustesClient() {
         countryCode: data.whatsapp.countryCode,
         autoReplyEnabled: data.whatsapp.autoReplyEnabled,
       },
+      urgentAlerts: data.urgentAlerts,
     };
     const res = await fetch("/api/v1/settings/sonia", {
       method: "PUT",
@@ -299,6 +308,26 @@ export default function AjustesClient() {
           />
           {data.sonia.agentName.toUpperCase()} responde automáticamente a los mensajes entrantes
         </label>
+      </section>
+
+      <section className="card space-y-4 border-amber-200 p-4 sm:p-6">
+        <div>
+          <h2 className="font-semibold">Alertas urgentes</h2>
+          <p className="text-xs text-slate-500">Recibe avisos si WhatsApp se desvincula o el CRM detecta un error al atender clientes.</p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={data.urgentAlerts.enabled} onChange={(event) => patchUrgentAlerts("enabled", event.target.checked)} />
+          Activar alertas urgentes
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Email para alertas">
+            <input className="input" type="email" value={data.urgentAlerts.email} onChange={(event) => patchUrgentAlerts("email", event.target.value)} placeholder="administrador@empresa.com" />
+          </Field>
+          <Field label="WhatsApp para alertas" hint="Incluye el prefijo del país, por ejemplo +34.">
+            <input className="input" type="tel" value={data.urgentAlerts.phone} onChange={(event) => patchUrgentAlerts("phone", event.target.value)} placeholder="+34 600 000 000" />
+          </Field>
+        </div>
+        <p className="text-xs text-amber-700">Los avisos de WhatsApp salen desde la línea operativa de Negocio Vivo, independiente del WhatsApp del cliente.</p>
       </section>
 
       <GoogleCalendarCard />
