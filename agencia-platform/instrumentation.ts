@@ -12,6 +12,14 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Validación de config de secretos (no-fatal): avisa si el vault aún depende
+    // de NEXTAUTH_SECRET o si falta clave de cifrado. Nunca lanza.
+    try {
+      const { logSecretsConfigWarnings } = await import("@/lib/security/secrets-config");
+      logSecretsConfigWarnings();
+    } catch {
+      // el diagnóstico jamás debe impedir el arranque
+    }
     if (process.env.DISABLE_INAPP_CRON === "1") return;
     const { startInAppScheduler } = await import("@/lib/cron/in-app-scheduler");
     startInAppScheduler();

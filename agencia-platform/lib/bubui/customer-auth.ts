@@ -16,6 +16,7 @@
 
 import { randomBytes, timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db/prisma";
+import { customerAuthMode, decideNoToken } from "./auth-mode";
 
 /** Genera un token opaco y lo persiste en el cliente. Se renueva en cada login. */
 export async function issueCustomerToken(customerId: string): Promise<string> {
@@ -66,6 +67,12 @@ export async function customerAuthOk(req: Request, customerId: string | null | u
     return !!c?.apiToken && safeEqual(c.apiToken, auth.secret);
   }
 
-  // Sin token presentado.
-  return process.env.BUBUI_REQUIRE_CUSTOMER_TOKEN !== "true";
+  // Sin token presentado: decisión por modo (lazy / shadow / strict).
+  const { allow, log } = decideNoToken(customerAuthMode());
+  if (log) {
+    console.warn(
+      `[bubui-auth][shadow] petición SIN token para customer ${customerId}: se PERMITE (lazy/shadow). En modo strict devolvería 401.`
+    );
+  }
+  return allow;
 }

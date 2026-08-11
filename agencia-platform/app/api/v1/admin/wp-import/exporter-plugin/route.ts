@@ -1,12 +1,17 @@
 /**
  * Devuelve el PHP del plugin Agencia Hub Exporter como ZIP listo para subir
- * a wp-admin. No requiere autenticación porque el plugin no contiene secretos,
- * solo código que necesita capability manage_options para hacer nada.
+ * a wp-admin.
+ *
+ * FASE 1 · Punto 1: antes era un `export async function GET()` SIN auth (ruta
+ * bajo /api/v1/admin/ pero públicamente accesible). Aunque el plugin no lleva
+ * secretos, no debe ser descargable por cualquiera. Ahora pasa por `withApi`,
+ * que exige SESIÓN siempre y aplica el gate central de rol admin.
  */
 
 import { NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
+import { withApi } from "@/lib/api/handler";
 
 // Mínimo ZIP no comprimido (store) construido a mano. Más simple que añadir una
 // dep de "jszip" para un solo archivo.
@@ -86,7 +91,7 @@ function crc32(buf: Buffer): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-export async function GET() {
+export const GET = withApi({ admin: true }, async () => {
   const phpPath = path.join(process.cwd(), "scripts", "wp-exporter", "agencia-exporter.php");
   let php: Buffer;
   try {
@@ -106,4 +111,4 @@ export async function GET() {
       "Content-Length": String(zip.length)
     }
   });
-}
+});

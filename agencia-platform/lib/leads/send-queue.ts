@@ -1430,18 +1430,29 @@ export async function sendMessageById(
   ctx?: { settings?: LeadsSendSettings }
 ): Promise<{ processed: boolean; messageId?: string; status?: string; error?: string }> {
   const settings = ctx?.settings ?? (await getSendSettings(workspaceId));
+
+  // CLAIM ATÓMICO (anti doble-envío): el scheduler in-app y los crons de
+  // GitHub Actions pueden solaparse y procesar el mismo mensaje a la vez. Antes
+  // se hacía findFirst → check status → update en 3 pasos: dos workers podían
+  // leer ambos "queued" y enviar DOS veces. Ahora la transición queued→sending
+  // es una única sentencia condicional (updateMany con `status:"queued"` en el
+  // WHERE): la BD garantiza que SOLO UN worker la gana (count===1); el resto ve
+  // count===0 y se retira sin enviar. Es la clave de idempotencia del envío.
+  const claim = await prisma.leadMessage.updateMany({
+    where: { workspaceId, id: messageId, status: "queued" },
+    data: { status: "sending", sendAttempts: { increment: 1 }, sendingStartedAt: new Date() }
+  });
+  if (claim.count === 0) {
+    // O no existe, o ya no estaba "queued" (otro worker lo reclamó / ya no procede).
+    return { processed: false, error: "already_claimed_or_not_queued" };
+  }
+
+  // Reclamado con éxito: releemos el registro (ya con status="sending" y el
+  // sendAttempts incrementado) para el resto de la lógica de envío.
   const msg = await prisma.leadMessage.findFirst({
     where: { workspaceId, id: messageId }
   });
   if (!msg) return { processed: false, error: "not_found" };
-  if (msg.status !== "queued") {
-    return { processed: false, error: `estado actual: ${msg.status}` };
-  }
-
-  await prisma.leadMessage.update({
-    where: { id: msg.id },
-    data: { status: "sending", sendAttempts: msg.sendAttempts + 1, sendingStartedAt: new Date() }
-  });
 
   // Rotación por salud: si el número asignado está en cuarentena (quemado o
   // sesión caída), el mensaje sale por otro canal sano en vez de quemarse.

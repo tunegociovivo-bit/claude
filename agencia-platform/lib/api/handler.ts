@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticate, errorResponse, requireScope, type ApiContext } from "./auth";
+import { authenticate, errorResponse, requireScope, ApiError, type ApiContext } from "./auth";
 import { rateLimit } from "./rate-limit";
+import { callerIsAdmin } from "./permissions";
+import { adminEnforceMode, requiresAdmin } from "./admin-gate";
 
 type Handler = (req: NextRequest, ctx: { params: any; api: ApiContext }) => Promise<NextResponse>;
 
@@ -31,6 +33,12 @@ export type WithApiOpts = {
   scope?: string;
   /** Categoría de rate-limit más estricta. Si omitida, usa LIMITS por defecto. */
   rate?: RateCategory;
+  /**
+   * Exige rol ADMIN (además de las rutas /api/v1/admin/* que ya se protegen por
+   * path). Úsalo en rutas admin-sensibles que viven FUERA de /api/v1/admin/
+   * (p.ej. creación de API keys). Ver lib/api/admin-gate.ts.
+   */
+  admin?: boolean;
 };
 
 function bucketKey(req: NextRequest, api: ApiContext, rate: RateCategory): { key: string; limit: number } {
@@ -67,6 +75,21 @@ export function withApi(opts: WithApiOpts, handler: Handler) {
     try {
       const api = await authenticate(req);
       if (opts.scope) requireScope(api, opts.scope);
+
+      // GATE CENTRAL DE ROL ADMIN (path /api/v1/admin/* o `admin:true`).
+      const mode = adminEnforceMode();
+      if (mode !== "off" && requiresAdmin(req.nextUrl?.pathname, opts.admin)) {
+        const ok = await callerIsAdmin(api);
+        if (!ok) {
+          if (mode === "enforce") {
+            throw new ApiError(403, "forbidden", "Solo los administradores pueden acceder a esto");
+          }
+          // modo "log" (shadow): no bloquea, solo deja rastro para medir.
+          console.warn(
+            `[admin-gate:log] ${req.method} ${req.nextUrl?.pathname ?? "?"} por no-admin (userId=${api.userId ?? "?"}). En 'enforce' sería 403.`
+          );
+        }
+      }
 
       const { key, limit } = bucketKey(req, api, opts.rate);
       const rl = rateLimit(key, limit);

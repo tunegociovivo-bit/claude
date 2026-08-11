@@ -9,6 +9,7 @@ import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
 import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
+import { usePollingChannel } from "@/lib/client/usePollingChannel";
 
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
@@ -191,16 +192,16 @@ export default function LeadsClient() {
   const [inbox, setInbox] = useState<InboxRow[]>([]);
   // Badge de la pestaña WhatsApp: nº de mensajes entrantes sin leer.
   const [inboxUnread, setInboxUnread] = useState(0);
+  const loadInboxUnread = () =>
+    fetch("/api/v1/leads/inbox/conversations?countOnly=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setInboxUnread(d.totalUnread ?? 0); })
+      .catch(() => {});
   useEffect(() => {
-    const tick = () =>
-      fetch("/api/v1/leads/inbox/conversations?countOnly=1")
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => { if (d) setInboxUnread(d.totalUnread ?? 0); })
-        .catch(() => {});
-    tick();
-    const i = setInterval(tick, 30_000);
-    return () => clearInterval(i);
+    void loadInboxUnread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  usePollingChannel(loadInboxUnread, 30_000); // badge no-leídos: pausable al ocultar (F2.6)
   const [inboxDiag, setInboxDiag] = useState<{ webhookLastHit: string | null; webhookLastEvent: string | null; webhookLastDecision?: string | null; webhookLastFrom?: string | null; webhookLastBody?: string | null; webhookLastKeys?: string | null; webhookLastMsgAt?: string | null; webhookLastMsgDecision?: string | null; webhookLastMsgEvent?: string | null; webhookLastMsgFrom?: string | null; webhookLastMsgBody?: string | null; webhookLastMsgPayloadKeys?: string | null; webhookMe?: string | null; webhookSession?: string | null }>({ webhookLastHit: null, webhookLastEvent: null });
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -2458,15 +2459,13 @@ function QueueLiveStatus() {
       setErr(true);
     }
   }
+  // Carga inicial (sin cambios). El refresco recurrente y el "tick" pasan a
+  // canales pausables al ocultar la pestaña, sin solapamiento (F2.6).
   useEffect(() => {
     void load();
-    const i = setInterval(() => void load(), 45_000);
-    const t = setInterval(() => setTick((n) => n + 1), 60_000);
-    return () => {
-      clearInterval(i);
-      clearInterval(t);
-    };
   }, []);
+  usePollingChannel(() => void load(), 45_000);
+  usePollingChannel(() => setTick((n) => n + 1), 60_000);
 
   if (err && !d) {
     return (
@@ -3021,9 +3020,8 @@ function JobsReviewPanel() {
   useEffect(() => {
     void loadMode();
     void loadItems();
-    const i = setInterval(() => void loadItems(), 60_000);
-    return () => clearInterval(i);
   }, []);
+  usePollingChannel(() => void loadItems(), 60_000); // pausable al ocultar pestaña (F2.6)
 
   function toggleSel(id: string) {
     setSelected((prev) => {
@@ -4739,19 +4737,19 @@ function InboxChat({
   // Carga + refresco suave (las respuestas de leads llegan en cualquier momento).
   // Se re-consulta al servidor cuando cambia un filtro server-side (cuenta,
   // bloqueado, fecha exacta) para no filtrar en cliente sobre datos incompletos.
+  // Recarga inmediata al cambiar filtros/selección (sin cambios); el refresco
+  // recurrente pasa a canales pausables al ocultar la pestaña (F2.6).
   useEffect(() => {
     loadConvs();
-    const i = setInterval(loadConvs, 12_000);
-    return () => clearInterval(i);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fAccount, fBlocked, fExactDate, qDebounced]);
+  usePollingChannel(() => loadConvs(), 12_000);
   useEffect(() => {
     if (!selected) return;
     loadThread(selected);
-    const i = setInterval(() => loadThread(selected), 8_000);
-    return () => clearInterval(i);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
+  usePollingChannel(() => { if (selected) loadThread(selected); }, 8_000, !!selected);
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [thread.length, selected]);

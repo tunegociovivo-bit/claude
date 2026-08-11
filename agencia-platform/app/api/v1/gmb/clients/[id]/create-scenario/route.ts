@@ -15,7 +15,7 @@ import { logGmbActivity } from "@/lib/integrations/gmb-hub";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export const POST = withApi({ scope: "admin" }, async (_req, { params, api }) => {
+export const POST = withApi({ scope: "admin", admin: true }, async (_req, { params, api }) => {
   const client = await prisma.gmbClient.findFirst({ where: { id: params.id, workspaceId: api.workspaceId } });
   if (!client) throw new ApiError(404, "not_found", "Ficha no encontrada");
 

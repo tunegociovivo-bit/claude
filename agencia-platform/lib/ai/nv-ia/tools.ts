@@ -7350,7 +7350,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           where: { id: task.clientId, workspaceId: ctx.workspaceId }
         });
         const autonomous = !!(client as any)?.settings?.aiAgent?.autonomous;
-        if (autonomous) {
+        // Kill-switch de servidor (FASE 1 · Punto 3): permite desactivar
+        // globalmente el auto-aprobado del autopilot sin tocar los ajustes por
+        // cliente. Por defecto NO cambia el comportamiento (solo desactiva si se
+        // pone AI_AUTOPILOT_AUTOAPPROVE=off). Independiente del gate de dispatch,
+        // que ya bloquea las tools peligrosas pase lo que pase aquí.
+        if (autonomous && process.env.AI_AUTOPILOT_AUTOAPPROVE !== "off") {
           // Deja una nota informativa (auditoría) pero no bloquea.
           await prisma.comment.create({
             data: {

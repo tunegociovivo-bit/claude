@@ -84,13 +84,16 @@ async function waitForChecksAndMerge(
       return;
     }
     if (status.noChecks && Date.now() - startedAt > 30_000) {
-      // No hay CI configurado y han pasado 30s — mergeamos directo
-      await mergePullRequest({
-        number: prNumber,
-        mergeMethod: "squash",
-        commitMessage
-      });
-      return;
+      // No hay CI configurado. Mergear a ciegas (sin ninguna verificación) es
+      // justo lo que dejaba entrar cambios rotos. Solo se permite con un opt-in
+      // explícito del servidor; por defecto NO se mergea sin CI.
+      if (process.env.SELF_HEAL_MERGE_WITHOUT_CI === "true") {
+        await mergePullRequest({ number: prNumber, mergeMethod: "squash", commitMessage });
+        return;
+      }
+      throw new Error(
+        "Repo sin CI: no se auto-mergea sin verificación (SELF_HEAL_MERGE_WITHOUT_CI no activo). PR queda abierta para revisión."
+      );
     }
     await new Promise((res) => setTimeout(res, pollIntervalMs));
   }
@@ -774,14 +777,24 @@ async function finalizePatchPR(opts: {
       `\n\n---\n_Generado automáticamente por el agente self-heal para el run ${opts.runId}._\n\n**Error original:**\n\`\`\`\n${opts.errorMsg.slice(0, 1500)}\n\`\`\``
   });
 
+  // AUTO-MERGE (FASE 1 · Punto 3): antes bastaba con que el MODELO marcara
+  // `safe:true` para auto-mergear (y sin revert real si rompía prod). Ahora el
+  // auto-merge requiere una habilitación EXPLÍCITA DEL SERVIDOR
+  // (`SELF_HEAL_AUTO_MERGE=true`), no la autoevaluación del modelo. Por defecto
+  // se ABRE la PR y se deja para revisión humana (merge manual).
+  const autoMergeEnabled = process.env.SELF_HEAL_AUTO_MERGE === "true";
   let merged = false;
-  if (opts.input.safe === true && opts.filesChanged.length <= 5) {
+  if (autoMergeEnabled && opts.input.safe === true && opts.filesChanged.length <= 5) {
     try {
       await waitForChecksAndMerge(pr.number, opts.input.commitMessage);
       merged = true;
     } catch (e: any) {
       console.warn(`[self-heal] auto-merge falló, PR queda abierta: ${e?.message}`);
     }
+  } else if (opts.input.safe === true && opts.filesChanged.length <= 5) {
+    console.warn(
+      `[self-heal] modelo marcó safe:true pero SELF_HEAL_AUTO_MERGE no está activo: PR #${pr.number} queda ABIERTA para revisión humana.`
+    );
   }
 
   return {
