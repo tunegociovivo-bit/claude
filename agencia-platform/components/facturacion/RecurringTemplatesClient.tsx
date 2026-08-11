@@ -78,6 +78,7 @@ export default function RecurringTemplatesClient() {
       )}
 
       <ImportWizard onImported={load} />
+      <BackfillPanel onChanged={load} />
 
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-2">
@@ -167,6 +168,90 @@ function Kpi({ label, value, tone, wide }: { label: string; value: string; tone?
       <div className="text-[11px] text-slate-400">{label}</div>
       <div className={`text-lg font-semibold ${tone === "rose" ? "text-rose-700" : "text-slate-900"}`}>{value}</div>
     </div>
+  );
+}
+
+type BackfillReport = { total: number; toCreate: number; toUpdate: number; unchanged: number; conflicts: number; items?: { legacyInvoiceId: string; action: string; clientName: string | null; conflicts: { code: string; message: string }[] }[] };
+
+function BackfillPanel({ onChanged }: { onChanged: () => void }) {
+  const [report, setReport] = useState<BackfillReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const run = useCallback(
+    (mode: "preview" | "commit" | "rollback") => {
+      setBusy(true);
+      setMsg(null);
+      fetch("/api/v1/facturacion/recurring-templates/backfill", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode }) })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.error) setMsg(d.error.message);
+          else if (mode === "preview") setReport(d);
+          else if (mode === "commit") {
+            setMsg(`Migradas: ${d.created} nuevas, ${d.updated} actualizadas, ${d.unchanged} sin cambios, ${d.conflicts} con conflicto${Array.isArray(d.errors) && d.errors.length ? `, ⚠ ${d.errors.length} error(es)` : ""}.`);
+            setReport(null);
+            onChanged();
+          } else {
+            setMsg(`Revertidas ${d.deleted} plantilla(s) migradas del legado.`);
+            setReport(null);
+            onChanged();
+          }
+        })
+        .catch(() => setMsg("No se pudo ejecutar el backfill."))
+        .finally(() => setBusy(false));
+    },
+    [onChanged]
+  );
+
+  return (
+    <details className="rounded-xl border bg-white">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-800 inline-flex items-center gap-2">
+        <RefreshCw aria-hidden className="h-4 w-4 text-slate-500" /> Migrar recurrentes del sistema anterior (legado)
+      </summary>
+      <div className="px-4 pb-4 space-y-3">
+        <p className="text-xs text-slate-500">
+          Copia las facturas recurrentes del sistema anterior a esta sección como <strong>borrador</strong>, sin tocar las facturas ni el sistema que las emite hoy. Primero
+          <strong> previsualiza</strong>; la migración es idempotente y <strong>reversible</strong>.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={busy} onClick={() => run("preview")} className="px-3 py-1.5 rounded-lg border text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1">
+            {busy ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null} Previsualizar
+          </button>
+          {report && report.total > 0 && report.conflicts < report.total && (
+            <button type="button" disabled={busy} onClick={() => run("commit")} className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-1">
+              <CheckCircle2 aria-hidden className="h-3.5 w-3.5" /> Migrar {report.toCreate + report.toUpdate}
+            </button>
+          )}
+          <button type="button" disabled={busy} onClick={() => run("rollback")} className="px-3 py-1.5 rounded-lg border text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50">
+            Revertir migración
+          </button>
+        </div>
+        {msg && <p className="text-xs text-slate-700" role="status">{msg}</p>}
+        {report && (
+          <div className="text-xs space-y-2">
+            <div className="flex flex-wrap gap-3">
+              <span className="text-slate-600">Total legado: {report.total}</span>
+              <span className="text-emerald-700">Crear: {report.toCreate}</span>
+              <span className="text-sky-700">Actualizar: {report.toUpdate}</span>
+              <span className="text-slate-500">Sin cambios: {report.unchanged}</span>
+              <span className="text-rose-700">Conflictos: {report.conflicts}</span>
+            </div>
+            {(report.items ?? []).filter((i) => i.action === "conflict").length > 0 && (
+              <ul className="space-y-1">
+                {(report.items ?? [])
+                  .filter((i) => i.action === "conflict")
+                  .slice(0, 20)
+                  .map((i) => (
+                    <li key={i.legacyInvoiceId} className="text-rose-600">
+                      <span className="font-mono">{i.legacyInvoiceId}</span> ({i.clientName ?? "—"}): {i.conflicts.map((c) => c.message).join("; ")}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
