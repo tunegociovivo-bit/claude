@@ -78,6 +78,16 @@ describe("runShadow", () => {
     expect(prisma.recurringInvoiceTemplate.findMany.mock.calls[0][0].where.status).toEqual({ in: ["active", "draft"] });
   });
 
+  it("cursor muy atrasado → truncated:true (no silencioso)", async () => {
+    prisma.recurringInvoiceTemplate.findMany.mockResolvedValue([tpl({ anchorDate: new Date("2020-01-01Z"), startDate: new Date("2020-01-01Z"), nextIssueAt: new Date("2020-01-01Z") })]);
+    prisma.recurringInvoicePreview.findFirst.mockResolvedValue(null);
+    prisma.recurringInvoicePreview.create.mockResolvedValue({});
+    const r = await runShadow(prisma as any, "w1", new Date("2026-01-01Z"), 5);
+    expect(r.truncated).toBe(true);
+    expect(r.truncatedTemplateIds).toContain("t1");
+    expect(r.previewsCreated).toBe(5);
+  });
+
   it("plantilla sin fecha base → se ignora sin error", async () => {
     prisma.recurringInvoiceTemplate.findMany.mockResolvedValue([tpl({ anchorDate: null, startDate: null, nextIssueAt: null })]);
     const r = await runShadow(prisma as any, "w1", new Date("2026-05-15Z"));

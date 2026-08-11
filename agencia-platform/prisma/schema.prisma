@@ -433,7 +433,7 @@ model RecurringInvoicePreview {
   workspaceId    String
   templateId     String
   occurrenceDate DateTime // fecha de emisión simulada (date-only, UTC)
-  idempotencyKey String // `${templateId}:${YYYY-MM-DD}`
+  idempotencyKey String // traza `${templateId}:${YYYY-MM-DD}` (el guard REAL es el @@unique de abajo)
   status         String   @default("preview") // preview (nunca ISSUED)
   currency       String   @default("EUR")
   subtotalCents  Int      @default(0)

@@ -49,6 +49,12 @@ export type ShadowRunResult = {
   templatesConsidered: number;
   previewsCreated: number;
   previewsSkipped: number; // ya existían (idempotente / anti doble-factura)
+  // Alguna plantilla superó el cap de catch-up (cursor muy atrasado). El shadow NO
+  // avanza el cursor, así que solo se materializan las primeras `cap` ocurrencias;
+  // se SEÑALA para no ocultar que faltan periodos (antes del corte hay que avanzar
+  // el cursor). truncatedTemplateIds lista cuáles.
+  truncated: boolean;
+  truncatedTemplateIds: string[];
   errors: { templateId: string; error: string }[];
 };
 
@@ -61,7 +67,7 @@ export async function runShadow(prisma: PrismaLike, workspaceId: string, now = n
     where: { workspaceId, status: { in: ["active", "draft"] } },
     select: TEMPLATE_SELECT
   });
-  const res: ShadowRunResult = { templatesConsidered: templates.length, previewsCreated: 0, previewsSkipped: 0, errors: [] };
+  const res: ShadowRunResult = { templatesConsidered: templates.length, previewsCreated: 0, previewsSkipped: 0, truncated: false, truncatedTemplateIds: [], errors: [] };
 
   for (const t of templates) {
     const spec = specOf(t);
@@ -72,6 +78,10 @@ export async function runShadow(prisma: PrismaLike, workspaceId: string, now = n
     } catch (e: any) {
       res.errors.push({ templateId: t.id, error: `cálculo: ${String(e?.message ?? e).slice(0, 120)}` });
       continue;
+    }
+    if (due.length >= cap) {
+      res.truncated = true;
+      res.truncatedTemplateIds.push(t.id);
     }
     for (const occ of due) {
       const key = `${t.id}:${occurrenceKey(occ)}`;
