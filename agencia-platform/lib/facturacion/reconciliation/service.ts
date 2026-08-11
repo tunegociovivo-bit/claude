@@ -93,6 +93,24 @@ async function repairDuplicateSepaReceipts(workspaceId: string) {
   if (invalidIds.length) await prisma.bankTransaction.deleteMany({ where: { workspaceId, id: { in: invalidIds }, status: "UNMATCHED" } });
 }
 
+async function repairMisreferencedTransfers(workspaceId: string) {
+  const rows = await prisma.bankTransaction.findMany({
+    where: { workspaceId, status: "MATCHED", matchConfidence: "CLIENT_AMOUNT", reference: { contains: "FAC-" } },
+    include: { invoice: { select: { id: true, number: true, status: true, totalCents: true, paidCents: true, paidAt: true } } }
+  });
+  for (const row of rows) {
+    const referenced = row.reference?.match(/FAC[-\s]?\d+/i)?.[0].replace(/\s/g, "").toUpperCase();
+    const linked = row.invoice?.number?.replace(/\s/g, "").toUpperCase();
+    if (!referenced || !linked || referenced === linked) continue;
+    await prisma.$transaction(async (tx) => {
+      await tx.bankTransaction.update({ where: { id: row.id }, data: { status: "UNMATCHED", matchedInvoiceId: null, matchConfidence: null, matchedAt: null } });
+      if (row.invoice?.status === "PAID" && row.invoice.paidCents === row.invoice.totalCents) {
+        await tx.invoice.update({ where: { id: row.invoice.id }, data: { status: "ISSUED", paidCents: 0, paidAt: null } });
+      }
+    });
+  }
+}
+
 function clientName(snapshot: unknown): string {
   const data = snapshot && typeof snapshot === "object" ? snapshot as Record<string, unknown> : {};
   return String(data.legalName ?? data.name ?? "").trim();
@@ -101,6 +119,7 @@ function clientName(snapshot: unknown): string {
 export async function importAndReconcileMovements(workspaceId: string, movements: IncomingBankMovement[]) {
   const config = await ensureReconciliationConfig(workspaceId);
   await repairDuplicateSepaReceipts(workspaceId);
+  await repairMisreferencedTransfers(workspaceId);
   if (!config.enabled) return { imported: 0, matched: 0, ignored: movements.length };
   let imported = 0;
   let matched = 0;
@@ -220,6 +239,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
 export async function reconciliationDashboard(workspaceId: string) {
   const config = await ensureReconciliationConfig(workspaceId);
   await repairDuplicateSepaReceipts(workspaceId);
+  await repairMisreferencedTransfers(workspaceId);
   const [items, matched, unmatched] = await Promise.all([
     prisma.bankTransaction.findMany({
       where: { workspaceId, bookedAt: { gte: config.startsAt }, status: { in: ["MATCHED", "UNMATCHED"] } },

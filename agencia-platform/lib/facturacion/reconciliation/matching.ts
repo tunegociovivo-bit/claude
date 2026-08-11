@@ -46,6 +46,9 @@ export function matchIncomingPayment(payment: IncomingPayment, invoices: Reconci
   const reference = normalize(payment.reference);
   const exact = open.filter((invoice) => invoice.number && reference.includes(normalize(invoice.number)));
   if (exact.length === 1) return { invoiceId: exact[0].id, confidence: "EXACT_REFERENCE" };
+  // Si el banco aporta un número de factura, nunca degradamos a cliente+importe:
+  // una referencia desconocida debe revisarse, no pagar otra factura del cliente.
+  if (/\bfac\s*\d+/i.test(reference)) return null;
 
   const counterparty = normalize(payment.counterpartyName);
   if (!counterparty) return null;
