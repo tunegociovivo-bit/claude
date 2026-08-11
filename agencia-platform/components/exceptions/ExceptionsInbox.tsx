@@ -19,6 +19,7 @@ import {
   filterItems,
   loadDismissed,
   toggleDismissed,
+  dismissKey,
   SOURCE_LABEL,
   KIND_LABEL,
   type UiFilters
@@ -44,15 +45,24 @@ export default function ExceptionsInbox() {
   const [showHidden, setShowHidden] = useState(false);
   const store = typeof window !== "undefined" ? window.localStorage : null;
 
-  const load = useCallback(() => {
+  // Carga con los filtros de severidad/origen EN EL SERVIDOR → así, al afinar
+  // filtros, se re-consulta y pueden aflorar ítems que quedaron fuera del tope
+  // (capped). La búsqueda (q) es solo en cliente.
+  const load = useCallback((f: UiFilters, signal?: AbortSignal) => {
     setState("loading");
-    fetch("/api/v1/exceptions", { cache: "no-store" })
+    const sp = new URLSearchParams();
+    if (f.severity && f.severity !== "all") sp.set("severity", f.severity);
+    if (f.source && f.source !== "all") sp.set("source", f.source);
+    const qs = sp.toString();
+    fetch(`/api/v1/exceptions${qs ? `?${qs}` : ""}`, { cache: "no-store", signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: InboxResponse) => {
         setData(d);
         setState("ready");
       })
-      .catch(() => setState("error"));
+      .catch((e) => {
+        if (e?.name !== "AbortError") setState("error");
+      });
   }, []);
 
   useEffect(() => {
@@ -61,14 +71,17 @@ export default function ExceptionsInbox() {
       return;
     }
     setDismissed(loadDismissed(store));
-    load();
-  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+    const ac = new AbortController();
+    load(filters, ac.signal);
+    return () => ac.abort();
+  }, [filters.severity, filters.source, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const visible = useMemo(() => {
-    const items = data?.items ?? [];
-    const filtered = filterItems(items, filters);
-    return showHidden ? filtered : filtered.filter((it) => !dismissed.includes(it.id));
-  }, [data, filters, dismissed, showHidden]);
+  const filtered = useMemo(() => filterItems(data?.items ?? [], filters), [data, filters]);
+  const hiddenCount = useMemo(() => filtered.filter((it) => dismissed.includes(dismissKey(it))).length, [filtered, dismissed]);
+  const visible = useMemo(
+    () => (showHidden ? filtered : filtered.filter((it) => !dismissed.includes(dismissKey(it)))),
+    [filtered, dismissed, showHidden]
+  );
 
   const onCopy = useCallback((it: ExceptionItem) => {
     const text = `[${KIND_LABEL[it.kind]}] ${it.title}\nPor qué: ${it.why}\nQué necesita: ${it.needsFromMe}\nEnlace: ${safeLink(it.link) ?? "(interno)"}`;
@@ -80,7 +93,7 @@ export default function ExceptionsInbox() {
   }, []);
 
   const onDismiss = useCallback(
-    (id: string) => setDismissed(toggleDismissed(store, id)),
+    (key: string) => setDismissed(toggleDismissed(store, key)),
     [store]
   );
 
@@ -95,22 +108,20 @@ export default function ExceptionsInbox() {
   return (
     <section aria-label="Bandeja de excepciones" className="space-y-4">
       {/* Controles */}
+      <h2 className="sr-only">Incidencias que requieren tu intervención</h2>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-xs text-slate-500">
-          <span className="sr-only">Filtrar por severidad</span>
-          <select
-            aria-label="Filtrar por severidad"
-            value={filters.severity}
-            onChange={(e) => setFilters((f) => ({ ...f, severity: e.target.value as Severity | "all" }))}
-            className="px-2 py-1.5 rounded-lg bg-white border text-xs"
-          >
-            <option value="all">Toda severidad</option>
-            <option value="critical">Crítica</option>
-            <option value="high">Alta</option>
-            <option value="medium">Media</option>
-            <option value="low">Baja</option>
-          </select>
-        </label>
+        <select
+          aria-label="Filtrar por severidad"
+          value={filters.severity}
+          onChange={(e) => setFilters((f) => ({ ...f, severity: e.target.value as Severity | "all" }))}
+          className="px-2 py-1.5 rounded-lg bg-white border text-xs"
+        >
+          <option value="all">Toda severidad</option>
+          <option value="critical">Crítica</option>
+          <option value="high">Alta</option>
+          <option value="medium">Media</option>
+          <option value="low">Baja</option>
+        </select>
         <select
           aria-label="Filtrar por origen"
           value={filters.source}
@@ -138,9 +149,9 @@ export default function ExceptionsInbox() {
           aria-pressed={showHidden}
         >
           {showHidden ? <Eye aria-hidden className="h-3.5 w-3.5" /> : <EyeOff aria-hidden className="h-3.5 w-3.5" />}
-          {showHidden ? "Ocultar ocultas" : "Ver ocultas"}
+          {showHidden ? "Ocultar ocultas" : `Ver ocultas${hiddenCount ? ` (${hiddenCount})` : ""}`}
         </button>
-        <button type="button" onClick={load} aria-label="Recargar" className="px-2 py-1.5 rounded-lg border text-xs text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1">
+        <button type="button" onClick={() => load(filters)} aria-label="Recargar" className="px-2 py-1.5 rounded-lg border text-xs text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1">
           <RefreshCw aria-hidden className="h-3.5 w-3.5" /> Recargar
         </button>
       </div>
@@ -157,11 +168,15 @@ export default function ExceptionsInbox() {
       {state === "error" && (
         <div className="text-sm text-rose-600" role="alert">
           No se pudieron cargar las excepciones.{" "}
-          <button type="button" onClick={load} className="underline">Reintentar</button>
+          <button type="button" onClick={() => load(filters)} className="underline">Reintentar</button>
         </div>
       )}
       {state === "ready" && visible.length === 0 && (
-        <p className="text-sm text-slate-500" role="status">No hay incidencias que requieran tu intervención. 🎉</p>
+        <p className="text-sm text-slate-500" role="status">
+          {hiddenCount > 0
+            ? `No hay incidencias visibles, pero tienes ${hiddenCount} oculta(s). Pulsa "Ver ocultas" para revisarlas.`
+            : "No hay incidencias que requieran tu intervención. 🎉"}
+        </p>
       )}
 
       {/* Lista */}
@@ -171,7 +186,8 @@ export default function ExceptionsInbox() {
             const sev = severityMeta(it.severity);
             const au = autonomyForKind(it.kind);
             const href = safeLink(it.link);
-            const hidden = dismissed.includes(it.id);
+            const dk = dismissKey(it);
+            const hidden = dismissed.includes(dk);
             return (
               <li key={it.id} className="bg-white rounded-xl border p-4">
                 <div className="flex items-start gap-3">
@@ -216,7 +232,7 @@ export default function ExceptionsInbox() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => onDismiss(it.id)}
+                        onClick={() => onDismiss(dk)}
                         aria-pressed={hidden}
                         className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-slate-600 hover:bg-slate-50"
                       >

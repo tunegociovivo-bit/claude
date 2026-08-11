@@ -78,7 +78,10 @@ export function formatAge(ms: number): string {
 export function safeLink(link: string | null | undefined): string | null {
   if (typeof link !== "string") return null;
   const l = link.trim();
-  if (!l.startsWith("/") || l.startsWith("//")) return null;
+  // Solo rutas internas: empieza por "/" pero no "//" ni "/\" (los navegadores
+  // normalizan "\"→"/", así "/\evil" se volvería "//evil" = host externo).
+  if (!/^\/[^/\\]/.test(l)) return null;
+  if (l.includes("\\")) return null;
   if (/[\x00-\x1f]/.test(l)) return null;
   return l;
 }
@@ -100,6 +103,11 @@ export function filterItems(items: ExceptionItem[], f: UiFilters): ExceptionItem
 }
 
 // ── Ocultar localmente (reversible, sin servidor) ──
+// Clave por id + SEVERIDAD: si la incidencia escala (p.ej. media→crítica), la
+// clave cambia y VUELVE A APARECER (no se esconde una versión más grave).
+export function dismissKey(item: Pick<ExceptionItem, "id" | "severity">): string {
+  return `${item.id}|${item.severity}`;
+}
 const DISMISS_KEY = "exceptions.dismissed.v1";
 export interface KV {
   getItem(k: string): string | null;
