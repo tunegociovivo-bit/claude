@@ -5,8 +5,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateMock, prisma } = vi.hoisted(() => ({
+const { authenticateMock, callerIsAdminMock, prisma } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
+  callerIsAdminMock: vi.fn(),
   prisma: {
     exceptionAction: { upsert: vi.fn(), updateMany: vi.fn() },
     auditLog: { create: vi.fn() }
@@ -17,6 +18,7 @@ vi.mock("@/lib/api/auth", async (importActual) => {
   const actual = (await importActual()) as any;
   return { ...actual, authenticate: authenticateMock };
 });
+vi.mock("@/lib/api/permissions", () => ({ callerIsAdmin: callerIsAdminMock }));
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: () => ({ ok: true, remaining: 100, resetAt: Date.now() + 60_000 }) }));
 
 import { POST } from "../route";
@@ -27,6 +29,7 @@ beforeEach(() => {
   process.env.HUB_EXCEPTIONS_ACTIONS = "on";
   delete process.env.HUB_EXCEPTIONS;
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
+  callerIsAdminMock.mockResolvedValue(true);
   prisma.exceptionAction.upsert.mockResolvedValue({ id: "ea1", action: "archive" });
   prisma.exceptionAction.updateMany.mockResolvedValue({ count: 1 });
   prisma.auditLog.create.mockResolvedValue({});
@@ -75,6 +78,23 @@ describe("POST /api/v1/exceptions/actions", () => {
 
   it("payload inválido → 400 sin escrituras", async () => {
     const res = await post({ exceptionId: "malo", action: "archive" });
+    expect(res.status).toBe(400);
+    expect(prisma.exceptionAction.upsert).not.toHaveBeenCalled();
+  });
+
+  it("no-admin NO puede ocultar una excepción de facturación (invoice) → 403", async () => {
+    callerIsAdminMock.mockResolvedValue(false);
+    const res = await post({ exceptionId: "invoice:i1", source: "invoice", kind: "billing_problem", action: "archive" });
+    expect(res.status).toBe(403);
+    expect(prisma.exceptionAction.upsert).not.toHaveBeenCalled();
+    // pero SÍ puede con una tarea (no facturación)
+    const res2 = await post({ exceptionId: "task:t1", source: "task", kind: "task_blocked", action: "archive" });
+    expect(res2.status).toBe(200);
+  });
+
+  it("meta demasiado grande → 400", async () => {
+    const big = { blob: "x".repeat(5000) };
+    const res = await post({ exceptionId: "task:t1", source: "task", kind: "task_blocked", action: "archive", meta: big });
     expect(res.status).toBe(400);
     expect(prisma.exceptionAction.upsert).not.toHaveBeenCalled();
   });

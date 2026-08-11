@@ -2198,8 +2198,8 @@ model AuditLog {
 
 // Estado server-side de una acción sobre una EXCEPCIÓN (Slice 2b). Sustituye el
 // "ocultar" que solo vivía en localStorage: persistente, idempotente y auditado.
-// Aditivo: tabla nueva → `prisma db push` la crea sin lock. `status` es String
-// (no enum) siguiendo el patrón del repo (db push maneja mejor String que enums).
+// Aditivo: tabla nueva → `prisma db push` la crea sin lock. `action`/`source` son
+// String (no enum) siguiendo el patrón del repo (db push maneja mejor String).
 model ExceptionAction {
   id          String    @id @default(cuid())
   workspaceId String

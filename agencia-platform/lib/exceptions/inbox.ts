@@ -53,6 +53,7 @@ export type ExceptionInbox = {
   activeWindowDays: number;
   actionsEnabled: boolean; // Slice 2b: persistencia server-side de acciones activa
   hiddenIds: string[]; // exceptionIds ocultos vivos (solo si includeHidden)
+  hiddenCount: number; // nº de ocultaciones vivas (siempre, para el badge)
   sections: Sections | null; // solo en view=active
   done: DoneItem[]; // solo en view=active
   historical: { total: number; bySource: HistoricalSummary[] };
@@ -117,6 +118,7 @@ export async function getExceptionInbox(
     const sorted = sortByPriority(shown);
     const hiddenKeys = liveHiddenKeys(hidden, now);
     const hiddenIds = opts.includeHidden ? sorted.filter((it) => hiddenKeys.has(hideKey(it.id, it.severity))).map((it) => it.id) : [];
+    const hiddenCount = hiddenKeys.size;
     return {
       items: sorted.slice(0, limit),
       summary: summarize(sorted),
@@ -126,6 +128,7 @@ export async function getExceptionInbox(
       activeWindowDays,
       actionsEnabled: !!opts.applyActions,
       hiddenIds,
+      hiddenCount,
       sections: null,
       done: [],
       historical: { total: sorted.length, bySource: [] },
@@ -195,6 +198,7 @@ export async function getExceptionInbox(
   const sorted = sortByPriority(active);
   const hiddenKeys = liveHiddenKeys(hidden, now);
   const hiddenIds = opts.includeHidden ? sorted.filter((it) => hiddenKeys.has(hideKey(it.id, it.severity))).map((it) => it.id) : [];
+  const hiddenCount = hiddenKeys.size;
 
   const bySource: HistoricalSummary[] = [];
   if (oldTaskCount > 0) bySource.push({ source: "task", count: oldTaskCount, label: `${oldTaskCount} tareas vencidas hace más de ${activeWindowDays} días` });
@@ -209,6 +213,7 @@ export async function getExceptionInbox(
     activeWindowDays,
     actionsEnabled: !!opts.applyActions,
     hiddenIds,
+    hiddenCount,
     sections: buildSections(sorted, now),
     done: fromDoneRuns(doneRuns as any, now),
     historical: { total: oldTaskCount + oldInvoiceCount, bySource },

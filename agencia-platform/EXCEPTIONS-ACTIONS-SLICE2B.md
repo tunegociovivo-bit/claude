@@ -39,6 +39,20 @@ Sustituye el "ocultar" que solo vivía en `localStorage` por una persistencia
 - **Idempotencia:** repetir la misma acción no duplica (upsert por clave única);
   revocar es idempotente (`updateMany` sobre las vivas).
 
+## Revisión independiente (folded)
+
+Una revisión adversarial de seguridad/correctness confirmó limpio tenant, idempotencia,
+frontera de caducidad y flag-off. Corregido antes de subir:
+- **Gate de facturación en escritura:** un no-admin ya **no** puede archivar una
+  excepción `invoice:*` (mirroring del gate de lectura) → 403. Evita que oculte cobros
+  a los admin.
+- **`meta` acotado** (≤4 KB) — se rechaza payload mayor (evita almacenamiento/DoS y
+  sink de PII); comentario corregido (antes decía "truncamos" sin truncar).
+- **Carrera P2002** en el upsert concurrente → se trata como update idempotente, no 500.
+- **Linter de tenant** ahora inspecciona también `upsert`.
+- **Badge "ver ocultas"** usa un `hiddenCount` server-side (antes 0 en modo servidor).
+- **Fallo de acción** ahora se avisa (antes silencioso).
+
 ## Migración
 
 `db/migrations/2026-08-11-exception-actions.sql` — DDL exacto (CREATE TABLE +

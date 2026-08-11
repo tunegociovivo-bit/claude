@@ -44,6 +44,7 @@ type InboxResponse = {
   activeWindowDays: number;
   actionsEnabled: boolean;
   hiddenIds: string[];
+  hiddenCount: number;
   sections: Sections | null;
   done: DoneItem[];
   historical: { total: number; bySource: HistoricalSummary[] };
@@ -83,6 +84,7 @@ export default function ExceptionsInbox() {
   const [filters, setFilters] = useState<UiFilters>({ severity: "all", source: "all", q: "" });
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [showHidden, setShowHidden] = useState(false);
+  const [actionError, setActionError] = useState(false);
   const store = typeof window !== "undefined" ? window.localStorage : null;
 
   const qs = useCallback((view: "active" | "archive", f: UiFilters, includeHidden?: boolean) => {
@@ -181,14 +183,16 @@ export default function ExceptionsInbox() {
   const onToggleHide = useCallback(
     (it: ExceptionItem, hidden: boolean) => {
       if (serverMode) {
+        setActionError(false);
         const body = hidden
           ? { revoke: true, exceptionId: it.id, action: "archive" }
           : { exceptionId: it.id, dedupeKey: it.dedupeKey, source: it.source, kind: it.kind, action: "archive", severity: it.severity };
         fetch("/api/v1/exceptions/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
           .then((r) => {
             if (r.ok) load(filters, undefined, showHidden);
+            else setActionError(true);
           })
-          .catch(() => {});
+          .catch(() => setActionError(true));
       } else {
         setDismissed(toggleDismissed(store, dismissKey(it)));
       }
@@ -196,7 +200,10 @@ export default function ExceptionsInbox() {
     [serverMode, filters, showHidden, store, load]
   );
 
-  const hiddenCount = useMemo(() => (data?.items ?? []).filter(isHidden).length, [data, isHidden]);
+  const hiddenCount = useMemo(
+    () => (serverMode ? data?.hiddenCount ?? 0 : (data?.items ?? []).filter(isHidden).length),
+    [serverMode, data, isHidden]
+  );
 
   if (state === "disabled") {
     return (
@@ -298,6 +305,12 @@ export default function ExceptionsInbox() {
           <RefreshCw aria-hidden className="h-3.5 w-3.5" /> Recargar
         </button>
       </div>
+
+      {actionError && (
+        <div className="text-xs px-3 py-2 rounded-lg border bg-rose-50 text-rose-700 border-rose-200" role="alert">
+          No se pudo guardar la acción. Inténtalo de nuevo.
+        </div>
+      )}
 
       {/* Resumen histórico (banner en vistas activas) */}
       {tab !== "archive" && data?.historical && data.historical.total > 0 && (
