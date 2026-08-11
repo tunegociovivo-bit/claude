@@ -1,7 +1,32 @@
 # Diagnóstico: reto no aparece tras instalar desde Play (Bubui 1043) + App Links
 
-## Resumen ejecutivo
-Hay **DOS problemas distintos** que se estaban mezclando:
+## Causa principal: Android Auto Backup restaura AsyncStorage al reinstalar
+**Estado epistémico:** causa **demostrada EN CÓDIGO** y **fuertemente consistente
+con lo observado en producción** (explica los dos síntomas a la vez). **NO** está
+**confirmada como E2E de producción** hasta ejecutar la instalación real desde Play
+con un binario que lleve estos cambios y ver las trazas/`dumpsys`.
+
+- `apps/bubui-mobile` no desactivaba Android Auto Backup. Al reinstalar, Android
+  **restaura el almacén de AsyncStorage** antes del primer arranque, devolviendo:
+  1. La **sesión anterior** → `CheckSession()` la encuentra → `initial = "Feed"` →
+     la app abre Feed en vez de Onboarding (parece invitado).
+  2. El flag `bubui.installReferrerDealChecked=1` → `captureInstallReferrer` salía
+     antes de leer el referrer **nuevo** → el reto se perdía.
+- Por qué los parches previos no bastaban: corrían DESPUÉS del cortocircuito por el
+  flag restaurado y de la decisión de ruta por la sesión restaurada.
+- Correcciones (código, testeadas): eliminar el flag persistente en deal-pending
+  **y** referral-pending (se relee el referrer cada arranque); `allowBackup=false`
+  + `dataExtractionRules` (verificado en el AndroidManifest generado); bootstrap
+  que espera el resultado terminal del referrer y prioriza el reto sobre una
+  sesión restaurada.
+- Confirmación pendiente (cuando haya APK con estos cambios):
+  `adb shell dumpsys package com.negociovivo.bubui | grep -i allowBackup` → `false`;
+  y reinstalar con `am broadcast … INSTALL_REFERRER --es referrer reto_<token>` →
+  el reto aparece; trazas `app_capture_install_referrer` + `app_onboarding_shown`.
+
+---
+
+## (Secundario) App Links: DOS problemas distintos que se mezclaban
 
 - **P1 (la incidencia):** instalación DIFERIDA (enlace WhatsApp → Play → instala → abre).
   Este flujo **NO usa App Links** (no hay app cuando se pulsa el enlace): depende
