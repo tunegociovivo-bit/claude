@@ -37,6 +37,7 @@ import MobileFABs from "@/components/tareas/MobileFABs";
 import VoiceTaskRecorder from "@/components/forms/VoiceTaskRecorder";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import PanelDock from "@/components/tareas/PanelDock";
+import ClientCombobox from "@/components/tareas/ClientCombobox";
 import { statusLabelOf, statusColorOf, priorityColors, priorityLabels } from "@/lib/mock-data";
 import type { UiTask, UiProject, UiClient, UiMember } from "@/lib/db/queries";
 import { LayoutGrid, List, Plus, Filter, CalendarDays, FolderPlus, GripVertical, CheckSquare, Square, Settings2, Loader2, Link2, Check, Bot, X, Zap, Pencil, RefreshCw } from "lucide-react";
@@ -1268,16 +1269,13 @@ export default function TareasClient({
             </select>
           </div>
         )}
-        <select
+        {/* FASE 2 · obj 3/4: combobox async accesible (búsqueda remota + virtualización)
+            en lugar del <select> nativo con cientos de <option>. */}
+        <ClientCombobox
           value={filters.client}
-          onChange={(e) => setFilters((f) => ({ ...f, client: e.target.value }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
-        >
-          <option value="all">Todos los clientes</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+          onChange={(id) => setFilters((f) => ({ ...f, client: id }))}
+          knownClients={clients as unknown as { id: string; name: string; status?: string }[]}
+        />
         <select
           value={filters.assignee}
           onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))}
