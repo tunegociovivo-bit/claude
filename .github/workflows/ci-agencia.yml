@@ -46,3 +46,6 @@ jobs:
 
       - name: Guardas de tenant (aislamiento por workspace)
         run: node scripts/check-tenant-guards.mjs
+
+      - name: Tests unitarios (vitest)
+        run: npx vitest run
