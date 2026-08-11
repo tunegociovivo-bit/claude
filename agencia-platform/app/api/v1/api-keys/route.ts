@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/api/auth";
 
 const PREFIX = process.env.API_KEY_PREFIX ?? "ag_";
 
-export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
+export const GET = withApi({ scope: "admin", admin: true }, async (_req, { api }) => {
   const keys = await prisma.apiKey.findMany({
     where: { workspaceId: api.workspaceId, revokedAt: null },
     select: { id: true, name: true, prefix: true, scopes: true, lastUsedAt: true, createdAt: true, expiresAt: true }
@@ -15,7 +15,7 @@ export const GET = withApi({ scope: "admin" }, async (_req, { api }) => {
   return NextResponse.json({ items: keys });
 });
 
-export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
+export const POST = withApi({ scope: "admin", admin: true }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   if (!body?.name) throw new ApiError(400, "validation_error", "name requerido");
 

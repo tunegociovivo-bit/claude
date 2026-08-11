@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export const POST = withApi(
-  { scope: "admin" },
+  { scope: "admin", admin: true },
   async (req, { api, params }) => {
     const runId = String(params?.id ?? "");
     if (!runId) throw new ApiError(400, "missing_id", "runId requerido");

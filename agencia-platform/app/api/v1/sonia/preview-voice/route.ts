@@ -16,7 +16,7 @@ import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 
 export const dynamic = "force-dynamic";
 
-export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
+export const POST = withApi({ scope: "admin", admin: true }, async (req, { api }) => {
   const body = await req.json().catch(() => ({}));
   const text = String(body?.text ?? "").trim();
   if (!text) {
