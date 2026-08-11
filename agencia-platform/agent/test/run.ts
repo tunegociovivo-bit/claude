@@ -69,7 +69,8 @@ async function main() {
     allowedOrigin: "https://empresas3.gruposantander.es",
     visibleKeyFields: 8,
     rememberedUser: true,
-    hasStoredCredential: true
+    hasStoredCredential: true,
+    hasStoredUsername: false
   };
   ok("autoriza el relleno solo en el login oficial", decideLoginAction(safeLogin) === "SUBMIT_SAVED_KEY");
   ok("rechaza un dominio parecido", decideLoginAction({ ...safeLogin, currentUrl: "https://empresas3.gruposantander.es.ejemplo.com/paas/loginnwe/" }) === "PAUSE");
@@ -77,6 +78,8 @@ async function main() {
   ok("rechaza una pantalla que no tenga ocho casillas", decideLoginAction({ ...safeLogin, visibleKeyFields: 7 }) === "PAUSE");
   ok("requiere que Santander recuerde el usuario", decideLoginAction({ ...safeLogin, rememberedUser: false }) === "PAUSE");
   ok("requiere una credencial local cifrada", decideLoginAction({ ...safeLogin, hasStoredCredential: false }) === "PAUSE");
+  ok("acepta la pantalla completa de nueve campos con usuario cifrado", decideLoginAction({ ...safeLogin, visibleKeyFields: 9, rememberedUser: false, hasStoredUsername: true }) === "SUBMIT_SAVED_CREDENTIALS");
+  ok("no rellena la pantalla completa si falta el usuario cifrado", decideLoginAction({ ...safeLogin, visibleKeyFields: 9, rememberedUser: false, hasStoredUsername: false }) === "PAUSE");
   ok("reconoce la portada autenticada oficial", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/posglobal", safeLogin.allowedOrigin));
   ok("reconoce el módulo autenticado de remesas", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/portal/distribuidoras/remesas", safeLogin.allowedOrigin));
   ok("no confunde el login con una sesión autenticada", !isAuthenticatedSantanderUrl(safeLogin.currentUrl, safeLogin.allowedOrigin));
