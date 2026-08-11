@@ -15,6 +15,7 @@
 
 import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db/prisma";
+import { businessAuthMode, decideNoToken } from "./auth-mode";
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -35,6 +36,12 @@ export async function businessTokenAllows(token: string | null, businessId: stri
     // Negocio con sesión nueva → secreto obligatorio y correcto.
     return safeEqual(b.apiToken, secret);
   }
-  // Negocio todavía sin apiToken (sesión previa a esta versión).
-  return process.env.BUBUI_REQUIRE_BUSINESS_TOKEN !== "true";
+  // Negocio todavía sin apiToken (sesión previa a esta versión): decisión por modo.
+  const { allow, log } = decideNoToken(businessAuthMode());
+  if (log) {
+    console.warn(
+      `[bubui-auth][shadow] negocio ${businessId} sin apiToken: se PERMITE (lazy/shadow). En modo strict devolvería 401.`
+    );
+  }
+  return allow;
 }
