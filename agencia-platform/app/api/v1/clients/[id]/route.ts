@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { clientCreateSchema } from "@/lib/api/schemas";
-import { callerIsAdmin, redactMrr } from "@/lib/api/permissions";
+import { callerIsAdmin } from "@/lib/api/permissions";
+import { serializeClient, CLIENT_ADMIN_FIELDS, CLIENT_NEVER_FIELDS } from "@/lib/api/client-serializer";
 import { auditFromReq } from "@/lib/audit/log";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
@@ -18,7 +19,9 @@ export const GET = withApi({ scope: "clients:read" }, async (_req, { params, api
     callerIsAdmin(api)
   ]);
   if (!client) throw new ApiError(404, "not_found", "Cliente no encontrado");
-  return NextResponse.json(redactMrr(client as any, isAdmin));
+  // Allowlist por rol: nunca expone accesos/sepa/stripe/meta a no-admin ni
+  // stripe/meta a nadie por esta ruta (ver lib/api/client-serializer.ts).
+  return NextResponse.json(serializeClient(client as any, isAdmin));
 });
 
 export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, api }) => {
@@ -28,7 +31,10 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
 
   const isAdmin = await callerIsAdmin(api);
   const data: any = { ...parsed.data };
-  if (!isAdmin) delete data.mrr;
+  // Coherente con la allowlist de lectura: un no-admin no puede ESCRIBIR los
+  // campos sensibles (mrr/accesos/sepa/fiscal). Esto además evita que el modal,
+  // que ya no los prefilla para no-admin, los borre (accesos:null) al guardar.
+  if (!isAdmin) for (const k of [...CLIENT_ADMIN_FIELDS, ...CLIENT_NEVER_FIELDS]) delete data[k];
 
   // Snapshot anterior para el audit log si va a cambiar algo sensible.
   const previous = await prisma.client.findFirst({
@@ -81,7 +87,7 @@ export const PATCH = withApi({ scope: "clients:write" }, async (req, { params, a
     }).catch(() => {});
   }
 
-  return NextResponse.json(redactMrr(fresh as any, isAdmin));
+  return NextResponse.json(serializeClient(fresh as any, isAdmin));
 });
 
 export const DELETE = withApi({ scope: "clients:write" }, async (req, { params, api }) => {
