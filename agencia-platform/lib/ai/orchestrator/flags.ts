@@ -2,11 +2,15 @@
  * Flags del orquestador (Slice 2c). TODO OFF por defecto → runner actual intacto.
  */
 export function orchestratorEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return (env.AI_RUN_ORCHESTRATOR ?? "").trim().toLowerCase() === "on";
+  // Habilitado tanto en "on" (shadow) como en "live": si solo aceptara "on", poner
+  // "live" apagaría el scheduler en silencio (el endpoint 404/disabled) y el modo live
+  // sería inalcanzable. Ambos habilitan; `orchestratorMode` distingue shadow vs live.
+  const v = (env.AI_RUN_ORCHESTRATOR ?? "").trim().toLowerCase();
+  return v === "on" || v === "live";
 }
 
-/** Modo del orquestador: "shadow" (por defecto cuando está on) solo simula y
- *  registra; "live" reservado para el futuro (no ejecuta acciones externas aún). */
+/** Modo del orquestador: "shadow" (por defecto cuando está `on`) solo simula/registra;
+ *  "live" (`AI_RUN_ORCHESTRATOR=live` + `AI_MULTIMODEL=on`) hace la llamada de modelo real. */
 export function orchestratorMode(env: NodeJS.ProcessEnv = process.env): "shadow" | "live" {
   return (env.AI_RUN_ORCHESTRATOR ?? "").trim().toLowerCase() === "live" ? "live" : "shadow";
 }

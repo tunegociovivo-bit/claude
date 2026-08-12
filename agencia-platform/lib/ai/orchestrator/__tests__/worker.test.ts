@@ -168,4 +168,12 @@ describe("runBatch — lote acotado, aislamiento de errores, libera lease", () =
     const res = await runBatch(prisma as any, { runStep, now: () => NOW, owner: "W", leaseMs: 30000, maxStepsPerRun: 4 }, reload(prisma));
     expect(res.steps).toBeLessThanOrEqual(4);
   });
+  it("MEDIUM #4: no arranca un paso si no cabe el intento en el presupuesto del lote", async () => {
+    const prisma = mkPrisma([{ id: "o1", workspaceId: "w1", state: "verifying", nextRunAt: past }]);
+    const runStep = vi.fn(async () => ({ to: "completed" }) as any);
+    // maxWallMs 10s, attemptBudgetMs 15s → ningún paso cabe → no se ejecuta runStep
+    const res = await runBatch(prisma as any, { runStep, now: () => NOW, owner: "W", leaseMs: 60000, maxWallMs: 10_000, attemptBudgetMs: 15_000 }, reload(prisma));
+    expect(runStep).not.toHaveBeenCalled();
+    expect(res.steps).toBe(0);
+  });
 });

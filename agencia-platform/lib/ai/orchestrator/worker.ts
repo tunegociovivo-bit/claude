@@ -141,24 +141,28 @@ export type BatchResult = {
  */
 export async function runBatch(
   prisma: PrismaLike,
-  deps: { runStep: (orch: Orchestration) => Promise<{ to: OrchState; patch?: any }>; killSwitch?: () => boolean; now: () => Date; owner: string; leaseMs: number; batchSize?: number; maxStepsPerRun?: number; maxWallMs?: number },
+  deps: { runStep: (orch: Orchestration) => Promise<{ to: OrchState; patch?: any }>; killSwitch?: () => boolean; now: () => Date; owner: string; leaseMs: number; batchSize?: number; maxStepsPerRun?: number; maxWallMs?: number; attemptBudgetMs?: number },
   reload: (orch: Orchestration) => Promise<Orchestration | null>
 ): Promise<BatchResult> {
   const startedMs = deps.now().getTime();
   const maxWallMs = deps.maxWallMs ?? 25_000;
   const maxSteps = deps.maxStepsPerRun ?? 12;
+  // No arrancar un paso si no cabe dentro del presupuesto del lote (un intento puede
+  // durar hasta attemptBudgetMs). Así un paso nunca termina tras expirar el lease.
+  const attemptBudgetMs = deps.attemptBudgetMs ?? 0;
+  const canStartStep = () => deps.now().getTime() - startedMs + attemptBudgetMs <= maxWallMs;
   const agg: BatchResult = { claimed: 0, advanced: 0, completed: 0, parked: 0, terminal: 0, errors: 0, steps: 0 };
 
   const claimed = await claimDue(prisma, { owner: deps.owner, now: deps.now(), leaseMs: deps.leaseMs, limit: deps.batchSize ?? 5 });
   agg.claimed = claimed.length;
 
   for (const initial of claimed) {
-    if (deps.now().getTime() - startedMs > maxWallMs) break; // presupuesto de tiempo del lote
+    if (!canStartStep()) break; // presupuesto de tiempo del lote agotado
     let orch: Orchestration | null = initial;
     let movedThisRun = false;
     try {
       for (let i = 0; i < maxSteps && orch; i++) {
-        if (deps.now().getTime() - startedMs > maxWallMs) break;
+        if (!canStartStep()) break;
         if (isTerminal(orch.state)) break;
         const r = await stepOrchestration(prisma, { runStep: deps.runStep, killSwitch: deps.killSwitch }, orch);
         if (!r.ok) break; // stale (otro worker) o no aplicó → soltar
@@ -172,10 +176,16 @@ export async function runBatch(
         }
         orch = await reload(orch); // recarga estado/versión para el siguiente paso
       }
-    } catch {
+    } catch (e: any) {
       agg.errors++; // error parcial: NO bloquea el resto del lote
+      // Observabilidad sin PII: solo la clase del error para diagnosticar la causa.
+      console.warn(`[ai-scheduler] run ${initial.id} error parcial: ${String(e?.name ?? "error")}`);
     } finally {
-      await releaseLease(prisma, { id: initial.id, workspaceId: initial.workspaceId, leaseOwner: deps.owner }).catch(() => {});
+      const rel = await releaseLease(prisma, { id: initial.id, workspaceId: initial.workspaceId, leaseOwner: deps.owner }).catch((e: any) => {
+        console.warn(`[ai-scheduler] releaseLease ${initial.id} falló: ${String(e?.name ?? "error")}`);
+        return { released: false };
+      });
+      void rel;
     }
     if (movedThisRun) agg.advanced++;
   }

@@ -28,17 +28,25 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ ok: true, disabled: true, batch: null });
   }
 
-  const owner = `cron-${Math.floor(Date.now() / 1000)}-${req.headers.get("x-request-id") ?? "tick"}`;
+  // Owner ÚNICO por invocación (UUID): el guard de dueño del lease depende de ello;
+  // sin entropía, dos ticks del mismo segundo colisionarían y podrían pisarse el lease.
+  const owner = `cron-${crypto.randomUUID()}`;
   const runStep = buildRunStep(prisma, process.env, { env: process.env });
   const killSwitch = () => autonomyKillSwitch();
 
   const reload = (o: Orchestration) => getOrchestration(prisma, o.workspaceId, o.id);
 
+  // Presupuestos del lote. INVARIANTE: leaseMs > maxWallMs + attemptBudgetMs para que
+  // un paso no termine tras expirar el lease (evita re-claim y llamada de modelo doble).
+  const attemptBudgetMs = Number(process.env.AI_ATTEMPT_DEADLINE_MS) || 15_000;
+  const maxWallMs = 25_000;
+  const leaseMs = maxWallMs + attemptBudgetMs + 20_000; // margen amplio
+
   let batch: BatchResult;
   try {
     batch = await runBatch(
       prisma,
-      { runStep, killSwitch, now: () => new Date(), owner, leaseMs: 30_000, batchSize: 5, maxStepsPerRun: 12, maxWallMs: 25_000 },
+      { runStep, killSwitch, now: () => new Date(), owner, leaseMs, batchSize: 5, maxStepsPerRun: 12, maxWallMs, attemptBudgetMs },
       reload
     );
   } catch (e: any) {

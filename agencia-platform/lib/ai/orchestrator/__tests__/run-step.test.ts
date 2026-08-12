@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { makeRunStep, type RunStepDeps } from "../run-step";
+import { canTransition } from "../state-machine";
 import { initBreaker, recordFailure, type BreakerSnapshot } from "../circuit-breaker";
 import { DEFAULT_LIMITS } from "../budget";
 import { ProviderHttpError, InvalidProviderResponse, MissingProviderKey } from "../live-adapters";
@@ -171,5 +172,30 @@ describe("runStep — fases", () => {
     const r = await rs(orch({ state: "executing" }));
     expect(r.to).toBe("diagnosing");
     expect(r.patch.plan.diag.hint).toBe("provider");
+  });
+
+  it("CONTRATO (HIGH #1): toda salida de runStep es una transición VÁLIDA desde su estado", async () => {
+    // Escenarios que fuerzan cada rama, incl. executing→{waiting_backoff,materially_blocked,budget_exhausted}.
+    const cases: Array<{ from: any; deps?: Partial<RunStepDeps>; over?: any }> = [
+      { from: "queued" },
+      { from: "planning" },
+      { from: "waiting_backoff" },
+      { from: "verifying" },
+      { from: "verifying", deps: { verify: async () => false } },
+      { from: "executing" }, // éxito → verifying
+      { from: "executing", deps: { callModel: async () => { throw new ProviderHttpError("anthropic", 429, 1, true); } } }, // → diagnosing
+      { from: "executing", deps: { env: {} as any } }, // sin proveedor → materially_blocked
+      { from: "executing", over: { usage: { attempts: 9, elapsedMs: 0, tokens: 0, costUsd: 0 }, limits: { ...DEFAULT_LIMITS, maxAttempts: 1 } } }, // budget → budget_exhausted
+      { from: "diagnosing", over: { plan: { diag: { hint: "transient" }, need: { capabilities: [] } } } }, // → waiting_backoff
+      { from: "diagnosing", over: { plan: { diag: { policyBlocked: true } } } }, // → approval_required
+      { from: "diagnosing", over: { plan: { diag: { error: "falta credencial" } } } }, // → materially_blocked
+      { from: "decomposing", over: { plan: { subtasks: [{ id: "a", title: "a", deps: [] }], parentAutonomy: "A2" } } }, // → executing
+      { from: "decomposing", over: { plan: { subtasks: [{ id: "a", title: "a", deps: [], maxAutonomy: "A4" }], parentAutonomy: "A2" } } } // → materially_blocked
+    ];
+    for (const c of cases) {
+      const rs = makeRunStep(mkPrisma() as any, mkDeps(c.deps));
+      const r = await rs(orch({ state: c.from, ...(c.over ?? {}) }));
+      expect(canTransition(c.from, r.to), `${c.from} → ${r.to} debe ser válida`).toBe(true);
+    }
   });
 });

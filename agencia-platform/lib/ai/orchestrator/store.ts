@@ -102,7 +102,7 @@ export async function transition(
     from: OrchState;
     to: OrchState;
     expectedVersion: number;
-    patch?: Partial<Record<"strategy" | "plan" | "usage" | "fingerprints" | "decision" | "lastError" | "nextRunAt" | "runId", any>>;
+    patch?: Partial<Record<"strategy" | "plan" | "usage" | "limits" | "fingerprints" | "decision" | "lastError" | "nextRunAt" | "runId", any>>;
   }
 ): Promise<TransitionResult> {
   const { id, workspaceId, from, to, expectedVersion } = args;

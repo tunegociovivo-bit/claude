@@ -40,7 +40,10 @@ export const TERMINAL_STATES: ReadonlySet<OrchState> = new Set<OrchState>([
 const ALLOWED: Record<OrchState, readonly OrchState[]> = {
   queued: ["planning", "cancelled"],
   planning: ["executing", "decomposing", "materially_blocked", "approval_required", "cancelled"],
-  executing: ["verifying", "diagnosing", "approval_required", "cancelled"],
+  // `executing` puede concluir PRE-VUELO que no puede proseguir (sin proveedor sano,
+  // breaker abierto, o presupuesto ya agotado a la entrada) → estados de parada/escala
+  // sin pasar por un fallo de intento. Todos válidos y consistentes con `diagnosing`.
+  executing: ["verifying", "diagnosing", "waiting_backoff", "decomposing", "materially_blocked", "budget_exhausted", "approval_required", "cancelled"],
   verifying: ["completed", "diagnosing", "cancelled"],
   diagnosing: ["waiting_backoff", "decomposing", "materially_blocked", "approval_required", "budget_exhausted", "cancelled"],
   decomposing: ["planning", "executing", "materially_blocked", "cancelled"],
