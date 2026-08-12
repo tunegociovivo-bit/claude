@@ -24,7 +24,16 @@ function prune(failures: number[], now: number, windowMs: number): number[] {
   return failures.filter((t) => now - t < windowMs);
 }
 
-/** ¿Se puede intentar el proveedor ahora? Devuelve el estado efectivo + si es sonda. */
+/** ¿Se puede intentar el proveedor ahora? Devuelve el estado efectivo + si es sonda.
+ *
+ * CONTRATO DE CONCURRENCIA (F2): `canPass` es PURO y NO persiste la transición a
+ * half-open. El tope de "una sola sonda" depende de `halfOpenInFlight`, que solo
+ * pasa a true cuando el llamante persiste `markProbe`. Por tanto el llamante DEBE
+ * serializar `canPass`→(persistir `markProbe`) bajo un lock por proveedor antes de
+ * lanzar la sonda; si no, N llamadas concurrentes tras el cooldown verían todas
+ * `pass:true` y martillearían un proveedor aún caído. En SHADOW (2c) no hay red ni
+ * llamada real, así que no hay riesgo hoy; esta disciplina es obligatoria cuando se
+ * cablee un adaptador LIVE. */
 export function canPass(b: BreakerSnapshot, now: number, cfg: BreakerConfig = DEFAULT_BREAKER): { pass: boolean; probe: boolean; state: BreakerState } {
   if (b.state === "open") {
     if (b.openedAt != null && now - b.openedAt >= cfg.cooldownMs) {

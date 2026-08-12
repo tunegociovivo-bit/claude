@@ -79,6 +79,21 @@ describe("adapters — SHADOW, sin red", () => {
     expect(res.usage.costUsd).toBeGreaterThan(0);
     expect(res.text).toContain("simulada");
   });
+  it("redacta también el system prompt (canal influenciable), no solo los mensajes (F1)", async () => {
+    const a = buildAdapter(anthropic);
+    const res = await a.complete({ system: "eres asistente de ana@acme.es", messages: [{ role: "user", content: "hola a b@c.com" }] });
+    expect(res.piiRedactions).toBe(2); // 1 en system + 1 en mensaje
+    expect(res.executed).toBe(false);
+  });
+  it("maxOutputTokens negativo/NaN no produce coste negativo ni NaN (F3)", async () => {
+    const a = buildAdapter(anthropic);
+    const neg = await a.complete({ messages: [{ role: "user", content: "hola" }], maxOutputTokens: -5000 });
+    expect(neg.usage.costUsd).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(neg.usage.costUsd)).toBe(true);
+    const nan = await a.complete({ messages: [{ role: "user", content: "hola" }], maxOutputTokens: NaN as any });
+    expect(Number.isFinite(nan.usage.costUsd)).toBe(true);
+    expect(nan.usage.outputTokens).toBeGreaterThan(0); // cae al default 256
+  });
   it("fallo de proveedor inyectado → lanza con provider (para diagnóstico/fallback)", async () => {
     const a = buildAdapter(anthropic);
     await expect(a.complete(req("x"), { injectFailure: "429 overloaded" })).rejects.toMatchObject({ provider: "anthropic" });

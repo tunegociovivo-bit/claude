@@ -10,7 +10,7 @@
  * sin tocar ningún sistema externo.
  */
 import { MODEL_SLOTS, type ModelSlot, type ProviderId, type Capability } from "./providers";
-import { redactMessages } from "./pii-redact";
+import { redactMessages, redactPii } from "./pii-redact";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 export type AdapterRequest = { system?: string; messages: ChatMessage[]; maxOutputTokens?: number; capabilities?: Capability[] };
@@ -45,7 +45,9 @@ const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
 function estimate(slot: ModelSlot, req: AdapterRequest): { inputTokens: number; outputTokens: number; costUsd: number } {
   const chars = (req.system?.length ?? 0) + req.messages.reduce((s, m) => s + m.content.length, 0);
   const inputTokens = Math.ceil(chars / 4);
-  const outputTokens = Math.min(req.maxOutputTokens ?? 256, 8192);
+  // Clamp: entrada no confiable (JSON) podría traer maxOutputTokens negativo/NaN →
+  // coste negativo/NaN. Number()||256 neutraliza NaN/0; Math.max(0,·) el negativo.
+  const outputTokens = Math.min(Math.max(0, Number(req.maxOutputTokens) || 256), 8192);
   const c = slot.costPer1kUsd ?? { input: 0.003, output: 0.015 };
   const costUsd = round4((inputTokens / 1000) * c.input + (outputTokens / 1000) * c.output);
   return { inputTokens, outputTokens, costUsd };
@@ -64,9 +66,13 @@ export function buildAdapter(slot: ModelSlot): ModelAdapter {
     slot,
     available: (src) => hasKey(slot, src),
     async complete(req, opts) {
-      // Minimización de PII SIEMPRE, antes incluso de simular.
+      // Minimización de PII SIEMPRE, antes incluso de simular. Redactamos TANTO los
+      // mensajes COMO el system prompt (canal influenciable por tenant/atacante):
+      // así el objeto saneado no arrastra PII hacia la frontera externa (F1).
       const { messages, count } = redactMessages(req.messages);
-      const safeReq: AdapterRequest = { ...req, messages, system: req.system };
+      const sys = redactPii(req.system);
+      const piiRedactions = count + sys.count;
+      const safeReq: AdapterRequest = { ...req, messages, system: sys.text || undefined };
       if (opts?.injectFailure) {
         // Fallo de proveedor SIMULADO (no hay red). Propaga para que el orquestador
         // diagnostique y pruebe otro proveedor / abra el circuit breaker.
@@ -83,7 +89,7 @@ export function buildAdapter(slot: ModelSlot): ModelAdapter {
         executed: false,
         text: `[shadow:${slot.provider}/${slot.model}] respuesta simulada — no se llamó a ningún proveedor externo.`,
         usage,
-        piiRedactions: count,
+        piiRedactions,
         note: "SHADOW: sin llamada de red."
       };
     }
