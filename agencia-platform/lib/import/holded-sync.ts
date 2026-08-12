@@ -69,11 +69,11 @@ function mapStatus(s?: number): string {
  *  que lo tratamos como total (taxRate 0 para preservar el importe exacto). */
 export async function holdedInvoicesAsInputs(
   workspaceId: string,
-  options: { startTimestamp?: number; endTimestamp?: number } = {}
+  options: { startTimestamp?: number; endTimestamp?: number; limit?: number } = {}
 ): Promise<InvoiceInput[]> {
   const invoices = await holdedListInvoices({
     workspaceId,
-    limit: 5000,
+    limit: options.limit ?? 5000,
     startTimestamp: options.startTimestamp,
     endTimestamp: options.endTimestamp,
     sort: "created-desc"

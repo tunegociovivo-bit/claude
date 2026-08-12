@@ -52,7 +52,7 @@ export type CandidateInvoice = {
  */
 export async function findCandidateInvoices(
   workspaceId: string,
-  opts?: { take?: number; skip?: number; issuedAfter?: Date; issuedBefore?: Date }
+  opts?: { take?: number; skip?: number; issuedAfter?: Date; issuedBefore?: Date; invoiceIds?: string[] }
 ): Promise<CandidateInvoice[]> {
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) return [];
@@ -69,7 +69,8 @@ export async function findCandidateInvoices(
       paidAt: null,
       clientId: { not: null },
       number: { not: null },
-      ...(opts?.issuedAfter || opts?.issuedBefore
+      ...(opts?.invoiceIds ? { id: { in: opts.invoiceIds } } : {}),
+      ...(!opts?.invoiceIds && (opts?.issuedAfter || opts?.issuedBefore)
         ? { issueDate: { ...(opts.issuedAfter ? { gte: opts.issuedAfter } : {}), ...(opts.issuedBefore ? { lt: opts.issuedBefore } : {}) } }
         : {})
     },
@@ -272,8 +273,8 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
 export async function createRequestsForCandidates(
   workspaceId: string,
   createdById?: string | null,
-  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date }
-): Promise<{ created: number; skipped: number; examined: number; eligible: number; invalidated: number }> {
+  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date; invoiceIds?: string[] }
+): Promise<{ created: number; skipped: number; examined: number; eligible: number; invalidated: number; requestIds: string[] }> {
   const max = Math.min(opts?.max ?? 50, 200);
   // Defensa central: ningún caller puede omitir por accidente el límite de
   // fecha y volver a convertir una importación histórica en remesa nueva.
@@ -281,20 +282,38 @@ export async function createRequestsForCandidates(
   const issuedAfter = opts?.issuedAfter ?? defaultWindow.start;
   const issuedBefore = opts?.issuedBefore ?? defaultWindow.end;
   const invalidated = await invalidateKnownFalseHistoricalRequests(workspaceId, createdById);
-  const all = await findCandidateInvoices(workspaceId, { take: 300, issuedAfter, issuedBefore });
+  const all = await findCandidateInvoices(workspaceId, { take: 300, issuedAfter, issuedBefore, invoiceIds: opts?.invoiceIds });
   const eligible = all.filter((c) => c.eligible).slice(0, max);
   let created = 0;
   let skipped = 0;
+  const requestIds: string[] = [];
   for (const cand of eligible) {
     try {
       const r = await createRequestForInvoice(workspaceId, cand.invoiceId, createdById);
-      if (r.created) created++;
+      if (r.created) {
+        created++;
+        requestIds.push(r.requestId);
+      }
       else skipped++;
     } catch {
       skipped++;
     }
   }
-  return { created, skipped, examined: all.length, eligible: eligible.length, invalidated };
+  return { created, skipped, examined: all.length, eligible: eligible.length, invalidated, requestIds };
+}
+
+/** Aprobación interna para el piloto automático. Nunca firma ni cobra. */
+export async function approveRequestAutomatically(workspaceId: string, requestId: string): Promise<boolean> {
+  const now = new Date();
+  const updated = await prisma.sepaRemittanceRequest.updateMany({
+    where: { id: requestId, workspaceId, status: "PENDING_APPROVAL", tokenUsedAt: null },
+    data: { status: "APPROVED", tokenUsedAt: now, approvedAt: now }
+  });
+  if (!updated.count) return false;
+  await logEvent(requestId, "PENDING_APPROVAL", "APPROVED", null, "Aprobada automáticamente por el cron (no firma ni cobra)");
+  const { createJobForApprovedRequest } = await import("./agent");
+  await createJobForApprovedRequest(workspaceId, requestId);
+  return true;
 }
 
 // Incidente confirmado el 10/08/2026. La limpieza se limita a estas dos
