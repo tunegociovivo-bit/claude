@@ -70,7 +70,7 @@ export async function findCandidateInvoices(
       clientId: { not: null },
       number: { not: null },
       ...(opts?.invoiceIds ? { id: { in: opts.invoiceIds } } : {}),
-      ...(!opts?.invoiceIds && (opts?.issuedAfter || opts?.issuedBefore)
+      ...((opts?.issuedAfter || opts?.issuedBefore)
         ? { issueDate: { ...(opts.issuedAfter ? { gte: opts.issuedAfter } : {}), ...(opts.issuedBefore ? { lt: opts.issuedBefore } : {}) } }
         : {})
     },
