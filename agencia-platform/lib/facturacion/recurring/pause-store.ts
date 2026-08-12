@@ -6,7 +6,7 @@
  * SOLO Hub (flag `status`). NUNCA toca Holded (la pausa remota es checklist manual).
  * La ejecución exige: frase de confirmación correcta + admin + flag opt-in (rutas).
  */
-import { buildPausePlan, phraseMatches, type PauseAction, type PausePlan, inventoryCsv, type InventoryRow } from "./pause-plan";
+import { buildPausePlan, phraseMatches, isPausable, type PauseAction, type PausePlan, inventoryCsv, type InventoryRow } from "./pause-plan";
 
 type PrismaLike = any;
 
@@ -108,29 +108,51 @@ async function processIds(
     for (const id of batch) {
       const row = byId.get(id);
       const from = row?.status;
+      let outcome: PauseCommitResult["results"][number];
       try {
         if (action === "pause") {
-          // guard de estado → idempotente/concurrency-safe. Preserva estado previo.
-          const r = await prisma.recurringInvoiceTemplate.updateMany({
-            where: { id, workspaceId, status: from },
-            data: { status: "paused", statusBeforePause: from }
-          });
-          results.push(r.count === 1 ? { id, ok: true, from, to: "paused" } : { id, ok: false, from, error: "estado cambió (concurrencia) o ya pausada" });
+          if (from === "paused") {
+            // Ya pausada (p.ej. reproceso tras reanudar un job): idempotente y NO
+            // reescribe statusBeforePause (si no, se perdería el estado original).
+            outcome = { id, ok: true, from, to: "paused" };
+          } else if (!from || !isPausable(from)) {
+            outcome = { id, ok: false, from, error: `estado ${from ?? "?"} no admite pausa` };
+          } else {
+            const r = await prisma.recurringInvoiceTemplate.updateMany({
+              where: { id, workspaceId, status: from },
+              data: { status: "paused", statusBeforePause: from }
+            });
+            outcome = r.count === 1 ? { id, ok: true, from, to: "paused" } : { id, ok: false, from, error: "el estado cambió (concurrencia)" };
+          }
         } else {
-          const restore = row?.statusBeforePause || "active";
-          const r = await prisma.recurringInvoiceTemplate.updateMany({
-            where: { id, workspaceId, status: "paused" },
-            data: { status: restore, statusBeforePause: null }
-          });
-          results.push(r.count === 1 ? { id, ok: true, from: "paused", to: restore } : { id, ok: false, from, error: "no estaba pausada (concurrencia)" });
-        }
-        if (results[results.length - 1].ok) {
-          await prisma.auditLog.create({
-            data: { workspaceId, actorId, action: `recurring.template.${action}`, targetType: "recurring_template", targetId: id, meta: { operationId, from, to: results[results.length - 1].to } }
-          });
+          // resume
+          if (from !== "paused") {
+            outcome = { id, ok: false, from, error: "no estaba pausada" };
+          } else if (!row?.statusBeforePause) {
+            // Sin estado previo → NO se asume 'active' (evita activar drafts por error).
+            outcome = { id, ok: false, from, error: "sin estado previo registrado; reanudación manual requerida" };
+          } else {
+            const restore = row.statusBeforePause;
+            const r = await prisma.recurringInvoiceTemplate.updateMany({
+              where: { id, workspaceId, status: "paused" },
+              data: { status: restore, statusBeforePause: null }
+            });
+            outcome = r.count === 1 ? { id, ok: true, from: "paused", to: restore } : { id, ok: false, from, error: "el estado cambió (concurrencia)" };
+          }
         }
       } catch (e: any) {
-        results.push({ id, ok: false, from, error: String(e?.message ?? e).slice(0, 160) });
+        outcome = { id, ok: false, from, error: String(e?.message ?? e).slice(0, 160) };
+      }
+      results.push(outcome);
+      // Auditoría BEST-EFFORT: su fallo NUNCA altera el resultado ni los conteos.
+      if (outcome.ok && outcome.to) {
+        try {
+          await prisma.auditLog.create({
+            data: { workspaceId, actorId, action: `recurring.template.${action}`, targetType: "recurring_template", targetId: id, meta: { operationId, from, to: outcome.to } }
+          });
+        } catch {
+          /* best-effort */
+        }
       }
       processedIds.push(id);
     }

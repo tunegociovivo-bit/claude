@@ -79,6 +79,34 @@ describe("commitPause — confirmación fuerte", () => {
     expect(r.results.filter((x) => !x.ok)).toHaveLength(1);
   });
 
+  it("reproceso de una YA pausada → idempotente sin reescribir statusBeforePause", async () => {
+    statuses([{ id: "a", status: "paused", statusBeforePause: "active", clientSnapshot: null }]);
+    // conteo elegible = 0 (paused no es pausable) → la frase liga a 0
+    const r = await commitPause(prisma as any, "w1", "pause", ["a"], expectedPhrase("pause", 0, "w1"), "u1");
+    // 0 elegibles → completed sin tocar nada (no reescribe)
+    expect(r.status).toBe("completed");
+    expect(prisma.recurringInvoiceTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("resume SIN estado previo → no-ok, NO activa por defecto", async () => {
+    statuses([{ id: "b", status: "paused", statusBeforePause: null, clientSnapshot: null }]);
+    prisma.recurringInvoiceTemplate.updateMany.mockResolvedValue({ count: 1 });
+    const r = await commitPause(prisma as any, "w1", "resume", ["b"], expectedPhrase("resume", 1, "w1"), "u1");
+    expect(r.results[0].ok).toBe(false);
+    expect(r.results[0].error).toMatch(/sin estado previo/);
+    expect(prisma.recurringInvoiceTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("fallo de auditoría NO corrompe el resultado (best-effort)", async () => {
+    statuses([{ id: "a", status: "active", statusBeforePause: null, clientSnapshot: null }]);
+    prisma.recurringInvoiceTemplate.updateMany.mockResolvedValue({ count: 1 });
+    prisma.auditLog.create.mockRejectedValue(new Error("audit down"));
+    const r = await commitPause(prisma as any, "w1", "pause", ["a"], expectedPhrase("pause", 1, "w1"), "u1");
+    expect(r.status).toBe("completed"); // la pausa se aplicó; el audit fallido no la marca partial
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0].ok).toBe(true);
+  });
+
   it("reanudar restaura el estado PREVIO (draft no se activa)", async () => {
     statuses([{ id: "b", status: "paused", statusBeforePause: "draft", clientSnapshot: null }]);
     prisma.recurringInvoiceTemplate.updateMany.mockResolvedValue({ count: 1 });
