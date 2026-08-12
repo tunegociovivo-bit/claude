@@ -9,6 +9,7 @@ import {
   normalizeClientEmail,
   createWorkspaceSlug,
   validateInitialPassword,
+  calculateUsageOverview,
 } from "../lib/admin/usage";
 
 test("calcula el coste diario usando coste real y estimaciones solo cuando faltan datos", () => {
@@ -24,6 +25,31 @@ test("calcula el coste diario usando coste real y estimaciones solo cuando falta
   assert.equal(result.callCost, 0.57);
   assert.equal(result.whatsappCost, 0.02);
   assert.equal(result.totalCost, 0.59);
+});
+
+test("separa el consumo histórico del consumo de hoy", () => {
+  const since = new Date("2026-08-12T00:00:00Z");
+  const result = calculateUsageOverview({
+    calls: [
+      { createdAt: new Date("2026-08-11T10:00:00Z"), durationSec: 120, providerCost: 0.3 },
+      { createdAt: new Date("2026-08-12T08:00:00Z"), durationSec: 60, providerCost: null },
+    ],
+    inboundMessages: [
+      { createdAt: new Date("2026-08-11T10:00:00Z") },
+      { createdAt: new Date("2026-08-12T09:00:00Z") },
+    ],
+    since,
+    callMinuteRate: 0.15,
+    whatsappMessageRate: 0.005,
+  });
+  assert.equal(result.callsTotal, 2);
+  assert.equal(result.callsToday, 1);
+  assert.equal(result.whatsappTotal, 2);
+  assert.equal(result.whatsappToday, 1);
+  assert.equal(result.minutesTotal, 3);
+  assert.equal(result.minutesToday, 1);
+  assert.equal(result.totalCost, 0.455);
+  assert.equal(result.totalCostToday, 0.155);
 });
 
 test("el prompt general se añade al prompt de cada cliente con prioridad explícita", () => {
