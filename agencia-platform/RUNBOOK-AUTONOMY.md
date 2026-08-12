@@ -30,7 +30,7 @@ La DDL la aplica el arranque del contenedor vía `prisma db push` (Dockerfile). 
    `git push origin feature/ai-autonomy-engine:claude/wordpress-ai-review-plugin-bdSLe` (fast-forward; NO force).
    > El agente puede ejecutar este push cuando tú lo autorices explícitamente; hoy **no** lo ha hecho.
 2. Railway despliega. **Todos los flags OFF por defecto** → el motor queda inerte: rutas nuevas 404, hook del runner no-op, nada consulta las tablas nuevas salvo su creación.
-3. **Verifica** en Railway: Deployment `SUCCESS`, `/api/v1/health` 200, Logs sin errores de `prisma db push`. Confirma que las tablas `AiOrchestration/AiRunStep/AiApproval/AiApprovalEvent` existen.
+3. **Verifica** en Railway: Deployment `SUCCESS`, `/api/v1/health` 200, Logs sin errores de `prisma db push`. Confirma que las tablas `AiOrchestration/AiRunStep/AiApproval/AiApprovalEvent/AiProviderBreaker` existen.
 
 Rollback de este paso: re-desplegar `rollback/pre-autonomy-6fe0422d` (fast-forward-with-lease); las tablas vacías pueden quedar o dropearse (`db/migrations/2026-08-11-ai-orchestrator.sql`, sección Revertir).
 
@@ -60,7 +60,7 @@ En Railway → Variables → añade `OPENAI_API_KEY` **copiándola directamente 
   `POST https://<dominio-prod>/api/v1/ai/orchestrations/tick` con cabecera `Authorization: Bearer <INTERNAL_CRON_TOKEN>` (nunca imprimas el token).
 - Con `AI_RUN_ORCHESTRATOR=off` el endpoint responde `{disabled:true}` sin tocar nada. Con `on` pero `AI_MULTIMODEL=off`/modo shadow, el lote corre en SHADOW (sin llamadas reales) — ideal para validar el bucle end-to-end antes del canary live.
 - **Kill-switch operativo:** `HUB_AUTONOMY_KILL=on` → el scheduler cancela (parada segura) cualquier run que procese, sin ejecutar nada.
-- **Nota de durabilidad:** el circuit breaker y el lock son POR PROCESO (una réplica de cron single-flight). Suficiente para el canary; un breaker/lock durable cross-proceso (advisory lock/Redis + tabla) es mejora posterior — la interfaz ya está lista.
+- **Circuit breaker DURABLE (Postgres):** el estado del breaker vive en la tabla `AiProviderBreaker` por `(workspace, proveedor)` y la sonda half-open se reclama con un update guardado por versión → **single-probe entre instancias** (varias réplicas de cron son seguras) y recuperación si el sondeador muere. **Fail-closed:** ante error de BD el gate no deja pasar. Sin Redis.
 
 ## Kill-switch / rollback en cualquier momento
 - **Parada suave:** pon `AI_RUN_ORCHESTRATOR=off` (y `AI_MULTIMODEL=off`). Rutas 404, hook no-op, worker no toma trabajo. Sin migración de datos.
