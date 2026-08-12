@@ -2088,7 +2088,7 @@ function EnqueueModal({
       } else {
         payload.kind = kind;
       }
-      const batches = splitEnqueueBatches(leadIds);
+      const batches = splitEnqueueBatches(leadIds, kind);
       let enqueued = 0;
       let replaced = 0;
       let emailOnlySkipped = 0;
