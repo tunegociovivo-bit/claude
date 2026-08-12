@@ -20,10 +20,10 @@ import { budgetStatus, type BudgetLimits, DEFAULT_LIMITS, type BudgetUsage } fro
 import { fingerprint } from "./fingerprint";
 import { backoffMs } from "./backoff";
 import { buildDecisionPacket, type EscalationCause } from "./decision-packet";
-import { withDeadline, serializedProbe, settleBreaker, planSubtasks, chooseProvider, type Lock } from "./runtime";
+import { withDeadline, planSubtasks, chooseProvider } from "./runtime";
 import { MODEL_SLOTS, availableProviders, type ModelSlot, type ProviderId } from "./providers";
 import type { AdapterRequest, AdapterResult, KeySources } from "./adapters";
-import type { BreakerSnapshot } from "./circuit-breaker";
+import type { DurableBreaker } from "./breaker-store";
 import { appendStep } from "./store";
 import type { Orchestration } from "./store";
 
@@ -37,9 +37,8 @@ export type RunStepDeps = {
   live: boolean; // true → llamada real; false → shadow simulado
   limits: BudgetLimits;
   attemptDeadlineMs: number;
-  loadBreaker: (provider: string) => Promise<BreakerSnapshot>;
-  persistBreaker: (provider: string, snap: BreakerSnapshot) => Promise<void>;
-  lock: Lock;
+  /** Circuit breaker DURABLE (Postgres, por workspace+proveedor). Cross-proceso. */
+  breaker: DurableBreaker;
   /** La llamada de modelo (envuelve adapter.complete). Inyectable para test sin red. */
   callModel: (slot: ModelSlot, req: AdapterRequest, opts: { signal: AbortSignal; live: boolean }) => Promise<AdapterResult>;
   /** Construye el request (system+mensajes) del run. La redacción PII la hace el adaptador. */
@@ -73,14 +72,13 @@ function failureToHint(failure: any): DiagnosisInput {
   return { hint: "tool", error: "fallo de ejecución" };
 }
 
-async function openProviders(deps: RunStepDeps): Promise<Set<string>> {
+async function blockedProviders(deps: RunStepDeps, workspaceId: string, now: Date): Promise<Set<string>> {
   const providers = [...new Set(MODEL_SLOTS.map((s) => s.provider))];
-  const open = new Set<string>();
+  const blocked = new Set<string>();
   for (const p of providers) {
-    const b = await deps.loadBreaker(p);
-    if (b.state === "open") open.add(p);
+    if (await deps.breaker.peekBlocked(workspaceId, p, now)) blocked.add(p);
   }
-  return open;
+  return blocked;
 }
 
 /** Fábrica del runStep. Devuelve `(orch) => {to, patch}` que aplica `stepOrchestration`. */
@@ -120,16 +118,18 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
           return { to: "budget_exhausted", patch: { decision: packet("budget_exhausted", plan, "Presupuesto agotado antes del intento") } };
         }
         const tried: ProviderId[] = plan.tried ?? [];
-        const open = await openProviders(deps);
-        const slot = chooseProvider(plan.need ?? { capabilities: [] }, deps.env, { exclude: tried, breakerOpen: (p) => open.has(p) });
+        const nowD = deps.now();
+        const blocked = await blockedProviders(deps, orch.workspaceId, nowD);
+        const slot = chooseProvider(plan.need ?? { capabilities: [] }, deps.env, { exclude: tried, breakerOpen: (p) => blocked.has(p) });
         if (!slot) {
           return { to: "materially_blocked", patch: { decision: packet("no_distinct_strategy", plan, "Sin proveedor sano disponible") } };
         }
-        // Sonda única del breaker bajo lock por proveedor.
-        const probe = await serializedProbe(deps.lock, slot.provider, () => deps.loadBreaker(slot.provider), (s) => deps.persistBreaker(slot.provider, s), deps.now().getTime());
+        // Sonda ÚNICA del breaker DURABLE (single-probe cross-proceso, claim atómico).
+        const owner = `${orch.id}:${usage.attempts}`;
+        const probe = await deps.breaker.tryPass(orch.workspaceId, slot.provider, owner, nowD);
         if (!probe.pass) {
           const wait = backoffMs(usage.attempts, undefined, deps.rand ?? Math.random);
-          return { to: "waiting_backoff", patch: { nextRunAt: new Date(deps.now().getTime() + wait), strategy: `esperar breaker ${slot.provider}` } };
+          return { to: "waiting_backoff", patch: { nextRunAt: new Date(nowD.getTime() + wait), strategy: `esperar breaker ${slot.provider}` } };
         }
         // Intento REAL con deadline.
         const req = await deps.buildRequest(orch);
@@ -142,7 +142,8 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
           failure = e;
         }
         const elapsed = Math.max(0, deps.now().getTime() - t0);
-        await settleBreaker(() => deps.loadBreaker(slot.provider), (s) => deps.persistBreaker(slot.provider, s), !failure, deps.now().getTime());
+        // Registro idempotente del resultado real (por attemptToken = owner). Durable.
+        await deps.breaker.record(orch.workspaceId, slot.provider, !failure, deps.now(), owner);
 
         const usage2: BudgetUsage = {
           attempts: usage.attempts + 1,

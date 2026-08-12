@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { makeRunStep, type RunStepDeps } from "../run-step";
 import { canTransition } from "../state-machine";
-import { initBreaker, recordFailure, type BreakerSnapshot } from "../circuit-breaker";
+import type { DurableBreaker } from "../breaker-store";
 import { DEFAULT_LIMITS } from "../budget";
 import { ProviderHttpError, InvalidProviderResponse, MissingProviderKey } from "../live-adapters";
 import { DeadlineExceeded } from "../runtime";
@@ -28,9 +28,17 @@ function mkPrisma() {
 
 const okResult = (over: any = {}) => ({ slotId: "s", provider: "anthropic", model: "m", mode: "shadow", executed: false, text: "ok", usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.001 }, piiRedactions: 0, ...over });
 
+/** Breaker de test: pasa siempre salvo que `blocked` contenga "ws:provider". */
+function fakeBreaker(blocked: Set<string> = new Set()): DurableBreaker {
+  return {
+    peekBlocked: async (ws, p) => blocked.has(`${ws}:${p}`),
+    tryPass: async (ws, p) => ({ pass: !blocked.has(`${ws}:${p}`), probe: false }),
+    record: async () => {}
+  };
+}
+
 function mkDeps(over: Partial<RunStepDeps> = {}): RunStepDeps {
-  const breakers = new Map<string, BreakerSnapshot>();
-  let t = 1_000_000;
+  const t = 1_000_000;
   return {
     now: () => new Date(t),
     env: { ANTHROPIC_API_KEY: "x", OPENAI_API_KEY: "y" } as any,
@@ -38,9 +46,7 @@ function mkDeps(over: Partial<RunStepDeps> = {}): RunStepDeps {
     live: false,
     limits: DEFAULT_LIMITS,
     attemptDeadlineMs: 5000,
-    loadBreaker: async (p) => breakers.get(p) ?? initBreaker(),
-    persistBreaker: async (p, s) => void breakers.set(p, s),
-    lock: async (_k, fn) => fn(),
+    breaker: fakeBreaker(),
     callModel: async () => okResult() as any,
     buildRequest: async () => ({ messages: [{ role: "user", content: "hola" }] }),
     rand: () => 0.5,
@@ -104,17 +110,19 @@ describe("runStep — fases", () => {
     expect(called).not.toHaveBeenCalled(); // no gasta si ya está agotado
   });
 
-  it("executing con breaker ABIERTO del proveedor elegido → waiting_backoff (no martillea)", async () => {
-    const breakers = new Map<string, BreakerSnapshot>();
-    // abre anthropic y openai
-    let b = initBreaker();
-    for (const t of [0, 1, 2]) b = recordFailure(b, t);
-    breakers.set("anthropic", b);
-    breakers.set("openai", b);
-    const rs = makeRunStep(mkPrisma() as any, mkDeps({ loadBreaker: async (p) => breakers.get(p) ?? initBreaker(), now: () => new Date(1000) }));
+  it("executing con TODOS los breakers bloqueados → materially_blocked (excluye bloqueados)", async () => {
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ breaker: fakeBreaker(new Set(["w1:anthropic", "w1:openai", "w1:gemini", "w1:perplexity"])) }));
     const r = await rs(orch({ state: "executing" }));
-    // ambos abiertos → no hay proveedor sano → materially_blocked (chooseProvider excluye abiertos)
-    expect(["materially_blocked", "waiting_backoff"]).toContain(r.to);
+    expect(r.to).toBe("materially_blocked");
+    expect(r.patch.decision.cause).toBe("no_distinct_strategy");
+  });
+
+  it("executing con la sonda del breaker rechazada (tryPass=false) → waiting_backoff (no martillea)", async () => {
+    const breaker: DurableBreaker = { peekBlocked: async () => false, tryPass: async () => ({ pass: false, probe: false }), record: async () => {} };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ breaker }));
+    const r = await rs(orch({ state: "executing" }));
+    expect(r.to).toBe("waiting_backoff");
+    expect(r.patch.nextRunAt instanceof Date).toBe(true);
   });
 
   it("failover: el proveedor ya probado se excluye → usa otro", async () => {

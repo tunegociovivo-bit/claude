@@ -104,7 +104,31 @@ ALTER TABLE "AiApprovalEvent" ADD CONSTRAINT "AiApprovalEvent_workspaceId_fkey"
 ALTER TABLE "AiApprovalEvent" ADD CONSTRAINT "AiApprovalEvent_approvalId_fkey"
   FOREIGN KEY ("approvalId") REFERENCES "AiApproval"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Circuit breaker DURABLE por (workspace, proveedor). La fila es el lock (single-probe).
+CREATE TABLE IF NOT EXISTS "AiProviderBreaker" (
+  "id"               TEXT NOT NULL,
+  "workspaceId"      TEXT NOT NULL,
+  "provider"         TEXT NOT NULL,
+  "state"            TEXT NOT NULL DEFAULT 'closed',
+  "failureCount"     INTEGER NOT NULL DEFAULT 0,
+  "windowStartedAt"  TIMESTAMP(3),
+  "openedAt"         TIMESTAMP(3),
+  "lastFailureAt"    TIMESTAMP(3),
+  "lastAttemptToken" TEXT,
+  "probeOwner"       TEXT,
+  "probeExpiresAt"   TIMESTAMP(3),
+  "version"          INTEGER NOT NULL DEFAULT 0,
+  "createdAt"        TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"        TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "AiProviderBreaker_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "AiProviderBreaker_workspaceId_provider_key" ON "AiProviderBreaker" ("workspaceId", "provider");
+CREATE INDEX IF NOT EXISTS "AiProviderBreaker_workspaceId_provider_state_idx" ON "AiProviderBreaker" ("workspaceId", "provider", "state");
+ALTER TABLE "AiProviderBreaker" ADD CONSTRAINT "AiProviderBreaker_workspaceId_fkey"
+  FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- === Revertir === (aditivo: seguro de revertir; las tablas nuevas están vacías)
+-- DROP TABLE IF EXISTS "AiProviderBreaker";
 -- DROP TABLE IF EXISTS "AiApprovalEvent";
 -- DROP TABLE IF EXISTS "AiRunStep";
 -- DROP TABLE IF EXISTS "AiApproval";
