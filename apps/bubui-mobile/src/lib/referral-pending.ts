@@ -43,7 +43,9 @@ export function parseRefFromString(s: string | null | undefined): string | null 
   if (challenge) return `${challenge[1].toUpperCase()}|${challenge[2]}`;
   try {
     const url = new URL(s);
-    const code = /\/r\/([A-Za-z0-9]{4,10})/.exec(url.pathname)?.[1];
+    const code = url.protocol === "bubui:" && url.hostname === "r"
+      ? /^\/([A-Za-z0-9]{4,10})$/.exec(url.pathname)?.[1]
+      : /\/r\/([A-Za-z0-9]{4,10})/.exec(url.pathname)?.[1];
     const offerId = url.searchParams.get("offer");
     if (code && offerId && /^[A-Za-z0-9_-]{8,64}$/.test(offerId)) return `${code.toUpperCase()}|${offerId}`;
   } catch {}

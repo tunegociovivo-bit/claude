@@ -185,6 +185,12 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
   if (!referrer) return { linked: false, terminal: true, reason: "invalid_code" };
   if (referrer.id === friendId) return { linked: false, terminal: true, reason: "self_referral" };
 
+  const friend = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
+  if (!friend) return { linked: false, terminal: true, reason: "friend_not_found" };
+  if (friend.referredById && friend.referredById !== referrer.id) {
+    return { linked: false, terminal: true, reason: "already_referred_other", referrerId: friend.referredById };
+  }
+
   let challenge: { id: string; businessId: string } | null = null;
   if (offerId) {
     challenge = await prisma.bubuiOffer.findFirst({
@@ -193,17 +199,13 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         customerId: referrer.id,
         source: "share_challenge",
         redeemed: false,
-        expiresAt: { gt: new Date() }
+        ...(friend.referredById === referrer.id ? {} : { expiresAt: { gt: new Date() } })
       },
       select: { id: true, businessId: true }
     });
-    if (!challenge) return { linked: false, terminal: true, reason: "invalid_challenge" };
-  }
-
-  const friend = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
-  if (!friend) return { linked: false, terminal: true, reason: "friend_not_found" };
-  if (friend.referredById && friend.referredById !== referrer.id) {
-    return { linked: false, terminal: true, reason: "already_referred_other", referrerId: friend.referredById };
+    if (!challenge) {
+      return { linked: false, terminal: friend.referredById !== referrer.id, reason: "invalid_challenge" };
+    }
   }
   const newlyLinked = !friend.referredById;
   if (newlyLinked) {
@@ -272,7 +274,9 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         customerId: friendId,
         businessId: originId,
         discountPct: friendPct,
-        triggerBusinessId: challenge ? `challenge:${challenge.id}` : "ref:welcome",
+        // Una sola bienvenida por amigo+negocio, venga del enlace genérico o
+        // del reto. Reabrir/cambiar de formato nunca puede crear un 2º cupón.
+        triggerBusinessId: "ref:welcome",
         source: "referral_welcome",
         expiresAt: exp
       }
