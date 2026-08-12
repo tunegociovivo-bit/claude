@@ -8,6 +8,11 @@ export function isApprovedNormalHoldedInvoice(input: InvoiceInput): boolean {
   return input.status === "ISSUED" && number.length > 0 && !/^R-/i.test(number);
 }
 
+export function invoiceSequence(number: string | undefined): number | null {
+  const match = number?.trim().match(/^FAC-(\d+)$/i);
+  return match ? Number(match[1]) : null;
+}
+
 /**
  * Sincroniza las facturas aprobadas de Holded con el HUB antes de buscar
  * candidatas SEPA. El importador ya es idempotente por número de factura.
@@ -55,7 +60,20 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
     if (!previous || (!previous.clientName && input.clientName)) byNumber.set(key, input);
   }
   const inputs = [...byNumber.values()];
-  const eligible = inputs.filter(isApprovedNormalHoldedInvoice);
+  const existingNumbers = await prisma.invoice.findMany({
+    where: { workspaceId, issuerId: issuer.id, number: { not: null }, deletedAt: null },
+    select: { number: true }
+  });
+  const existingSet = new Set(existingNumbers.map((row) => row.number!.toLowerCase()));
+  const highestSequence = existingNumbers.reduce((max, row) => Math.max(max, invoiceSequence(row.number ?? undefined) ?? 0), 0);
+  const eligible = inputs.filter((input) => {
+    if (!isApprovedNormalHoldedInvoice(input)) return false;
+    const key = input.number!.trim().toLowerCase();
+    // Los documentos existentes se conservan para reparar nombres. Un
+    // documento ausente solo se importa si avanza la secuencia fiscal; así un
+    // listado sin fecha nunca reabre huecos históricos.
+    return existingSet.has(key) || (invoiceSequence(input.number) ?? 0) > highestSequence;
+  });
   const startedAt = new Date();
   const result = await applyInvoiceImport(workspaceId, eligible, issuer.id);
   const numbers = eligible.map((item) => item.number!).filter(Boolean);

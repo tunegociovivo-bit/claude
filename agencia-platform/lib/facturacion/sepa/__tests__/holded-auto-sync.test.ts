@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isApprovedNormalHoldedInvoice } from "../holded-auto-sync";
+import { invoiceSequence, isApprovedNormalHoldedInvoice } from "../holded-auto-sync";
 
 describe("isApprovedNormalHoldedInvoice", () => {
   it("acepta una factura aprobada con número fiscal", () => {
@@ -13,5 +13,15 @@ describe("isApprovedNormalHoldedInvoice", () => {
     [{ status: "ISSUED" }, "sin número"]
   ])("rechaza %s (%s)", (input, _description) => {
     expect(isApprovedNormalHoldedInvoice(input)).toBe(false);
+  });
+});
+
+describe("invoiceSequence", () => {
+  it("extrae la secuencia fiscal FAC", () => {
+    expect(invoiceSequence("FAC-003027")).toBe(3027);
+  });
+
+  it("rechaza otras series", () => {
+    expect(invoiceSequence("R-003027")).toBeNull();
   });
 });
