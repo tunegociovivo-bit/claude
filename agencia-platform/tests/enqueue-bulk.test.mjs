@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ENQUEUE_BATCH_SIZE, splitEnqueueBatches } from "../lib/leads/enqueue-bulk.ts";
+import { ENQUEUE_BATCH_SIZE, enqueueRetryDelayMs, splitEnqueueBatches } from "../lib/leads/enqueue-bulk.ts";
 
 test("splits a large enqueue request into durable request-sized batches", () => {
   const leadIds = Array.from({ length: 406 }, (_, index) => `lead-${index + 1}`);
@@ -24,4 +24,11 @@ test("uses smaller batches for formats that call external AI or Places services"
     assert.equal(batches.length, 4, kind);
     assert.ok(batches.every((batch) => batch.length <= 5), kind);
   }
+});
+
+test("honors Retry-After and otherwise backs off safely after a 429", () => {
+  assert.equal(enqueueRetryDelayMs("12", 0), 12_000);
+  assert.equal(enqueueRetryDelayMs(null, 0), 15_000);
+  assert.equal(enqueueRetryDelayMs(null, 1), 30_000);
+  assert.equal(enqueueRetryDelayMs(null, 10), 60_000);
 });
