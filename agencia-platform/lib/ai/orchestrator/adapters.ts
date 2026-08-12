@@ -11,6 +11,7 @@
  */
 import { MODEL_SLOTS, type ModelSlot, type ProviderId, type Capability } from "./providers";
 import { redactMessages, redactPii } from "./pii-redact";
+import { completeLive } from "./live-adapters";
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 export type AdapterRequest = { system?: string; messages: ChatMessage[]; maxOutputTokens?: number; capabilities?: Capability[] };
@@ -19,8 +20,9 @@ export type AdapterResult = {
   slotId: string;
   provider: ProviderId;
   model: string;
-  mode: "shadow";
-  executed: false; // invariante duro en 2c: jamás se ejecuta una llamada real
+  mode: "shadow" | "live";
+  /** ¿Se hizo una llamada REAL a un proveedor? false en shadow; true solo en live. */
+  executed: boolean;
   text: string | null;
   usage: { inputTokens: number; outputTokens: number; costUsd: number };
   piiRedactions: number;
@@ -53,12 +55,21 @@ function estimate(slot: ModelSlot, req: AdapterRequest): { inputTokens: number; 
   return { inputTokens, outputTokens, costUsd };
 }
 
+export type CompleteOpts = {
+  /** SHADOW: fuerza un fallo de proveedor simulado (para probar breaker/fallback). */
+  injectFailure?: string;
+  /** LIVE: si true Y hay `keySources` con clave, hace la llamada REAL. Por defecto
+   *  false → shadow. El llamante (worker) solo pasa live cuando flag+mode lo permiten. */
+  live?: boolean;
+  keySources?: KeySources;
+  /** Deadline real de la llamada live (AbortController del worker). */
+  signal?: AbortSignal;
+};
+
 export interface ModelAdapter {
   slot: ModelSlot;
   available(src: KeySources): boolean;
-  /** SHADOW: simula. `injectFailure` permite forzar un fallo de proveedor en tests/
-   *  configuración shadow (para probar el circuit breaker y el fallback). */
-  complete(req: AdapterRequest, opts?: { injectFailure?: string }): Promise<AdapterResult>;
+  complete(req: AdapterRequest, opts?: CompleteOpts): Promise<AdapterResult>;
 }
 
 export function buildAdapter(slot: ModelSlot): ModelAdapter {
@@ -66,20 +77,46 @@ export function buildAdapter(slot: ModelSlot): ModelAdapter {
     slot,
     available: (src) => hasKey(slot, src),
     async complete(req, opts) {
-      // Minimización de PII SIEMPRE, antes incluso de simular. Redactamos TANTO los
-      // mensajes COMO el system prompt (canal influenciable por tenant/atacante):
-      // así el objeto saneado no arrastra PII hacia la frontera externa (F1).
+      // Minimización de PII SIEMPRE, antes de simular O de enviar a un proveedor.
+      // Redactamos TANTO los mensajes COMO el system prompt (canal influenciable por
+      // tenant/atacante): el objeto saneado es el único que cruza la frontera externa.
       const { messages, count } = redactMessages(req.messages);
       const sys = redactPii(req.system);
       const piiRedactions = count + sys.count;
       const safeReq: AdapterRequest = { ...req, messages, system: sys.text || undefined };
+
       if (opts?.injectFailure) {
-        // Fallo de proveedor SIMULADO (no hay red). Propaga para que el orquestador
-        // diagnostique y pruebe otro proveedor / abra el circuit breaker.
         const err: any = new Error(`[shadow:${slot.provider}] ${opts.injectFailure}`);
         err.provider = slot.provider;
         throw err;
       }
+
+      // === LIVE: llamada REAL, solo si se pide explícitamente y hay clave+signal. ===
+      if (opts?.live) {
+        if (!opts.signal) throw new Error("live requiere un AbortSignal (deadline)");
+        if (!hasKey(slot, opts.keySources ?? {})) {
+          // Sin clave → unhealthy: NO se finge éxito, se propaga para degradar al siguiente.
+          const err: any = new Error(`[live:${slot.provider}] sin clave (unhealthy)`);
+          err.provider = slot.provider;
+          err.unhealthy = true;
+          throw err;
+        }
+        const wk = opts.keySources?.workspaceKeys as Record<string, string> | undefined;
+        const live = await completeLive(slot, safeReq, { keySources: { env: opts.keySources?.env, workspaceKeys: wk }, signal: opts.signal, maxOutputTokens: req.maxOutputTokens });
+        return {
+          slotId: slot.id,
+          provider: slot.provider,
+          model: slot.model,
+          mode: "live",
+          executed: true, // llamada REAL efectuada
+          text: live.text,
+          usage: live.usage,
+          piiRedactions,
+          note: "LIVE: llamada real al proveedor."
+        };
+      }
+
+      // === SHADOW (por defecto): simula, sin red. ===
       const usage = estimate(slot, safeReq);
       return {
         slotId: slot.id,
@@ -96,9 +133,14 @@ export function buildAdapter(slot: ModelSlot): ModelAdapter {
   };
 }
 
-/** Frontera externa: la llamada LIVE real NO está implementada en este slice. */
+/**
+ * Frontera de EFECTOS externos (A2+): las llamadas de MODELO ya son reales (LIVE),
+ * pero ejecutar acciones con efecto — enviar mensajes, publicar, borrar, comprar,
+ * pagar, emitir/cobrar facturas, cambios fiscales — NO está implementado y requiere
+ * aprobación explícita (A4 fail-closed). Invocar esta frontera LANZA a propósito.
+ */
 export function liveNotImplemented(): never {
-  throw new Error("Integración externa real no implementada (frontera de seguridad Slice 2c). Solo SHADOW.");
+  throw new Error("Ejecución de EFECTOS externos (A2+) no implementada: requiere aprobación (frontera de seguridad). Solo modelo LIVE + shadow.");
 }
 
 /** Adaptadores para los slots con clave disponible (server-side). */

@@ -1,11 +1,11 @@
 /**
- * Registro de proveedores de modelo (Slice 2c) — SOLO interfaces + slots de
- * routing. NO llama a ningún proveedor externo ni requiere API keys. Slice 3
- * implementará los adaptadores reales tras estos slots.
+ * Registro de proveedores de modelo — slots de routing + metadatos de coste. Los
+ * adaptadores REALES viven en `live-adapters.ts`; aquí solo se decide, SIN red, qué
+ * slots están disponibles según la presencia de la key en el `env` que se pasa.
  *
- * Puro y determinista: la disponibilidad se decide por presencia de key en el
- * `env` que se pasa (sin efectos de red). Sin key → `unavailable` (no rompe el
- * flujo: el orquestador enruta a lo disponible o escala).
+ * Puro y determinista. Sin key → `unavailable` (no rompe el flujo: el orquestador
+ * enruta a lo disponible o escala). El coste por 1K tokens se usa para estimar
+ * (shadow) y para facturar el uso REAL (live) con el mismo pricing.
  */
 export type Capability = "tool_use" | "long_context" | "cheap" | "vision" | "web_search" | "reasoning";
 export type ProviderId = "anthropic" | "openai" | "gemini" | "perplexity";
@@ -40,11 +40,9 @@ export const MODEL_SLOTS: ModelSlot[] = [
     costPer1kUsd: { input: 0.003, output: 0.015 },
     apiKeyEnv: "ANTHROPIC_API_KEY"
   },
-  // Slots reservados para Slice 3 — NO activos, NO se llaman. `available` será
-  // false salvo que exista la key, y aun así Slice 2c no los invoca.
-  { id: "openai:gpt", provider: "openai", model: "gpt-5", capabilities: ["tool_use", "reasoning"], apiKeyEnv: "OPENAI_API_KEY" },
-  { id: "gemini:pro", provider: "gemini", model: "gemini-pro", capabilities: ["tool_use", "long_context", "vision"], apiKeyEnv: "GEMINI_API_KEY" },
-  { id: "perplexity:sonar", provider: "perplexity", model: "sonar", capabilities: ["web_search"], apiKeyEnv: "PERPLEXITY_API_KEY" }
+  { id: "openai:gpt", provider: "openai", model: "gpt-5", capabilities: ["tool_use", "reasoning"], costPer1kUsd: { input: 0.005, output: 0.015 }, apiKeyEnv: "OPENAI_API_KEY" },
+  { id: "gemini:pro", provider: "gemini", model: "gemini-1.5-pro", capabilities: ["tool_use", "long_context", "vision"], costPer1kUsd: { input: 0.00125, output: 0.005 }, apiKeyEnv: "GEMINI_API_KEY" },
+  { id: "perplexity:sonar", provider: "perplexity", model: "sonar", capabilities: ["web_search"], costPer1kUsd: { input: 0.001, output: 0.001 }, apiKeyEnv: "PERPLEXITY_API_KEY" }
 ];
 
 export type ProviderHealth = "available" | "unavailable";
