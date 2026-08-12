@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { loginDestination, type LoginDestination } from "@/lib/login-routing";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,8 +12,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const mode = (submitter?.value === "admin" ? "admin" : "crm") as LoginDestination;
     setLoading(true);
     setError(null);
     const res = await signIn("credentials", {
@@ -25,8 +28,10 @@ export default function LoginPage() {
       setError("Email o contraseña incorrectos");
       return;
     }
-    const admin = await fetch("/api/v1/admin/me", { cache: "no-store" }).catch(() => null);
-    router.push(admin?.ok ? "/admin" : "/pipeline");
+    const admin = mode === "admin"
+      ? await fetch("/api/v1/admin/me", { cache: "no-store" }).catch(() => null)
+      : null;
+    router.push(loginDestination(mode, Boolean(admin?.ok)));
     router.refresh();
   }
 
@@ -60,8 +65,11 @@ export default function LoginPage() {
             required
           />
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button className="btn-primary w-full justify-center" disabled={loading}>
+          <button type="submit" name="destination" value="crm" className="btn-primary w-full justify-center" disabled={loading}>
             {loading ? "Entrando…" : "Entrar"}
+          </button>
+          <button type="submit" name="destination" value="admin" className="btn-ghost w-full justify-center" disabled={loading}>
+            Administración general
           </button>
         </form>
       </div>
