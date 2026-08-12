@@ -44,6 +44,8 @@ export type Orchestration = {
   decision: any;
   lastError: string | null;
   nextRunAt: Date | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: Date | null;
 };
 
 /**

@@ -21,15 +21,18 @@ CREATE TABLE IF NOT EXISTS "AiOrchestration" (
   "usage"        JSONB,
   "fingerprints" JSONB,
   "decision"     JSONB,
-  "lastError"    TEXT,
-  "nextRunAt"    TIMESTAMP(3),
-  "createdAt"    TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt"    TIMESTAMP(3) NOT NULL,
+  "lastError"      TEXT,
+  "nextRunAt"      TIMESTAMP(3),
+  "leaseOwner"     TEXT,
+  "leaseExpiresAt" TIMESTAMP(3),
+  "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"      TIMESTAMP(3) NOT NULL,
   CONSTRAINT "AiOrchestration_pkey" PRIMARY KEY ("id")
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "AiOrchestration_workspaceId_taskId_key" ON "AiOrchestration" ("workspaceId", "taskId");
 CREATE INDEX IF NOT EXISTS "AiOrchestration_workspaceId_state_idx" ON "AiOrchestration" ("workspaceId", "state");
 CREATE INDEX IF NOT EXISTS "AiOrchestration_workspaceId_nextRunAt_idx" ON "AiOrchestration" ("workspaceId", "nextRunAt");
+CREATE INDEX IF NOT EXISTS "AiOrchestration_state_nextRunAt_leaseExpiresAt_idx" ON "AiOrchestration" ("state", "nextRunAt", "leaseExpiresAt");
 ALTER TABLE "AiOrchestration" ADD CONSTRAINT "AiOrchestration_workspaceId_fkey"
   FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

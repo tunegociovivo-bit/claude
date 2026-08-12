@@ -2218,10 +2218,12 @@ model AiOrchestration {
   usage        Json? // BudgetUsage acumulado
   fingerprints Json? // huellas de intentos (loop detector)
   decision     Json? // último DecisionPacket (si escaló)
-  lastError    String?   @db.Text
-  nextRunAt    DateTime? // cuándo salir de waiting_backoff
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  lastError      String?   @db.Text
+  nextRunAt      DateTime? // cuándo salir de waiting_backoff (poller)
+  leaseOwner     String? // worker que tiene el lease (recuperación tras reinicio)
+  leaseExpiresAt DateTime? // caducidad del lease → otro worker lo re-toma si expira
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   steps     AiRunStep[]
@@ -2229,6 +2231,7 @@ model AiOrchestration {
   @@unique([workspaceId, taskId]) // una orquestación viva por tarea (idempotencia)
   @@index([workspaceId, state])
   @@index([workspaceId, nextRunAt])
+  @@index([state, nextRunAt, leaseExpiresAt]) // el poller busca trabajo pendiente
 }
 
 // Log APPEND-ONLY de intentos/pasos (source of truth tipada para escalada/panel).
