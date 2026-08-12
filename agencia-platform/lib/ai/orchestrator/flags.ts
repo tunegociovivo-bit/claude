@@ -16,3 +16,9 @@ export function orchestratorMode(env: NodeJS.ProcessEnv = process.env): "shadow"
 export function autonomyShadowEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.HUB_AUTONOMY_SHADOW ?? "").trim().toLowerCase() === "on";
 }
+
+/** Enrutado multi-modelo (adaptadores) en SHADOW. Off por defecto. Aunque esté on,
+ *  los adaptadores SIMULAN: nunca hay llamada externa real en este slice. */
+export function multiModelEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.AI_MULTIMODEL ?? "").trim().toLowerCase() === "on";
+}
