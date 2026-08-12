@@ -24,11 +24,16 @@ export function calculateUsageOverview(input: {
   calls: Array<{ createdAt: Date; durationSec: number | null; providerCost: number | null }>;
   inboundMessages: Array<{ createdAt: Date }>;
   since: Date;
+  monthSince: Date;
   callMinuteRate: number;
   whatsappMessageRate: number;
 }) {
   const callsToday = input.calls.filter((call) => call.createdAt >= input.since);
   const messagesToday = input.inboundMessages.filter((message) => message.createdAt >= input.since);
+  const callsMonthly = input.calls.filter((call) => call.createdAt >= input.monthSince);
+  const messagesMonthly = input.inboundMessages.filter(
+    (message) => message.createdAt >= input.monthSince
+  );
   const historicalCost = calculateDailyCost({
     calls: input.calls,
     inboundWhatsappMessages: input.inboundMessages.length,
@@ -38,6 +43,12 @@ export function calculateUsageOverview(input: {
   const dailyCost = calculateDailyCost({
     calls: callsToday,
     inboundWhatsappMessages: messagesToday.length,
+    callMinuteRate: input.callMinuteRate,
+    whatsappMessageRate: input.whatsappMessageRate,
+  });
+  const monthlyCost = calculateDailyCost({
+    calls: callsMonthly,
+    inboundWhatsappMessages: messagesMonthly.length,
     callMinuteRate: input.callMinuteRate,
     whatsappMessageRate: input.whatsappMessageRate,
   });
@@ -56,6 +67,9 @@ export function calculateUsageOverview(input: {
     callCostToday: dailyCost.callCost,
     whatsappCostToday: dailyCost.whatsappCost,
     totalCostToday: dailyCost.totalCost,
+    callCostMonthly: monthlyCost.callCost,
+    whatsappCostMonthly: monthlyCost.whatsappCost,
+    totalCostMonthly: monthlyCost.totalCost,
   };
 }
 

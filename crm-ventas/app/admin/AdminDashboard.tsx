@@ -10,6 +10,7 @@ type Client = {
   minutesTotal: number; minutesToday: number;
   callCost: number; whatsappCost: number; totalCost: number;
   callCostToday: number; whatsappCostToday: number; totalCostToday: number;
+  callCostMonthly: number; whatsappCostMonthly: number; totalCostMonthly: number;
 };
 type Overview = {
   globalPrompt: string;
@@ -41,7 +42,9 @@ export default function AdminDashboard() {
     calls: acc.calls + client.callsTotal,
     whatsapp: acc.whatsapp + client.whatsappTotal,
     cost: acc.cost + client.totalCostToday,
-  }), { calls: 0, whatsapp: 0, cost: 0 }), [data]);
+    monthlyCost: acc.monthlyCost + client.totalCostMonthly,
+    totalCost: acc.totalCost + client.totalCost,
+  }), { calls: 0, whatsapp: 0, cost: 0, monthlyCost: 0, totalCost: 0 }), [data]);
   const money = (value: number) => new Intl.NumberFormat("es-ES", {
     style: "currency", currency: data?.currency || "USD", minimumFractionDigits: 3,
   }).format(value);
@@ -111,8 +114,8 @@ export default function AdminDashboard() {
         </div>
       </header>
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
-        <section className="grid gap-3 sm:grid-cols-3">
-          {[[Phone, "Llamadas acumuladas", totals.calls], [MessageCircle, "WhatsApp acumulados", totals.whatsapp], [Wallet, "Coste estimado hoy", money(totals.cost)]].map(([Icon, label, value]: any) => (
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[[Phone, "Llamadas acumuladas", totals.calls], [MessageCircle, "WhatsApp acumulados", totals.whatsapp], [Wallet, "Coste hoy", money(totals.cost)], [Wallet, "Coste mensual", money(totals.monthlyCost)], [Wallet, "Coste total", money(totals.totalCost)]].map(([Icon, label, value]: any) => (
             <div key={label} className="card flex items-center gap-4 p-4"><div className="rounded-xl bg-brand-50 p-3 text-brand-600"><Icon size={21} /></div><div><p className="text-xs text-slate-500">{label}</p><p className="text-xl font-semibold">{value}</p></div></div>
           ))}
         </section>
@@ -138,7 +141,7 @@ export default function AdminDashboard() {
             {(data?.clients ?? []).map((client) => (
               <article key={client.id} className={`card p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>
                 <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label={`Nombre de ${client.name}`} className="input min-w-0 flex-1 font-semibold" maxLength={120} value={names[client.id] ?? ""} onChange={(event) => setNames((current) => ({ ...current, [client.id]: event.target.value }))} /><button className="btn-ghost shrink-0" disabled={busy === `name:${client.id}`} onClick={() => saveName(client)}>{busy === `name:${client.id}` ? "Guardando…" : "Guardar nombre"}</button>{client.isBlocked ? <span className="w-fit rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="mt-1 truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{[["Llamadas totales", client.callsTotal], ["Minutos totales", client.minutesTotal], ["WhatsApp totales", client.whatsappTotal], ["Coste hoy", money(client.totalCostToday)]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3 ring-1 ring-slate-100"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold">{value}</p></div>)}</div>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">{[["Llamadas totales", client.callsTotal], ["Minutos totales", client.minutesTotal], ["WhatsApp totales", client.whatsappTotal], ["Coste hoy", money(client.totalCostToday)], ["Coste mensual", money(client.totalCostMonthly)], ["Coste total", money(client.totalCost)]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3 ring-1 ring-slate-100"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold">{value}</p></div>)}</div>
                 <p className="mt-3 text-xs text-slate-400">Voz {money(client.callCost)} · WhatsApp {money(client.whatsappCost)}</p>
                 <p className="mt-2 text-xs text-slate-400">Hoy: {client.callsToday} llamadas, {client.minutesToday} min, {client.whatsappToday} WhatsApp y {money(client.totalCostToday)} de coste.</p>
                 <p className="mt-1 text-xs text-slate-400">Coste acumulado estimado: {money(client.totalCost)}</p>

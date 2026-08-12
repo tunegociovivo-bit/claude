@@ -16,9 +16,23 @@ function madridDayStart() {
   return new Date(`${value("year")}-${value("month")}-${value("day")}T00:00:00${offset}`);
 }
 
+function madridMonthStart() {
+  const today = madridDayStart();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid", year: "numeric", month: "2-digit",
+  }).formatToParts(today);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value;
+  const offset = new Intl.DateTimeFormat("en", {
+    timeZone: "Europe/Madrid", timeZoneName: "longOffset",
+  }).formatToParts(new Date(`${value("year")}-${value("month")}-01T12:00:00Z`))
+    .find((part) => part.type === "timeZoneName")?.value.replace("GMT", "") || "+00:00";
+  return new Date(`${value("year")}-${value("month")}-01T00:00:00${offset}`);
+}
+
 export async function GET() {
   try { await requireOperator(); } catch { return NextResponse.json({ error: "No autorizado" }, { status: 403 }); }
   const since = madridDayStart();
+  const monthSince = madridMonthStart();
   const callMinuteRate = Number(process.env.ADMIN_CALL_COST_PER_MINUTE || 0.15);
   const whatsappMessageRate = Number(process.env.ADMIN_WHATSAPP_COST_PER_MESSAGE || 0.005);
   const usdToEurRate = Number(process.env.ADMIN_USD_TO_EUR_RATE || 0.86);
@@ -38,6 +52,7 @@ export async function GET() {
       })),
       inboundMessages: workspace.messages,
       since,
+      monthSince,
       callMinuteRate,
       whatsappMessageRate,
     });

@@ -39,6 +39,7 @@ test("separa el consumo histórico del consumo de hoy", () => {
       { createdAt: new Date("2026-08-12T09:00:00Z") },
     ],
     since,
+    monthSince: new Date("2026-08-01T00:00:00Z"),
     callMinuteRate: 0.15,
     whatsappMessageRate: 0.005,
   });
@@ -50,6 +51,24 @@ test("separa el consumo histórico del consumo de hoy", () => {
   assert.equal(result.minutesToday, 1);
   assert.equal(result.totalCost, 0.46);
   assert.equal(result.totalCostToday, 0.155);
+  assert.equal(result.totalCostMonthly, 0.46);
+  assert.equal(result.totalCost, 0.46);
+});
+
+test("el coste mensual excluye consumos de meses anteriores", () => {
+  const result = calculateUsageOverview({
+    calls: [
+      { createdAt: new Date("2026-07-31T10:00:00Z"), durationSec: 60, providerCost: 1 },
+      { createdAt: new Date("2026-08-02T10:00:00Z"), durationSec: 60, providerCost: 2 },
+    ],
+    inboundMessages: [],
+    since: new Date("2026-08-12T00:00:00Z"),
+    monthSince: new Date("2026-08-01T00:00:00Z"),
+    callMinuteRate: 0.15,
+    whatsappMessageRate: 0.005,
+  });
+  assert.equal(result.totalCostMonthly, 2);
+  assert.equal(result.totalCost, 3);
 });
 
 test("el prompt general se añade al prompt de cada cliente con prioridad explícita", () => {
