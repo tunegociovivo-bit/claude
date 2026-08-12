@@ -37,7 +37,6 @@ export class Runner {
       while (!this.stopped) {
         // Una conciliación solicitada (lastSyncAt=null) debe poder adelantarse
         // a trabajos en cola; nunca interrumpe un trabajo ya iniciado.
-        await this.maybeReconcile();
         let job: ClaimedJob | null = null;
         try {
           job = await this.hub.claim();
@@ -47,6 +46,7 @@ export class Runner {
         if (job) {
           await this.processJob(job);
         } else {
+          await this.maybeReconcile();
           await sleep(this.cfg.pollSeconds * 1000, () => this.stopped);
         }
       }
@@ -64,7 +64,7 @@ export class Runner {
       if (!shouldRunDailyReconciliation(now, config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
       // Si Santander no está disponible, no reabrir una ventana en cada ciclo
       // de sondeo. Un intento fallido queda enfriado durante 30 minutos.
-      if (!isReconciliationRetryDue(now, this.lastReconciliationAttemptAt)) return;
+      if (!isReconciliationRetryDue(now, this.lastReconciliationAttemptAt, config.timeZone)) return;
       this.lastReconciliationAttemptAt = now;
       const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin, credentialFile: this.cfg.santanderCredentialFile });
       const movements = await reader.scan(new Date(config.startsAt));

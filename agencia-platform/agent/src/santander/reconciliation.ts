@@ -31,10 +31,12 @@ export function shouldRunDailyReconciliation(now: Date, lastSyncAt: Date | null,
   return `${last.year}-${last.month}-${last.day}` !== `${current.year}-${current.month}-${current.day}`;
 }
 
-export function isReconciliationRetryDue(now: Date, lastAttemptAt: Date | null, cooldownMs = 30 * 60 * 1000): boolean {
+export function isReconciliationRetryDue(now: Date, lastAttemptAt: Date | null, timeZone = "Europe/Madrid"): boolean {
   if (!Number.isFinite(now.getTime())) return false;
   if (!lastAttemptAt || !Number.isFinite(lastAttemptAt.getTime())) return true;
-  return now.getTime() - lastAttemptAt.getTime() >= cooldownMs;
+  const current = localParts(now, timeZone);
+  const last = localParts(lastAttemptAt, timeZone);
+  return `${last.year}-${last.month}-${last.day}` !== `${current.year}-${current.month}-${current.day}`;
 }
 
 export type SepaRemittanceRow = { dueAt: string; amountCents: number; remittanceNumber: string; status: string };
