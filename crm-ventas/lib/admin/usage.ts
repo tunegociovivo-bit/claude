@@ -20,6 +20,45 @@ export function calculateDailyCost(input: DailyCostInput) {
   };
 }
 
+export function calculateUsageOverview(input: {
+  calls: Array<{ createdAt: Date; durationSec: number | null; providerCost: number | null }>;
+  inboundMessages: Array<{ createdAt: Date }>;
+  since: Date;
+  callMinuteRate: number;
+  whatsappMessageRate: number;
+}) {
+  const callsToday = input.calls.filter((call) => call.createdAt >= input.since);
+  const messagesToday = input.inboundMessages.filter((message) => message.createdAt >= input.since);
+  const historicalCost = calculateDailyCost({
+    calls: input.calls,
+    inboundWhatsappMessages: input.inboundMessages.length,
+    callMinuteRate: input.callMinuteRate,
+    whatsappMessageRate: input.whatsappMessageRate,
+  });
+  const dailyCost = calculateDailyCost({
+    calls: callsToday,
+    inboundWhatsappMessages: messagesToday.length,
+    callMinuteRate: input.callMinuteRate,
+    whatsappMessageRate: input.whatsappMessageRate,
+  });
+  const minutes = (calls: typeof input.calls) =>
+    Math.round(calls.reduce((sum, call) => sum + (call.durationSec ?? 0), 0) / 6) / 10;
+  return {
+    callsTotal: input.calls.length,
+    callsToday: callsToday.length,
+    whatsappTotal: input.inboundMessages.length,
+    whatsappToday: messagesToday.length,
+    minutesTotal: minutes(input.calls),
+    minutesToday: minutes(callsToday),
+    callCost: historicalCost.callCost,
+    whatsappCost: historicalCost.whatsappCost,
+    totalCost: historicalCost.totalCost,
+    callCostToday: dailyCost.callCost,
+    whatsappCostToday: dailyCost.whatsappCost,
+    totalCostToday: dailyCost.totalCost,
+  };
+}
+
 export function normalizeGlobalPrompt(value: unknown) {
   return String(value ?? "").trim().slice(0, 12_000);
 }

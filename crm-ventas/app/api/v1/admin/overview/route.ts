@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isSameOrigin, requireOperator } from "@/lib/auth";
-import { calculateDailyCost } from "@/lib/admin/usage";
+import { calculateUsageOverview } from "@/lib/admin/usage";
 import { getGlobalPrompt, saveGlobalPrompt } from "@/lib/admin/config";
 
 function madridDayStart() {
@@ -26,17 +26,18 @@ export async function GET() {
     orderBy: { name: "asc" },
     include: {
       users: { where: { role: "ADMIN" }, select: { email: true }, take: 1 },
-      calls: { where: { createdAt: { gte: since } }, select: { durationSec: true, providerCost: true } },
-      messages: { where: { createdAt: { gte: since }, direction: "in" }, select: { id: true } },
+      calls: { select: { createdAt: true, durationSec: true, providerCost: true } },
+      messages: { where: { direction: "in" }, select: { createdAt: true } },
     },
   });
   const clients = workspaces.map((workspace) => {
-    const cost = calculateDailyCost({
+    const usage = calculateUsageOverview({
       calls: workspace.calls.map((call) => ({
         ...call,
         providerCost: typeof call.providerCost === "number" ? call.providerCost * usdToEurRate : null,
       })),
-      inboundWhatsappMessages: workspace.messages.length,
+      inboundMessages: workspace.messages,
+      since,
       callMinuteRate,
       whatsappMessageRate,
     });
@@ -47,10 +48,7 @@ export async function GET() {
       email: workspace.users[0]?.email ?? "—",
       isBlocked: workspace.isBlocked,
       adminNotes: workspace.adminNotes ?? "",
-      callsToday: workspace.calls.length,
-      whatsappToday: workspace.messages.length,
-      minutesToday: Math.round(workspace.calls.reduce((sum, call) => sum + (call.durationSec ?? 0), 0) / 6) / 10,
-      ...cost,
+      ...usage,
     };
   });
   return NextResponse.json({

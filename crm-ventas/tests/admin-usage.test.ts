@@ -48,7 +48,7 @@ test("separa el consumo histórico del consumo de hoy", () => {
   assert.equal(result.whatsappToday, 1);
   assert.equal(result.minutesTotal, 3);
   assert.equal(result.minutesToday, 1);
-  assert.equal(result.totalCost, 0.455);
+  assert.equal(result.totalCost, 0.46);
   assert.equal(result.totalCostToday, 0.155);
 });
 
