@@ -115,9 +115,10 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
       case "verifying": {
         const v = deps.verify ? await deps.verify(orch) : { ok: true, evidence: { kind: "non_empty_output" } };
         if (v.ok) {
-          // APRENDER del éxito VERIFICADO: esta estrategia/proveedor resolvió esta (firma,
-          // causa). Solo desde resultados verificados → no contamina por fallos/inyección.
-          if (deps.learning && plan.signature) {
+          // APRENDER del éxito VERIFICADO Y REAL: esta estrategia/proveedor resolvió esta
+          // (firma, causa). Solo desde resultados verificados y en modo LIVE → en shadow la
+          // respuesta es simulada y NO debe contaminar la memoria. Tampoco por inyección.
+          if (deps.live && deps.learning && plan.signature) {
             await deps.learning.recordOutcome({
               workspaceId: orch.workspaceId,
               taskSignature: plan.signature,
@@ -222,7 +223,8 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
         // APRENDER del fallo VERIFICADO no transitorio: la estrategia intentada NO resolvió
         // esta causa → registrarlo para EVITARLA en el futuro (no repetir lo que no funciona).
         // Los transitorios (429/timeout) son infra, no culpa de la estrategia → no se aprenden.
-        if (deps.learning && plan.signature && plan.attemptProvider && diag.class !== "transient") {
+        // Solo en LIVE: en shadow el fallo/resultado es simulado y no debe aprenderse.
+        if (deps.live && deps.learning && plan.signature && plan.attemptProvider && diag.class !== "transient") {
           await deps.learning.recordOutcome({
             workspaceId: orch.workspaceId,
             taskSignature: plan.signature,

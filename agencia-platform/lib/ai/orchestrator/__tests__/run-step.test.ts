@@ -185,17 +185,25 @@ describe("runStep — fases", () => {
   it("APRENDIZAJE: éxito verificado → recordOutcome(ok, verified) con firma/causa/estrategia", async () => {
     const rec: any[] = [];
     const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
-    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning, verify: async () => ({ ok: true, evidence: { check: "objetivo" } }) }));
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, verify: async () => ({ ok: true, evidence: { check: "objetivo" } }) }));
     const r = await rs(orch({ state: "verifying", plan: { signature: "sig1", addressingCause: "provider:x", attemptStrategyKind: "switch_provider", attemptProvider: "anthropic" } }));
     expect(r.to).toBe("completed");
     expect(rec).toHaveLength(1);
     expect(rec[0]).toMatchObject({ verified: true, ok: true, taskSignature: "sig1", rootCause: "provider:x", strategyKind: "switch_provider", provider: "anthropic" });
   });
 
+  it("APRENDIZAJE: en SHADOW (live=false) NO se aprende (resultado simulado, no real)", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: false, learning, verify: async () => ({ ok: true }) }));
+    await rs(orch({ state: "verifying", plan: { signature: "sig1", addressingCause: "initial", attemptProvider: "anthropic" } }));
+    expect(rec).toHaveLength(0); // shadow no contamina la memoria
+  });
+
   it("APRENDIZAJE: fallo NO transitorio → recordOutcome(ok=false) para evitar esa estrategia", async () => {
     const rec: any[] = [];
     const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
-    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning }));
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning }));
     await rs(orch({ state: "diagnosing", plan: { signature: "sig1", addressingCause: "initial", attemptStrategyKind: "retry_same", attemptProvider: "openai", diag: { hint: "provider" } } }));
     expect(rec.some((a) => a.verified === true && a.ok === false && a.provider === "openai")).toBe(true);
   });
@@ -203,7 +211,7 @@ describe("runStep — fases", () => {
   it("APRENDIZAJE: un fallo TRANSITORIO (429) NO se aprende (es infra, no la estrategia)", async () => {
     const rec: any[] = [];
     const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
-    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning }));
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning }));
     await rs(orch({ state: "diagnosing", plan: { signature: "sig1", addressingCause: "initial", attemptProvider: "openai", diag: { hint: "transient" } } }));
     expect(rec).toHaveLength(0);
   });

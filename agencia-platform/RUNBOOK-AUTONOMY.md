@@ -62,6 +62,21 @@ En Railway → Variables → añade `OPENAI_API_KEY` **copiándola directamente 
 - **Kill-switch operativo:** `HUB_AUTONOMY_KILL=on` → el scheduler cancela (parada segura) cualquier run que procese, sin ejecutar nada.
 - **Circuit breaker DURABLE (Postgres):** el estado del breaker vive en la tabla `AiProviderBreaker` por `(workspace, proveedor)` y la sonda half-open se reclama con un update guardado por versión → **single-probe entre instancias** (varias réplicas de cron son seguras) y recuperación si el sondeador muere. **Fail-closed:** ante error de BD el gate no deja pasar. Sin Redis.
 
+## Aprendizaje durable reutilizable (memoria de estrategias)
+Cuando Sonia falla y luego **resuelve** una tarea (verificación objetiva OK), aprende qué
+estrategia/proveedor funcionó para esa **firma de tarea + causa raíz** y lo **reutiliza/
+prioriza** en ejecuciones futuras similares; evita las estrategias que fallaron. Garantías:
+- Solo aprende de resultados **verificados y REALES (live)** — en shadow no se aprende (la
+  respuesta es simulada). Nunca marca éxito sin evidencia del verificador.
+- Memoria por `(workspace, taskSignature, rootCause, estrategia/proveedor/modelo)`, **nunca
+  cross-tenant**. La `taskSignature` es un **hash** de texto normalizado y **redactado** (sin
+  PII/secretos ni texto crudo → inmune a inyección: no se almacena ni reutiliza como instrucción).
+- Tabla aditiva `AiStrategyMemory`. Telemetría: **`GET /api/v1/ai/learning`** (admin+flag,
+  tenant-scoped) muestra qué aprendió, éxitos/fallos, score y la última evidencia (redactada).
+  En el log de pasos verás `strategy: "reuse:<provider>"` cuando reutiliza lo aprendido.
+- No cambia autonomía: A0/A1 autónomos; **A2/A3 siguen en `approval_required`**; kill-switch
+  y circuit breakers intactos. El aprendizaje solo reordena la elección de proveedor/estrategia.
+
 ## Kill-switch / rollback en cualquier momento
 - **Parada suave:** pon `AI_RUN_ORCHESTRATOR=off` (y `AI_MULTIMODEL=off`). Rutas 404, hook no-op, worker no toma trabajo. Sin migración de datos.
 - **Rollback de código:** re-desplegar `rollback/pre-autonomy-6fe0422d`.
