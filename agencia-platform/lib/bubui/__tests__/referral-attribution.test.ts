@@ -10,7 +10,7 @@ const { prisma, creditReferrerWallet } = vi.hoisted(() => ({
     bubuiCustomer: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     bubuiCustomDeal: { findFirst: vi.fn() },
     bubuiBusiness: { findUnique: vi.fn() },
-    bubuiOffer: { create: vi.fn() },
+    bubuiOffer: { create: vi.fn(), findFirst: vi.fn() },
     bubuiBusinessNotification: { create: vi.fn() },
     bubuiReferralClick: { findFirst: vi.fn() }
   },

@@ -47,6 +47,8 @@ export function Onboarding() {
   // registro, se muestra el contexto del reto y se OCULTA "Explorar sin cuenta".
   type PendingDeal = { token: string; businessName: string; clientDiscountPct: number; title: string | null; friendsRequired: number };
   const [pendingDeal, setPendingDeal] = useState<PendingDeal | null>(null);
+  type PendingInvite = { code: string; offerId: string; businessName: string; friendDiscountPct: number; friendTitle: string | null };
+  const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
   useEffect(() => {
     let alive = true;
     let applied = false;
@@ -77,6 +79,24 @@ export function Onboarding() {
     //    pasa a registro y muestra el reto — antes se quedaba en invitado.
     const off = onDealCaptured((token) => { void applyDeal(token); });
     return () => { alive = false; off(); };
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      await waitForReferrerCapture();
+      const pending = await getPendingRef();
+      const [refCode, offerId] = (pending ?? "").split("|", 2);
+      if (!refCode || !offerId) return;
+      setStep(INTRO_STEP_COUNT + 1);
+      setOtpStep("form");
+      try {
+        const invite = await api.getChallengeInvite(refCode, offerId);
+        if (alive) setPendingInvite(invite);
+      } catch {
+        if (alive) setPendingInvite({ code: refCode, offerId, businessName: "el negocio", friendDiscountPct: 0, friendTitle: null });
+      }
+    })();
+    return () => { alive = false; };
   }, []);
   // Animación de "latido" para llamar la atención sobre el CTA "Empezar ahora".
   const ctaPulse = useRef(new Animated.Value(1)).current;
@@ -131,6 +151,8 @@ export function Onboarding() {
       });
       await waitForDealCapture();
       await claimPendingDeal(r.customerId); // reclama el reto si venía de un enlace
+      await waitForReferrerCapture();
+      await applyPendingRef(r.customerId);
       sfx.tap();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
     } catch (e: any) {
@@ -170,7 +192,8 @@ export function Onboarding() {
       // Espera ACOTADA (≤2,5s) a que la captura del Install Referrer termine
       // antes de concluir que no hay código — cierra la carrera captura/alta.
       await waitForReferrerCapture();
-      const ref = (await getPendingRef()) ?? undefined;
+      const pendingRef = await getPendingRef();
+      const ref = pendingRef?.split("|", 1)[0] ?? undefined;
       const r = await api.verifyOtp({
         phone: phone.trim(),
         code: code.trim(),
@@ -277,13 +300,13 @@ export function Onboarding() {
           <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
         </View>
 
-        {pendingDeal && (
+        {(pendingDeal || pendingInvite) && (
           <View style={[styles.retoBanner, { marginTop: 0, marginBottom: 16 }]}>
             <Text style={styles.retoBannerEmoji}>🎁</Text>
             <Text style={styles.retoBannerText}>
-              <Text style={{ fontWeight: "900" }}>{pendingDeal.businessName}</Text> te propone un reto
-              {pendingDeal.clientDiscountPct ? <Text>: <Text style={{ fontWeight: "900" }}>{pendingDeal.clientDiscountPct}%{pendingDeal.title ? ` en ${pendingDeal.title}` : ""}</Text></Text> : null}
-              . <Text style={{ fontWeight: "800" }}>Crea tu cuenta para reclamarlo.</Text>
+              <Text style={{ fontWeight: "900" }}>{pendingDeal?.businessName ?? pendingInvite?.businessName}</Text> te invita
+              {(pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct) ? <Text>: <Text style={{ fontWeight: "900" }}>{pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct}%{(pendingDeal?.title || pendingInvite?.friendTitle) ? ` en ${pendingDeal?.title || pendingInvite?.friendTitle}` : ""}</Text></Text> : null}
+              . <Text style={{ fontWeight: "800" }}>Crea tu cuenta para recibirlo.</Text>
             </Text>
           </View>
         )}
@@ -323,7 +346,7 @@ export function Onboarding() {
             OJO: si hay un RETO pendiente, NO se ofrece invitado — el alta es
             necesaria para reclamarlo (si no, el usuario entra como invitado con
             0 cupones y pierde el reto, que fue justo el fallo reportado). */}
-        {!pendingDeal && (
+        {!pendingDeal && !pendingInvite && (
           <TouchableOpacity
             style={styles.guestBtn}
             onPress={() => { sfx.tap(); nav.reset({ index: 0, routes: [{ name: "Feed" }] }); }}
@@ -427,13 +450,13 @@ export function Onboarding() {
         <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
       </View>
 
-      {pendingDeal && (
+      {(pendingDeal || pendingInvite) && (
         <View style={styles.retoBanner}>
           <Text style={styles.retoBannerEmoji}>🎁</Text>
           <Text style={styles.retoBannerText}>
-            <Text style={{ fontWeight: "900" }}>{pendingDeal.businessName}</Text> te propone un reto
-            {pendingDeal.clientDiscountPct ? (
-              <Text>: consigue un <Text style={{ fontWeight: "900" }}>{pendingDeal.clientDiscountPct}%{pendingDeal.title ? ` en ${pendingDeal.title}` : ""}</Text></Text>
+            <Text style={{ fontWeight: "900" }}>{pendingDeal?.businessName ?? pendingInvite?.businessName}</Text> te invita
+            {(pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct) ? (
+              <Text>: consigue un <Text style={{ fontWeight: "900" }}>{pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct}%{(pendingDeal?.title || pendingInvite?.friendTitle) ? ` en ${pendingDeal?.title || pendingInvite?.friendTitle}` : ""}</Text></Text>
             ) : null}
             . Regístrate para reclamarlo.
           </Text>

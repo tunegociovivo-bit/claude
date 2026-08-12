@@ -177,13 +177,28 @@ export type ApplyReferralResult = {
  * pero el cupón de bienvenida no llegó a crearse (fallo posterior), el
  * reintento repara el cupón en vez de salir por referredById.
  */
-export async function applyReferral(friendId: string, code: string): Promise<ApplyReferralResult> {
+export async function applyReferral(friendId: string, code: string, offerId?: string): Promise<ApplyReferralResult> {
   const referrer = await prisma.bubuiCustomer.findUnique({
     where: { referralCode: code.toUpperCase() },
     select: { id: true, firstBusinessId: true }
   });
   if (!referrer) return { linked: false, terminal: true, reason: "invalid_code" };
   if (referrer.id === friendId) return { linked: false, terminal: true, reason: "self_referral" };
+
+  let challenge: { id: string; businessId: string } | null = null;
+  if (offerId) {
+    challenge = await prisma.bubuiOffer.findFirst({
+      where: {
+        id: offerId,
+        customerId: referrer.id,
+        source: "share_challenge",
+        redeemed: false,
+        expiresAt: { gt: new Date() }
+      },
+      select: { id: true, businessId: true }
+    });
+    if (!challenge) return { linked: false, terminal: true, reason: "invalid_challenge" };
+  }
 
   const friend = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
   if (!friend) return { linked: false, terminal: true, reason: "friend_not_found" };
@@ -214,7 +229,7 @@ export async function applyReferral(friendId: string, code: string): Promise<App
   // Negocio de origen: quien financia los premios. Si el referidor aún no
   // tiene firstBusinessId (p. ej. entró por un enlace de reto y algo impidió
   // fijarlo), usamos el negocio de su reto activo más reciente.
-  let originId = referrer.firstBusinessId;
+  let originId = challenge?.businessId ?? referrer.firstBusinessId;
   if (!originId) {
     const lastDeal = await prisma.bubuiCustomDeal.findFirst({
       where: { claimedByCustomerId: referrer.id, expiresAt: { gt: new Date() } },
@@ -241,7 +256,7 @@ export async function applyReferral(friendId: string, code: string): Promise<App
   // Si el referidor tiene un RETO PERSONALIZADO activo en este negocio, manda
   // el % de amigo de ese reto.
   const activeDeal = await prisma.bubuiCustomDeal.findFirst({
-    where: { businessId: originId, claimedByCustomerId: referrer.id, expiresAt: { gt: new Date() } },
+    where: { businessId: originId, claimedByCustomerId: referrer.id, ...(challenge ? { offerId: challenge.id } : {}), expiresAt: { gt: new Date() } },
     orderBy: { claimedAt: "desc" },
     select: { friendDiscountPct: true }
   });
@@ -257,7 +272,7 @@ export async function applyReferral(friendId: string, code: string): Promise<App
         customerId: friendId,
         businessId: originId,
         discountPct: friendPct,
-        triggerBusinessId: "ref:welcome",
+        triggerBusinessId: challenge ? `challenge:${challenge.id}` : "ref:welcome",
         source: "referral_welcome",
         expiresAt: exp
       }
@@ -325,7 +340,7 @@ export async function applyReferral(friendId: string, code: string): Promise<App
   // Oferta-reto viral: este nuevo amigo puede haber completado el reto de
   // alguna oferta bloqueada del referidor → se activa y se le avisa por push.
   await import("./share-offer")
-    .then((m) => m.unlockShareChallengeOffers(referrer.id))
+    .then((m) => m.unlockShareChallengeOffers(referrer.id, challenge?.id))
     .catch(() => {});
 
   return {

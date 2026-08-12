@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: { code: string } })
   };
 }
 
-export default function ReferralLanding({ params }: { params: { code: string } }) {
+export default function ReferralLanding({ params, searchParams }: { params: { code: string }; searchParams: { offer?: string } }) {
   return (
     <main className="max-w-md mx-auto px-4 py-20 text-center">
       <h1 className="bubui-wordmark mx-auto justify-center" style={{ fontSize: 56 }}>
@@ -38,7 +38,7 @@ export default function ReferralLanding({ params }: { params: { code: string } }
       </h1>
       <p className="text-black/60 mt-4">Un amigo te invita a Bubui 🎁</p>
       <p className="text-black/45 text-sm mt-1">Llevándote un cupón de bienvenida. Te llevamos al registro…</p>
-      <ReferralRedirect code={params.code} />
+      <ReferralRedirect code={params.code} offerId={searchParams.offer} />
     </main>
   );
 }

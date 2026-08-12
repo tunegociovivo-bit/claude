@@ -121,10 +121,11 @@ export async function createMesaShareChallenge(args: {
  * objetivo ya se haya alcanzado y le avisa por push. Devuelve cuántas
  * desbloqueó. Tolerante a fallos (no rompe el flujo de referidos).
  */
-export async function unlockShareChallengeOffers(referrerId: string): Promise<number> {
+export async function unlockShareChallengeOffers(referrerId: string, offerId?: string): Promise<number> {
   const locked = await prisma.bubuiOffer.findMany({
     where: {
       customerId: referrerId,
+      ...(offerId ? { id: offerId } : {}),
       source: "share_challenge",
       active: false,
       redeemed: false,

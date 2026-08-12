@@ -23,13 +23,16 @@ import { useRouter } from "next/navigation";
 
 const ANDROID_PACKAGE = "com.negociovivo.bubui";
 
-export default function ReferralRedirect({ code }: { code: string }) {
+export default function ReferralRedirect({ code, offerId }: { code: string; offerId?: string }) {
   const router = useRouter();
   const [os, setOs] = useState<"android" | "ios" | "other">("other");
   const [triedApp, setTriedApp] = useState(false);
 
-  const deepLink = `bubui://r/${encodeURIComponent(code)}`;
-  const playStore = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(`ref_${code}`)}`;
+  const invite = offerId ? `challenge_${code}_${offerId}` : `ref_${code}`;
+  const deepLink = offerId
+    ? `bubui://r/${encodeURIComponent(code)}?offer=${encodeURIComponent(offerId)}`
+    : `bubui://r/${encodeURIComponent(code)}`;
+  const playStore = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(invite)}`;
   const pwa = `/bubui/app?ref=${encodeURIComponent(code ?? "")}`;
 
   function tryOpenApp() {

@@ -16,7 +16,7 @@ import { Negocio, type NegocioParam } from "./src/screens/Negocio"
 import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
-import { initReferralCapture } from "./src/lib/referral-pending";
+import { initReferralCapture, waitForReferrerCapture } from "./src/lib/referral-pending";
 import { initDealCapture, claimPendingDeal, traceLifecycle, waitForDealCapture, getPendingDeal } from "./src/lib/deal-pending";
 import { retoTokenFromPath } from "./src/lib/links";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -101,8 +101,10 @@ function AppInner() {
   useEffect(() => {
         (async () => {
                 initDealCapture(); // asegura que la captura del referrer ha arrancado
+                initReferralCapture();
                 const session = await CheckSession();
                 await waitForDealCapture(); // espera (acotada) al resultado del referrer
+                await waitForReferrerCapture();
                 const pending = await getPendingDeal();
                 if (session) {
                         setInitial("Feed");

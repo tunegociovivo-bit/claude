@@ -150,11 +150,15 @@ export const api = {
     ),
   /** Reintenta vincular el código de referido tras el alta (idempotente).
    *  linked/terminal deciden si la app puede descartar el código pendiente. */
-  applyReferral: (customerId: string, code: string) =>
+  applyReferral: (customerId: string, code: string, offerId?: string) =>
     call<{ ok: boolean; linked?: boolean; terminal?: boolean; reason?: string; welcomeOfferCreated?: boolean }>(`/api/bubui/customer/apply-referral`, {
       method: "POST",
-      body: JSON.stringify({ customerId, code })
+      body: JSON.stringify({ customerId, code, offerId })
     }),
+  getChallengeInvite: (code: string, offerId: string) =>
+    call<{ code: string; offerId: string; businessName: string; friendDiscountPct: number; friendTitle: string | null }>(
+      `/api/bubui/challenge-invite?code=${encodeURIComponent(code)}&offerId=${encodeURIComponent(offerId)}`
+    ),
   /** Info pública de un RETO (custom-deal) para mostrar contexto en el alta. */
   getCustomDeal: (token: string) =>
     call<{
