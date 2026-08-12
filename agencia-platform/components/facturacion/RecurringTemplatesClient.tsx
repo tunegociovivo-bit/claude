@@ -9,7 +9,7 @@
  * pausa masiva y la edición llegan en slices posteriores.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Repeat, Upload, AlertTriangle, CheckCircle2, RefreshCw, Loader2 } from "lucide-react";
+import { Repeat, Upload, AlertTriangle, CheckCircle2, RefreshCw, Loader2, Download } from "lucide-react";
 
 type Item = {
   id: string;
@@ -37,6 +37,9 @@ export default function RecurringTemplatesClient() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const PAUSE_UI = process.env.NEXT_PUBLIC_RECURRING_PAUSE === "on";
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const load = useCallback(() => {
     setState("loading");
@@ -79,6 +82,12 @@ export default function RecurringTemplatesClient() {
 
       <ImportWizard onImported={load} />
       <BackfillPanel onChanged={load} />
+      {PAUSE_UI && (
+        <>
+          <PausePanel selectedIds={[...selected]} onChanged={() => { setSelected(new Set()); load(); }} />
+          <HoldedChecklistPanel selectedIds={[...selected]} onChanged={load} />
+        </>
+      )}
 
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-2">
@@ -113,17 +122,24 @@ export default function RecurringTemplatesClient() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-slate-400 border-b">
+                {PAUSE_UI && <th className="py-2 pr-2 w-6"><span className="sr-only">Seleccionar</span></th>}
                 <th className="py-2 pr-3">Cliente</th>
                 <th className="py-2 pr-3">Importe</th>
                 <th className="py-2 pr-3">Periodicidad</th>
                 <th className="py-2 pr-3">Próxima emisión</th>
-                <th className="py-2 pr-3">Estado</th>
+                <th className="py-2 pr-3">Estado (Hub)</th>
+                <th className="py-2 pr-3">Holded</th>
                 <th className="py-2 pr-3">Origen</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((it) => (
                 <tr key={it.id} className="border-b last:border-0">
+                  {PAUSE_UI && (
+                    <td className="py-2 pr-2">
+                      <input type="checkbox" aria-label={`Seleccionar ${it.clientName ?? it.id}`} checked={selected.has(it.id)} onChange={() => toggle(it.id)} />
+                    </td>
+                  )}
                   <td className="py-2 pr-3">
                     <span className="inline-flex items-center gap-1.5">
                       <Repeat aria-hidden className="h-3.5 w-3.5 text-violet-500" />
@@ -135,8 +151,12 @@ export default function RecurringTemplatesClient() {
                   <td className="py-2 pr-3 text-slate-600">{it.nextIssueAt ? new Date(it.nextIssueAt).toLocaleDateString("es-ES") : "—"}</td>
                   <td className="py-2 pr-3">
                     <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${badge(it.status)}`}>{STATUS_LABEL[it.status] ?? it.status}</span>
-                    {it.pausedInHolded && <span className="ml-1 text-[11px] text-slate-400">· pausada en Holded</span>}
                     {it.syncStatus === "error" && <AlertTriangle aria-label="error de sincronización" className="inline h-3.5 w-3.5 text-rose-500 ml-1" />}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span className={`text-[11px] px-1.5 py-0.5 rounded-full border ${it.pausedInHolded ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                      {it.pausedInHolded ? "Pausada en Holded" : "Activa en Holded"}
+                    </span>
                   </td>
                   <td className="py-2 pr-3 text-[11px] text-slate-500">{it.source}</td>
                 </tr>
@@ -348,6 +368,150 @@ function ImportWizard({ onImported }: { onImported: () => void }) {
             )}
           </div>
         )}
+      </div>
+    </details>
+  );
+}
+
+type PausePlan = { action: string; eligibleIds: string[]; skipped: { id: string; reason: string }[]; count: number; phrase: string };
+
+function PausePanel({ selectedIds, onChanged }: { selectedIds: string[]; onChanged: () => void }) {
+  const [action, setAction] = useState<"pause" | "resume">("pause");
+  const [plan, setPlan] = useState<PausePlan | null>(null);
+  const [phrase, setPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const preview = useCallback(() => {
+    setBusy(true); setMsg(null); setPlan(null); setPhrase("");
+    fetch("/api/v1/facturacion/recurring-templates/pause", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "preview", action, ids: selectedIds }) })
+      .then((r) => r.json())
+      .then((d) => (d?.error ? setMsg(d.error.message) : setPlan(d)))
+      .catch(() => setMsg("No se pudo previsualizar."))
+      .finally(() => setBusy(false));
+  }, [action, selectedIds]);
+
+  const commit = useCallback(() => {
+    setBusy(true); setMsg(null);
+    fetch("/api/v1/facturacion/recurring-templates/pause", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "commit", action, ids: plan?.eligibleIds ?? selectedIds, phrase }) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.error) setMsg(d.error.message);
+        else {
+          const failed = d.results?.filter((x: any) => !x.ok).length ?? 0;
+          setMsg(`${action === "pause" ? "Pausadas" : "Reanudadas"}: ${d.processed - failed}/${d.total}${failed ? ` · ${failed} fallo(s) (${d.status})` : ""}.`);
+          setPlan(null); setPhrase(""); onChanged();
+        }
+      })
+      .catch(() => setMsg("No se pudo ejecutar."))
+      .finally(() => setBusy(false));
+  }, [action, plan, selectedIds, phrase, onChanged]);
+
+  return (
+    <details className="rounded-xl border bg-white">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-800 inline-flex items-center gap-2">
+        <AlertTriangle aria-hidden className="h-4 w-4 text-amber-500" /> Pausa masiva (Hub) — acción sensible
+      </summary>
+      <div className="px-4 pb-4 space-y-3">
+        <div className="text-xs px-3 py-2 rounded-lg border bg-amber-50 text-amber-800 border-amber-200" role="note">
+          ⚠ <strong>Riesgo de doble facturación:</strong> pausar aquí solo detiene el Hub. Si Holded sigue emitiendo estas
+          recurrentes, el cliente recibiría dos facturas. Pausa <strong>también en Holded</strong> (checklist de abajo) antes de activar el Hub.
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select aria-label="Acción" value={action} onChange={(e) => { setAction(e.target.value as any); setPlan(null); }} className="px-2 py-1.5 rounded-lg bg-white border text-xs">
+            <option value="pause">Pausar seleccionadas</option>
+            <option value="resume">Reanudar seleccionadas</option>
+          </select>
+          <span className="text-xs text-slate-500">{selectedIds.length} seleccionada(s)</span>
+          <button type="button" disabled={busy || selectedIds.length === 0} onClick={preview} className="px-3 py-1.5 rounded-lg border text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1">
+            {busy ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null} Previsualizar
+          </button>
+        </div>
+        {msg && <p className="text-xs text-slate-700" role="status">{msg}</p>}
+        {plan && (
+          <div className="text-xs space-y-2">
+            <div className="flex flex-wrap gap-3">
+              <span className="text-slate-700">Elegibles: {plan.count}</span>
+              <span className="text-slate-500">Saltadas: {plan.skipped.length}</span>
+            </div>
+            {plan.count > 0 ? (
+              <>
+                <label className="block text-slate-600">
+                  Para confirmar, escribe exactamente: <code className="px-1 rounded bg-slate-100 font-mono">{plan.phrase}</code>
+                </label>
+                <input aria-label="Frase de confirmación" value={phrase} onChange={(e) => setPhrase(e.target.value)} className="w-full px-2 py-1.5 rounded-lg border text-xs font-mono" placeholder={plan.phrase} />
+                <button type="button" disabled={busy || phrase.trim() !== plan.phrase} onClick={commit} className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs hover:bg-rose-700 disabled:opacity-50">
+                  Confirmar {action === "pause" ? "pausa" : "reanudación"} de {plan.count}
+                </button>
+              </>
+            ) : (
+              <p className="text-slate-500">Nada elegible en la selección.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function HoldedChecklistPanel({ selectedIds, onChanged }: { selectedIds: string[]; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [ack, setAck] = useState(false);
+
+  const download = useCallback(() => {
+    setBusy(true); setMsg(null);
+    fetch("/api/v1/facturacion/recurring-templates/holded-checklist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "inventory" }) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.error) return setMsg(d.error.message);
+        const blob = new Blob([d.csv], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "recurrentes-holded.csv"; a.click();
+        setMsg(`Inventario de ${d.count} recurrente(s) activas descargado.`);
+      })
+      .catch(() => setMsg("No se pudo generar el inventario."))
+      .finally(() => setBusy(false));
+  }, []);
+
+  const markVerified = useCallback(() => {
+    setBusy(true); setMsg(null);
+    fetch("/api/v1/facturacion/recurring-templates/holded-checklist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "mark-verified", verified: true, templateIds: selectedIds }) })
+      .then((r) => r.json())
+      .then((d) => { setMsg(d?.error ? d.error.message : `${d.updated} marcada(s) como pausada(s) en Holded (verificación manual). ${d.note ?? ""}`); onChanged(); })
+      .catch(() => setMsg("No se pudo marcar."))
+      .finally(() => setBusy(false));
+  }, [selectedIds, onChanged]);
+
+  return (
+    <details className="rounded-xl border bg-white">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-800 inline-flex items-center gap-2">
+        <Upload aria-hidden className="h-4 w-4 text-slate-500" /> Pausar en Holded (procedimiento asistido)
+      </summary>
+      <div className="px-4 pb-4 space-y-3">
+        <p className="text-xs text-slate-500">
+          Holded <strong>no tiene API de pausa</strong>: esto NO ejecuta nada en Holded. Descarga el inventario, pausa las recurrentes
+          <strong> a mano en Holded</strong>, verifícalo, y solo entonces márcalo aquí. Marcar aquí es un registro de verificación, no una pausa remota.
+        </p>
+        <ol className="text-xs text-slate-600 list-decimal ml-4 space-y-0.5">
+          <li>Descarga el inventario de recurrentes activas.</li>
+          <li>En Holded, pausa/desactiva cada recurrente del listado.</li>
+          <li>Reconcilia (que no se emitan nuevas) y guarda evidencia.</li>
+          <li>Selecciona arriba las verificadas y márcalas.</li>
+        </ol>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={busy} onClick={download} className="px-3 py-1.5 rounded-lg border text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1">
+            <Download aria-hidden className="h-3.5 w-3.5" /> Descargar inventario CSV
+          </button>
+        </div>
+        <label className="flex items-start gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+          <span>Confirmo que he pausado en Holded y reconciliado las <strong>{selectedIds.length}</strong> plantilla(s) seleccionada(s).</span>
+        </label>
+        <button type="button" disabled={busy || !ack || selectedIds.length === 0} onClick={markVerified} className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs hover:bg-slate-800 disabled:opacity-50">
+          Marcar {selectedIds.length} como pausadas en Holded (verificado)
+        </button>
+        {msg && <p className="text-xs text-slate-700" role="status">{msg}</p>}
       </div>
     </details>
   );

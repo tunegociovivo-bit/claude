@@ -27,3 +27,12 @@ export function recurringSeparationEnabled(env: NodeJS.ProcessEnv = process.env)
 export function recurringEngineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.HUB_RECURRING_ENGINE ?? "").trim().toLowerCase() === "on";
 }
+
+/**
+ * Pausa masiva de plantillas Hub (Slice D). OPT-IN (default OFF). Acción sensible
+ * (A4): además del flag exige admin + frase de confirmación fuerte. El checklist
+ * asistido de Holded (sin mutación remota) vive tras el mismo flag.
+ */
+export function recurringPauseEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.HUB_RECURRING_PAUSE ?? "").trim().toLowerCase() === "on";
+}
