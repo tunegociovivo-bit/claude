@@ -96,3 +96,22 @@ Los fallos objetivos (error de proveedor no transitorio, o rechazo de un verific
 sí se aprenden para evitar esa estrategia. Para activar el aprendizaje de éxitos por tipo de
 tarea, inyecta un `verify` de dominio en `buildSchedulerDeps` que compruebe objetivamente el
 resultado (con acceso a la salida) y devuelva `verified:true` solo cuando la tarea quede resuelta.
+
+## Verificadores de dominio objetivos (activan el aprendizaje de éxitos)
+El motor incluye verificadores OBJETIVOS por tipo de tarea (`lib/ai/orchestrator/verifiers.ts`).
+Para que una tarea A0/A1 sea verificable objetivamente (y su éxito se aprenda), inclúyele en
+el `plan` de la orquestación un `taskType` y una `verification` (spec). Sin spec objetiva →
+`verified:false` → no se aprende el éxito (nunca "resuelto" por responder no-vacío).
+
+- **resumen/análisis** (`taskType: "resumen"|"analisis"`): `verification.mustCoverKeyPoints: string[]`
+  (+ opcional `minCoveredRatio`, def 1.0). Comprueba COBERTURA de los puntos clave.
+- **informe/documento** (`"informe"|"documento"`): `verification.requiredSections: string[]`.
+  Cada sección debe estar presente Y con contenido.
+- **extracción/listado** (`"extraccion"|"listado"|"structured"`): `verification.format: "json"|"csv"`,
+  `requiredFields: string[]`, `minItems`. Valida parseo + esquema.
+- **comentario/actualización** (`"comentario"|"actualizacion"`): `verification.mustReference: string[]`
+  (ids/entidades que deben aparecer).
+- Común: `verification.mustNotContain: string[]`; marcadores de negativa/error → fallo objetivo.
+
+La evidencia guardada son hechos/conteos (p.ej. `{verifierType, coveredPoints, requiredPoints}`),
+NUNCA el texto de salida. Puedes ver lo aprendido en `GET /api/v1/ai/learning`.
