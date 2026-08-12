@@ -245,6 +245,7 @@ model Workspace {
   aiApprovals               AiApproval[]
   aiApprovalEvents          AiApprovalEvent[]
   aiProviderBreakers        AiProviderBreaker[]
+  aiStrategyMemories        AiStrategyMemory[]
   aiClientMemories          AiClientMemory[]
   aiAgentLessons            AiAgentLesson[]
   taskTemplates             TaskTemplate[]
@@ -2327,6 +2328,36 @@ model AiProviderBreaker {
 
   @@unique([workspaceId, provider])
   @@index([workspaceId, provider, state])
+}
+
+// Memoria de estrategias DURABLE y reutilizable — aprendizaje POR (workspace, firma de
+// tarea, causa raíz, estrategia). Solo se escribe desde resultados VERIFICADOS. Nunca
+// mezcla tenants. La firma de tarea es un HASH (sin texto crudo/PII); la causa raíz va
+// normalizada (números/ids borrados). Permite recuperar y priorizar lo que ya funcionó.
+model AiStrategyMemory {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  taskSignature    String // hash normalizado del tipo+objetivo de tarea (sin PII)
+  rootCause        String // clase de diagnóstico + error normalizado (sin PII)
+  strategyKind     String // retry_same | switch_provider | switch_model | reduce_scope | ...
+  provider         String    @default("") // "" = no aplica (clave única sin NULLs)
+  model            String    @default("")
+  tool             String    @default("")
+  successCount     Int       @default(0)
+  failureCount     Int       @default(0)
+  score            Float     @default(0) // tasa de éxito suavizada (Laplace); orden de prioridad
+  lastOutcome      String? // "success" | "failure"
+  lastEvidence     Json? // evidencia del verificador, REDACTADA (sin PII/secretos)
+  lastAttemptToken String? // idempotencia del registro
+  lastUsedAt       DateTime?
+  version          Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, taskSignature, rootCause, strategyKind, provider, model])
+  @@index([workspaceId, taskSignature, rootCause, score])
 }
 
 // ====================================================================

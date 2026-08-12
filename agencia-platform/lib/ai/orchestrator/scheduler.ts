@@ -9,6 +9,7 @@ import { DEFAULT_LIMITS, type BudgetLimits } from "./budget";
 import { orchestratorMode, multiModelEnabled } from "./flags";
 import { makeRunStep, type RunStepDeps } from "./run-step";
 import { makeDbBreaker } from "./breaker-store";
+import { makeDbLearning } from "./learning-store";
 import type { ModelSlot } from "./providers";
 import type { Orchestration } from "./store";
 
@@ -45,6 +46,7 @@ export function buildSchedulerDeps(prisma: any, env: NodeJS.ProcessEnv, keySourc
     limits: canaryLimits(env),
     attemptDeadlineMs: Number(env.AI_ATTEMPT_DEADLINE_MS) || 15_000,
     breaker: makeDbBreaker(prisma, undefined, probeLeaseMs),
+    learning: makeDbLearning(prisma),
     // Envuelve el adaptador: live=real, shadow=simulado. Claves server-side; sin efectos.
     callModel: (slot: ModelSlot, req: AdapterRequest, opts) => buildAdapter(slot).complete(req, { live: opts.live, keySources, signal: opts.signal }) as Promise<AdapterResult>,
     buildRequest: defaultBuildRequest,

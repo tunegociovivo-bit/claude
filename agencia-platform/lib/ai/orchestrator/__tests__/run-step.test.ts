@@ -79,7 +79,7 @@ describe("runStep — fases", () => {
 
   it("verifying ok → completed; verify falla → diagnosing (no fake success)", async () => {
     expect((await makeRunStep(mkPrisma() as any, mkDeps())(orch({ state: "verifying" }))).to).toBe("completed");
-    const r = await makeRunStep(mkPrisma() as any, mkDeps({ verify: async () => false }))(orch({ state: "verifying" }));
+    const r = await makeRunStep(mkPrisma() as any, mkDeps({ verify: async () => ({ ok: false }) }))(orch({ state: "verifying" }));
     expect(r.to).toBe("diagnosing");
   });
 
@@ -182,6 +182,41 @@ describe("runStep — fases", () => {
     expect(r.patch.plan.diag.hint).toBe("provider");
   });
 
+  it("APRENDIZAJE: éxito verificado → recordOutcome(ok, verified) con firma/causa/estrategia", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning, verify: async () => ({ ok: true, evidence: { check: "objetivo" } }) }));
+    const r = await rs(orch({ state: "verifying", plan: { signature: "sig1", addressingCause: "provider:x", attemptStrategyKind: "switch_provider", attemptProvider: "anthropic" } }));
+    expect(r.to).toBe("completed");
+    expect(rec).toHaveLength(1);
+    expect(rec[0]).toMatchObject({ verified: true, ok: true, taskSignature: "sig1", rootCause: "provider:x", strategyKind: "switch_provider", provider: "anthropic" });
+  });
+
+  it("APRENDIZAJE: fallo NO transitorio → recordOutcome(ok=false) para evitar esa estrategia", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning }));
+    await rs(orch({ state: "diagnosing", plan: { signature: "sig1", addressingCause: "initial", attemptStrategyKind: "retry_same", attemptProvider: "openai", diag: { hint: "provider" } } }));
+    expect(rec.some((a) => a.verified === true && a.ok === false && a.provider === "openai")).toBe(true);
+  });
+
+  it("APRENDIZAJE: un fallo TRANSITORIO (429) NO se aprende (es infra, no la estrategia)", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning }));
+    await rs(orch({ state: "diagnosing", plan: { signature: "sig1", addressingCause: "initial", attemptProvider: "openai", diag: { hint: "transient" } } }));
+    expect(rec).toHaveLength(0);
+  });
+
+  it("REUTILIZACIÓN: recommend prioriza el proveedor aprendido como exitoso", async () => {
+    let used = "";
+    const learning = { recordOutcome: async () => {}, recommend: async () => [{ strategyKind: "switch_provider", provider: "openai", model: "", score: 0.9, successCount: 3, failureCount: 0 }] };
+    // sin aprendizaje, el orden por coste elegiría anthropic; con prefer=openai debe usar openai
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ learning, callModel: async (slot) => { used = slot.provider; return okResult() as any; } }));
+    await rs(orch({ state: "executing", plan: { need: { capabilities: [] }, diag: { hint: "provider" } } }));
+    expect(used).toBe("openai"); // reutiliza lo aprendido
+  });
+
   it("CONTRATO (HIGH #1): toda salida de runStep es una transición VÁLIDA desde su estado", async () => {
     // Escenarios que fuerzan cada rama, incl. executing→{waiting_backoff,materially_blocked,budget_exhausted}.
     const cases: Array<{ from: any; deps?: Partial<RunStepDeps>; over?: any }> = [
@@ -189,7 +224,7 @@ describe("runStep — fases", () => {
       { from: "planning" },
       { from: "waiting_backoff" },
       { from: "verifying" },
-      { from: "verifying", deps: { verify: async () => false } },
+      { from: "verifying", deps: { verify: async () => ({ ok: false }) } },
       { from: "executing" }, // éxito → verifying
       { from: "executing", deps: { callModel: async () => { throw new ProviderHttpError("anthropic", 429, 1, true); } } }, // → diagnosing
       { from: "executing", deps: { env: {} as any } }, // sin proveedor → materially_blocked

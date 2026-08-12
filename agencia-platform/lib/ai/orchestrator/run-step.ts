@@ -24,6 +24,7 @@ import { withDeadline, planSubtasks, chooseProvider } from "./runtime";
 import { MODEL_SLOTS, availableProviders, type ModelSlot, type ProviderId } from "./providers";
 import type { AdapterRequest, AdapterResult, KeySources } from "./adapters";
 import type { DurableBreaker } from "./breaker-store";
+import { taskSignature, rootCauseKey, type LearningStore } from "./learning-store";
 import { appendStep } from "./store";
 import type { Orchestration } from "./store";
 
@@ -43,9 +44,12 @@ export type RunStepDeps = {
   callModel: (slot: ModelSlot, req: AdapterRequest, opts: { signal: AbortSignal; live: boolean }) => Promise<AdapterResult>;
   /** Construye el request (system+mensajes) del run. La redacción PII la hace el adaptador. */
   buildRequest: (orch: Orchestration) => Promise<AdapterRequest>;
-  /** Verificación explícita del resultado (dominio). Default: pasa (el adaptador ya validó
-   *  no-vacío); un verificador real puede rechazar → vuelve a diagnosticar. */
-  verify?: (orch: Orchestration) => Promise<boolean>;
+  /** Verificación OBJETIVA del resultado (dominio). Devuelve {ok, evidence}. Default:
+   *  ok=true con evidencia mínima (el adaptador ya validó no-vacío). Un verificador real
+   *  puede rechazar → vuelve a diagnosticar. Solo se APRENDE de lo que este verifica. */
+  verify?: (orch: Orchestration) => Promise<{ ok: boolean; evidence?: any }>;
+  /** Memoria de estrategias (aprendizaje). Opcional (sin ella, el motor funciona igual). */
+  learning?: LearningStore;
   killSwitch?: () => boolean;
   rand?: () => number;
 };
@@ -91,8 +95,11 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
       case "queued":
         return { to: "planning", patch: { plan: { need: plan.need ?? { capabilities: [] }, parentAutonomy: plan.parentAutonomy ?? "A1", ...plan }, limits } };
 
-      case "planning":
-        return { to: "executing", patch: { strategy: "intento inicial" } };
+      case "planning": {
+        // Firma de tarea (hash sin PII) para recuperar/priorizar aprendizaje reutilizable.
+        const signature = plan.signature ?? taskSignature(plan.taskType, plan.objective);
+        return { to: "executing", patch: { strategy: "intento inicial", plan: { ...plan, signature } } };
+      }
 
       case "waiting_backoff":
         return { to: "executing", patch: {} };
@@ -106,8 +113,29 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
       }
 
       case "verifying": {
-        const ok = deps.verify ? await deps.verify(orch) : true;
-        if (ok) return { to: "completed", patch: {} };
+        const v = deps.verify ? await deps.verify(orch) : { ok: true, evidence: { kind: "non_empty_output" } };
+        if (v.ok) {
+          // APRENDER del éxito VERIFICADO: esta estrategia/proveedor resolvió esta (firma,
+          // causa). Solo desde resultados verificados → no contamina por fallos/inyección.
+          if (deps.learning && plan.signature) {
+            await deps.learning.recordOutcome({
+              workspaceId: orch.workspaceId,
+              taskSignature: plan.signature,
+              rootCause: plan.addressingCause ?? "initial",
+              strategyKind: plan.attemptStrategyKind ?? "retry_same",
+              provider: plan.attemptProvider ?? null,
+              model: plan.attemptModel ?? null,
+              verified: true,
+              ok: true,
+              evidence: v.evidence ?? null,
+              attemptToken: `${orch.id}:${normUsage(orch.usage).attempts}:s`,
+              now: deps.now()
+            });
+          }
+          // Evidencia OBJETIVA de resolución en el log (redactada por appendStep).
+          await appendStep(prisma, { workspaceId: orch.workspaceId, orchestrationId: orch.id, phase: "verifying", ok: true, evidence: v.evidence ?? null });
+          return { to: "completed", patch: {} };
+        }
         return { to: "diagnosing", patch: { plan: { ...plan, diag: { verificationFailed: true } } } };
       }
 
@@ -119,8 +147,22 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
         }
         const tried: ProviderId[] = plan.tried ?? [];
         const nowD = deps.now();
+        const signature = plan.signature ?? taskSignature(plan.taskType, plan.objective);
+        // Causa que ESTE intento intenta superar (la del último fallo, o "initial").
+        const addressingCause = plan.diag ? rootCauseKey(classifyFailure(plan.diag).class, (plan.diag as any).error) : "initial";
+        const attemptStrategyKind = plan.lastStrategyKind ?? "retry_same";
+        // APRENDIZAJE: prioriza proveedores que YA resolvieron esta (firma, causa) y evita
+        // los que fallaron. Reutiliza lo aprendido en ejecuciones futuras similares.
+        let prefer: string[] = [];
+        let avoid: string[] = [];
+        if (deps.learning) {
+          const recs = await deps.learning.recommend(orch.workspaceId, signature, addressingCause);
+          prefer = recs.filter((r) => r.provider && r.successCount > r.failureCount).map((r) => r.provider);
+          avoid = recs.filter((r) => r.provider && r.failureCount > r.successCount).map((r) => r.provider);
+        }
+        const reused = prefer.length > 0;
         const blocked = await blockedProviders(deps, orch.workspaceId, nowD);
-        const slot = chooseProvider(plan.need ?? { capabilities: [] }, deps.env, { exclude: tried, breakerOpen: (p) => blocked.has(p) });
+        const slot = chooseProvider(plan.need ?? { capabilities: [] }, deps.env, { exclude: tried, breakerOpen: (p) => blocked.has(p), prefer, avoid });
         if (!slot) {
           return { to: "materially_blocked", patch: { decision: packet("no_distinct_strategy", plan, "Sin proveedor sano disponible") } };
         }
@@ -155,6 +197,7 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
           workspaceId: orch.workspaceId,
           orchestrationId: orch.id,
           phase: "executing",
+          strategy: reused ? `reuse:${slot.provider}` : attemptStrategyKind, // telemetría: reutilización aprendida
           provider: slot.provider,
           model: slot.model,
           ok: !failure,
@@ -164,16 +207,36 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
           diagnosis: failure ? classifyFailure(failureToHint(failure)).class : null
         });
 
+        // Metadatos del intento (para aprender del resultado en verifying/diagnosing).
+        const attemptMeta = { signature, addressingCause, attemptStrategyKind, attemptProvider: slot.provider, attemptModel: slot.model, reused };
         if (!failure && result) {
-          return { to: "verifying", patch: { usage: usage2, provider: slot.provider, plan: { ...plan, lastProvider: slot.provider } } };
+          return { to: "verifying", patch: { usage: usage2, provider: slot.provider, plan: { ...plan, ...attemptMeta, lastProvider: slot.provider } } };
         }
-        return { to: "diagnosing", patch: { usage: usage2, plan: { ...plan, diag: failureToHint(failure), tried: [...tried, slot.provider], lastProvider: slot.provider } } };
+        return { to: "diagnosing", patch: { usage: usage2, plan: { ...plan, ...attemptMeta, diag: failureToHint(failure), tried: [...tried, slot.provider], lastProvider: slot.provider } } };
       }
 
       case "diagnosing": {
         const usage = normUsage(orch.usage);
         const diagInput: DiagnosisInput = plan.diag ?? {};
         const diag = classifyFailure(diagInput);
+        // APRENDER del fallo VERIFICADO no transitorio: la estrategia intentada NO resolvió
+        // esta causa → registrarlo para EVITARLA en el futuro (no repetir lo que no funciona).
+        // Los transitorios (429/timeout) son infra, no culpa de la estrategia → no se aprenden.
+        if (deps.learning && plan.signature && plan.attemptProvider && diag.class !== "transient") {
+          await deps.learning.recordOutcome({
+            workspaceId: orch.workspaceId,
+            taskSignature: plan.signature,
+            rootCause: plan.addressingCause ?? "initial",
+            strategyKind: plan.attemptStrategyKind ?? "retry_same",
+            provider: plan.attemptProvider ?? null,
+            model: plan.attemptModel ?? null,
+            verified: true,
+            ok: false,
+            evidence: { diagnosis: diag.class },
+            attemptToken: `${orch.id}:${usage.attempts}:f`,
+            now: deps.now()
+          });
+        }
         const fpHist: string[] = Array.isArray(orch.fingerprints) ? (orch.fingerprints as string[]) : [];
         const fp = fingerprint({ phase: "executing", strategy: plan.lastStrategyKind ?? "", diagnosis: diag.class, target: plan.lastProvider, model: null, error: diagInput.error });
         const decision = decideRecovery({

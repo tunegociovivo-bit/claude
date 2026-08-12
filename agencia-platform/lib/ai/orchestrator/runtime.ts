@@ -104,12 +104,20 @@ export function planSubtasks(nodes: SubtaskNode[], parentAutonomy: AutonomyLevel
 export function chooseProvider(
   need: RoutingNeed,
   env: NodeJS.ProcessEnv,
-  opts: { exclude?: ProviderId[]; breakerOpen?: (p: ProviderId) => boolean } = {}
+  opts: { exclude?: ProviderId[]; breakerOpen?: (p: ProviderId) => boolean; prefer?: string[]; avoid?: string[] } = {}
 ): ModelSlot | null {
-  const slots = routeSlots({ ...need, excludeProviders: [...(need.excludeProviders ?? []), ...(opts.exclude ?? [])] }, env);
-  for (const s of slots) {
-    if (opts.breakerOpen?.(s.provider)) continue; // no martillear un proveedor caído
-    return s;
-  }
-  return null;
+  const slots = routeSlots({ ...need, excludeProviders: [...(need.excludeProviders ?? []), ...(opts.exclude ?? [])] }, env).filter((s) => !opts.breakerOpen?.(s.provider));
+  if (slots.length === 0) return null;
+  const prefer = opts.prefer ?? [];
+  const avoid = new Set(opts.avoid ?? []);
+  // Prioriza lo APRENDIDO: proveedores con éxito previo primero (en orden de `prefer`);
+  // los que fallaron van al final; el resto por coste. Reutiliza lo que ya funcionó.
+  const rank = (p: string): number => {
+    const idx = prefer.indexOf(p);
+    if (idx >= 0) return -1000 + idx; // preferidos, en orden
+    if (avoid.has(p)) return 1000; // evitados, al final (último recurso, no exclusión dura)
+    return 0;
+  };
+  const sorted = [...slots].sort((a, b) => rank(a.provider) - rank(b.provider) || (a.costPer1kUsd?.output ?? Infinity) - (b.costPer1kUsd?.output ?? Infinity));
+  return sorted[0] ?? null;
 }
