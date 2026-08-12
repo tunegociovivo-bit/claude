@@ -2207,6 +2207,7 @@ model AiOrchestration {
   workspaceId  String
   taskId       String
   runId        String? // AiAgentRun.id asociado (si lo hay)
+  createdById  String? // quién lanzó la orquestación/simulación (auditoría)
   state        String    @default("queued") // máquina de estados (state-machine.ts)
   version      Int       @default(0) // optimistic concurrency
   mode         String    @default("shadow") // shadow | live

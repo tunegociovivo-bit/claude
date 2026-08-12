@@ -5,8 +5,28 @@
  */
 import { canTransition, isOrchState, type OrchState } from "./state-machine";
 import type { ApprovalRecord } from "./approvals";
+import { redactPii } from "./pii-redact";
 
 type PrismaLike = any;
+
+/** Redacción ESTRUCTURAL en la frontera de persistencia: cualquier texto crudo que
+ *  llegue a un paso (error de proveedor, evidencia) se saneade PII ANTES de escribir,
+ *  para que ni el log append-only ni el panel puedan filtrar claves/emails/etc. */
+function redactText(v: string | null | undefined): string | null {
+  if (v == null) return null;
+  return redactPii(v).text;
+}
+function redactEvidence(e: any): any {
+  if (e == null) return null;
+  if (typeof e === "string") return redactPii(e).text;
+  if (Array.isArray(e)) return e.map(redactEvidence);
+  if (typeof e === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(e)) out[k] = redactEvidence(val);
+    return out;
+  }
+  return e;
+}
 
 export type Orchestration = {
   id: string;
@@ -32,7 +52,7 @@ export type Orchestration = {
  */
 export async function ensureOrchestration(
   prisma: PrismaLike,
-  args: { workspaceId: string; taskId: string; runId?: string | null; limits?: any; mode?: "shadow" | "live" }
+  args: { workspaceId: string; taskId: string; runId?: string | null; limits?: any; mode?: "shadow" | "live"; createdById?: string | null }
 ): Promise<Orchestration> {
   const { workspaceId, taskId } = args;
   try {
@@ -41,6 +61,7 @@ export async function ensureOrchestration(
         workspaceId,
         taskId,
         runId: args.runId ?? null,
+        createdById: args.createdById ?? null,
         state: "queued",
         version: 0,
         mode: args.mode ?? "shadow",
@@ -126,7 +147,8 @@ export async function appendStep(
   // Reintenta ante colisión de seq (@@unique) por appends concurrentes → el log
   // append-only es realmente monótono y sin duplicados.
   let seq = (last?.seq ?? -1) + 1;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  const MAX_TRIES = 8;
+  for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
     try {
       await prisma.aiRunStep.create({
         data: {
@@ -143,8 +165,9 @@ export async function appendStep(
           tokensIn: args.tokensIn ?? null,
           tokensOut: args.tokensOut ?? null,
           fingerprint: args.fingerprint ?? null,
-          error: args.error ?? null,
-          evidence: args.evidence ?? null
+          // Redacción estructural: nunca se persiste texto crudo sin sanear.
+          error: redactText(args.error),
+          evidence: redactEvidence(args.evidence)
         }
       });
       return { seq };
@@ -156,7 +179,10 @@ export async function appendStep(
       throw e;
     }
   }
-  return { seq };
+  // FAIL-LOUD (M1): agotados los reintentos NO devolvemos un seq fabricado (sería un
+  // falso éxito: el caller contaría un paso que no existe). Lanzamos para que el
+  // llamante lo trate como fallo real de persistencia.
+  throw new Error(`appendStep: no se pudo asignar seq único tras ${MAX_TRIES} intentos (orchestrationId=${args.orchestrationId})`);
 }
 
 /** Aprobaciones VIVAS del workspace (para el cableado de autonomía en shadow). */

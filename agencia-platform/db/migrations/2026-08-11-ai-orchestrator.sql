@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS "AiOrchestration" (
   "workspaceId"  TEXT NOT NULL,
   "taskId"       TEXT NOT NULL,
   "runId"        TEXT,
+  "createdById"  TEXT,
   "state"        TEXT NOT NULL DEFAULT 'queued',
   "version"      INTEGER NOT NULL DEFAULT 0,
   "mode"         TEXT NOT NULL DEFAULT 'shadow',

@@ -8,41 +8,42 @@ import { NextRequest } from "next/server";
 
 const { authenticateMock, prisma } = vi.hoisted(() => {
   const steps: any[] = [];
-  const orch: any = { id: "orch-1", workspaceId: "", taskId: "", state: "queued", mode: "shadow", usage: null, decision: null };
-  return {
-    authenticateMock: vi.fn(),
-    prisma: {
-      _steps: steps,
-      _orch: orch,
-      membership: { findFirst: vi.fn() },
-      aiOrchestration: {
-        create: vi.fn(async ({ data }: any) => {
-          Object.assign(orch, { workspaceId: data.workspaceId, taskId: data.taskId, state: data.state, mode: data.mode });
-          return { ...orch };
-        }),
-        findFirst: vi.fn(async () => ({ ...orch })),
-        updateMany: vi.fn(async ({ where, data }: any) => {
-          if (where.workspaceId === orch.workspaceId) {
-            Object.assign(orch, data);
-            return { count: 1 };
-          }
-          return { count: 0 };
-        })
-      },
-      aiRunStep: {
-        findFirst: vi.fn(async () => (steps.length ? { seq: steps[steps.length - 1].seq } : null)),
-        create: vi.fn(async ({ data }: any) => {
-          steps.push(data);
-          return { ...data };
-        }),
-        deleteMany: vi.fn(async ({ where }: any) => {
-          const before = steps.length;
-          for (let i = steps.length - 1; i >= 0; i--) if (steps[i].workspaceId === where.workspaceId && steps[i].orchestrationId === where.orchestrationId) steps.splice(i, 1);
-          return { count: before - steps.length };
-        })
-      }
-    }
+  const orch: any = { id: "orch-1", workspaceId: "", taskId: "", state: "queued", mode: "shadow", usage: null, decision: null, version: 0, createdById: null };
+  const prismaObj: any = {
+    _steps: steps,
+    _orch: orch,
+    membership: { findFirst: vi.fn() },
+    aiOrchestration: {
+      create: vi.fn(async ({ data }: any) => {
+        Object.assign(orch, { workspaceId: data.workspaceId, taskId: data.taskId, state: data.state, mode: data.mode, version: data.version ?? 0, createdById: data.createdById ?? null });
+        return { ...orch };
+      }),
+      findFirst: vi.fn(async () => ({ ...orch })),
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const tenantOk = where.workspaceId === orch.workspaceId;
+        const versionOk = where.version === undefined || where.version === orch.version;
+        if (tenantOk && versionOk) {
+          Object.assign(orch, data);
+          return { count: 1 };
+        }
+        return { count: 0 };
+      })
+    },
+    aiRunStep: {
+      findFirst: vi.fn(async () => (steps.length ? { seq: steps[steps.length - 1].seq } : null)),
+      create: vi.fn(async ({ data }: any) => {
+        steps.push(data);
+        return { ...data };
+      }),
+      deleteMany: vi.fn(async ({ where }: any) => {
+        const before = steps.length;
+        for (let i = steps.length - 1; i >= 0; i--) if (steps[i].workspaceId === where.workspaceId && steps[i].orchestrationId === where.orchestrationId) steps.splice(i, 1);
+        return { count: before - steps.length };
+      })
+    },
+    $transaction: vi.fn(async (fn: any) => fn(prismaObj))
   };
+  return { authenticateMock: vi.fn(), prisma: prismaObj };
 });
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
 vi.mock("@/lib/api/auth", async (importActual) => {
@@ -57,7 +58,7 @@ const ORIG = { ...process.env };
 beforeEach(() => {
   vi.clearAllMocks();
   prisma._steps.length = 0;
-  Object.assign(prisma._orch, { id: "orch-1", workspaceId: "", taskId: "", state: "queued", mode: "shadow", usage: null, decision: null });
+  Object.assign(prisma._orch, { id: "orch-1", workspaceId: "", taskId: "", state: "queued", mode: "shadow", usage: null, decision: null, version: 0, createdById: null });
   process.env.AI_RUN_ORCHESTRATOR = "on";
   process.env.ADMIN_GATE = "enforce";
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });

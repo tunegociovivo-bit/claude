@@ -81,6 +81,23 @@ describe("appendStep — seq monótono (append-only)", () => {
   });
 });
 
+describe("appendStep — M1 fail-loud + redacción estructural", () => {
+  it("agotados los reintentos de seq (P2002 siempre) → LANZA (no fabrica seq)", async () => {
+    prisma.aiRunStep.findFirst.mockResolvedValue(null);
+    prisma.aiRunStep.create.mockRejectedValue({ code: "P2002" });
+    await expect(appendStep(prisma as any, { workspaceId: "w1", orchestrationId: "o1", phase: "executing" })).rejects.toThrow(/no se pudo asignar seq/i);
+  });
+  it("redacta PII del error crudo y de la evidencia antes de escribir", async () => {
+    prisma.aiRunStep.findFirst.mockResolvedValue(null);
+    prisma.aiRunStep.create.mockResolvedValue({});
+    await appendStep(prisma as any, { workspaceId: "w1", orchestrationId: "o1", phase: "diagnosing", error: "clave sk-abcdefghijklmnopqrstuvwx", evidence: { note: "email ana@acme.es" } });
+    const data = prisma.aiRunStep.create.mock.calls[0][0].data;
+    expect(data.error).not.toMatch(/sk-abcdefghijklmnopqrstuvwx/);
+    expect(JSON.stringify(data.evidence)).not.toMatch(/ana@acme\.es/);
+    expect(JSON.stringify(data.evidence)).toContain("«EMAIL»");
+  });
+});
+
 describe("liveApprovals — tenant + solo vivas", () => {
   it("consulta scoped por workspace, no revocadas y no caducadas", async () => {
     prisma.aiApproval.findMany.mockResolvedValue([]);
