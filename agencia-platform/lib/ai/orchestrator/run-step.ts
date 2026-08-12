@@ -223,7 +223,11 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
           // crudo). Si hay un `verify` de dominio inyectado, se usa en `verifying` en su
           // lugar. La evidencia guardada son hechos/conteos, no el output.
           const verdict = deps.verify ? null : verifyResult({ taskType: plan.taskType, output: result.text ?? "", spec: plan.verification });
-          return { to: "verifying", patch: { usage: usage2, provider: slot.provider, plan: { ...plan, ...attemptMeta, lastProvider: slot.provider, verifyResult: verdict } } };
+          // NB: el proveedor se guarda en `plan.lastProvider` (y en el paso append-only),
+          // NO como columna suelta: `AiOrchestration` no tiene campo `provider`, así que
+          // ponerlo en el patch reventaba el updateMany con PrismaClientValidationError y
+          // dejaba el run atascado en `executing`.
+          return { to: "verifying", patch: { usage: usage2, plan: { ...plan, ...attemptMeta, lastProvider: slot.provider, verifyResult: verdict } } };
         }
         return { to: "diagnosing", patch: { usage: usage2, plan: { ...plan, ...attemptMeta, diag: failureToHint(failure), tried: [...tried, slot.provider], lastProvider: slot.provider } } };
       }

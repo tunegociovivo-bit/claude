@@ -132,6 +132,37 @@ export async function getOrchestration(prisma: PrismaLike, workspaceId: string, 
   return (await prisma.aiOrchestration.findFirst({ where: { id, workspaceId } })) as Orchestration | null;
 }
 
+/** Columnas de AiOrchestration que un `patch` de transición puede escribir. Cualquier
+ *  otra clave se DESCARTA (fail-safe): así una clave ajena nunca dispara un
+ *  PrismaClientValidationError que dejaría el run atascado a mitad de un paso. */
+const TRANSITION_PATCH_FIELDS = new Set([
+  "strategy",
+  "plan",
+  "usage",
+  "limits",
+  "fingerprints",
+  "decision",
+  "lastError",
+  "nextRunAt",
+  "runId"
+]);
+
+function sanitizePatch(patch: any): Record<string, unknown> {
+  if (patch == null || typeof patch !== "object") return {};
+  const out: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (TRANSITION_PATCH_FIELDS.has(k)) out[k] = v;
+    else dropped.push(k);
+  }
+  // Observabilidad sin PII: solo los NOMBRES de campo descartados (nunca los valores),
+  // para detectar en logs un patch mal formado sin filtrar contenido.
+  if (dropped.length > 0) {
+    console.warn(`[ai-store] transition patch: claves no reconocidas descartadas: ${dropped.join(",")}`);
+  }
+  return out;
+}
+
 export type TransitionResult =
   | { ok: true; state: OrchState; version: number }
   | { ok: false; reason: "invalid" | "stale" | "not_found"; from: OrchState; to: OrchState };
@@ -160,7 +191,11 @@ export async function transition(
     where: { id, workspaceId, version: expectedVersion, state: from },
     // `patch` PRIMERO → `state`/`version` autoritativos SIEMPRE ganan (un patch
     // con esas claves no puede sobrescribir la transición ni el contador).
-    data: { ...(args.patch ?? {}), state: to, version: expectedVersion + 1 }
+    // FAIL-SAFE: se filtra a las columnas conocidas de AiOrchestration. Una clave
+    // ajena en el patch (p.ej. `provider`, que NO es columna) haría que Prisma lanzara
+    // PrismaClientValidationError y dejaría el run atascado; descartarla evita ese
+    // fallo parcial por completo (el paso siempre puede aplicar la transición).
+    data: { ...sanitizePatch(args.patch), state: to, version: expectedVersion + 1 }
   });
   if (res.count === 1) return { ok: true, state: to, version: expectedVersion + 1 };
   // No aplicó: ¿existe? ¿ya estaba en otro estado/versión?

@@ -131,6 +131,62 @@ describe("stepOrchestration — avance de un paso", () => {
     expect(r.released).toBe(false); // no somos B → no tocamos nada
     expect(prisma._rows[0].leaseOwner).toBe("worker-B");
   });
+
+  it("REGRESIÓN canary: patch con `provider` (no columna) ya NO atasca el run → transiciona a verifying", async () => {
+    const prisma = mkPrisma([orch({ state: "executing", version: 2, plan: {}, usage: { attempts: 0 } })]);
+    const runStep = async () => ({ to: "verifying" as const, patch: { usage: { attempts: 1 }, provider: "anthropic", plan: { lastProvider: "anthropic" } } });
+    const r = await stepOrchestration(prisma as any, { runStep, now: () => NOW }, orch({ state: "executing", version: 2, plan: {}, usage: { attempts: 0 } }) as any);
+    expect(r.ok).toBe(true);
+    expect(r.to).toBe("verifying");
+    const row = prisma._rows[0];
+    expect(row.state).toBe("verifying");
+    expect(row.usage).toEqual({ attempts: 1 }); // el intento SÍ se contabiliza (ya no se pierde)
+    expect(row).not.toHaveProperty("provider"); // la clave ajena nunca se escribe
+  });
+  it("FAIL-SAFE: runStep que LANZA no deja el run atascado → backoff diferido + error durable", async () => {
+    const prisma = mkPrisma([orch({ state: "executing", version: 2, plan: {} })]);
+    const runStep = vi.fn(async () => { const e: any = new Error("bad"); e.name = "PrismaClientValidationError"; throw e; });
+    const r = await stepOrchestration(prisma as any, { runStep, now: () => NOW }, orch({ state: "executing", version: 2, plan: {} }) as any);
+    expect(r.ok).toBe(true);
+    expect(r.to).toBe("executing"); // mismo estado, pero diferido (no re-ejecuta ya)
+    expect(r.reason).toBe("failsafe_backoff");
+    const row = prisma._rows[0];
+    expect(row.plan.stepErrors).toBe(1);
+    expect(row.lastError).toBe("PrismaClientValidationError");
+    expect(row.nextRunAt).toEqual(new Date(NOW.getTime() + 60_000));
+    expect(row.version).toBe(3);
+  });
+  it("FAIL-SAFE: al superar el tope de errores escala a materially_blocked y suelta el lease", async () => {
+    const prisma = mkPrisma([orch({ state: "executing", version: 2, plan: { stepErrors: 2 }, leaseOwner: "worker-A", leaseExpiresAt: future })]);
+    const runStep = vi.fn(async () => { throw new Error("boom"); });
+    const r = await stepOrchestration(prisma as any, { runStep, now: () => NOW }, orch({ state: "executing", version: 2, plan: { stepErrors: 2 }, leaseOwner: "worker-A" }) as any);
+    expect(r.ok).toBe(true);
+    expect(r.to).toBe("materially_blocked");
+    expect(r.reason).toBe("failsafe_blocked");
+    const row = prisma._rows[0];
+    expect(row.state).toBe("materially_blocked");
+    expect(row.plan.stepErrors).toBe(3);
+    expect(row.leaseOwner).toBeNull(); // lease liberado al terminar
+  });
+  it("FAIL-SAFE: un paso EXITOSO resetea stepErrors (consecutivos, no de por vida)", async () => {
+    const prisma = mkPrisma([orch({ state: "executing", version: 2, plan: { stepErrors: 2, foo: "bar" }, usage: { attempts: 0 } })]);
+    const runStep = async () => ({ to: "verifying" as const, patch: { usage: { attempts: 1 }, plan: { foo: "bar", lastProvider: "anthropic" } } });
+    const r = await stepOrchestration(prisma as any, { runStep, now: () => NOW }, orch({ state: "executing", version: 2, plan: { stepErrors: 2, foo: "bar" } }) as any);
+    expect(r.ok).toBe(true);
+    expect(r.to).toBe("verifying");
+    const row = prisma._rows[0];
+    expect(row.plan).not.toHaveProperty("stepErrors"); // reseteado en el paso exitoso
+    expect(row.plan.foo).toBe("bar"); // el resto del plan intacto
+  });
+  it("FAIL-SAFE guardado por versión: si otro worker ya movió la fila, no se pisa", async () => {
+    // La fila está en v6 (otro worker); nuestro paso (v2) lanza → failSafeRecover con
+    // where.version=2 no matchea → count 0 → ok:false, sin tocar la fila.
+    const prisma = mkPrisma([orch({ state: "verifying", version: 6 })]);
+    const runStep = vi.fn(async () => { throw new Error("boom"); });
+    const r = await stepOrchestration(prisma as any, { runStep, now: () => NOW }, orch({ state: "executing", version: 2, plan: {} }) as any);
+    expect(r.ok).toBe(false);
+    expect(prisma._rows[0].version).toBe(6); // intacta
+  });
 });
 
 describe("runBatch — lote acotado, aislamiento de errores, libera lease", () => {

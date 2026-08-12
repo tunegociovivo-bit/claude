@@ -69,6 +69,10 @@ export function canTransition(from: OrchState, to: OrchState): boolean {
   if (from === to) return false; // no self-loops (idempotencia se maneja arriba)
   if (isTerminal(from)) return false; // de un terminal no se sale
   if (to === "cancelled") return true; // cancelación desde cualquier no-terminal
+  // Parada segura fail-safe: un run que no puede proseguir (excepción parcial repetida)
+  // puede caer a `materially_blocked` (terminal, sin salidas) desde CUALQUIER no-terminal,
+  // igual que `cancelled`. Así el escape de recuperación es una transición declarada válida.
+  if (to === "materially_blocked") return true;
   return (ALLOWED[from] ?? []).includes(to);
 }
 

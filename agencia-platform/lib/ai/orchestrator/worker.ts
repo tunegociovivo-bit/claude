@@ -92,35 +92,124 @@ export const PARKED_STATES: ReadonlySet<OrchState> = new Set<OrchState>(["waitin
  * worker la aplica con `transition` (concurrency-safe) y libera/re-lease. Kill-switch
  * inyectado: si activo, transiciona a `cancelled`. Devuelve el nuevo estado.
  */
+/** Tope de errores de paso CONSECUTIVOS antes de escalar a un estado terminal seguro. Un
+ *  run que falla al calcular/aplicar su paso no debe repetir trabajo caro (p.ej. una llamada
+ *  de modelo real) indefinidamente. El contador se resetea en cada paso exitoso. */
+export const FAILSAFE_MAX_STEP_ERRORS = 3;
+
+/** Si el run arrastraba errores de paso, los limpia del `plan` que se persistirá en la
+ *  transición exitosa (contador CONSECUTIVO, no de por vida). Solo actúa si había errores
+ *  (camino feliz intacto): devuelve el patch tal cual cuando no hay nada que limpiar. */
+function clearStepErrorsOnSuccess(orch: Orchestration, patch: any): any {
+  const prior = Number((orch.plan as any)?.stepErrors) || 0;
+  if (prior <= 0) return patch;
+  // Base = el plan que la transición iba a escribir (si lo trae) o el plan actual del run.
+  const base =
+    patch && typeof patch === "object" && patch.plan && typeof patch.plan === "object"
+      ? patch.plan
+      : orch.plan && typeof orch.plan === "object"
+        ? orch.plan
+        : {};
+  const { stepErrors, lastStepError, ...rest } = base as any;
+  return { ...(patch ?? {}), plan: rest };
+}
+/** Backoff entre reintentos fail-safe (difiere el próximo tick del run atascado). */
+export const FAILSAFE_BACKOFF_MS = 60_000;
+
+/**
+ * RECUPERACIÓN FAIL-SAFE: una excepción al calcular `runStep` o al aplicar la transición
+ * (p.ej. un error de validación de Prisma) NO debe dejar el run atascado repitiendo el
+ * paso —y su coste— en cada tick. Cuenta el fallo de forma DURABLE (`plan.stepErrors`) con
+ * una escritura guardada por versión+estado (solo si seguimos siendo dueños del paso) y:
+ *   - difiere el próximo intento (`nextRunAt` = ahora + backoff) mientras no supere el tope;
+ *   - al superar el tope, escala a `materially_blocked` (terminal seguro) y suelta el lease.
+ * Nunca lanza: ante cualquier problema al persistir la recuperación, devuelve ok:false y el
+ * lote sigue (el lease caducará y otro worker reintentará). Tenant-scoped.
+ */
+async function failSafeRecover(
+  prisma: PrismaLike,
+  orch: Orchestration,
+  err: any,
+  now: () => Date
+): Promise<{ ok: boolean; to?: OrchState; reason?: string }> {
+  const name = String(err?.name ?? "error");
+  const plan = orch.plan && typeof orch.plan === "object" ? (orch.plan as any) : {};
+  const stepErrors = (Number(plan.stepErrors) || 0) + 1;
+  const escalate = stepErrors >= FAILSAFE_MAX_STEP_ERRORS;
+  const data: Record<string, unknown> = {
+    plan: { ...plan, stepErrors, lastStepError: name },
+    lastError: name,
+    version: orch.version + 1
+  };
+  if (escalate) {
+    // Parada segura: `materially_blocked` es terminal y alcanzable desde cualquier no-terminal
+    // (canTransition lo admite como escape fail-safe, igual que `cancelled`). Suelta el lease.
+    data.state = "materially_blocked";
+    data.nextRunAt = null;
+    data.leaseOwner = null;
+    data.leaseExpiresAt = null;
+  } else {
+    // Mismo estado, pero diferido: rompe el bucle "un tick = un intento caro fallido".
+    data.nextRunAt = new Date(now().getTime() + FAILSAFE_BACKOFF_MS);
+  }
+  try {
+    // Guardado por versión+estado: solo aplica si la fila sigue como la dejamos (somos
+    // dueños del paso). Si otro worker la movió, count=0 → no pisamos nada.
+    const res = await prisma.aiOrchestration.updateMany({
+      where: { id: orch.id, workspaceId: orch.workspaceId, version: orch.version, state: orch.state },
+      data
+    });
+    if (res.count !== 1) return { ok: false, reason: "stale" };
+    return { ok: true, to: escalate ? "materially_blocked" : orch.state, reason: escalate ? "failsafe_blocked" : "failsafe_backoff" };
+  } catch (e2: any) {
+    console.warn(`[ai-scheduler] failSafeRecover ${orch.id} no pudo persistir: ${String(e2?.name ?? "error")}`);
+    return { ok: false, reason: "failsafe_error" };
+  }
+}
+
 export async function stepOrchestration(
   prisma: PrismaLike,
   deps: {
     runStep: (orch: Orchestration) => Promise<{ to: OrchState; patch?: any }>;
     killSwitch?: () => boolean;
+    now?: () => Date;
   },
   orch: Orchestration
 ): Promise<{ ok: boolean; to?: OrchState; reason?: string }> {
   if (isTerminal(orch.state)) return { ok: false, reason: "terminal" };
+  const now = deps.now ?? (() => new Date());
 
-  let next: { to: OrchState; patch?: any };
-  if (deps.killSwitch?.()) {
-    next = { to: "cancelled", patch: { lastError: "kill-switch" } };
-  } else {
-    next = await deps.runStep(orch);
+  try {
+    let next: { to: OrchState; patch?: any };
+    if (deps.killSwitch?.()) {
+      next = { to: "cancelled", patch: { lastError: "kill-switch" } };
+    } else {
+      next = await deps.runStep(orch);
+    }
+
+    // Un paso normal exitoso RESETEA el contador de errores de paso (consecutivos, no de por
+    // vida): así hipos de infra aislados no se acumulan hasta forzar `materially_blocked` en
+    // un run que sí progresa. Se pliega en la MISMA transición (sin escritura extra ni carrera):
+    // se retira `stepErrors`/`lastStepError` del `plan` que se va a persistir.
+    const patch = clearStepErrorsOnSuccess(orch, next.patch);
+
+    const res = await transition(prisma, {
+      id: orch.id,
+      workspaceId: orch.workspaceId,
+      from: orch.state,
+      to: next.to,
+      expectedVersion: orch.version,
+      patch
+    });
+    // El lease lo gestiona `runBatch` (libera al terminar/park con guard de dueño). Aquí
+    // no lo tocamos: si otro worker re-tomó la fila (nuestro lease expiró), res.ok es false.
+    if (!res.ok) return { ok: false, reason: res.reason };
+    return { ok: true, to: next.to };
+  } catch (e: any) {
+    // FAIL-SAFE: cualquier excepción parcial (runStep o transición) → recuperación acotada
+    // en lugar de dejar el run atascado repitiendo trabajo caro tick tras tick.
+    return await failSafeRecover(prisma, orch, e, now);
   }
-
-  const res = await transition(prisma, {
-    id: orch.id,
-    workspaceId: orch.workspaceId,
-    from: orch.state,
-    to: next.to,
-    expectedVersion: orch.version,
-    patch: next.patch
-  });
-  // El lease lo gestiona `runBatch` (libera al terminar/park con guard de dueño). Aquí
-  // no lo tocamos: si otro worker re-tomó la fila (nuestro lease expiró), res.ok es false.
-  if (!res.ok) return { ok: false, reason: res.reason };
-  return { ok: true, to: next.to };
 }
 
 export type BatchResult = {
@@ -164,10 +253,25 @@ export async function runBatch(
       for (let i = 0; i < maxSteps && orch; i++) {
         if (!canStartStep()) break;
         if (isTerminal(orch.state)) break;
-        const r = await stepOrchestration(prisma, { runStep: deps.runStep, killSwitch: deps.killSwitch }, orch);
-        if (!r.ok) break; // stale (otro worker) o no aplicó → soltar
+        const r = await stepOrchestration(prisma, { runStep: deps.runStep, killSwitch: deps.killSwitch, now: deps.now }, orch);
+        if (!r.ok) {
+          // La recuperación fail-safe no pudo persistir (no es un simple stale): cuéntalo como
+          // error del lote para no perderlo de la observabilidad. El run no se pierde: el lease
+          // se libera y el próximo tick reintenta.
+          if (r.reason === "failsafe_error") agg.errors++;
+          break; // stale (otro worker) o no aplicó → soltar
+        }
         agg.steps++;
         movedThisRun = true;
+        // Recuperación fail-safe (excepción parcial acotada): cuenta como error y NO sigue
+        // en este lote — si escaló es terminal; si fue backoff queda diferido por nextRunAt
+        // (evita repetir el paso caro de inmediato dentro del mismo lote).
+        if (r.reason === "failsafe_blocked" || r.reason === "failsafe_backoff") {
+          agg.errors++;
+          if (r.to && isTerminal(r.to)) agg.terminal++;
+          else agg.parked++;
+          break;
+        }
         if (r.to && (isTerminal(r.to) || PARKED_STATES.has(r.to))) {
           if (isTerminal(r.to)) agg.terminal++;
           if (r.to === "completed") agg.completed++;

@@ -48,6 +48,24 @@ describe("transition — validada, optimista, tenant-scoped", () => {
     const r = await transition(prisma as any, { id: "o1", workspaceId: "w1", from: "queued", to: "planning", expectedVersion: 0 });
     if (!r.ok) expect(r.reason).toBe("not_found");
   });
+
+  it("FAIL-SAFE: descarta claves de patch no reconocidas (`provider`) para no reventar el updateMany", async () => {
+    // Regresión del bug del canary LIVE: run atascado en `executing` porque el patch traía
+    // `provider` (no es columna de AiOrchestration) → PrismaClientValidationError. Ahora la
+    // clave ajena se descarta y la transición aplica limpia.
+    prisma.aiOrchestration.updateMany.mockResolvedValue({ count: 1 });
+    const r = await transition(prisma as any, {
+      id: "o1", workspaceId: "w1", from: "executing", to: "verifying", expectedVersion: 3,
+      // `as any`: en producción el patch llega por el borde `any` de runStep (por eso el
+      // tipo no atrapó `provider`); aquí reproducimos ese runtime shape ajeno a propósito.
+      patch: { usage: { attempts: 1 }, provider: "anthropic", plan: { lastProvider: "anthropic" }, bogus: 1 } as any
+    });
+    expect(r.ok).toBe(true);
+    const data = prisma.aiOrchestration.updateMany.mock.calls[0][0].data;
+    expect(data).toMatchObject({ state: "verifying", version: 4, usage: { attempts: 1 }, plan: { lastProvider: "anthropic" } });
+    expect(data).not.toHaveProperty("provider"); // clave ajena NO llega a Prisma
+    expect(data).not.toHaveProperty("bogus");
+  });
 });
 
 describe("ensureOrchestration — idempotente", () => {
