@@ -20,6 +20,33 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
   const report: any[] = [];
   for (const ws of workspaces) {
     const r: any = { workspaceId: ws.id };
+    // Limpieza acotada del incidente del 12/08/2026: una ejecución importó y
+    // encoló huecos históricos. Se conserva la auditoría y solo se archivan
+    // esas referencias exactas creadas durante la ventana del incidente.
+    const incidentNumbers = ["FAC-002933", "FAC-002936", "FAC-002957", "FAC-002967", "FAC-002968", "FAC-002969", "FAC-002970", "FAC-002971", "FAC-002973", "FAC-002979", "FAC-002985", "FAC-002986", "FAC-002989"];
+    const incidentRequests = await prisma.sepaRemittanceRequest.findMany({
+      where: {
+        workspaceId: ws.id,
+        invoiceNumber: { in: incidentNumbers },
+        createdAt: { gte: new Date("2026-08-12T06:20:00.000Z"), lte: new Date("2026-08-12T06:40:00.000Z") },
+        archivedAt: null
+      },
+      select: { id: true }
+    });
+    if (incidentRequests.length) {
+      const ids = incidentRequests.map((item) => item.id);
+      await prisma.$transaction([
+        prisma.remittanceJob.updateMany({
+          where: { workspaceId: ws.id, remittanceRequestId: { in: ids }, status: { in: ["PENDING", "CLAIMED", "RUNNING", "NEEDS_USER", "FAILED"] } },
+          data: { status: "CANCELLED", lastError: "Archivado: solicitud histórica creada por el incidente del 12/08/2026" }
+        }),
+        prisma.sepaRemittanceRequest.updateMany({
+          where: { id: { in: ids }, workspaceId: ws.id, archivedAt: null },
+          data: { archivedAt: new Date(), tokenUsedAt: new Date() }
+        })
+      ]);
+      r.incidentArchived = ids.length;
+    }
     try {
       r.holded = await syncApprovedHoldedInvoices(ws.id);
     } catch (e: any) {
