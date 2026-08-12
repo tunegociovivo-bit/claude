@@ -44,8 +44,9 @@ export function maybeRecordAutonomyShadow(
           executed: rec.executed // siempre false
         })}`
       );
-    } catch {
-      /* shadow: jamás rompe el runner */
+    } catch (e: any) {
+      // Shadow: jamás rompe el runner, pero deja rastro para depurar.
+      console.warn(`[autonomy-shadow] registro omitido: ${String(e?.message ?? e).slice(0, 120)}`);
     }
   })();
 }

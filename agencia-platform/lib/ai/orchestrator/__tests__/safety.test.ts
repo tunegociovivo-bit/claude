@@ -59,6 +59,12 @@ describe("approvals — nunca implícita", () => {
     expect(evaluateApproval(appr, { action: "send_whatsapp_message", scope: "c2" }, NOW).approved).toBe(false); // otro scope
     expect(evaluateApproval(appr, { action: "send_whatsapp_message", amountCents: 500, volume: 2, scope: "c1" }, NOW).approved).toBe(true);
   });
+  it("FAIL-CLOSED: aprobación con tope pero petición SIN cantidad → no cubierta", () => {
+    const apprAmount = [a({ maxAmountCents: 1000 })];
+    expect(evaluateApproval(apprAmount, { action: "send_whatsapp_message" }, NOW).approved).toBe(false); // sin amountCents
+    const apprVol = [a({ maxVolume: 5 })];
+    expect(evaluateApproval(apprVol, { action: "send_whatsapp_message" }, NOW).approved).toBe(false); // sin volume
+  });
   it("glob de acción", () => {
     expect(actionMatches("*", "x")).toBe(true);
     expect(actionMatches("stripe.*", "stripe.refund")).toBe(true);

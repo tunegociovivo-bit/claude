@@ -60,8 +60,11 @@ export function evaluateApproval(approvals: ApprovalRecord[], req: ApprovalReque
     if (!isApprovalLive(a, now)) continue;
     if (!actionMatches(a.action, req.action)) continue;
     if (!scopeMatches(a.scope, req.scope)) continue;
-    if (typeof a.maxAmountCents === "number" && typeof req.amountCents === "number" && req.amountCents > a.maxAmountCents) continue;
-    if (typeof a.maxVolume === "number" && typeof req.volume === "number" && req.volume > a.maxVolume) continue;
+    // FAIL-CLOSED: si la aprobación tiene tope de importe/volumen, la petición DEBE
+    // traer una cantidad numérica que quepa. Sin cantidad conocida → NO cubierta
+    // (una acción sensible sin importe no debe colarse bajo una aprobación con tope).
+    if (typeof a.maxAmountCents === "number" && !(typeof req.amountCents === "number" && req.amountCents <= a.maxAmountCents)) continue;
+    if (typeof a.maxVolume === "number" && !(typeof req.volume === "number" && req.volume <= a.maxVolume)) continue;
     return { approved: true, matchedId: a.id, reason: `Cubierta por aprobación ${a.id}` };
   }
   return { approved: false, matchedId: null, reason: "Sin aprobación viva que cubra la acción" };

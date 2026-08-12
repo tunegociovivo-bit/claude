@@ -11,9 +11,10 @@ export type EscalationCause = "missing_data" | "goal_conflict" | "budget_exhaust
 export type AttemptSummary = {
   seq: number;
   strategy: string;
+  // Solo la CLASE de diagnóstico, nunca el texto crudo del error (evita filtrar
+  // PII/secretos al panel/escalada, que se sirven a cualquier `tasks:read`).
   diagnosis?: DiagnosisClass | null;
   ok: boolean;
-  error?: string | null;
 };
 
 export type Evidence = { label: string; detail: string };

@@ -88,7 +88,9 @@ export async function transition(
   }
   const res = await prisma.aiOrchestration.updateMany({
     where: { id, workspaceId, version: expectedVersion, state: from },
-    data: { state: to, version: expectedVersion + 1, ...(args.patch ?? {}) }
+    // `patch` PRIMERO → `state`/`version` autoritativos SIEMPRE ganan (un patch
+    // con esas claves no puede sobrescribir la transición ni el contador).
+    data: { ...(args.patch ?? {}), state: to, version: expectedVersion + 1 }
   });
   if (res.count === 1) return { ok: true, state: to, version: expectedVersion + 1 };
   // No aplicó: ¿existe? ¿ya estaba en otro estado/versión?
@@ -121,26 +123,39 @@ export async function appendStep(
     orderBy: { seq: "desc" },
     select: { seq: true }
   });
-  const seq = (last?.seq ?? -1) + 1;
-  await prisma.aiRunStep.create({
-    data: {
-      workspaceId: args.workspaceId,
-      orchestrationId: args.orchestrationId,
-      seq,
-      phase: args.phase,
-      strategy: args.strategy ?? null,
-      provider: args.provider ?? null,
-      model: args.model ?? null,
-      ok: args.ok ?? null,
-      diagnosis: args.diagnosis ?? null,
-      costUsd: args.costUsd ?? null,
-      tokensIn: args.tokensIn ?? null,
-      tokensOut: args.tokensOut ?? null,
-      fingerprint: args.fingerprint ?? null,
-      error: args.error ?? null,
-      evidence: args.evidence ?? null
+  // Reintenta ante colisión de seq (@@unique) por appends concurrentes → el log
+  // append-only es realmente monótono y sin duplicados.
+  let seq = (last?.seq ?? -1) + 1;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await prisma.aiRunStep.create({
+        data: {
+          workspaceId: args.workspaceId,
+          orchestrationId: args.orchestrationId,
+          seq,
+          phase: args.phase,
+          strategy: args.strategy ?? null,
+          provider: args.provider ?? null,
+          model: args.model ?? null,
+          ok: args.ok ?? null,
+          diagnosis: args.diagnosis ?? null,
+          costUsd: args.costUsd ?? null,
+          tokensIn: args.tokensIn ?? null,
+          tokensOut: args.tokensOut ?? null,
+          fingerprint: args.fingerprint ?? null,
+          error: args.error ?? null,
+          evidence: args.evidence ?? null
+        }
+      });
+      return { seq };
+    } catch (e: any) {
+      if (e?.code === "P2002") {
+        seq++; // otro append tomó este seq → siguiente
+        continue;
+      }
+      throw e;
     }
-  });
+  }
   return { seq };
 }
 
