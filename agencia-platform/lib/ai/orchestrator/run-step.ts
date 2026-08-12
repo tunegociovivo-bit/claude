@@ -25,6 +25,7 @@ import { MODEL_SLOTS, availableProviders, type ModelSlot, type ProviderId } from
 import type { AdapterRequest, AdapterResult, KeySources } from "./adapters";
 import type { DurableBreaker } from "./breaker-store";
 import { taskSignature, rootCauseKey, type LearningStore } from "./learning-store";
+import { verifyResult } from "./verifiers";
 import { appendStep } from "./store";
 import type { Orchestration } from "./store";
 
@@ -50,7 +51,7 @@ export type RunStepDeps = {
    *    APRENDE un éxito cuando `verified===true`. El default NO verifica objetivamente
    *    (`verified:false`) → sin un verificador de dominio real, no se aprende ningún éxito
    *    (nunca se marca "resuelto" por el mero hecho de que el modelo respondió). */
-  verify?: (orch: Orchestration) => Promise<{ ok: boolean; verified?: boolean; evidence?: any }>;
+  verify?: (orch: Orchestration) => Promise<{ ok: boolean; verified?: boolean; verifierType?: string; evidence?: any }>;
   /** Memoria de estrategias (aprendizaje). Opcional (sin ella, el motor funciona igual). */
   learning?: LearningStore;
   killSwitch?: () => boolean;
@@ -116,12 +117,14 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
       }
 
       case "verifying": {
-        // Default: NO verifica objetivamente (`verified:false`) → no aprende éxitos hasta que
-        // se cablee un verificador de dominio real. Nunca "resuelto" por responder no-vacío.
-        const v = deps.verify ? await deps.verify(orch) : { ok: true, verified: false, evidence: { kind: "non_empty_output" } };
+        // Verdicto OBJETIVO: `verify` de dominio inyectado, o el built-in calculado en
+        // executing (plan.verifyResult). Si ninguno verifica objetivamente → verified:false
+        // → no se aprende el éxito (nunca "resuelto" por responder no-vacío).
+        const v = deps.verify ? await deps.verify(orch) : ((plan.verifyResult as any) ?? { ok: true, verified: false, verifierType: "none", evidence: { reason: "sin verificador" } });
+        const evidence = { verifierType: v.verifierType ?? "none", ...(v.evidence ?? {}) };
         if (v.ok) {
           // APRENDER del éxito solo si fue VERIFICADO OBJETIVAMENTE (`verified===true`) y REAL
-          // (live). En shadow o sin verificador de dominio, no se aprende (no se inventa éxito).
+          // (live). En shadow o sin verificación objetiva, no se aprende.
           if (deps.live && v.verified === true && deps.learning && plan.signature) {
             await deps.learning.recordOutcome({
               workspaceId: orch.workspaceId,
@@ -132,16 +135,17 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
               model: plan.attemptModel ?? null,
               verified: true,
               ok: true,
-              evidence: v.evidence ?? null,
+              evidence,
               attemptToken: `${orch.id}:${normUsage(orch.usage).attempts}:s`,
               now: deps.now()
             });
           }
-          // Evidencia OBJETIVA de resolución en el log (redactada por appendStep).
-          await appendStep(prisma, { workspaceId: orch.workspaceId, orchestrationId: orch.id, phase: "verifying", ok: true, evidence: v.evidence ?? null });
+          // Evidencia OBJETIVA de resolución en el log (hechos/conteos; sin output crudo).
+          await appendStep(prisma, { workspaceId: orch.workspaceId, orchestrationId: orch.id, phase: "verifying", ok: true, evidence });
           return { to: "completed", patch: {} };
         }
-        return { to: "diagnosing", patch: { plan: { ...plan, diag: { verificationFailed: true } } } };
+        // Fallo OBJETIVO de verificación (incompleto/mal estructurado/negativa) → diagnosticar.
+        return { to: "diagnosing", patch: { plan: { ...plan, diag: { verificationFailed: true, verifierType: v.verifierType ?? "none" } } } };
       }
 
       case "executing": {
@@ -215,7 +219,11 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
         // Metadatos del intento (para aprender del resultado en verifying/diagnosing).
         const attemptMeta = { signature, addressingCause, attemptStrategyKind, attemptProvider: slot.provider, attemptModel: slot.model, reused };
         if (!failure && result) {
-          return { to: "verifying", patch: { usage: usage2, provider: slot.provider, plan: { ...plan, ...attemptMeta, lastProvider: slot.provider } } };
+          // VERIFICACIÓN OBJETIVA sobre la salida (aquí tenemos el texto; no se persiste
+          // crudo). Si hay un `verify` de dominio inyectado, se usa en `verifying` en su
+          // lugar. La evidencia guardada son hechos/conteos, no el output.
+          const verdict = deps.verify ? null : verifyResult({ taskType: plan.taskType, output: result.text ?? "", spec: plan.verification });
+          return { to: "verifying", patch: { usage: usage2, provider: slot.provider, plan: { ...plan, ...attemptMeta, lastProvider: slot.provider, verifyResult: verdict } } };
         }
         return { to: "diagnosing", patch: { usage: usage2, plan: { ...plan, ...attemptMeta, diag: failureToHint(failure), tried: [...tried, slot.provider], lastProvider: slot.provider } } };
       }

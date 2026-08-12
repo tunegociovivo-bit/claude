@@ -235,6 +235,40 @@ describe("runStep — fases", () => {
     expect(used).toBe("openai"); // reutiliza lo aprendido
   });
 
+  it("VERIFICADOR built-in: extracción JSON válida → verifying verified:true → aprende (live)", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const spec = { format: "json", requiredFields: ["nombre"], minItems: 1 };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, callModel: async () => okResult({ text: '[{"nombre":"Ana"}]' }) as any }));
+    const exec = await rs(orch({ state: "executing", plan: { taskType: "extraccion", verification: spec, signature: "s", need: { capabilities: [] } } }));
+    expect(exec.to).toBe("verifying");
+    expect(exec.patch.plan.verifyResult).toMatchObject({ ok: true, verified: true, verifierType: "structured" });
+    const ver = await rs(orch({ state: "verifying", plan: exec.patch.plan, usage: exec.patch.usage }));
+    expect(ver.to).toBe("completed");
+    expect(rec.some((a) => a.ok === true && a.verified === true && a.evidence?.verifierType === "structured")).toBe(true);
+  });
+
+  it("VERIFICADOR built-in: salida que NO cumple el esquema → diagnosing (no fake success, no aprende éxito)", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const spec = { format: "json", requiredFields: ["nombre"], minItems: 1 };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, callModel: async () => okResult({ text: "no soy json" }) as any }));
+    const exec = await rs(orch({ state: "executing", plan: { taskType: "extraccion", verification: spec, signature: "s", need: { capabilities: [] } } }));
+    const ver = await rs(orch({ state: "verifying", plan: exec.patch.plan, usage: exec.patch.usage }));
+    expect(ver.to).toBe("diagnosing");
+    expect(rec.some((a) => a.ok === true)).toBe(false); // NUNCA aprende un éxito no resuelto
+  });
+
+  it("VERIFICADOR built-in: tipo sin verificación objetiva → completed pero NO aprende", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, callModel: async () => okResult({ text: "algo" }) as any }));
+    const exec = await rs(orch({ state: "executing", plan: { taskType: "cosa_rara", signature: "s", need: { capabilities: [] } } }));
+    const ver = await rs(orch({ state: "verifying", plan: exec.patch.plan, usage: exec.patch.usage }));
+    expect(ver.to).toBe("completed");
+    expect(rec).toHaveLength(0);
+  });
+
   it("CONTRATO (HIGH #1): toda salida de runStep es una transición VÁLIDA desde su estado", async () => {
     // Escenarios que fuerzan cada rama, incl. executing→{waiting_backoff,materially_blocked,budget_exhausted}.
     const cases: Array<{ from: any; deps?: Partial<RunStepDeps>; over?: any }> = [
