@@ -17,8 +17,14 @@ export function autonomyShadowEnabled(env: NodeJS.ProcessEnv = process.env): boo
   return (env.HUB_AUTONOMY_SHADOW ?? "").trim().toLowerCase() === "on";
 }
 
-/** Enrutado multi-modelo (adaptadores) en SHADOW. Off por defecto. Aunque esté on,
- *  los adaptadores SIMULAN: nunca hay llamada externa real en este slice. */
+/** Enrutado multi-modelo (adaptadores). Off por defecto. En shadow SIMULA; en modo
+ *  live (orchestratorMode==="live") hace la llamada REAL de modelo. */
 export function multiModelEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return (env.AI_MULTIMODEL ?? "").trim().toLowerCase() === "on";
+}
+
+/** KILL-SWITCH operativo: si está ON, el scheduler cancela (parada segura) cualquier
+ *  run que procese. Opt-in y explícito; OFF por defecto (no mata nada). */
+export function autonomyKillSwitch(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.HUB_AUTONOMY_KILL ?? "").trim().toLowerCase() === "on";
 }

@@ -4,7 +4,7 @@
  * liberación del lease al terminar. Prisma mock; sin red ni scheduler real.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { claimDue, resumeContext, resumeAfterApproval, stepOrchestration, RESUMABLE_STATES } from "../worker";
+import { claimDue, resumeContext, resumeAfterApproval, stepOrchestration, runBatch, RESUMABLE_STATES } from "../worker";
 
 function mkPrisma(rows: any[]) {
   const store = rows.map((r) => ({ version: 0, leaseOwner: null, leaseExpiresAt: null, ...r }));
@@ -13,7 +13,9 @@ function mkPrisma(rows: any[]) {
     aiOrchestration: {
       findMany: vi.fn(async ({ where }: any) => {
         const now = where.OR?.[1]?.nextRunAt?.lte;
-        return store.filter((r) => RESUMABLE_STATES.includes(r.state) && (r.nextRunAt == null || (now && r.nextRunAt <= now)) && (r.leaseExpiresAt == null || (now && r.leaseExpiresAt <= now)));
+        // Prisma devuelve objetos DESACOPLADOS → copiamos para que un update posterior
+        // no mute el candidato leído (si no, claimDue vería la versión ya avanzada).
+        return store.filter((r) => RESUMABLE_STATES.includes(r.state) && (r.nextRunAt == null || (now && r.nextRunAt <= now)) && (r.leaseExpiresAt == null || (now && r.leaseExpiresAt <= now))).map((r) => ({ ...r }));
       }),
       updateMany: vi.fn(async ({ where, data }: any) => {
         const r = store.find((x) => x.id === where.id && x.workspaceId === where.workspaceId && (where.version === undefined || x.version === where.version) && (where.leaseOwner === undefined || (x.leaseOwner ?? null) === where.leaseOwner) && (where.state === undefined || x.state === where.state));
@@ -99,12 +101,12 @@ describe("stepOrchestration — avance de un paso", () => {
     expect(r.to).toBe("cancelled");
     expect(prisma._rows[0].state).toBe("cancelled");
   });
-  it("estado terminal → libera lease (siendo el dueño)", async () => {
+  it("aplica una transición a estado terminal (el lease lo libera runBatch)", async () => {
     const prisma = mkPrisma([orch({ state: "verifying", leaseOwner: "w", leaseExpiresAt: future })]);
     const r = await stepOrchestration(prisma as any, { runStep: async () => ({ to: "completed" }) }, orch({ state: "verifying", leaseOwner: "w" }) as any);
     expect(r.ok).toBe(true);
+    expect(r.to).toBe("completed");
     expect(prisma._rows[0].state).toBe("completed");
-    expect(prisma._rows[0].leaseOwner).toBeNull();
   });
   it("no avanza una orquestación ya terminal", async () => {
     const prisma = mkPrisma([orch({ state: "completed" })]);
@@ -128,5 +130,42 @@ describe("stepOrchestration — avance de un paso", () => {
     const r = await releaseLease(prisma as any, { id: "o1", workspaceId: "w1", leaseOwner: "worker-A" });
     expect(r.released).toBe(false); // no somos B → no tocamos nada
     expect(prisma._rows[0].leaseOwner).toBe("worker-B");
+  });
+});
+
+describe("runBatch — lote acotado, aislamiento de errores, libera lease", () => {
+  const reload = (prisma: any) => async (o: any) => prisma._rows.find((r: any) => r.id === o.id && r.workspaceId === o.workspaceId) ?? null;
+  it("avanza runs due hasta terminal/park y libera lease; agregado correcto", async () => {
+    const prisma = mkPrisma([
+      { id: "o1", workspaceId: "w1", state: "verifying", nextRunAt: past },
+      { id: "o2", workspaceId: "w2", state: "diagnosing", nextRunAt: past }
+    ]);
+    // runStep: verifying→completed; diagnosing→waiting_backoff (park)
+    const runStep = async (o: any) => (o.state === "verifying" ? { to: "completed" } : { to: "waiting_backoff", patch: { nextRunAt: future } }) as any;
+    const res = await runBatch(prisma as any, { runStep, now: () => NOW, owner: "W", leaseMs: 30000 }, reload(prisma));
+    expect(res.claimed).toBe(2);
+    expect(res.completed).toBe(1);
+    expect(res.parked).toBe(1);
+    expect(res.advanced).toBe(2);
+    // leases liberados
+    expect(prisma._rows.every((r: any) => r.leaseOwner === null)).toBe(true);
+  });
+  it("un run que lanza NO bloquea el resto del lote (error parcial)", async () => {
+    const prisma = mkPrisma([
+      { id: "o1", workspaceId: "w1", state: "verifying", nextRunAt: past },
+      { id: "o2", workspaceId: "w2", state: "verifying", nextRunAt: past }
+    ]);
+    const runStep = async (o: any) => { if (o.id === "o1") throw new Error("boom"); return { to: "completed" } as any; };
+    const res = await runBatch(prisma as any, { runStep, now: () => NOW, owner: "W", leaseMs: 30000 }, reload(prisma));
+    expect(res.errors).toBe(1);
+    expect(res.completed).toBe(1); // o2 igual completó
+    expect(prisma._rows.every((r: any) => r.leaseOwner === null)).toBe(true); // ambos leases liberados
+  });
+  it("acota por maxStepsPerRun (no bucle infinito)", async () => {
+    const prisma = mkPrisma([{ id: "o1", workspaceId: "w1", state: "executing", nextRunAt: past }]);
+    // runStep siempre devuelve executing→verifying→executing... nunca terminal
+    const runStep = async (o: any) => ({ to: o.state === "executing" ? "verifying" : "executing" }) as any;
+    const res = await runBatch(prisma as any, { runStep, now: () => NOW, owner: "W", leaseMs: 30000, maxStepsPerRun: 4 }, reload(prisma));
+    expect(res.steps).toBeLessThanOrEqual(4);
   });
 });
