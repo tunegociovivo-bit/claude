@@ -85,7 +85,9 @@ function fromClass(cls: DiagnosisClass, err: string): Diagnosis {
     case "verification_failed":
       return mk("verification_failed", { needsNewStrategy: true, reason: "Verificación fallida (señalado)" });
     default:
-      return mk("unknown", { needsNewStrategy: true, reason: err ? `Desconocido: ${err.slice(0, 80)}` : "Desconocido" });
+      // NUNCA se refleja el texto crudo del error (podría llevar PII/secretos y
+      // el packet lo sirve el panel a `tasks:read`): solo la clase de diagnóstico.
+      return mk("unknown", { needsNewStrategy: true, reason: "Desconocido" });
   }
 }
 

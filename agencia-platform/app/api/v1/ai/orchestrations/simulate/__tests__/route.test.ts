@@ -34,6 +34,11 @@ const { authenticateMock, prisma } = vi.hoisted(() => {
         create: vi.fn(async ({ data }: any) => {
           steps.push(data);
           return { ...data };
+        }),
+        deleteMany: vi.fn(async ({ where }: any) => {
+          const before = steps.length;
+          for (let i = steps.length - 1; i >= 0; i--) if (steps[i].workspaceId === where.workspaceId && steps[i].orchestrationId === where.orchestrationId) steps.splice(i, 1);
+          return { count: before - steps.length };
         })
       }
     }
@@ -103,6 +108,21 @@ describe("POST /api/v1/ai/orchestrations/simulate", () => {
     expect(prisma.aiOrchestration.create.mock.calls[0][0].data.workspaceId).toBe("w1");
     expect(prisma._steps.every((s) => s.workspaceId === "w1")).toBe(true);
     expect(prisma._orch.state).toBe("completed");
+  });
+
+  it("F2: PII en diagnosis.error NO se persiste verbatim (ni en pasos ni en el decision packet)", async () => {
+    const res = await call({ taskId: "t1", scenario: [{ ok: false, diagnosis: { hint: "unknown", error: "clave sk-abcdefghijklmnopqrstuvwx y correo leak@evil.com" } }] });
+    expect(res.status).toBe(200);
+    const persisted = JSON.stringify(prisma._steps) + JSON.stringify(prisma._orch);
+    expect(persisted).not.toMatch(/sk-abcdefghijklmnopqrstuvwx|leak@evil\.com/);
+  });
+
+  it("F3: config.limits inválido (NaN/negativo) no rompe el presupuesto → 200 acotado", async () => {
+    const res = await call({ taskId: "t1", scenario: [{ ok: false, diagnosis: { hint: "tool" } }], config: { limits: { maxAttempts: NaN, maxCostUsd: -10 }, loopThreshold: 0 } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(typeof body.finalState).toBe("string");
+    expect(body.executed).toBe(false);
   });
 
   it("entrada maliciosa en outcome se trata como dato inerte (no ejecuta nada)", async () => {

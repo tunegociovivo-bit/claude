@@ -34,6 +34,11 @@ function mkPrisma() {
       create: vi.fn(async ({ data }: any) => {
         steps.push(data);
         return { ...data };
+      }),
+      deleteMany: vi.fn(async ({ where }: any) => {
+        const before = steps.length;
+        for (let i = steps.length - 1; i >= 0; i--) if (steps[i].workspaceId === where.workspaceId && steps[i].orchestrationId === where.orchestrationId) steps.splice(i, 1);
+        return { count: before - steps.length };
       })
     }
   };
@@ -78,6 +83,30 @@ describe("runAndPersistSimulation — persiste traza SHADOW tenant-scoped", () =
     expect(result.finalState).toBe("materially_blocked");
     expect(prisma._orch.state).toBe("materially_blocked");
     expect(prisma._orch.decision).toBeTruthy();
+  });
+
+  it("F1: la orquestación de simulación usa un taskId namespaced (no pisa runs reales)", async () => {
+    await runAndPersistSimulation(prisma as any, { workspaceId: "w1", taskId: "task-real-123", scenario: [{ ok: true }], config: cfg });
+    expect(prisma.aiOrchestration.create.mock.calls[0][0].data.taskId).toBe("sim:task-real-123");
+    // idempotente: no re-namespear si ya viene con prefijo
+    expect(`sim:task-real-123`.startsWith("sim:")).toBe(true);
+  });
+
+  it("F1: re-simular la misma tarea da una traza LIMPIA (sin concatenar)", async () => {
+    const a = await runAndPersistSimulation(prisma as any, { workspaceId: "w1", taskId: "t1", scenario: [{ ok: true }], config: cfg });
+    const firstLen = a.persistedSteps;
+    // el mock de ensureOrchestration devuelve la misma fila (idempotente por taskId)
+    const b = await runAndPersistSimulation(prisma as any, { workspaceId: "w1", taskId: "t1", scenario: [{ ok: true }], config: cfg });
+    expect(prisma.aiRunStep.deleteMany).toHaveBeenCalled();
+    // tras el reset, el nº de pasos persistidos es el de UNA corrida, no acumulado
+    expect(prisma._steps.length).toBe(b.persistedSteps);
+    expect(b.persistedSteps).toBe(firstLen);
+  });
+
+  it("N3: si el update final no aplica (fila de otro tenant) → lanza (no falsea éxito)", async () => {
+    // fuerza count:0 en updateMany dejando la fila con otro workspace
+    prisma.aiOrchestration.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(runAndPersistSimulation(prisma as any, { workspaceId: "w1", taskId: "t1", scenario: [{ ok: true }], config: cfg })).rejects.toThrow(/no se pudo actualizar/i);
   });
 
   it("no persiste ningún 'executed:true' — es solo traza de estados (shadow)", async () => {

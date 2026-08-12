@@ -15,12 +15,28 @@ import { withApi } from "@/lib/api/handler";
 import { requireAdmin } from "@/lib/api/admin";
 import { orchestratorEnabled } from "@/lib/ai/orchestrator/flags";
 import { runAndPersistSimulation } from "@/lib/ai/orchestrator/driver";
+import { sanitizeLimits } from "@/lib/ai/orchestrator/budget";
+import { redactPii } from "@/lib/ai/orchestrator/pii-redact";
 import type { AttemptOutcome, SimConfig } from "@/lib/ai/orchestrator/simulate";
 
 export const dynamic = "force-dynamic";
 
 // Límite defensivo: un escenario es una demostración acotada, no una carga real.
-const MAX_SCENARIO = 50;
+// Alineado con el `maxLoops` por defecto del simulador (20) para no truncar en
+// silencio los intentos 21+ del escenario.
+const MAX_SCENARIO = 20;
+
+/** Redacta PII de los campos de texto de un diagnóstico aportado por el cliente
+ *  ANTES de que entre al simulador (minimización PII en la frontera). No rompe la
+ *  clasificación: los patrones de clase (credencial/timeout/…) no son PII. */
+function safeDiagnosis(d: any): Record<string, unknown> | undefined {
+  if (!d || typeof d !== "object") return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(d)) {
+    out[k] = typeof v === "string" ? redactPii(v).text : v;
+  }
+  return out;
+}
 
 export const POST = withApi({ scope: "*", rate: "admin", admin: true }, async (req, { api }) => {
   if (!orchestratorEnabled()) {
@@ -41,16 +57,22 @@ export const POST = withApi({ scope: "*", rate: "admin", admin: true }, async (r
   const safeScenario: AttemptOutcome[] = scenario.map((a: any) => ({
     ok: !!a?.ok,
     verifyOk: typeof a?.verifyOk === "boolean" ? a.verifyOk : undefined,
-    diagnosis: a?.diagnosis && typeof a.diagnosis === "object" ? a.diagnosis : undefined,
+    diagnosis: safeDiagnosis(a?.diagnosis) as AttemptOutcome["diagnosis"],
     provider: typeof a?.provider === "string" ? a.provider : undefined,
     tokens: Number.isFinite(a?.tokens) ? Number(a.tokens) : undefined,
     costUsd: Number.isFinite(a?.costUsd) ? Number(a.costUsd) : undefined,
     elapsedMs: Number.isFinite(a?.elapsedMs) ? Number(a.elapsedMs) : undefined
   }));
 
-  const config: SimConfig = body?.config && typeof body.config === "object" ? { limits: body.config.limits, loopThreshold: body.config.loopThreshold } : {};
+  // Config saneada: límites acotados por `sanitizeLimits` (evita NaN/negativos que
+  // romperían el presupuesto) y loopThreshold a entero positivo.
+  const rawLoop = Number(body?.config?.loopThreshold);
+  const config: SimConfig = {
+    limits: sanitizeLimits(body?.config?.limits),
+    loopThreshold: Number.isFinite(rawLoop) && rawLoop >= 1 ? Math.floor(rawLoop) : undefined
+  };
 
-  const { orchestrationId, result } = await runAndPersistSimulation(prisma, {
+  const { orchestrationId, result, persistedSteps } = await runAndPersistSimulation(prisma, {
     workspaceId: api.workspaceId,
     taskId,
     createdById: api.userId ?? null,
@@ -65,6 +87,6 @@ export const POST = withApi({ scope: "*", rate: "admin", admin: true }, async (r
     finalState: result.finalState,
     usage: result.usage,
     decision: result.decision ?? null,
-    steps: result.steps.length
+    steps: persistedSteps // filas realmente persistidas (no el conteo simulado)
   });
 });

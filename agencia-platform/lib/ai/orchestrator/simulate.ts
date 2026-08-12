@@ -64,7 +64,6 @@ export function simulateRun(scenario: AttemptOutcome[], config: SimConfig = {}):
   let strategy: Strategy = { kind: "retry_same", provider: null, model: null, label: "intento inicial" };
 
   push("planning");
-  push("executing");
 
   const bound = Math.min(scenario.length, maxLoops);
   for (let i = 0; i < bound; i++) {
@@ -114,9 +113,10 @@ export function simulateRun(scenario: AttemptOutcome[], config: SimConfig = {}):
       strategy = decision.strategy;
       tried.push(strategy);
     }
+    // La fase `executing` de la siguiente iteración la registra el propio bucle
+    // (arriba) con el resultado real; no duplicamos aquí un `executing` vacío.
     if (decision.to === "decomposing") push("decomposing", { strategy: strategy.label });
     else push("waiting_backoff", { backoffMs: decision.backoffMs ?? null });
-    push("executing", { strategy: strategy.label });
   }
 
   // Escenario agotado sin estado terminal → bloqueo material (no hay más info).
