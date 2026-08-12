@@ -18,6 +18,7 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   created: number;
   skipped: number;
   configured: boolean;
+  createdInvoiceIds: string[];
 }> {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -25,7 +26,7 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   });
   const holded = (workspace?.settings as any)?.integrations?.holded;
   if (!holded?.apiKey) {
-    return { fetched: 0, eligible: 0, created: 0, skipped: 0, configured: false };
+    return { fetched: 0, eligible: 0, created: 0, skipped: 0, configured: false, createdInvoiceIds: [] };
   }
 
   const issuer = await prisma.invoiceIssuer.findFirst({
@@ -37,16 +38,38 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   // Ventana solapada: tolera caídas temporales del cron y los duplicados quedan
   // absorbidos por el importador. Evita descargar todo el histórico cada 5 min.
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const inputs = await holdedInvoicesAsInputs(workspaceId, {
-    startTimestamp: nowSeconds - 7 * 24 * 60 * 60,
-    endTimestamp: nowSeconds + 24 * 60 * 60
-  });
+  const [datedInputs, latestInputs] = await Promise.all([
+    holdedInvoicesAsInputs(workspaceId, {
+      startTimestamp: nowSeconds - 7 * 24 * 60 * 60,
+      endTimestamp: nowSeconds + 24 * 60 * 60
+    }),
+    // La fecha fiscal puede ser distinta del día en que Holded crea el
+    // documento. La lista ordenada por creación evita perder esas facturas.
+    holdedInvoicesAsInputs(workspaceId, { limit: 100 })
+  ]);
+  const byNumber = new Map<string, InvoiceInput>();
+  for (const input of [...datedInputs, ...latestInputs]) {
+    const key = input.number?.trim().toLowerCase();
+    if (!key) continue;
+    const previous = byNumber.get(key);
+    if (!previous || (!previous.clientName && input.clientName)) byNumber.set(key, input);
+  }
+  const inputs = [...byNumber.values()];
   const eligible = inputs.filter(isApprovedNormalHoldedInvoice);
+  const startedAt = new Date();
   const result = await applyInvoiceImport(workspaceId, eligible, issuer.id);
+  const numbers = eligible.map((item) => item.number!).filter(Boolean);
+  const createdRows = numbers.length
+    ? await prisma.invoice.findMany({
+        where: { workspaceId, issuerId: issuer.id, number: { in: numbers }, createdAt: { gte: startedAt } },
+        select: { id: true }
+      })
+    : [];
   return {
     fetched: inputs.length,
     eligible: eligible.length,
     ...result,
-    configured: true
+    configured: true,
+    createdInvoiceIds: createdRows.map((row) => row.id)
   };
 }

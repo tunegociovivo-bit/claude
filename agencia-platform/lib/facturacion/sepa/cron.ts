@@ -6,16 +6,17 @@
  *     candidatas" para controlar el envío de emails.
  */
 import { prisma } from "@/lib/db/prisma";
-import { expireStaleRequests, createRequestsForCandidates } from "./remittance";
+import { approveRequestAutomatically, expireStaleRequests, createRequestsForCandidates } from "./remittance";
 import { reclaimExpiredLeases } from "./agent";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 import { madridBusinessDayWindow } from "./recency";
 
 export async function runSepaCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
-  // Opt-in de producción: evita activar emails para otros workspaces o para
-  // candidatas históricas durante un despliegue.
-  const autoScan = process.env.SEPA_AUTO_SCAN === "true";
+  // Piloto automático por defecto. Las variables a `false` quedan como
+  // interruptores de emergencia; la firma bancaria sigue siendo humana.
+  const autoScan = process.env.SEPA_AUTO_SCAN !== "false";
+  const autoApprove = process.env.SEPA_AUTO_APPROVE !== "false";
   const report: any[] = [];
   for (const ws of workspaces) {
     const r: any = { workspaceId: ws.id };
@@ -41,12 +42,22 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
         // aunque una sincronización haya importado documentos históricos.
         // Incluye ayer como recuperación ante una caída o una factura emitida
         // cerca de medianoche; el límite superior excluye fechas futuras.
+        const importedIds = r.holded?.createdInvoiceIds ?? [];
         const window = madridBusinessDayWindow(new Date(), 1);
         r.scan = await createRequestsForCandidates(ws.id, null, {
           max: 50,
           issuedAfter: window.start,
-          issuedBefore: window.end
+          issuedBefore: window.end,
+          // Si este tick importó facturas, procesa exactamente esas y no un
+          // histórico basado en la fecha fiscal.
+          ...(importedIds.length ? { invoiceIds: importedIds } : {})
         });
+        if (autoApprove && importedIds.length) {
+          r.autoApproved = 0;
+          for (const requestId of r.scan.requestIds) {
+            if (await approveRequestAutomatically(ws.id, requestId)) r.autoApproved++;
+          }
+        }
       } catch (e: any) {
         r.scanError = String(e?.message ?? e);
       }
