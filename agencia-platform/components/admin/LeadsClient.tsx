@@ -10,7 +10,12 @@ import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
 import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
 import { usePollingChannel } from "@/lib/client/usePollingChannel";
-import { splitEnqueueBatches } from "@/lib/leads/enqueue-bulk";
+import {
+  ENQUEUE_BATCH_DELAY_MS,
+  ENQUEUE_MAX_RATE_LIMIT_RETRIES,
+  enqueueRetryDelayMs,
+  splitEnqueueBatches
+} from "@/lib/leads/enqueue-bulk";
 
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
@@ -2095,11 +2100,21 @@ function EnqueueModal({
       const skipped: { leadId: string; reason: string }[] = [];
 
       for (let index = 0; index < batches.length; index++) {
-        const r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, leadIds: batches[index] })
-        });
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, ENQUEUE_BATCH_DELAY_MS));
+
+        let r: Response;
+        let rateLimitAttempt = 0;
+        while (true) {
+          r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...payload, leadIds: batches[index] })
+          });
+          if (r.status !== 429 || rateLimitAttempt >= ENQUEUE_MAX_RATE_LIMIT_RETRIES) break;
+          const delayMs = enqueueRetryDelayMs(r.headers.get("Retry-After"), rateLimitAttempt);
+          rateLimitAttempt++;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
         const j = await r.json().catch(() => ({}));
         if (!r.ok) {
           setError(
