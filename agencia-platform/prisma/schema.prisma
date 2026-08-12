@@ -243,6 +243,7 @@ model Workspace {
   aiOrchestrations          AiOrchestration[]
   aiRunSteps                AiRunStep[]
   aiApprovals               AiApproval[]
+  aiApprovalEvents          AiApprovalEvent[]
   aiClientMemories          AiClientMemory[]
   aiAgentLessons            AiAgentLesson[]
   taskTemplates             TaskTemplate[]
@@ -2262,20 +2263,41 @@ model AiRunStep {
 model AiApproval {
   id             String    @id @default(cuid())
   workspaceId    String
-  action         String // acción o patrón ("a.*", "*")
-  scope          String? // clientId u otro; null/"*" = amplio
+  action         String // acción o patrón ("a.*"); nunca "*" para sensibles
+  scope          String? // clientId u otro; específico obligatorio para sensibles
+  sensitive      Boolean   @default(false) // A4: política estricta de cobertura
   maxAmountCents Int?
   maxVolume      Int?
   remaining      Int? // usos restantes (null = ilimitado dentro de límites)
-  grantedById    String?
-  expiresAt      DateTime?
+  grantedById    String? // quién concedió (auditoría)
+  reason         String? // motivo (auditoría)
+  expiresAt      DateTime? // TTL obligatorio (sin aprobaciones eternas)
   revokedAt      DateTime?
+  revokedById    String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    AiApprovalEvent[]
 
   @@index([workspaceId, action, expiresAt])
+}
+
+// Auditoría INMUTABLE (append-only) de concesiones/revocaciones de aprobaciones.
+model AiApprovalEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  approvalId  String
+  event       String // "granted" | "revoked"
+  actorId     String? // quién ejecutó la acción
+  reason      String?
+  snapshot    Json? // estado de la aprobación en el momento (sin secretos)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  approval  AiApproval  @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, approvalId, createdAt])
 }
 
 // ====================================================================

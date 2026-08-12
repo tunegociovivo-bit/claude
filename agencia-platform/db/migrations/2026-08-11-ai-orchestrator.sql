@@ -66,12 +66,15 @@ CREATE TABLE IF NOT EXISTS "AiApproval" (
   "workspaceId"    TEXT NOT NULL,
   "action"         TEXT NOT NULL,
   "scope"          TEXT,
+  "sensitive"      BOOLEAN NOT NULL DEFAULT false,
   "maxAmountCents" INTEGER,
   "maxVolume"      INTEGER,
   "remaining"      INTEGER,
   "grantedById"    TEXT,
+  "reason"         TEXT,
   "expiresAt"      TIMESTAMP(3),
   "revokedAt"      TIMESTAMP(3),
+  "revokedById"    TEXT,
   "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"      TIMESTAMP(3) NOT NULL,
   CONSTRAINT "AiApproval_pkey" PRIMARY KEY ("id")
@@ -80,7 +83,26 @@ CREATE INDEX IF NOT EXISTS "AiApproval_workspaceId_action_expiresAt_idx" ON "AiA
 ALTER TABLE "AiApproval" ADD CONSTRAINT "AiApproval_workspaceId_fkey"
   FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- === Revertir ===
+-- Auditoría INMUTABLE (append-only) de concesión/revocación de aprobaciones.
+CREATE TABLE IF NOT EXISTS "AiApprovalEvent" (
+  "id"          TEXT NOT NULL,
+  "workspaceId" TEXT NOT NULL,
+  "approvalId"  TEXT NOT NULL,
+  "event"       TEXT NOT NULL,
+  "actorId"     TEXT,
+  "reason"      TEXT,
+  "snapshot"    JSONB,
+  "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "AiApprovalEvent_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "AiApprovalEvent_workspaceId_approvalId_createdAt_idx" ON "AiApprovalEvent" ("workspaceId", "approvalId", "createdAt");
+ALTER TABLE "AiApprovalEvent" ADD CONSTRAINT "AiApprovalEvent_workspaceId_fkey"
+  FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "AiApprovalEvent" ADD CONSTRAINT "AiApprovalEvent_approvalId_fkey"
+  FOREIGN KEY ("approvalId") REFERENCES "AiApproval"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- === Revertir === (aditivo: seguro de revertir; las tablas nuevas están vacías)
+-- DROP TABLE IF EXISTS "AiApprovalEvent";
 -- DROP TABLE IF EXISTS "AiRunStep";
 -- DROP TABLE IF EXISTS "AiApproval";
 -- DROP TABLE IF EXISTS "AiOrchestration";

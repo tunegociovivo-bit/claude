@@ -189,7 +189,60 @@ export async function appendStep(
 export async function liveApprovals(prisma: PrismaLike, workspaceId: string, now: Date): Promise<ApprovalRecord[]> {
   const rows = await prisma.aiApproval.findMany({
     where: { workspaceId, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-    select: { id: true, action: true, scope: true, maxAmountCents: true, maxVolume: true, remaining: true, expiresAt: true, revokedAt: true }
+    select: { id: true, action: true, scope: true, sensitive: true, maxAmountCents: true, maxVolume: true, remaining: true, expiresAt: true, revokedAt: true }
   });
   return rows as ApprovalRecord[];
+}
+
+/** Concede una aprobación + registra el evento de auditoría INMUTABLE, atómicamente.
+ *  Tenant-scoped. El validador (validateApprovalGrant) se aplica ANTES en el endpoint. */
+export async function grantApproval(
+  prisma: PrismaLike,
+  args: { workspaceId: string; action: string; scope?: string | null; sensitive?: boolean; maxAmountCents?: number | null; maxVolume?: number | null; remaining?: number | null; expiresAt: Date; grantedById?: string | null; reason: string }
+): Promise<{ id: string }> {
+  return await prisma.$transaction(async (tx: PrismaLike) => {
+    const appr = await tx.aiApproval.create({
+      data: {
+        workspaceId: args.workspaceId,
+        action: args.action,
+        scope: args.scope ?? null,
+        sensitive: !!args.sensitive,
+        maxAmountCents: args.maxAmountCents ?? null,
+        maxVolume: args.maxVolume ?? null,
+        remaining: args.remaining ?? null,
+        expiresAt: args.expiresAt,
+        grantedById: args.grantedById ?? null,
+        reason: args.reason
+      }
+    });
+    await tx.aiApprovalEvent.create({
+      data: {
+        workspaceId: args.workspaceId,
+        approvalId: appr.id,
+        event: "granted",
+        actorId: args.grantedById ?? null,
+        reason: args.reason,
+        snapshot: { action: args.action, scope: args.scope ?? null, sensitive: !!args.sensitive, maxAmountCents: args.maxAmountCents ?? null, maxVolume: args.maxVolume ?? null, expiresAt: args.expiresAt.toISOString() }
+      }
+    });
+    return { id: appr.id };
+  });
+}
+
+/** Revoca una aprobación (idempotente) + evento de auditoría. Tenant-scoped. */
+export async function revokeApproval(
+  prisma: PrismaLike,
+  args: { workspaceId: string; approvalId: string; revokedById?: string | null; reason?: string | null; now: Date }
+): Promise<{ ok: boolean }> {
+  return await prisma.$transaction(async (tx: PrismaLike) => {
+    const upd = await tx.aiApproval.updateMany({
+      where: { id: args.approvalId, workspaceId: args.workspaceId, revokedAt: null },
+      data: { revokedAt: args.now, revokedById: args.revokedById ?? null }
+    });
+    if (upd.count !== 1) return { ok: false }; // no existe / ya revocada / otro tenant
+    await tx.aiApprovalEvent.create({
+      data: { workspaceId: args.workspaceId, approvalId: args.approvalId, event: "revoked", actorId: args.revokedById ?? null, reason: args.reason ?? null }
+    });
+    return { ok: true };
+  });
 }

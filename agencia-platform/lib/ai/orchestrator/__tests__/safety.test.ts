@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { validateDag, type SubtaskNode } from "../dag";
-import { evaluateApproval, isApprovalLive, actionMatches, type ApprovalRecord } from "../approvals";
+import { evaluateApproval, isApprovalLive, actionMatches, validateApprovalGrant, type ApprovalRecord } from "../approvals";
 import { shadowEvaluate } from "../autonomy-shadow";
 import { slotHealth, routeSlots, availableProviders, MODEL_SLOTS } from "../providers";
 
@@ -69,6 +69,38 @@ describe("approvals — nunca implícita", () => {
     expect(actionMatches("*", "x")).toBe(true);
     expect(actionMatches("stripe.*", "stripe.refund")).toBe(true);
     expect(actionMatches("stripe.refund", "stripe.charge")).toBe(false);
+  });
+  it("G6: acción SENSIBLE no la cubre una aprobación amplia (comodín/scope*/tope nulo)", () => {
+    const now = NOW;
+    // action "*" no cubre sensible
+    expect(evaluateApproval([a({ action: "*", scope: "c1", maxAmountCents: 1000 })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(false);
+    // scope "*" no cubre sensible
+    expect(evaluateApproval([a({ scope: "*", maxAmountCents: 1000 })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(false);
+    // importe presente pero tope nulo → no cubre sensible
+    expect(evaluateApproval([a({ scope: "c1", maxAmountCents: null })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(false);
+    // aprobación específica y acotada SÍ cubre
+    expect(evaluateApproval([a({ scope: "c1", maxAmountCents: 1000 })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(true);
+  });
+});
+
+describe("validateApprovalGrant — rechaza concesiones peligrosas", () => {
+  const base = { action: "send_whatsapp_message", scope: "c1", reason: "campaña Q3", expiresAt: new Date(Date.now() + 86400000) };
+  it("exige action, reason y TTL", () => {
+    expect(validateApprovalGrant({ ...base, action: "" }).ok).toBe(false);
+    expect(validateApprovalGrant({ ...base, reason: "" }).ok).toBe(false);
+    expect(validateApprovalGrant({ ...base, expiresAt: null }).ok).toBe(false);
+  });
+  it("prohíbe el comodín total de acción", () => {
+    expect(validateApprovalGrant({ ...base, action: "*" }).ok).toBe(false);
+  });
+  it("sensible: exige scope específico y prohíbe prefijo comodín", () => {
+    expect(validateApprovalGrant({ ...base, sensitive: true, scope: "*" }).ok).toBe(false);
+    expect(validateApprovalGrant({ ...base, sensitive: true, scope: null }).ok).toBe(false);
+    expect(validateApprovalGrant({ ...base, sensitive: true, action: "stripe.*" }).ok).toBe(false);
+    expect(validateApprovalGrant({ ...base, sensitive: true }).ok).toBe(true);
+  });
+  it("rechaza caps negativos", () => {
+    expect(validateApprovalGrant({ ...base, maxAmountCents: -5 }).ok).toBe(false);
   });
 });
 
