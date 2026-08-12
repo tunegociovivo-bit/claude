@@ -53,6 +53,7 @@ describe("parseo (flujo WhatsApp→Play y variantes web)", () => {
     expect(m.parseRefFromString("https://bubui.app/bubui/app?ref=Q2W3E4")).toBe("Q2W3E4");
     expect(m.parseRefFromString("challenge_ABC123_clxyz987654321")).toBe("ABC123|clxyz987654321");
     expect(m.parseRefFromString("https://bubui.app/bubui/r/abc123?offer=clxyz987654321")).toBe("ABC123|clxyz987654321");
+    expect(m.parseRefFromString("bubui://r/abc123?offer=clxyz987654321")).toBe("ABC123|clxyz987654321");
     expect(m.parseRefFromString("sin nada")).toBeNull();
   });
 });
