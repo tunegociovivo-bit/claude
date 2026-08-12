@@ -19,11 +19,12 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { enqueueMessage } from "@/lib/leads/send-queue";
 import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "@/lib/leads/email-only";
+import { ENQUEUE_BATCH_SIZE } from "@/lib/leads/enqueue-bulk";
 
 const FORMAT = z.enum(["text", "ranking", "text_then_image", "voice", "voice_image"]);
 
 const schema = z.object({
-  leadIds: z.array(z.string().min(1)).min(1).max(2000),
+  leadIds: z.array(z.string().min(1)).min(1).max(ENQUEUE_BATCH_SIZE),
   templateId: z.string().min(1).nullable().optional(),
   kind: z.enum(["text", "ranking", "text_then_image", "voice", "voice_image", "alternate"]).optional(),
   // Reparto por porcentajes (si viene, manda sobre `kind`).
@@ -148,10 +149,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     }
   }
 
-  // Encolar. El render por lead (consulta a Places + plantilla + variación IA)
-  // es costoso; con muchos leads, hacerlo dentro de la request agota el timeout
-  // del gateway (502). Por eso, a partir de cierto volumen, lo procesamos EN
-  // SEGUNDO PLANO (el servidor de Node es persistente) y respondemos al instante.
+  // El cliente divide las campañas grandes en lotes. Esta request no responde
+  // hasta haber persistido el lote completo: el trabajo en segundo plano sin
+  // una cola durable puede morir al terminar la request y perder mensajes.
   async function runEnqueue(): Promise<{ ok: number; skipped: { leadId: string; reason: string }[] }> {
     let ok = 0;
     const skipped: { leadId: string; reason: string }[] = [];
@@ -164,23 +164,6 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       }
     }
     return { ok, skipped };
-  }
-
-  const BACKGROUND_THRESHOLD = 20;
-  if (orderedIds.length > BACKGROUND_THRESHOLD) {
-    // Sin await: sigue ejecutándose tras responder. Los mensajes van
-    // apareciendo en la cola conforme se procesan (se ven al refrescar).
-    runEnqueue()
-      .then((r) => console.log(`[enqueue-bulk] async OK=${r.ok} skipped=${r.skipped.length} de ${orderedIds.length}`))
-      .catch((e) => console.warn("[enqueue-bulk] async error:", (e as Error)?.message ?? e));
-    return NextResponse.json({
-      async: true,
-      total: parsed.data.leadIds.length,
-      queued: orderedIds.length,
-      templateName: tpl?.name ?? null,
-      replacedQueued,
-      emailOnlySkipped: emailOnlySkipped.length
-    });
   }
 
   const { ok, skipped } = await runEnqueue();

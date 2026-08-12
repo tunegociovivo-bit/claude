@@ -10,6 +10,7 @@ import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
 import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
 import { usePollingChannel } from "@/lib/client/usePollingChannel";
+import { splitEnqueueBatches } from "@/lib/leads/enqueue-bulk";
 
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
@@ -2048,7 +2049,7 @@ function EnqueueModal({
   const usesImage = kind !== "text" && kind !== "voice";
   const [busy, setBusy] = useState(false);
   const [replaceQueued, setReplaceQueued] = useState(false);
-  const [result, setResult] = useState<{ ok?: number; skipped?: { leadId: string; reason: string }[]; total: number; async?: boolean; queued?: number; replacedQueued?: number } | null>(null);
+  const [result, setResult] = useState<{ ok?: number; skipped?: { leadId: string; reason: string }[]; total: number; replacedQueued?: number; emailOnlySkipped?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Coste estimado de la imagen de posicionamiento: 1 consulta a Google Places
   // por lead (para calcular el ranking) ≈ €0.03 c/u.
@@ -2087,17 +2088,32 @@ function EnqueueModal({
       } else {
         payload.kind = kind;
       }
-      const r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        setError(j?.error?.message ?? `Error ${r.status}`);
-        return;
+      const batches = splitEnqueueBatches(leadIds);
+      let enqueued = 0;
+      let replaced = 0;
+      let emailOnlySkipped = 0;
+      const skipped: { leadId: string; reason: string }[] = [];
+
+      for (let index = 0; index < batches.length; index++) {
+        const r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, leadIds: batches[index] })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setError(
+            `${j?.error?.message ?? `Error ${r.status}`} ` +
+            `(lote ${index + 1}/${batches.length}; ${enqueued} ya encolados).`
+          );
+          return;
+        }
+        enqueued += j.ok ?? 0;
+        replaced += j.replacedQueued ?? 0;
+        emailOnlySkipped += j.emailOnlySkipped ?? 0;
+        skipped.push(...(j.skipped ?? []));
       }
-      setResult(j);
+      setResult({ ok: enqueued, skipped, total: leadIds.length, replacedQueued: replaced, emailOnlySkipped });
     } finally {
       setBusy(false);
     }
@@ -2221,25 +2237,14 @@ function EnqueueModal({
         </div>
       ) : (
         <div className="space-y-3">
-          {(result as any).async ? (
-            <p className="text-sm">
-              ⏳ Encolando <strong className="text-brand-700">{(result as any).queued ?? result.total}</strong> lead(s) en segundo plano.
-              Irán apareciendo en la cola en uno o dos minutos (refresca la pestaña Cola). Se respeta el espaciado anti-baneo.
-              {(result as any).replacedQueued > 0 && <span className="text-slate-500"> Se reemplazaron {(result as any).replacedQueued} mensaje(s) pendientes.</span>}
-              {((result as any).emailOnlySkipped ?? 0) > 0 && (
-                <span className="text-amber-700"> ✉️ {(result as any).emailOnlySkipped} de Franquicias omitidos: ese origen se contacta por email.</span>
-              )}
-            </p>
-          ) : (
-            <p className="text-sm">
-              <strong className="text-emerald-700">{result.ok ?? 0}</strong> encolados de {result.total}.
-              {(result.skipped?.length ?? 0) > 0 && <span className="text-amber-700"> {result.skipped!.length} omitidos.</span>}
-              {((result as any).emailOnlySkipped ?? 0) > 0 && (
-                <span className="text-amber-700"> (✉️ {(result as any).emailOnlySkipped} de Franquicias: se contactan por email)</span>
-              )}
-            </p>
-          )}
-          {!(result as any).async && (result.skipped?.length ?? 0) > 0 && (
+          <p className="text-sm">
+            <strong className="text-emerald-700">{result.ok ?? 0}</strong> encolados de {result.total}.
+            {(result.skipped?.length ?? 0) > 0 && <span className="text-amber-700"> {result.skipped!.length} omitidos.</span>}
+            {(result.emailOnlySkipped ?? 0) > 0 && (
+              <span className="text-amber-700"> (✉️ {result.emailOnlySkipped} de Franquicias: se contactan por email)</span>
+            )}
+          </p>
+          {(result.skipped?.length ?? 0) > 0 && (
             <div className="max-h-40 overflow-y-auto text-xs bg-slate-50 border rounded p-2 space-y-0.5">
               {result.skipped!.slice(0, 50).map((s) => (
                 <div key={s.leadId}>
