@@ -16,8 +16,10 @@ import { Negocio, type NegocioParam } from "./src/screens/Negocio"
 import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
-import { initReferralCapture } from "./src/lib/referral-pending";
-import { initDealCapture, claimPendingDeal } from "./src/lib/deal-pending";
+import { initReferralCapture, waitForReferrerCapture } from "./src/lib/referral-pending";
+import { initDealCapture, claimPendingDeal, traceLifecycle, waitForDealCapture, getPendingDeal } from "./src/lib/deal-pending";
+import { retoTokenFromPath } from "./src/lib/links";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
@@ -87,11 +89,20 @@ function AppInner() {
 
   useEffect(() => {
         (async () => {
+                initDealCapture(); // asegura que la captura del referrer ha arrancado
+                initReferralCapture();
                 const session = await CheckSession();
-                setInitial(session ? "Feed" : "Onboarding");
-                // Si ya hay sesión y el cliente venía de un enlace de reto (deep
-                // link o Install Referrer), lo reclamamos al arrancar.
-                if (session) void claimPendingDeal(session.customerId);
+                await waitForDealCapture(); // espera (acotada) al resultado del referrer
+                await waitForReferrerCapture();
+                const pending = await getPendingDeal();
+                if (session) {
+                        setInitial("Feed");
+                        if (pending) void claimPendingDeal(session.customerId); // el reto aparece en Feed
+                } else {
+                        // Sin sesión: Onboarding. Con reto pendiente, el onboarding
+                        // fuerza el registro y muestra el reto (nunca invitado).
+                        setInitial("Onboarding");
+                }
         })();
   }, []);
 

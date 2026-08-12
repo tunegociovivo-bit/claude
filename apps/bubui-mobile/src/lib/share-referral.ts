@@ -8,7 +8,7 @@ import { api, API_BASE } from "./api";
  */
 export async function shareReferralForOffer(
   customerId: string,
-  offer?: { businessName?: string | null; prize?: string | null; friendsLeft?: number | null }
+  offer?: { offerId?: string | null; businessName?: string | null; prize?: string | null; friendsLeft?: number | null }
 ): Promise<void> {
   let code: string | null = null;
   try {
@@ -17,7 +17,9 @@ export async function shareReferralForOffer(
   } catch {
     // sin código seguimos con el enlace genérico
   }
-  const link = code ? `${API_BASE}/bubui/r/${code}` : "https://bubui.app";
+  const link = code
+    ? `${API_BASE}/bubui/r/${code}${offer?.offerId ? `?offer=${encodeURIComponent(offer.offerId)}` : ""}`
+    : "https://bubui.app";
 
   let message: string;
   if (offer?.prize) {

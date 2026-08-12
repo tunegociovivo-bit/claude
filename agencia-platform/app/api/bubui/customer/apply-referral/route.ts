@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   customerId: z.string().min(1),
-  code: z.string().trim().min(4).max(12)
+  code: z.string().trim().min(4).max(12),
+  offerId: z.string().trim().min(1).max(64).optional()
 });
 
 export async function POST(req: Request) {
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
   if (!(await customerAuthOk(req, d.customerId))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
-  const result = await applyReferral(d.customerId, d.code);
+  const result = await applyReferral(d.customerId, d.code, d.offerId);
   console.log(`[apply-referral] customer=${d.customerId} code=${d.code} →`, JSON.stringify(result));
   return NextResponse.json({ ok: true, ...result });
 }

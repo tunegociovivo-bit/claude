@@ -418,6 +418,7 @@ export function Feed() {
                     sfx.tap();
                     if (customer?.customerId) {
                       void shareReferralForOffer(customer.customerId, {
+                        offerId: item.offerId,
                         businessName: item.business.name,
                         prize: item.rewardLabel ?? `${item.discountPct}%`,
                         friendsLeft: item.sharesLeft ?? null

@@ -39,6 +39,14 @@ export function _setPirLoaderForTests(fn: () => any): void { pirLoader = fn; }
 /** Extrae un código de referido (4-10 alfanum.) de una URL o cadena referrer. */
 export function parseRefFromString(s: string | null | undefined): string | null {
   if (!s) return null;
+  const challenge = /challenge_([A-Za-z0-9]{4,10})_([A-Za-z0-9_-]{8,64})/.exec(s);
+  if (challenge) return `${challenge[1].toUpperCase()}|${challenge[2]}`;
+  try {
+    const url = new URL(s);
+    const code = /\/r\/([A-Za-z0-9]{4,10})/.exec(url.pathname)?.[1];
+    const offerId = url.searchParams.get("offer");
+    if (code && offerId && /^[A-Za-z0-9_-]{8,64}$/.test(offerId)) return `${code.toUpperCase()}|${offerId}`;
+  } catch {}
   const patterns = [/[?&]ref=([A-Za-z0-9]{4,10})/, /\/r\/([A-Za-z0-9]{4,10})/, /ref_([A-Za-z0-9]{4,10})/];
   for (const re of patterns) {
     const m = re.exec(s);
@@ -81,10 +89,13 @@ async function captureFromUrl(url: string | null): Promise<void> {
  * Solo se limpia el pendiente cuando el servidor confirma.
  */
 export async function applyPendingRef(customerId: string): Promise<void> {
-  const code = await getPendingRef();
-  if (!code) return;
+  const pending = await getPendingRef();
+  if (!pending) return;
+  const [code, offerId] = pending.split("|", 2);
   try {
-    const r = await api.applyReferral(customerId, code);
+    const r = offerId
+      ? await api.applyReferral(customerId, code, offerId)
+      : await api.applyReferral(customerId, code);
     // Solo limpiamos con un resultado TERMINAL (vinculado y completo, o
     // no-op definitivo: código inválido, autorreferencia, ya referido a
     // otro). Un 2xx transitorio (linked sin cupón aún — no_origin_yet,
