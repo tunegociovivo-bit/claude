@@ -257,6 +257,7 @@ model Workspace {
   invoiceCounters           InvoiceCounter[]
   recurringTemplates        RecurringInvoiceTemplate[]
   recurringPreviews         RecurringInvoicePreview[]
+  recurringPauseOps         RecurringPauseOperation[]
   expenses                  Expense[]
   panelNotes                PanelNote[]
 }
@@ -378,43 +379,46 @@ model InvoiceCounter {
 // Aditiva → `prisma db push` la crea sin lock. String status (patrón del repo).
 // Importes en céntimos enteros. No emite nada por sí sola (motor en shadow, slice C).
 model RecurringInvoiceTemplate {
-  id               String    @id @default(cuid())
-  workspaceId      String
-  issuerId         String?
-  clientId         String?
-  issuerSnapshot   Json? // fiscal congelado del emisor
-  clientSnapshot   Json? // fiscal congelado del cliente
-  lines            Json // [{description, quantity, unitPriceCents, taxRate, discountPct}]
-  currency         String    @default("EUR")
-  subtotalCents    Int       @default(0)
-  taxCents         Int       @default(0)
-  totalCents       Int       @default(0)
+  id                String    @id @default(cuid())
+  workspaceId       String
+  issuerId          String?
+  clientId          String?
+  issuerSnapshot    Json? // fiscal congelado del emisor
+  clientSnapshot    Json? // fiscal congelado del cliente
+  lines             Json // [{description, quantity, unitPriceCents, taxRate, discountPct}]
+  currency          String    @default("EUR")
+  subtotalCents     Int       @default(0)
+  taxCents          Int       @default(0)
+  totalCents        Int       @default(0)
   // Periodicidad / calendario.
-  intervalMonths   Int       @default(1)
-  dayOfMonth       Int? // 1-28 (fin de mes seguro)
-  anchorDate       DateTime?
-  startDate        DateTime?
-  endDate          DateTime?
-  nextIssueAt      DateTime?
-  timezone         String    @default("Europe/Madrid")
+  intervalMonths    Int       @default(1)
+  dayOfMonth        Int? // 1-28 (fin de mes seguro)
+  anchorDate        DateTime?
+  startDate         DateTime?
+  endDate           DateTime?
+  nextIssueAt       DateTime?
+  timezone          String    @default("Europe/Madrid")
   // Ciclo de vida.
-  status           String    @default("draft") // active | paused | draft | archived
-  series           String?
-  paymentMethod    String    @default("TRANSFER")
-  sepa             Boolean   @default(false)
+  status            String    @default("draft") // active | paused | draft | archived
+  // Estado previo a una pausa (Slice D): al reanudar se RESTAURA este estado, para
+  // que reanudar una plantilla `draft` NO la active por error (activación = slice E).
+  statusBeforePause String?
+  series            String?
+  paymentMethod     String    @default("TRANSFER")
+  sepa              Boolean   @default(false)
   // Procedencia + trazabilidad de importación (idempotencia).
-  source           String    @default("HUB") // HUB | HOLDED_IMPORT | CSV_IMPORT
-  externalId       String?
-  originalSnapshot Json? // fila cruda de origen (auditoría)
-  checksum         String? // hash normalizado (dedupe/idempotencia)
-  syncStatus       String    @default("ok") // ok | error | pending
-  syncError        String?
+  source            String    @default("HUB") // HUB | HOLDED_IMPORT | CSV_IMPORT
+  externalId        String?
+  originalSnapshot  Json? // fila cruda de origen (auditoría)
+  checksum          String? // hash normalizado (dedupe/idempotencia)
+  syncStatus        String    @default("ok") // ok | error | pending
+  syncError         String?
   // Pausa remota (Holded) — informativo, verificado a mano (no hay API de pausa).
-  pausedInHolded   Boolean   @default(false)
-  pausedInHoldedAt DateTime?
-  createdById      String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  pausedInHolded    Boolean   @default(false)
+  pausedInHoldedAt  DateTime?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   previews  RecurringInvoicePreview[]
@@ -448,6 +452,30 @@ model RecurringInvoicePreview {
   @@unique([workspaceId, templateId, occurrenceDate])
   @@index([workspaceId, templateId])
   @@index([workspaceId, occurrenceDate])
+}
+
+// Operación de PAUSA/REANUDACIÓN masiva de plantillas Hub (Slice D). Registro de
+// job con CHECKPOINT (processed) para reanudar tras interrupción, y resultado por
+// plantilla para auditoría/resultado parcial. Aditiva. Solo afecta plantillas del
+// HUB (flag `status`); NUNCA toca Holded (pausa remota = checklist asistido).
+model RecurringPauseOperation {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  action       String // pause | resume
+  status       String   @default("running") // running | completed | partial | failed
+  requestedIds Json // ids seleccionados explícitamente
+  eligibleIds  Json // ids elegibles según estado (los que se procesan)
+  processedIds Json     @default("[]") // checkpoint: ya procesados (reanudación)
+  results      Json     @default("[]") // [{id, ok, from, to, error?}]
+  total        Int      @default(0)
+  processed    Int      @default(0)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
 }
 
 model Invoice {
