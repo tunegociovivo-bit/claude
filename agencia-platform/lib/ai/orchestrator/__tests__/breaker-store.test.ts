@@ -75,7 +75,7 @@ describe("breaker-store — durable, single-probe, fail-closed", () => {
   it("SINGLE-PROBE entre dos instancias concurrentes → exactamente una sonda", async () => {
     const db = mkDb();
     // fila abierta con cooldown ya cumplido y sin sonda
-    db._rows.set("w1|openai", { workspaceId: "w1", provider: "openai", state: "open", failureCount: 3, windowStartedAt: at(0), openedAt: at(0), lastFailureAt: at(0), lastAttemptToken: "x", probeOwner: null, probeExpiresAt: null, version: 5 });
+    db._rows.set("w1|openai", { workspaceId: "w1", provider: "openai", state: "open", failureCount: 3, failures: [0, 1, 2], openedAt: at(0), lastFailureAt: at(0), lastAttemptToken: "x", probeOwner: null, probeExpiresAt: null, version: 5 });
     const b1 = makeDbBreaker(db as any, CFG, LEASE);
     const b2 = makeDbBreaker(db as any, CFG, LEASE);
     const now = at(40_000);
@@ -86,7 +86,7 @@ describe("breaker-store — durable, single-probe, fail-closed", () => {
 
   it("lease de sonda EXPIRADO → re-reclamable (recuperación tras muerte del sondeador)", async () => {
     const db = mkDb();
-    db._rows.set("w1|openai", { workspaceId: "w1", provider: "openai", state: "half_open", failureCount: 3, windowStartedAt: at(0), openedAt: at(0), lastFailureAt: at(0), lastAttemptToken: "x", probeOwner: "dead", probeExpiresAt: at(20_000), version: 7 });
+    db._rows.set("w1|openai", { workspaceId: "w1", provider: "openai", state: "half_open", failureCount: 3, failures: [0, 1, 2], openedAt: at(0), lastFailureAt: at(0), lastAttemptToken: "x", probeOwner: "dead", probeExpiresAt: at(20_000), version: 7 });
     const b = makeDbBreaker(db as any, CFG, LEASE);
     // lease viva (now < 20000) → bloqueado
     expect((await b.tryPass("w1", "openai", "o", at(19_000))).pass).toBe(false);
@@ -95,7 +95,7 @@ describe("breaker-store — durable, single-probe, fail-closed", () => {
   });
 
   it("half-open + éxito → cierra (idempotente); + fallo → re-abre", async () => {
-    const base = () => ({ workspaceId: "w1", provider: "openai", state: "half_open", failureCount: 3, windowStartedAt: at(0), openedAt: at(0), lastFailureAt: at(0), lastAttemptToken: "x", probeOwner: "me", probeExpiresAt: at(99_999), version: 2 });
+    const base = () => ({ workspaceId: "w1", provider: "openai", state: "half_open", failureCount: 3, failures: [0, 1, 2], openedAt: at(0), lastFailureAt: at(0), lastAttemptToken: "x", probeOwner: "me", probeExpiresAt: at(99_999), version: 2 });
     const dbOk = mkDb(); dbOk._rows.set("w1|openai", base());
     const bOk = makeDbBreaker(dbOk as any, CFG, LEASE);
     await bOk.record("w1", "openai", true, at(50_000), "probe-1");
@@ -116,6 +116,20 @@ describe("breaker-store — durable, single-probe, fail-closed", () => {
     await b.record("w1", "openai", false, at(1000), "same");
     await b.record("w1", "openai", false, at(2000), "same"); // mismo token → ignorado
     expect(db._rows.get("w1|openai").failureCount).toBe(1);
+  });
+
+  it("L1: éxito sobre breaker sano NO escribe (sin amplificación en la fila caliente)", async () => {
+    const db = mkDb();
+    const b = makeDbBreaker(db as any, CFG, LEASE);
+    // sin fila: un éxito no crea fila
+    await b.record("w1", "openai", true, at(1000), "ok-1");
+    expect(db._rows.has("w1|openai")).toBe(false);
+    expect(db.aiProviderBreaker.create).not.toHaveBeenCalled();
+    // fila closed y limpia: un éxito no la actualiza
+    db._rows.set("w1|openai", { workspaceId: "w1", provider: "openai", state: "closed", failureCount: 0, failures: [], openedAt: null, lastFailureAt: null, lastAttemptToken: "prev", probeOwner: null, probeExpiresAt: null, version: 3 });
+    await b.record("w1", "openai", true, at(2000), "ok-2");
+    expect(db._rows.get("w1|openai").version).toBe(3); // sin cambio
+    expect(db.aiProviderBreaker.updateMany).not.toHaveBeenCalled();
   });
 
   it("aislamiento TENANT: abrir w1 no afecta a w2", async () => {

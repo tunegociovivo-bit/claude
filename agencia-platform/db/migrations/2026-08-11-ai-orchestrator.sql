@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS "AiProviderBreaker" (
   "provider"         TEXT NOT NULL,
   "state"            TEXT NOT NULL DEFAULT 'closed',
   "failureCount"     INTEGER NOT NULL DEFAULT 0,
-  "windowStartedAt"  TIMESTAMP(3),
+  "failures"         JSONB,
   "openedAt"         TIMESTAMP(3),
   "lastFailureAt"    TIMESTAMP(3),
   "lastAttemptToken" TEXT,

@@ -2312,8 +2312,8 @@ model AiProviderBreaker {
   workspaceId      String
   provider         String
   state            String    @default("closed") // closed | open | half_open
-  failureCount     Int       @default(0)
-  windowStartedAt  DateTime? // inicio de la ventana de fallos actual (para pruning)
+  failureCount     Int       @default(0) // = failures.length tras pruning (observabilidad)
+  failures         Json? // timestamps (epoch ms) de fallos en la ventana DESLIZANTE
   openedAt         DateTime? // cuándo se abrió (para el cooldown)
   lastFailureAt    DateTime?
   lastAttemptToken String? // idempotencia del registro éxito/fallo

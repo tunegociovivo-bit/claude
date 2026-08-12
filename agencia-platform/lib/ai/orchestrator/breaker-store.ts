@@ -7,8 +7,9 @@
  * por `attemptToken`. FAIL-CLOSED: ante cualquier error de BD, el gate NO deja pasar
  * (protege al proveedor) y `peekBlocked` devuelve `true`.
  *
- * No usa Redis. Compatible con la máquina pura `circuit-breaker.ts` (misma semántica),
- * que se conserva para tests puros.
+ * No usa Redis. Misma semántica que la máquina pura `circuit-breaker.ts`: ventana de
+ * fallos DESLIZANTE (timestamps + prune), umbral `>=`, cooldown `>=`, half-open. La
+ * pura se conserva para tests unitarios.
  */
 import { type BreakerConfig, DEFAULT_BREAKER } from "./circuit-breaker";
 
@@ -19,7 +20,7 @@ export type BreakerRow = {
   provider: string;
   state: "closed" | "open" | "half_open";
   failureCount: number;
-  windowStartedAt: Date | null;
+  failures: number[] | null; // timestamps (epoch ms) en la ventana deslizante
   openedAt: Date | null;
   lastFailureAt: Date | null;
   lastAttemptToken: string | null;
@@ -27,6 +28,12 @@ export type BreakerRow = {
   probeExpiresAt: Date | null;
   version: number;
 };
+
+/** Poda los fallos fuera de la ventana (deslizante), igual que la máquina pura. */
+function pruneFailures(failures: unknown, nowMs: number, windowMs: number): number[] {
+  const arr = Array.isArray(failures) ? (failures as number[]) : [];
+  return arr.filter((t) => typeof t === "number" && nowMs - t < windowMs);
+}
 
 export type PassResult = { pass: boolean; probe: boolean };
 
@@ -102,30 +109,35 @@ export function makeDbBreaker(prisma: PrismaLike, cfg: BreakerConfig = DEFAULT_B
 
   function computeNext(row: BreakerRow | null, ok: boolean, now: Date, token: string): Partial<BreakerRow> {
     if (ok) {
-      // Éxito → cierra el circuito (idempotente).
-      return { state: "closed", failureCount: 0, windowStartedAt: null, openedAt: null, probeOwner: null, probeExpiresAt: null, lastAttemptToken: token };
+      // Éxito → cierra el circuito y limpia la ventana (idempotente).
+      return { state: "closed", failureCount: 0, failures: [], openedAt: null, probeOwner: null, probeExpiresAt: null, lastAttemptToken: token };
     }
-    // Fallo. Prune de la ventana.
-    const windowExpired = !row || !row.windowStartedAt || now.getTime() - row.windowStartedAt.getTime() >= cfg.windowMs;
-    const windowStartedAt = windowExpired ? now : row!.windowStartedAt;
-    const failureCount = (windowExpired ? 0 : row!.failureCount) + 1;
-    // Un fallo en half_open (sonda) re-abre inmediatamente.
+    // Fallo. Ventana DESLIZANTE: poda + añade el timestamp actual.
+    const nowMs = now.getTime();
+    const failures = [...pruneFailures(row?.failures, nowMs, cfg.windowMs), nowMs];
+    const failureCount = failures.length;
+    // Un fallo en half_open (sonda) re-abre inmediatamente (restaura cooldown).
     if (row?.state === "half_open") {
-      return { state: "open", failureCount, windowStartedAt, openedAt: now, lastFailureAt: now, probeOwner: null, probeExpiresAt: null, lastAttemptToken: token };
+      return { state: "open", failures, failureCount, openedAt: now, lastFailureAt: now, probeOwner: null, probeExpiresAt: null, lastAttemptToken: token };
     }
     if (failureCount >= cfg.failureThreshold) {
-      return { state: "open", failureCount, windowStartedAt, openedAt: now, lastFailureAt: now, probeOwner: null, probeExpiresAt: null, lastAttemptToken: token };
+      return { state: "open", failures, failureCount, openedAt: now, lastFailureAt: now, probeOwner: null, probeExpiresAt: null, lastAttemptToken: token };
     }
-    return { state: "closed", failureCount, windowStartedAt, openedAt: null, lastFailureAt: now, lastAttemptToken: token };
+    return { state: "closed", failures, failureCount, openedAt: null, lastFailureAt: now, lastAttemptToken: token };
   }
 
   async function record(workspaceId: string, provider: string, ok: boolean, now: Date, attemptToken: string): Promise<void> {
-    for (let attempt = 0; attempt < 4; attempt++) {
+    const MAX_TRIES = 8;
+    for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
       try {
         const row = await load(workspaceId, provider);
         if (row && row.lastAttemptToken === attemptToken) return; // idempotente
+        // L1: un éxito sobre un breaker ya sano (closed y sin fallos) es un no-op → no
+        // escribimos, evitando amplificación/contención en la fila caliente del proveedor.
+        if (ok && row && row.state === "closed" && (row.failureCount ?? 0) === 0) return;
         const next = computeNext(row, ok, now, attemptToken);
         if (!row) {
+          if (ok) return; // no crear fila por un éxito: el estado por defecto ya es sano
           try {
             await prisma.aiProviderBreaker.create({ data: { workspaceId, provider, version: 0, ...next } });
             return;
@@ -144,6 +156,9 @@ export function makeDbBreaker(prisma: PrismaLike, cfg: BreakerConfig = DEFAULT_B
         return; // best-effort: el gate ya es fail-closed
       }
     }
+    // M2: agotados los reintentos por contención → deja rastro (sin PII) para no perder
+    // el fallo en silencio. El gate sigue siendo fail-closed ante caída real de BD.
+    if (!ok) console.warn(`[ai-breaker] no se pudo registrar el fallo de ${provider} tras ${MAX_TRIES} intentos (contención)`);
   }
 
   return { peekBlocked, tryPass, record };
