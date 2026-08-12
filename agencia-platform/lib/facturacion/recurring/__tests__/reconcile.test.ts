@@ -42,14 +42,20 @@ describe("reconcile", () => {
     expect(r.onlyLegacy).toBe(1);
     expect(r.readiness).toBe("review");
   });
-  it("only_hub (preview sin factura legada) es informativo, no bloquea", () => {
+  it("only_hub sin comparables → no_data (NO 'ready' ni 100%)", () => {
     const r = reconcile([hub("legacy:A", "2026-05", 12100)], []);
     expect(r.onlyHub).toBe(1);
-    expect(r.readiness).toBe("ready"); // sin mismatches ni huecos
+    expect(r.comparable).toBe(0);
+    expect(r.readiness).toBe("no_data"); // reconciliar cero no es "listo"
+    expect(r.matchRate).toBe(0);
+  });
+  it("nada que comparar (ambos vacíos) → no_data", () => {
+    expect(reconcile([], []).readiness).toBe("no_data");
   });
   it("previews sin contraparte posible (CSV/HUB) se excluyen de la rejilla", () => {
     const r = reconcile([hub("auto-x", "2026-01", 5000), hub(null, "2026-01", 5000)], []);
     expect(r.totalCells).toBe(0);
+    expect(r.readiness).toBe("no_data");
   });
   it("agrega importes del mismo (plantilla, periodo)", () => {
     const r = reconcile([hub("legacy:A", "2026-01", 5000), hub("legacy:A", "2026-01", 5000)], [leg("A", "2026-01", 10000)]);

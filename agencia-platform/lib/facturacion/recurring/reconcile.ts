@@ -13,7 +13,7 @@ export type LegacyInvoice = { legacyTemplateId: string; period: string; totalCen
 export type CellStatus = "match" | "amount_mismatch" | "only_hub" | "only_legacy";
 export type ReconCell = { key: string; templateKey: string; period: string; status: CellStatus; hubCents: number | null; legacyCents: number | null };
 
-export type Readiness = "ready" | "review" | "not_ready";
+export type Readiness = "ready" | "review" | "not_ready" | "no_data";
 
 export type ReconciliationReport = {
   totalCells: number;
@@ -21,7 +21,8 @@ export type ReconciliationReport = {
   amountMismatch: number;
   onlyHub: number;
   onlyLegacy: number;
-  matchRate: number; // 0..1 sobre celdas comparables (excluye only_hub informativos)
+  comparable: number; // celdas con contraparte legada (base del veredicto)
+  matchRate: number; // 0..1 sobre comparables (excluye only_hub); 0 si no hay datos
   readiness: Readiness;
   cells: ReconCell[];
 };
@@ -79,14 +80,15 @@ export function reconcile(hub: HubPreview[], legacy: LegacyInvoice[]): Reconcili
 
   // Comparables = todo lo que tiene contraparte legada (match + mismatch + only_legacy).
   const comparable = match + amountMismatch + onlyLegacy;
-  const matchRate = comparable === 0 ? 1 : match / comparable;
-  // Readiness: ready solo si NO hay diferencias de importe NI huecos (only_legacy).
-  const readiness: Readiness = amountMismatch === 0 && onlyLegacy === 0 ? "ready" : amountMismatch > 0 ? "not_ready" : "review";
+  // Si NO hay nada comparable → "no_data" (NO se reporta 100%/ready: reconciliar
+  // cero no es "listo"). Ready solo si hay datos y ni diferencias ni huecos.
+  const matchRate = comparable === 0 ? 0 : Math.round((match / comparable) * 1000) / 1000;
+  const readiness: Readiness = comparable === 0 ? "no_data" : amountMismatch > 0 ? "not_ready" : onlyLegacy > 0 ? "review" : "ready";
 
   const order: Record<CellStatus, number> = { amount_mismatch: 0, only_legacy: 1, only_hub: 2, match: 3 };
   const sorted = [...cells.values()].sort((a, b) => order[a.status] - order[b.status] || a.templateKey.localeCompare(b.templateKey) || a.period.localeCompare(b.period));
 
-  return { totalCells: cells.size, match, amountMismatch, onlyHub, onlyLegacy, matchRate: Math.round(matchRate * 1000) / 1000, readiness, cells: sorted };
+  return { totalCells: cells.size, match, amountMismatch, onlyHub, onlyLegacy, comparable, matchRate, readiness, cells: sorted };
 }
 
 /** Periodo YYYY-MM (UTC) de una fecha. */

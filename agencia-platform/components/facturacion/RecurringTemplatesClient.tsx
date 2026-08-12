@@ -520,12 +520,13 @@ function HoldedChecklistPanel({ selectedIds, onChanged }: { selectedIds: string[
 }
 
 type ReconCell = { key: string; templateKey: string; period: string; status: string; hubCents: number | null; legacyCents: number | null };
-type Readiness = { match: number; amountMismatch: number; onlyHub: number; onlyLegacy: number; matchRate: number; readiness: "ready" | "review" | "not_ready"; cells: ReconCell[]; windowMonths: number; note?: string };
+type Readiness = { match: number; amountMismatch: number; onlyHub: number; onlyLegacy: number; comparable: number; matchRate: number; readiness: "ready" | "review" | "not_ready" | "no_data"; cells: ReconCell[]; windowMonths: number; truncated?: boolean; note?: string };
 
 const VERDICT: Record<string, { label: string; cls: string }> = {
   ready: { label: "Listo (dual-run coincide)", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   review: { label: "Revisar (huecos)", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  not_ready: { label: "No listo (difieren importes)", cls: "bg-rose-50 text-rose-700 border-rose-200" }
+  not_ready: { label: "No listo (difieren importes)", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+  no_data: { label: "Sin datos comparables", cls: "bg-slate-100 text-slate-600 border-slate-200" }
 };
 const CELL_LABEL: Record<string, string> = { match: "Coincide", amount_mismatch: "Importe distinto", only_legacy: "Solo en el legado (hueco)", only_hub: "Solo en el Hub" };
 
@@ -561,8 +562,13 @@ function ReadinessPanel() {
           <div className="text-xs space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`px-2 py-0.5 rounded-full border ${VERDICT[data.readiness]?.cls ?? ""}`}>{VERDICT[data.readiness]?.label ?? data.readiness}</span>
-              <span className="text-slate-500">últimos {data.windowMonths} meses · coincidencia {Math.round(data.matchRate * 100)}%</span>
+              <span className="text-slate-500">últimos {data.windowMonths} meses · {data.comparable > 0 ? `coincidencia ${Math.round(data.matchRate * 100)}% (${data.comparable} comparables)` : "sin celdas comparables"}</span>
             </div>
+            {data.truncated && (
+              <div className="text-[11px] px-2 py-1 rounded border bg-amber-50 text-amber-800 border-amber-200" role="status">
+                ⚠ Datos incompletos (se alcanzó el tope de carga): el veredicto no puede ser "listo". Acota la ventana de meses.
+              </div>
+            )}
             <div className="flex flex-wrap gap-3">
               <span className="text-emerald-700">Coinciden: {data.match}</span>
               <span className="text-rose-700">Importe distinto: {data.amountMismatch}</span>
