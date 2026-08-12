@@ -184,3 +184,78 @@ describe("observabilidad", () => {
     expect(stages).toContain("app_claim_ok");
   });
 });
+
+describe("REACCIÓN a captura TARDÍA (fix de la carrera del onboarding)", () => {
+  it("onDealCaptured avisa cuando el Install Referrer llega DESPUÉS del arranque", async () => {
+    let fire: any = null;
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => { fire = cb; }); // no dispara aún
+    const m = await freshModule();
+    const seen: string[] = [];
+    const off = m.onDealCaptured((t: string) => seen.push(t));
+    m.initDealCapture();
+    await flush();
+    expect(seen).toEqual([]); // el referrer aún no ha llegado → nadie avisado
+    fire({ installReferrer: `reto_${TOKEN}` }, null); // llega TARDE
+    await flush();
+    expect(seen).toEqual([TOKEN]); // el onboarding puede reaccionar ahora
+    off();
+  });
+
+  it("traza diagnóstica app_ref_no_token cuando el referrer no lleva reto", async () => {
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "utm_source=google-play&utm_medium=organic" }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await flush();
+    const stages = H.api.traceDeal.mock.calls.map((c: any[]) => c[1]);
+    expect(stages).toContain("app_ref_no_token");
+    expect(await m.getPendingDeal()).toBeNull();
+  });
+
+  it("traza diagnóstica app_ref_no_module si el módulo nativo no está en el build", async () => {
+    const m = await freshModule();
+    m._setPirLoaderForTests(() => { throw new Error("module missing"); });
+    m.initDealCapture();
+    await flush();
+    const stages = H.api.traceDeal.mock.calls.map((c: any[]) => c[1]);
+    expect(stages).toContain("app_ref_no_module");
+  });
+});
+
+describe("REGRESIÓN Auto Backup: estado RESTAURADO no debe bloquear un referrer nuevo", () => {
+  const NEW = "aaac414dd4505807"; // token del nuevo reto
+
+  it("flag antiguo IR_DONE + sesión restaurados + referrer reto_NUEVO → SÍ se lee y se reclama", async () => {
+    // Simula lo que restaura Android Auto Backup tras reinstalar:
+    H.store.set("bubui.installReferrerDealChecked", "1"); // flag antiguo persistido
+    H.session.CheckSession.mockResolvedValue({ customerId: "cust-old", token: "t" }); // sesión restaurada
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    // ANTES (con IR_DONE): la lectura se saltaba → claimDeal nunca se llamaba.
+    // AHORA: se lee el referrer nuevo y se reclama para la sesión restaurada.
+    expect(H.api.claimDeal).toHaveBeenCalledWith(NEW, "cust-old");
+  });
+
+  it("flag antiguo IR_DONE restaurado + SIN sesión → captura el token para el onboarding", async () => {
+    H.store.set("bubui.installReferrerDealChecked", "1");
+    H.session.CheckSession.mockResolvedValue(null);
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    expect(await m.getPendingDeal()).toBe(NEW); // disponible para el registro
+  });
+
+  it("ya NO persiste el flag 'installReferrerDealChecked' (era lo que restauraba el backup)", async () => {
+    H.session.CheckSession.mockResolvedValue(null);
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    expect(H.store.get("bubui.installReferrerDealChecked")).toBeUndefined();
+  });
+});

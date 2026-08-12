@@ -19,7 +19,6 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingRef";
-const IR_DONE = "bubui.installReferrerChecked";
 
 // Readiness del referrer: el alta espera (acotado) a que la captura termine
 // antes de concluir que no hay código — evita la carrera captura/registro
@@ -96,18 +95,21 @@ export async function applyPendingRef(customerId: string): Promise<void> {
   }
 }
 
-/** Android: lee el Install Referrer (instalación diferida). IR_DONE se marca
- *  SOLO tras una respuesta terminal válida del API de Play — un error
- *  transitorio o el módulo ausente dejan el flag sin poner y se reintenta en
- *  el siguiente arranque (antes se marcaba antes del callback y un fallo
- *  puntual perdía el referrer para siempre). */
-async function captureInstallReferrerOnce(): Promise<void> {
+/** Android: lee el Install Referrer (instalación diferida).
+ *
+ *  CAUSA RAÍZ (auditoría Auto Backup, misma que en deal-pending): ANTES se
+ *  persistía un flag IR_DONE tras leer el referrer. Android Auto Backup RESTAURA
+ *  AsyncStorage tras reinstalar, así que ese flag volvía como "1" en la
+ *  instalación NUEVA y hacía SALTAR la lectura del referrer nuevo → el referido
+ *  se perdía. Ahora NO se persiste ningún flag: se lee en cada arranque en frío
+ *  (guard en-memoria `inited`) y solo se omite si YA hay un código pendiente. */
+async function captureInstallReferrer(): Promise<void> {
   try {
-    if (await AsyncStorage.getItem(IR_DONE)) { signalReferrerDone(); return; }
+    // Si ya hay un código pendiente, no hace falta releer el referrer.
+    if (await getPendingRef()) { signalReferrerDone(); return; }
     let mod: any = null;
     try {
-      // Carga perezosa: si el módulo nativo no está, no rompe nada (y no
-      // marcamos DONE: puede estar disponible en un build posterior).
+      // Carga perezosa: si el módulo nativo no está, no rompe nada.
       mod = pirLoader();
     } catch {
       signalReferrerDone(); // sin módulo no habrá referrer en esta sesión
@@ -117,7 +119,7 @@ async function captureInstallReferrerOnce(): Promise<void> {
     if (!PIR?.getInstallReferrerInfo) { signalReferrerDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
       if (err) { signalReferrerDone(); return; } // transitorio → reintento en el próximo arranque
-      void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
+      // NO se persiste ningún flag "ya comprobado" (ver causa raíz arriba).
       const code = parseRefFromString(info?.installReferrer);
       if (!code) { signalReferrerDone(); return; }
       void (async () => {
@@ -141,6 +143,6 @@ export function initReferralCapture(): void {
   inited = true;
   Linking.getInitialURL().then(captureFromUrl).catch(() => {});
   Linking.addEventListener("url", (e) => { void captureFromUrl(e.url); });
-  if (Platform.OS === "android") void captureInstallReferrerOnce();
+  if (Platform.OS === "android") void captureInstallReferrer();
   else signalReferrerDone(); // sin Install Referrer fuera de Android
 }

@@ -17,7 +17,9 @@ import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture } from "./src/lib/referral-pending";
-import { initDealCapture, claimPendingDeal } from "./src/lib/deal-pending";
+import { initDealCapture, claimPendingDeal, traceLifecycle, waitForDealCapture, getPendingDeal } from "./src/lib/deal-pending";
+import { retoTokenFromPath } from "./src/lib/links";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
@@ -68,6 +70,12 @@ const linking = {
     // para que tanto los QR de bubui.app como los de hub abran la pantalla Scan.
     getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => {
           const normalized = path.replace(/^\/?bubui\//, "/");
+          // /reto/<token>: NO hay pantalla de reto. Devolvemos undefined a
+          // propósito → React Navigation se queda en la ruta INICIAL
+          // (Onboarding sin sesión / Feed con sesión), nunca en una ruta
+          // inexistente. El token lo captura deal-pending (eventos de Linking) y
+          // el arranque muestra el reto o lo reclama.
+          if (retoTokenFromPath(normalized)) return undefined;
           return getStateFromPath(normalized, options);
     }
 };
@@ -85,13 +93,25 @@ function AppInner() {
     const fontsReady = fontsLoaded || !!fontsError || fontsTimedOut;
     const { colors, dark } = useThemeMeta();
 
+  // Bootstrap ÚNICO: espera el resultado TERMINAL del Install Referrer ANTES de
+  // decidir Feed vs Onboarding. Motivo (auditoría Auto Backup): una sesión
+  // restaurada del backup mandaba a Feed y el referrer restaurado se saltaba; si
+  // hay un reto capturado, el reto MANDA (registro para reclamarlo, nunca
+  // invitado), aunque exista una sesión.
   useEffect(() => {
         (async () => {
+                initDealCapture(); // asegura que la captura del referrer ha arrancado
                 const session = await CheckSession();
-                setInitial(session ? "Feed" : "Onboarding");
-                // Si ya hay sesión y el cliente venía de un enlace de reto (deep
-                // link o Install Referrer), lo reclamamos al arrancar.
-                if (session) void claimPendingDeal(session.customerId);
+                await waitForDealCapture(); // espera (acotada) al resultado del referrer
+                const pending = await getPendingDeal();
+                if (session) {
+                        setInitial("Feed");
+                        if (pending) void claimPendingDeal(session.customerId); // el reto aparece en Feed
+                } else {
+                        // Sin sesión: Onboarding. Con reto pendiente, el onboarding
+                        // fuerza el registro y muestra el reto (nunca invitado).
+                        setInitial("Onboarding");
+                }
         })();
   }, []);
 
@@ -103,6 +123,18 @@ function AppInner() {
 
   // Captura el token del RETO (deep link + Install Referrer de Android).
   useEffect(() => initDealCapture(), []);
+
+  // DIAGNÓSTICO (sin PII) para probar en producción qué está pasando de verdad:
+  //  - app_started: confirma QUÉ build/plataforma arranca (si no aparece, el AAB
+  //    instalado NO tiene este código → build obsoleto).
+  //  - app_iconfont_ok/fail: confirma si la fuente Ionicons carga en RELEASE (si
+  //    falla, ese es el motivo real de los iconos en blanco, no una suposición).
+  useEffect(() => {
+    traceLifecycle("app_started");
+    Ionicons.loadFont()
+      .then(() => traceLifecycle("app_iconfont_ok"))
+      .catch(() => traceLifecycle("app_iconfont_fail"));
+  }, []);
 
   // Token caducado (401): cerramos sesión para que la app pida re-login en vez
   // de mostrar un genérico "servidor no responde".

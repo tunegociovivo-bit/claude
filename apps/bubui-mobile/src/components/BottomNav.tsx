@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme, type Palette, shadow, gradients } from "../lib/theme";
@@ -8,17 +7,18 @@ import { Gradient } from "./Gradient";
 import { Bouncy } from "./Bouncy";
 import { sfx } from "../lib/sound";
 import { api } from "../lib/api";
+import { NavIcon, type NavIconName } from "./NavIcons";
 
-// Iconos vectoriales (Ionicons): nítidos y coherentes con la marca. Cada tab
-// define su variante "outline" (inactivo) y rellena (activo).
-type IconName = keyof typeof Ionicons.glyphMap;
+// Iconos SVG (independientes de fuentes) — ver NavIcons.tsx. La pestaña activa
+// usa la variante `filled`. NO se usa @expo/vector-icons: en release su fuente
+// no cargaba y los iconos salían en blanco.
 // `gate` indica de qué flag de sección depende la pestaña (Descubre/Mapa).
 type SectionGate = "discover" | "mapa";
-const TABS: { route: string; label: string; icon: IconName; iconOn: IconName; gate?: SectionGate }[] = [
-  { route: "Feed", label: "Inicio", icon: "home-outline", iconOn: "home" },
-  { route: "Descubre", label: "Descubre", icon: "compass-outline", iconOn: "compass", gate: "discover" },
-  { route: "Mapa", label: "Mapa", icon: "map-outline", iconOn: "map", gate: "mapa" },
-  { route: "Cuenta", label: "Cuenta", icon: "person-outline", iconOn: "person" }
+const TABS: { route: string; label: string; icon: NavIconName; gate?: SectionGate }[] = [
+  { route: "Feed", label: "Inicio", icon: "home" },
+  { route: "Descubre", label: "Descubre", icon: "compass", gate: "discover" },
+  { route: "Mapa", label: "Mapa", icon: "map", gate: "mapa" },
+  { route: "Cuenta", label: "Cuenta", icon: "person" }
 ];
 
 // Mínimo de comercios para mostrar Descubre/Mapa (fallback si el servidor no
@@ -73,7 +73,7 @@ export function BottomNav({ active }: { active: string }) {
         onPress={() => { if (!on) nav.navigate(t.route); }}
         activeOpacity={0.7}
       >
-        <Ionicons name={on ? t.iconOn : t.icon} size={23} color={on ? c.pink : c.grayLight} />
+        <NavIcon name={t.icon} size={23} color={on ? c.pink : c.grayLight} filled={on} />
         <Text style={[styles.label, on && styles.labelOn]}>{t.label}</Text>
       </TouchableOpacity>
     );
@@ -95,7 +95,7 @@ export function BottomNav({ active }: { active: string }) {
           onPress={() => { sfx.tap(); nav.navigate("Scan", { businessId: "" }); }}
         >
           <Gradient colors={gradients.pink} style={styles.fabInner}>
-            <Ionicons name="scan-outline" size={28} color="#fff" />
+            <NavIcon name="scan" size={28} color="#fff" />
           </Gradient>
         </Bouncy>
       </View>

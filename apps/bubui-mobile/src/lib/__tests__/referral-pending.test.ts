@@ -62,7 +62,8 @@ describe("Install Referrer", () => {
     m.initReferralCapture();
     await m.waitForReferrerCapture(); // debe resolver por señal, no por timeout
     expect(await m.getPendingRef()).toBe("ABC123");
-    expect(H.store.get("bubui.installReferrerChecked")).toBe("1");
+    // Ya NO se persiste ningún flag "ya comprobado" (Auto Backup lo restauraba).
+    expect(H.store.get("bubui.installReferrerChecked")).toBeUndefined();
   });
 
   it("referrer DESPUÉS del registro (tardío): con sesión ya iniciada se aplica al momento", async () => {
@@ -78,19 +79,32 @@ describe("Install Referrer", () => {
     expect(H.api.applyReferral).toHaveBeenCalledWith("cust-1", "ABC123");
   });
 
-  it("error transitorio: NO marca IR_DONE (se reintenta en el siguiente arranque) y la espera no bloquea", async () => {
+  it("error transitorio: se reintenta en el siguiente arranque y la espera no bloquea", async () => {
     H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb(null, new Error("SERVICE_UNAVAILABLE")));
     const m = await freshModule();
     m.initReferralCapture();
     await m.waitForReferrerCapture();
     await flush();
-    expect(H.store.get("bubui.installReferrerChecked")).toBeUndefined();
-    // "siguiente arranque": módulo nuevo → vuelve a consultar y ahora funciona
+    expect(await m.getPendingRef()).toBeNull();
+    // "siguiente arranque": vuelve a consultar (no hay flag que lo bloquee) y funciona
     H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "ref_ABC123" }, null));
     const m2 = await freshModule();
     m2.initReferralCapture();
     await flush();
     expect(await m2.getPendingRef()).toBe("ABC123");
+  });
+
+  it("REGRESIÓN Auto Backup: flag antiguo restaurado NO bloquea un referrer nuevo", async () => {
+    // Simula lo que restaura Android Auto Backup tras reinstalar: el flag antiguo.
+    H.store.set("bubui.installReferrerChecked", "1");
+    H.session.CheckSession.mockResolvedValue(null);
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "ref_XYZ789" }, null));
+    const m = await freshModule();
+    m.initReferralCapture();
+    await m.waitForReferrerCapture();
+    await flush();
+    // ANTES: el flag restaurado hacía saltar la lectura → getPendingRef null.
+    expect(await m.getPendingRef()).toBe("XYZ789");
   });
 });
 
