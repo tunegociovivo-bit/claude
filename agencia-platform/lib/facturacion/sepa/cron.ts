@@ -7,7 +7,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { approveRequestAutomatically, expireStaleRequests, createRequestsForCandidates } from "./remittance";
-import { reclaimExpiredLeases } from "./agent";
+import { reclaimExpiredLeases, setAgentClaimingEnabled } from "./agent";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 import { madridBusinessDayWindow } from "./recency";
 
@@ -35,6 +35,9 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
     });
     if (incidentRequests.length) {
       const ids = incidentRequests.map((item) => item.id);
+      // Parada de emergencia antes de cancelar trabajos: también impide que un
+      // agente con lease en vuelo marque otra preparación como completada.
+      await setAgentClaimingEnabled(ws.id, false);
       await prisma.$transaction([
         prisma.remittanceJob.updateMany({
           where: { workspaceId: ws.id, remittanceRequestId: { in: ids }, status: { in: ["PENDING", "CLAIMED", "RUNNING", "NEEDS_USER", "FAILED"] } },
