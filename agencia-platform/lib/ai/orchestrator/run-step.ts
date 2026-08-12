@@ -44,10 +44,13 @@ export type RunStepDeps = {
   callModel: (slot: ModelSlot, req: AdapterRequest, opts: { signal: AbortSignal; live: boolean }) => Promise<AdapterResult>;
   /** Construye el request (system+mensajes) del run. La redacción PII la hace el adaptador. */
   buildRequest: (orch: Orchestration) => Promise<AdapterRequest>;
-  /** Verificación OBJETIVA del resultado (dominio). Devuelve {ok, evidence}. Default:
-   *  ok=true con evidencia mínima (el adaptador ya validó no-vacío). Un verificador real
-   *  puede rechazar → vuelve a diagnosticar. Solo se APRENDE de lo que este verifica. */
-  verify?: (orch: Orchestration) => Promise<{ ok: boolean; evidence?: any }>;
+  /** Verificación OBJETIVA del resultado (dominio). Devuelve {ok, verified, evidence}:
+   *  - `ok`: ¿continúa a completed o vuelve a diagnosticar?
+   *  - `verified`: ¿fue una verificación OBJETIVA de que la tarea quedó resuelta? Solo se
+   *    APRENDE un éxito cuando `verified===true`. El default NO verifica objetivamente
+   *    (`verified:false`) → sin un verificador de dominio real, no se aprende ningún éxito
+   *    (nunca se marca "resuelto" por el mero hecho de que el modelo respondió). */
+  verify?: (orch: Orchestration) => Promise<{ ok: boolean; verified?: boolean; evidence?: any }>;
   /** Memoria de estrategias (aprendizaje). Opcional (sin ella, el motor funciona igual). */
   learning?: LearningStore;
   killSwitch?: () => boolean;
@@ -113,12 +116,13 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
       }
 
       case "verifying": {
-        const v = deps.verify ? await deps.verify(orch) : { ok: true, evidence: { kind: "non_empty_output" } };
+        // Default: NO verifica objetivamente (`verified:false`) → no aprende éxitos hasta que
+        // se cablee un verificador de dominio real. Nunca "resuelto" por responder no-vacío.
+        const v = deps.verify ? await deps.verify(orch) : { ok: true, verified: false, evidence: { kind: "non_empty_output" } };
         if (v.ok) {
-          // APRENDER del éxito VERIFICADO Y REAL: esta estrategia/proveedor resolvió esta
-          // (firma, causa). Solo desde resultados verificados y en modo LIVE → en shadow la
-          // respuesta es simulada y NO debe contaminar la memoria. Tampoco por inyección.
-          if (deps.live && deps.learning && plan.signature) {
+          // APRENDER del éxito solo si fue VERIFICADO OBJETIVAMENTE (`verified===true`) y REAL
+          // (live). En shadow o sin verificador de dominio, no se aprende (no se inventa éxito).
+          if (deps.live && v.verified === true && deps.learning && plan.signature) {
             await deps.learning.recordOutcome({
               workspaceId: orch.workspaceId,
               taskSignature: plan.signature,

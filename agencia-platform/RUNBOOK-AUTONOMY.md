@@ -86,3 +86,13 @@ prioriza** en ejecuciones futuras similares; evita las estrategias que fallaron.
 1. El agente **no puede** ejecutar §1–§4 (backup, migración/deploy, variables): requieren tus sesiones autenticadas de Railway/Hetzner, inaccesibles desde su entorno. Las ejecutas tú con este runbook.
 2. `OPENAI_API_KEY` aún no está en Railway (paso §4). Gemini/Perplexity sin clave por diseño.
 3. El entrypoint del scheduler (§6) es la última integración; sin BD desplegada no puede validarse end-to-end.
+
+## Verificación objetiva y aprendizaje de éxitos (importante)
+El aprendizaje de un ÉXITO solo ocurre cuando un **verificador de dominio objetivo** lo
+confirma (`verify` devuelve `{ ok:true, verified:true, evidence }`). El verificador por
+defecto NO verifica objetivamente (`verified:false`) → **sin cablear un verificador real,
+el motor no aprende ningún éxito** (nunca marca "resuelto" solo porque el modelo respondió).
+Los fallos objetivos (error de proveedor no transitorio, o rechazo de un verificador real)
+sí se aprenden para evitar esa estrategia. Para activar el aprendizaje de éxitos por tipo de
+tarea, inyecta un `verify` de dominio en `buildSchedulerDeps` que compruebe objetivamente el
+resultado (con acceso a la salida) y devuelva `verified:true` solo cuando la tarea quede resuelta.

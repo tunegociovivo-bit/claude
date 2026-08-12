@@ -182,14 +182,24 @@ describe("runStep — fases", () => {
     expect(r.patch.plan.diag.hint).toBe("provider");
   });
 
-  it("APRENDIZAJE: éxito verificado → recordOutcome(ok, verified) con firma/causa/estrategia", async () => {
+  it("APRENDIZAJE: éxito VERIFICADO OBJETIVAMENTE (verified:true) + live → recordOutcome", async () => {
     const rec: any[] = [];
     const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
-    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, verify: async () => ({ ok: true, evidence: { check: "objetivo" } }) }));
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, verify: async () => ({ ok: true, verified: true, evidence: { check: "objetivo" } }) }));
     const r = await rs(orch({ state: "verifying", plan: { signature: "sig1", addressingCause: "provider:x", attemptStrategyKind: "switch_provider", attemptProvider: "anthropic" } }));
     expect(r.to).toBe("completed");
     expect(rec).toHaveLength(1);
     expect(rec[0]).toMatchObject({ verified: true, ok: true, taskSignature: "sig1", rootCause: "provider:x", strategyKind: "switch_provider", provider: "anthropic" });
+  });
+
+  it("APRENDIZAJE: éxito NO verificado objetivamente (verified:false) aunque live → NO aprende", async () => {
+    const rec: any[] = [];
+    const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };
+    // verificador trivial (default-like): ok pero verified:false → completa pero NO aprende éxito
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ live: true, learning, verify: async () => ({ ok: true, verified: false }) }));
+    const r = await rs(orch({ state: "verifying", plan: { signature: "sig1", addressingCause: "initial", attemptProvider: "anthropic" } }));
+    expect(r.to).toBe("completed");
+    expect(rec).toHaveLength(0); // no se inventa "resuelto" sin verificación objetiva
   });
 
   it("APRENDIZAJE: en SHADOW (live=false) NO se aprende (resultado simulado, no real)", async () => {
