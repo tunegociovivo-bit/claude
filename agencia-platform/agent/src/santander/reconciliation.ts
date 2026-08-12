@@ -31,6 +31,12 @@ export function shouldRunDailyReconciliation(now: Date, lastSyncAt: Date | null,
   return `${last.year}-${last.month}-${last.day}` !== `${current.year}-${current.month}-${current.day}`;
 }
 
+export function isReconciliationRetryDue(now: Date, lastAttemptAt: Date | null, cooldownMs = 30 * 60 * 1000): boolean {
+  if (!Number.isFinite(now.getTime())) return false;
+  if (!lastAttemptAt || !Number.isFinite(lastAttemptAt.getTime())) return true;
+  return now.getTime() - lastAttemptAt.getTime() >= cooldownMs;
+}
+
 export type SepaRemittanceRow = { dueAt: string; amountCents: number; remittanceNumber: string; status: string };
 
 export function parseSepaRemittanceRow(text: string): SepaRemittanceRow | null {

@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { isReconciliationRetryDue, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -58,6 +58,8 @@ async function main() {
   ok("no concilia antes de las 08:00 de Madrid", !shouldRunDailyReconciliation(new Date("2026-08-11T05:59:00Z"), null, "08:00", "Europe/Madrid"));
   ok("concilia después de las 08:00 si hoy no se ejecutó", shouldRunDailyReconciliation(new Date("2026-08-11T06:01:00Z"), new Date("2026-08-10T07:00:00Z"), "08:00", "Europe/Madrid"));
   ok("solo concilia una vez por día local", !shouldRunDailyReconciliation(new Date("2026-08-11T12:00:00Z"), new Date("2026-08-11T06:01:00Z"), "08:00", "Europe/Madrid"));
+  ok("no reabre Santander durante el enfriamiento tras un intento", !isReconciliationRetryDue(new Date("2026-08-11T08:10:00Z"), new Date("2026-08-11T08:00:00Z")));
+  ok("permite reintentar la conciliación tras 30 minutos", isReconciliationRetryDue(new Date("2026-08-11T08:30:00Z"), new Date("2026-08-11T08:00:00Z")));
   const sepaRemittance = parseSepaRemittanceRow("11/08/2026 1 181,50 EUR 0049 6611 7530000602 0049 6611 2317784712 Contabilizada ui-btn");
   ok("lee una remesa SEPA contabilizada", sepaRemittance?.amountCents === 18150 && sepaRemittance.remittanceNumber === "004966117530000602");
   const sepaReceipt = parseSepaReceiptRow("0049 6611 7540000WXZ 000001226783926062611103080 423,50 EUR IBAN ES57 2080 0646 5730 4185 1845 Orden liquidada ui-btn");

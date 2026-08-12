@@ -14,11 +14,12 @@ import { HubClient, type ClaimedJob } from "./hub-client.js";
 import type { SantanderAdapter, AdapterHooks, AuthorizedJob } from "./santander/types.js";
 import { MockSantanderAdapter } from "./santander/mock.js";
 import { LiveSantanderAdapter } from "./santander/live.js";
-import { SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
+import { isReconciliationRetryDue, SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
 
 export class Runner {
   private stopped = false;
   private hub: HubClient;
+  private lastReconciliationAttemptAt: Date | null = null;
 
   constructor(private cfg: AgentConfig, private log: Logger) {
     this.hub = new HubClient(cfg);
@@ -59,7 +60,12 @@ export class Runner {
     try {
       const config = await this.hub.reconciliationConfig();
       if (!config?.enabled) return;
-      if (!shouldRunDailyReconciliation(new Date(), config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
+      const now = new Date();
+      if (!shouldRunDailyReconciliation(now, config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
+      // Si Santander no está disponible, no reabrir una ventana en cada ciclo
+      // de sondeo. Un intento fallido queda enfriado durante 30 minutos.
+      if (!isReconciliationRetryDue(now, this.lastReconciliationAttemptAt)) return;
+      this.lastReconciliationAttemptAt = now;
       const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin, credentialFile: this.cfg.santanderCredentialFile });
       const movements = await reader.scan(new Date(config.startsAt));
       const result = await this.hub.reportMovements(movements);
