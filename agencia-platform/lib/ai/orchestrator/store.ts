@@ -81,6 +81,53 @@ export async function ensureOrchestration(
   }
 }
 
+/**
+ * Encola una orquestación LIVE (A0/A1) lista para que el scheduler la procese en el
+ * próximo tick. A diferencia de `ensureOrchestration` (que solo crea el esqueleto en
+ * shadow), fija `mode:"live"`, el `plan` YA validado/saneado por el endpoint, los
+ * `limits` acotados y `nextRunAt=now` (due inmediatamente). IDEMPOTENTE por
+ * @@unique([workspaceId, taskId]): reintentos/carreras con el mismo `taskId` NO crean
+ * una segunda fila — se devuelve la existente con `created:false` (sin pisar su plan).
+ * Tenant-scoped: el `workspaceId` lo fija SIEMPRE el servidor.
+ */
+export async function enqueueLiveOrchestration(
+  prisma: PrismaLike,
+  args: { workspaceId: string; taskId: string; createdById?: string | null; plan: any; limits: any; now: Date }
+): Promise<{ orchestration: Orchestration; created: boolean }> {
+  const { workspaceId, taskId } = args;
+  try {
+    const created = (await prisma.aiOrchestration.create({
+      data: {
+        workspaceId,
+        taskId,
+        createdById: args.createdById ?? null,
+        state: "queued",
+        version: 0,
+        mode: "live",
+        plan: args.plan,
+        limits: args.limits,
+        usage: { attempts: 0, elapsedMs: 0, tokens: 0, costUsd: 0 },
+        fingerprints: [],
+        nextRunAt: args.now
+      }
+    })) as Orchestration;
+    return { orchestration: created, created: true };
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      const existing = await prisma.aiOrchestration.findFirst({ where: { workspaceId, taskId } });
+      if (existing) return { orchestration: existing as Orchestration, created: false };
+    }
+    throw e;
+  }
+}
+
+/** Cuenta orquestaciones NO terminales (aún vivas) del workspace — para el tope de
+ *  concurrencia por tenant del enqueuer (evita inundar el scheduler). Tenant-scoped. Si se
+ *  aporta `mode`, solo cuenta ese modo (p.ej. "live") → el tope live no lo consume el shadow. */
+export async function countActiveOrchestrations(prisma: PrismaLike, workspaceId: string, activeStates: string[], mode?: string): Promise<number> {
+  return (await prisma.aiOrchestration.count({ where: { workspaceId, state: { in: activeStates }, ...(mode ? { mode } : {}) } })) as number;
+}
+
 export async function getOrchestration(prisma: PrismaLike, workspaceId: string, id: string): Promise<Orchestration | null> {
   return (await prisma.aiOrchestration.findFirst({ where: { id, workspaceId } })) as Orchestration | null;
 }

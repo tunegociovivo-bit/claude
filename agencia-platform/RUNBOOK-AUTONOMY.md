@@ -54,6 +54,33 @@ En Railway → Variables → añade `OPENAI_API_KEY` **copiándola directamente 
 - **Programa el cron** para el entrypoint (§6). Empieza con cadencia baja (p.ej. cada 2–5 min) y observa: coste real por orquestación, trips del breaker, escaladas, latencia, 429, tamaño del lote. Amplía **solo** si hay verde sostenido.
 - Mantén A2+ y cualquier acción sensible en `approval_required`: solo procede con una fila `AiApproval` **sensible, específica, con TTL, cap no nulo y scope concreto** (endpoint `POST /api/v1/ai/approvals`, auditada en `AiApprovalEvent`). Una aprobación amplia/no-sensible NO cubre un A4.
 
+## 5.1. Encolar un run LIVE A0/A1 — endpoint productivo (implementado)
+`POST /api/v1/ai/orchestrations/enqueue` es la pieza que crea una orquestación **`mode:"live"`, `state:"queued"`, `nextRunAt=now`** para que el `/tick` (§6) la procese. **Admin autenticado + tenant-scoped** (`withApi({admin:true})` + `requireAdmin`). Fail-closed: `AI_RUN_ORCHESTRATOR` off → **404**.
+
+Invariantes (todas verificadas en tests):
+- **Tenant:** el `workspaceId` lo fija SIEMPRE el servidor (`api.workspaceId`); un `workspaceId` en el body se **ignora**.
+- **Solo A0/A1:** `autonomy` debe ser `"A0"` o `"A1"`. **A2/A3/A4 → 422 `requires_approval`** (los efectos requieren aprobación previa + ejecutor aparte; el scheduler nunca ejecuta efectos).
+- **Verificable objetivamente:** `taskType` + `verification` se validan estrictamente (`validateVerificationSpec`); un tipo sin verificador o una spec sin criterio objetivo → **422 `invalid_verification`**.
+- **Idempotente por `taskId`** (`@@unique([workspaceId, taskId])`): un reintento no duplica; devuelve la existente con `created:false` (incluso al tope de concurrencia).
+- **Límites acotados:** el cliente solo puede pedir **≤** el techo del canary (`AI_CANARY_MAX_*`); nunca más.
+- **Tope de concurrencia** por workspace: `AI_ENQUEUE_ACTIVE_CAP` (def 25) runs vivos → si se supera, **429 `too_many_active`**.
+- **Auditoría:** paso append-only `phase:"enqueued"` (sin PII) + log de servidor. El `objective`/`system` se **redactan** (PII) antes de persistir; el adaptador vuelve a redactar antes de cualquier egress.
+
+Payload (canary resumen seguro, sin efectos):
+```
+POST https://<dominio-prod>/api/v1/ai/orchestrations/enqueue
+Cookie/Authorization de ADMIN del workspace   (no un token de cron)
+Content-Type: application/json
+{
+  "taskId": "canary-2026-08-12-01",     // idempotencia
+  "autonomy": "A1",                      // A0 o A1 únicamente
+  "taskType": "resumen",
+  "objective": "Resume en 5 líneas el siguiente texto: <texto interno redactable>",
+  "verification": { "mustCoverKeyPoints": ["punto 1", "punto 2"] }
+}
+```
+Respuesta `201` → `{ id, taskId, created:true, mode:"live", state:"queued", nextRunAt, autonomy, taskType, verifierType, limits }`. Luego el `/tick` (§6) lo ejecutará: una **llamada de modelo real** (A0/A1), verificación objetiva, y si se resuelve tras un fallo, **aprendizaje durable** (§Aprendizaje). Verifica el progreso con `GET /api/v1/ai/orchestrations/<id>` y lo aprendido con `GET /api/v1/ai/learning`.
+
 ## 6. Entrypoint del scheduler (cron) — implementado
 `POST /api/v1/ai/orchestrations/tick` procesa un lote acotado (claim con lease → avance por fases con presupuesto de tiempo), reanuda runs tras reinicio y NUNCA ejecuta efectos. Auth de cron **fail-closed** (`INTERNAL_CRON_TOKEN`/`CRON_SECRET`, tiempo constante) + flag `AI_RUN_ORCHESTRATOR`.
 - **Programa el cron** desde tu sesión autenticada (Railway cron, o el workflow de GitHub Actions que ya usáis para otros crons), llamando:

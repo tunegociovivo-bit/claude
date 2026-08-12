@@ -183,7 +183,110 @@ function verifyComment(output: string, spec?: VerificationSpec | null): VerifyRe
   };
   const missing = refs.filter((r) => !present(r));
   const ev = { requiredRefs: refs.length, presentRefs: refs.length - missing.length, missing: missing.length };
-  return missing.length === 0 ? objOk(t, ev) : softFail(t, ev);
+  if (missing.length > 0) return softFail(t, ev);
+  // Anti-eco: un comentario que SOLO repite los identificadores requeridos (sin contenido
+  // propio) es un éxito manufacturable → NO se marca verificado (no envenena el aprendizaje).
+  const refWords = new Set(refs.flatMap((r) => norm(r).split(" ")).filter((w) => w.length > 0));
+  const nonRef = contentWords(nOut).filter((w) => !refWords.has(w)).length;
+  if (nonRef < 3) return unverifiable(t, "posible eco de referencias (contenido insuficiente)");
+  return objOk(t, ev);
+}
+
+export type VerifierType = "summary" | "report" | "structured" | "comment" | "none";
+
+/** Mapea un `taskType` libre al verificador objetivo que le corresponde (mismo
+ *  despacho que `verifyResult`). "none" ⇒ NO hay verificación objetiva segura. */
+export function verifierTypeFor(taskType?: string | null): VerifierType {
+  const type = norm(taskType ?? "");
+  if (/(summary|resumen|analisis|analysis)/.test(type)) return "summary";
+  if (/(report|informe|document|documento)/.test(type)) return "report";
+  if (/(extracc|extract|listado|listing|structured|estructurad)/.test(type)) return "structured";
+  if (/(comment|comentario|update|actualizac|nota|note)/.test(type)) return "comment";
+  return "none";
+}
+
+export type SpecValidation = { ok: true; verifierType: VerifierType; spec: VerificationSpec } | { ok: false; error: string };
+
+/** Array de strings NO vacías (tras trim). Devuelve null si algún elemento no es
+ *  string/queda vacío, o si el array acaba vacío. */
+function cleanStrings(v: any): string[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const out: string[] = [];
+  for (const x of v) {
+    if (typeof x !== "string") return null;
+    const t = x.trim();
+    if (!t) return null;
+    out.push(t);
+  }
+  return out;
+}
+function ratio01(v: any): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : null;
+}
+
+/**
+ * Validación ESTRICTA (pura) de la pareja (taskType, verification) ANTES de encolar un
+ * run LIVE. Garantiza que el resultado SERÁ objetivamente verificable (nunca por
+ * longitud/no-vacío) — si no, el run no se acepta. Rechaza tipos sin verificador y specs
+ * que no aportan un criterio objetivo. Devuelve el spec NORMALIZADO (trim/clamp) que se
+ * persiste en `plan.verification`. No muta la entrada.
+ */
+export function validateVerificationSpec(taskType: string | null | undefined, raw: any): SpecValidation {
+  const vt = verifierTypeFor(taskType);
+  if (vt === "none") return { ok: false, error: "taskType sin verificador objetivo (usa resumen/análisis, informe/documento, extracción/listado o comentario/actualización)" };
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "verification debe ser un objeto con el criterio objetivo del tipo" };
+
+  const spec: VerificationSpec = {};
+  // Común: cadenas prohibidas (opcional, pero si viene debe ser válida).
+  if (raw.mustNotContain != null) {
+    const mnc = cleanStrings(raw.mustNotContain);
+    if (!mnc) return { ok: false, error: "mustNotContain debe ser un array de strings no vacías" };
+    spec.mustNotContain = mnc;
+  }
+
+  if (vt === "summary") {
+    const pts = cleanStrings(raw.mustCoverKeyPoints);
+    if (!pts) return { ok: false, error: "resumen/análisis requiere mustCoverKeyPoints: string[] no vacío" };
+    spec.mustCoverKeyPoints = pts;
+    if (raw.minCoveredRatio != null) {
+      const r = ratio01(raw.minCoveredRatio);
+      if (r == null) return { ok: false, error: "minCoveredRatio debe estar en (0,1]" };
+      spec.minCoveredRatio = r;
+    }
+    if (raw.sourceLength != null) {
+      const s = Number(raw.sourceLength);
+      if (!Number.isFinite(s) || s <= 0) return { ok: false, error: "sourceLength debe ser un número > 0" };
+      spec.sourceLength = Math.floor(s);
+    }
+    if (raw.sourceMaxRatio != null) {
+      const r = ratio01(raw.sourceMaxRatio);
+      if (r == null) return { ok: false, error: "sourceMaxRatio debe estar en (0,1]" };
+      spec.sourceMaxRatio = r;
+    }
+  } else if (vt === "report") {
+    const secs = cleanStrings(raw.requiredSections);
+    if (!secs) return { ok: false, error: "informe/documento requiere requiredSections: string[] no vacío" };
+    spec.requiredSections = secs;
+  } else if (vt === "structured") {
+    if (raw.format !== "json" && raw.format !== "csv") return { ok: false, error: "extracción/listado requiere format 'json' o 'csv'" };
+    spec.format = raw.format;
+    if (raw.requiredFields != null) {
+      const rf = cleanStrings(raw.requiredFields);
+      if (!rf) return { ok: false, error: "requiredFields debe ser un array de strings no vacías" };
+      spec.requiredFields = rf;
+    }
+    if (raw.minItems != null) {
+      const m = Number(raw.minItems);
+      if (!Number.isFinite(m) || m < 1) return { ok: false, error: "minItems debe ser un entero >= 1" };
+      spec.minItems = Math.floor(m);
+    }
+  } else if (vt === "comment") {
+    const refs = cleanStrings(raw.mustReference);
+    if (!refs) return { ok: false, error: "comentario/actualización requiere mustReference: string[] no vacío" };
+    spec.mustReference = refs;
+  }
+  return { ok: true, verifierType: vt, spec };
 }
 
 /** Punto de entrada: prohibiciones comunes + despacho por tipo de tarea. */

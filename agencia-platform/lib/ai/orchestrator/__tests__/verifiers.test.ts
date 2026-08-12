@@ -4,7 +4,7 @@
  * softFail (reintenta, NO aprende). Negativa/estructura rota → objFail (aprende).
  */
 import { describe, it, expect } from "vitest";
-import { verifyResult } from "../verifiers";
+import { verifyResult, validateVerificationSpec, verifierTypeFor } from "../verifiers";
 
 describe("resumen/análisis — cobertura + anti-eco + compresión", () => {
   const spec = { mustCoverKeyPoints: ["beneficio neto", "flujo de caja", "deuda financiera"] };
@@ -118,5 +118,52 @@ describe("común / dispatcher", () => {
     const r = verifyResult({ taskType: "informe", output: out, spec: { requiredSections: ["Introducción", "Resultados", "Conclusión"] } });
     expect(r.verified).toBe(true); // los marcadores de error legítimos no lo tumban
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("validateVerificationSpec — gate ESTRICTO para encolar LIVE", () => {
+  it("mapea taskType → verificador (o none)", () => {
+    expect(verifierTypeFor("resumen")).toBe("summary");
+    expect(verifierTypeFor("informe")).toBe("report");
+    expect(verifierTypeFor("extraccion")).toBe("structured");
+    expect(verifierTypeFor("comentario")).toBe("comment");
+    expect(verifierTypeFor("cosa_rara")).toBe("none");
+    expect(verifierTypeFor(null)).toBe("none");
+  });
+  it("tipo sin verificador objetivo → rechazado", () => {
+    expect(validateVerificationSpec("cosa_rara", { mustCoverKeyPoints: ["x"] })).toMatchObject({ ok: false });
+  });
+  it("verification no-objeto → rechazado", () => {
+    expect(validateVerificationSpec("resumen", null)).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("resumen", [1, 2])).toMatchObject({ ok: false });
+  });
+  it("resumen: requiere mustCoverKeyPoints no vacío; normaliza (trim) y clampa ratios", () => {
+    expect(validateVerificationSpec("resumen", {})).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: [] })).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["  a  ", "b"] })).toMatchObject({ ok: true, verifierType: "summary", spec: { mustCoverKeyPoints: ["a", "b"] } });
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["a"], minCoveredRatio: 1.5 })).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["a"], sourceLength: -1 })).toMatchObject({ ok: false });
+  });
+  it("elementos no-string o vacíos en el array → rechazado", () => {
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["a", 3] })).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["a", "  "] })).toMatchObject({ ok: false });
+  });
+  it("informe: requiere requiredSections no vacío", () => {
+    expect(validateVerificationSpec("informe", {})).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("informe", { requiredSections: ["Intro", "Fin"] })).toMatchObject({ ok: true, verifierType: "report" });
+  });
+  it("estructurado: requiere format json|csv; minItems>=1; requiredFields válidos", () => {
+    expect(validateVerificationSpec("extraccion", {})).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("extraccion", { format: "xml" })).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("extraccion", { format: "json", minItems: 0 })).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("extraccion", { format: "json", requiredFields: ["nombre"], minItems: 2 })).toMatchObject({ ok: true, spec: { format: "json", minItems: 2 } });
+  });
+  it("comentario: requiere mustReference no vacío", () => {
+    expect(validateVerificationSpec("comentario", {})).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("comentario", { mustReference: ["TICKET-1"] })).toMatchObject({ ok: true, verifierType: "comment" });
+  });
+  it("mustNotContain, si viene, debe ser array de strings no vacías", () => {
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["a"], mustNotContain: [""] })).toMatchObject({ ok: false });
+    expect(validateVerificationSpec("resumen", { mustCoverKeyPoints: ["a"], mustNotContain: ["SECRETO"] })).toMatchObject({ ok: true, spec: { mustNotContain: ["SECRETO"] } });
   });
 });
