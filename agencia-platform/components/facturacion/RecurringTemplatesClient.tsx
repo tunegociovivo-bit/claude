@@ -39,6 +39,7 @@ export default function RecurringTemplatesClient() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const PAUSE_UI = process.env.NEXT_PUBLIC_RECURRING_PAUSE === "on";
+  const READINESS_UI = process.env.NEXT_PUBLIC_RECURRING_ENGINE === "on";
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const load = useCallback(() => {
@@ -82,6 +83,7 @@ export default function RecurringTemplatesClient() {
 
       <ImportWizard onImported={load} />
       <BackfillPanel onChanged={load} />
+      {READINESS_UI && <ReadinessPanel />}
       {PAUSE_UI && (
         <>
           <PausePanel selectedIds={[...selected]} onChanged={() => { setSelected(new Set()); load(); }} />
@@ -512,6 +514,82 @@ function HoldedChecklistPanel({ selectedIds, onChanged }: { selectedIds: string[
           Marcar {selectedIds.length} como pausadas en Holded (verificado)
         </button>
         {msg && <p className="text-xs text-slate-700" role="status">{msg}</p>}
+      </div>
+    </details>
+  );
+}
+
+type ReconCell = { key: string; templateKey: string; period: string; status: string; hubCents: number | null; legacyCents: number | null };
+type Readiness = { match: number; amountMismatch: number; onlyHub: number; onlyLegacy: number; matchRate: number; readiness: "ready" | "review" | "not_ready"; cells: ReconCell[]; windowMonths: number; note?: string };
+
+const VERDICT: Record<string, { label: string; cls: string }> = {
+  ready: { label: "Listo (dual-run coincide)", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  review: { label: "Revisar (huecos)", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  not_ready: { label: "No listo (difieren importes)", cls: "bg-rose-50 text-rose-700 border-rose-200" }
+};
+const CELL_LABEL: Record<string, string> = { match: "Coincide", amount_mismatch: "Importe distinto", only_legacy: "Solo en el legado (hueco)", only_hub: "Solo en el Hub" };
+
+function ReadinessPanel() {
+  const [data, setData] = useState<Readiness | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const run = useCallback(() => {
+    setBusy(true); setMsg(null);
+    fetch("/api/v1/facturacion/recurring-templates/readiness", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => (d?.error ? setMsg(d.error.message) : setData(d)))
+      .catch(() => setMsg("No se pudo calcular la reconciliación."))
+      .finally(() => setBusy(false));
+  }, []);
+
+  return (
+    <details className="rounded-xl border bg-white">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-800 inline-flex items-center gap-2">
+        <CheckCircle2 aria-hidden className="h-4 w-4 text-slate-500" /> Readiness — comparar Hub (shadow) vs legado
+      </summary>
+      <div className="px-4 pb-4 space-y-3">
+        <p className="text-xs text-slate-500">
+          Simulación de <strong>solo lectura</strong>: compara lo que el motor del Hub previsualizaría con lo que el sistema
+          anterior ya emitió, por plantilla, mes e importe. <strong>No activa el Hub, no toca Holded, no emite nada.</strong>
+        </p>
+        <button type="button" disabled={busy} onClick={run} className="px-3 py-1.5 rounded-lg border text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1">
+          {busy ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw aria-hidden className="h-3.5 w-3.5" />} Calcular reconciliación
+        </button>
+        {msg && <p className="text-xs text-slate-700" role="status">{msg}</p>}
+        {data && (
+          <div className="text-xs space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`px-2 py-0.5 rounded-full border ${VERDICT[data.readiness]?.cls ?? ""}`}>{VERDICT[data.readiness]?.label ?? data.readiness}</span>
+              <span className="text-slate-500">últimos {data.windowMonths} meses · coincidencia {Math.round(data.matchRate * 100)}%</span>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <span className="text-emerald-700">Coinciden: {data.match}</span>
+              <span className="text-rose-700">Importe distinto: {data.amountMismatch}</span>
+              <span className="text-amber-700">Huecos (solo legado): {data.onlyLegacy}</span>
+              <span className="text-slate-500">Solo Hub: {data.onlyHub}</span>
+            </div>
+            {data.cells.filter((c) => c.status !== "match" && c.status !== "only_hub").length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead><tr className="text-left text-slate-400 border-b"><th className="py-1 pr-2">Plantilla</th><th className="py-1 pr-2">Mes</th><th className="py-1 pr-2">Estado</th><th className="py-1 pr-2">Hub</th><th className="py-1 pr-2">Legado</th></tr></thead>
+                  <tbody>
+                    {data.cells.filter((c) => c.status !== "match" && c.status !== "only_hub").slice(0, 30).map((c) => (
+                      <tr key={c.key} className="border-b last:border-0">
+                        <td className="py-1 pr-2 font-mono">{c.templateKey.slice(0, 12)}</td>
+                        <td className="py-1 pr-2">{c.period}</td>
+                        <td className="py-1 pr-2">{CELL_LABEL[c.status] ?? c.status}</td>
+                        <td className="py-1 pr-2 tabular-nums">{c.hubCents != null ? eur(c.hubCents) : "—"}</td>
+                        <td className="py-1 pr-2 tabular-nums">{c.legacyCents != null ? eur(c.legacyCents) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-[11px] text-slate-400">No actives el Hub mientras Holded siga emitiendo estas recurrentes (riesgo de doble factura). Esta pantalla no activa nada.</p>
+          </div>
+        )}
       </div>
     </details>
   );
