@@ -49,13 +49,18 @@ Validación shadow (sin efectos externos):
 En Railway → Variables → añade `OPENAI_API_KEY` **copiándola directamente desde la bóveda `/admin/secretos` en la UI**, sin mostrarla ni pegarla en chat/logs. Anthropic ya está. Gemini/Perplexity se quedan sin clave → `unhealthy` → el routing los salta (no bloquean el failover). No hace falta nada más para ellos.
 
 ## 5. Canary real MUY limitado (A0/A1, sin efectos) — solo con evidencia verde del paso 3
-> El canary "real" hace llamadas de **modelo** reales (datos redactados salen al proveedor); **NO** ejecuta efectos A2+ (mensajes/publicaciones/borrados/compras/pagos/fiscal/emisión/envío/cobro), que siguen en `approval_required` fail-closed.
-- Activa `AI_MULTIMODEL=on` y (cuando exista el entrypoint del scheduler, ver §6) arranca el worker con presupuestos **muy bajos**: `maxAttempts` bajo, `maxCostUsd`/`maxTokens`/`maxWallMs` mínimos, límite a tareas A0/A1 de bajo riesgo, sin herramientas de efecto.
-- Vigila: coste real por orquestación, trips del breaker, escaladas, latencia, 429. Amplía **solo** si hay verde sostenido.
-- Mantén A2+ y cualquier acción sensible en `approval_required`: solo procede con una fila `AiApproval` **específica, con TTL, cap no nulo y scope concreto** (endpoint `POST /api/v1/ai/approvals`, auditada en `AiApprovalEvent`).
+> El canary "real" hace llamadas de **modelo** reales (datos redactados salen al proveedor); **NO** ejecuta efectos A2+ (mensajes/publicaciones/borrados/compras/pagos/fiscal/emisión/envío/cobro), que siguen en `approval_required` fail-closed. El scheduler NUNCA ejecuta herramientas de efecto por sí solo.
+- Activa `AI_MULTIMODEL=on` (Anthropic/OpenAI con clave se vuelven live; Gemini/Perplexity siguen unhealthy). Presupuestos de canary MUY bajos por env (ver §7): `AI_CANARY_MAX_ATTEMPTS`, `AI_CANARY_MAX_COST_USD`, `AI_CANARY_MAX_TOKENS`, `AI_CANARY_MAX_WALL_MS`, `AI_ATTEMPT_DEADLINE_MS`.
+- **Programa el cron** para el entrypoint (§6). Empieza con cadencia baja (p.ej. cada 2–5 min) y observa: coste real por orquestación, trips del breaker, escaladas, latencia, 429, tamaño del lote. Amplía **solo** si hay verde sostenido.
+- Mantén A2+ y cualquier acción sensible en `approval_required`: solo procede con una fila `AiApproval` **sensible, específica, con TTL, cap no nulo y scope concreto** (endpoint `POST /api/v1/ai/approvals`, auditada en `AiApprovalEvent`). Una aprobación amplia/no-sensible NO cubre un A4.
 
-## 6. Pieza pendiente antes del canary: entrypoint del scheduler
-El **núcleo** del worker está implementado y probado (`lib/ai/orchestrator/worker.ts`: `claimDue`/lease/`stepOrchestration`/`resume*`) y el runtime de seguridad (`runtime.ts`: `withDeadline`, `serializedProbe` con lock por proveedor, `chooseProvider`). **Falta** el cableado del *entrypoint* que los invoca periódicamente y el `runStep` que une controller+adapters+deadline en un paso real — se valida con la BD ya desplegada (paso 2). Hasta que exista y esté validado, **el canary real permanece apagado**; shadow (§3) es totalmente funcional sin él.
+## 6. Entrypoint del scheduler (cron) — implementado
+`POST /api/v1/ai/orchestrations/tick` procesa un lote acotado (claim con lease → avance por fases con presupuesto de tiempo), reanuda runs tras reinicio y NUNCA ejecuta efectos. Auth de cron **fail-closed** (`INTERNAL_CRON_TOKEN`/`CRON_SECRET`, tiempo constante) + flag `AI_RUN_ORCHESTRATOR`.
+- **Programa el cron** desde tu sesión autenticada (Railway cron, o el workflow de GitHub Actions que ya usáis para otros crons), llamando:
+  `POST https://<dominio-prod>/api/v1/ai/orchestrations/tick` con cabecera `Authorization: Bearer <INTERNAL_CRON_TOKEN>` (nunca imprimas el token).
+- Con `AI_RUN_ORCHESTRATOR=off` el endpoint responde `{disabled:true}` sin tocar nada. Con `on` pero `AI_MULTIMODEL=off`/modo shadow, el lote corre en SHADOW (sin llamadas reales) — ideal para validar el bucle end-to-end antes del canary live.
+- **Kill-switch operativo:** `HUB_AUTONOMY_KILL=on` → el scheduler cancela (parada segura) cualquier run que procese, sin ejecutar nada.
+- **Nota de durabilidad:** el circuit breaker y el lock son POR PROCESO (una réplica de cron single-flight). Suficiente para el canary; un breaker/lock durable cross-proceso (advisory lock/Redis + tabla) es mejora posterior — la interfaz ya está lista.
 
 ## Kill-switch / rollback en cualquier momento
 - **Parada suave:** pon `AI_RUN_ORCHESTRATOR=off` (y `AI_MULTIMODEL=off`). Rutas 404, hook no-op, worker no toma trabajo. Sin migración de datos.
