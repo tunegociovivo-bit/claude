@@ -55,12 +55,17 @@ export function resumeContext(orch: Orchestration): { usage: any; fingerprints: 
   return { usage, fingerprints, strategyLabel: orch.strategy ?? null };
 }
 
-/** Libera el lease de una orquestación (al terminar el paso o al soltarla). */
-export async function releaseLease(prisma: PrismaLike, orch: { id: string; workspaceId: string }): Promise<void> {
-  await prisma.aiOrchestration.updateMany({
-    where: { id: orch.id, workspaceId: orch.workspaceId },
+/**
+ * Libera el lease SOLO si seguimos siendo el dueño (`leaseOwner`). Guard imprescindible:
+ * si nuestro lease expiró y OTRO worker re-tomó la fila, no debemos borrar SU lease
+ * (si lo hiciéramos, un tercer worker la tomaría en paralelo → doble procesamiento).
+ */
+export async function releaseLease(prisma: PrismaLike, orch: { id: string; workspaceId: string; leaseOwner?: string | null }): Promise<{ released: boolean }> {
+  const res = await prisma.aiOrchestration.updateMany({
+    where: { id: orch.id, workspaceId: orch.workspaceId, leaseOwner: orch.leaseOwner ?? null },
     data: { leaseOwner: null, leaseExpiresAt: null }
   });
+  return { released: res.count === 1 };
 }
 
 /**
@@ -106,8 +111,10 @@ export async function stepOrchestration(
     expectedVersion: orch.version,
     patch: next.patch
   });
-  // Al terminar el paso, si el estado es terminal soltamos el lease del todo.
-  if (isTerminal(next.to)) await releaseLease(prisma, orch);
+  // Solo tocamos el lease si NUESTRA transición aplicó (res.ok = éramos el dueño de la
+  // versión). Si otro worker re-tomó la fila (nuestro lease expiró), res.ok es false y
+  // NO tocamos su lease. Al alcanzar estado terminal, liberamos con guard de dueño.
   if (!res.ok) return { ok: false, reason: res.reason };
+  if (isTerminal(next.to)) await releaseLease(prisma, orch);
   return { ok: true, to: next.to };
 }

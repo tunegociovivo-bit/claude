@@ -70,16 +70,21 @@ describe("approvals — nunca implícita", () => {
     expect(actionMatches("stripe.*", "stripe.refund")).toBe(true);
     expect(actionMatches("stripe.refund", "stripe.charge")).toBe(false);
   });
-  it("G6: acción SENSIBLE no la cubre una aprobación amplia (comodín/scope*/tope nulo)", () => {
+  it("G6: acción SENSIBLE no la cubre una aprobación amplia (comodín/scope*/tope nulo/no-sensible/prefijo)", () => {
     const now = NOW;
+    const sreq = { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true };
     // action "*" no cubre sensible
-    expect(evaluateApproval([a({ action: "*", scope: "c1", maxAmountCents: 1000 })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(false);
+    expect(evaluateApproval([a({ action: "*", scope: "c1", sensitive: true, maxAmountCents: 1000 })], sreq, now).approved).toBe(false);
     // scope "*" no cubre sensible
-    expect(evaluateApproval([a({ scope: "*", maxAmountCents: 1000 })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(false);
+    expect(evaluateApproval([a({ scope: "*", sensitive: true, maxAmountCents: 1000 })], sreq, now).approved).toBe(false);
     // importe presente pero tope nulo → no cubre sensible
-    expect(evaluateApproval([a({ scope: "c1", maxAmountCents: null })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(false);
-    // aprobación específica y acotada SÍ cubre
-    expect(evaluateApproval([a({ scope: "c1", maxAmountCents: 1000 })], { action: "send_whatsapp_message", scope: "c1", amountCents: 10, sensitive: true }, now).approved).toBe(true);
+    expect(evaluateApproval([a({ scope: "c1", sensitive: true, maxAmountCents: null })], sreq, now).approved).toBe(false);
+    // aprobación NO sensible (aunque coincida por glob) NO cubre una acción sensible
+    expect(evaluateApproval([a({ action: "send_whatsapp_message", scope: "c1", sensitive: false, maxAmountCents: 1000 })], sreq, now).approved).toBe(false);
+    // aprobación por PREFIJO comodín no cubre sensible aunque sea sensitive
+    expect(evaluateApproval([a({ action: "send_whatsapp.*", scope: "c1", sensitive: true, maxAmountCents: 1000 })], { ...sreq, action: "send_whatsapp.message" }, now).approved).toBe(false);
+    // aprobación SENSIBLE, exacta, con scope y tope → SÍ cubre
+    expect(evaluateApproval([a({ scope: "c1", sensitive: true, maxAmountCents: 1000 })], sreq, now).approved).toBe(true);
   });
 });
 

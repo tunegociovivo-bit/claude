@@ -45,13 +45,9 @@ export const POST = withApi({ scope: "*", rate: "admin", admin: true }, async (r
   const expiresAtMs = Date.parse(body?.expiresAt ?? "");
   const expiresAt = Number.isFinite(expiresAtMs) ? new Date(expiresAtMs) : null;
 
-  const check = validateApprovalGrant({ action, scope, maxAmountCents, maxVolume, expiresAt, reason, sensitive });
+  const check = validateApprovalGrant({ action, scope, maxAmountCents, maxVolume, expiresAt, reason, sensitive, now: new Date() });
   if (!check.ok) {
     return NextResponse.json({ error: { code: "invalid_grant", message: check.error } }, { status: 400 });
-  }
-  // expiresAt debe ser futuro (TTL real).
-  if (expiresAt!.getTime() <= Date.now()) {
-    return NextResponse.json({ error: { code: "invalid_grant", message: "expiresAt debe ser futuro" } }, { status: 400 });
   }
 
   const { id } = await grantApproval(prisma, {

@@ -99,9 +99,11 @@ describe("stepOrchestration — avance de un paso", () => {
     expect(r.to).toBe("cancelled");
     expect(prisma._rows[0].state).toBe("cancelled");
   });
-  it("estado terminal → libera lease", async () => {
-    const prisma = mkPrisma([orch({ state: "executing", leaseOwner: "w", leaseExpiresAt: future })]);
-    await stepOrchestration(prisma as any, { runStep: async () => ({ to: "completed" }) }, orch({ state: "executing" }) as any);
+  it("estado terminal → libera lease (siendo el dueño)", async () => {
+    const prisma = mkPrisma([orch({ state: "verifying", leaseOwner: "w", leaseExpiresAt: future })]);
+    const r = await stepOrchestration(prisma as any, { runStep: async () => ({ to: "completed" }) }, orch({ state: "verifying", leaseOwner: "w" }) as any);
+    expect(r.ok).toBe(true);
+    expect(prisma._rows[0].state).toBe("completed");
     expect(prisma._rows[0].leaseOwner).toBeNull();
   });
   it("no avanza una orquestación ya terminal", async () => {
@@ -109,5 +111,22 @@ describe("stepOrchestration — avance de un paso", () => {
     const r = await stepOrchestration(prisma as any, { runStep: async () => ({ to: "executing" }) }, orch({ state: "completed" }) as any);
     expect(r.ok).toBe(false);
     expect(r.reason).toBe("terminal");
+  });
+  it("HIGH: worker con lease EXPIRADO cuya transición falla NO borra el lease del nuevo dueño", async () => {
+    // La fila ya fue re-tomada por worker-B (version 6, dueño B). Worker-A (stale, v5)
+    // intenta cerrar: su transition falla (count 0) y NO debe tocar el lease de B.
+    const prisma = mkPrisma([orch({ state: "verifying", version: 6, leaseOwner: "worker-B", leaseExpiresAt: future })]);
+    const stale = orch({ state: "verifying", version: 5, leaseOwner: "worker-A" });
+    const r = await stepOrchestration(prisma as any, { runStep: async () => ({ to: "completed" }) }, stale as any);
+    expect(r.ok).toBe(false); // stale
+    expect(prisma._rows[0].leaseOwner).toBe("worker-B"); // lease de B intacto
+    expect(prisma._rows[0].leaseExpiresAt).toBe(future);
+  });
+  it("releaseLease solo libera si seguimos siendo el dueño (guard de owner)", async () => {
+    const prisma = mkPrisma([orch({ state: "executing", leaseOwner: "worker-B", leaseExpiresAt: future })]);
+    const { releaseLease } = await import("../worker");
+    const r = await releaseLease(prisma as any, { id: "o1", workspaceId: "w1", leaseOwner: "worker-A" });
+    expect(r.released).toBe(false); // no somos B → no tocamos nada
+    expect(prisma._rows[0].leaseOwner).toBe("worker-B");
   });
 });

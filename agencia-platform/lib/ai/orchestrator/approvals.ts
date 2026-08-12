@@ -69,7 +69,10 @@ export function evaluateApproval(approvals: ApprovalRecord[], req: ApprovalReque
     // NO puede autorizarlas, aunque coincida por glob. Cierra el fail-open de la
     // *definición* de la aprobación (comodines / topes nulos).
     if (req.sensitive) {
-      if (a.action === "*") continue; // acción exacta o prefijo acotado, nunca "*"
+      // Una acción sensible SOLO la cubre una aprobación concedida COMO sensible: así
+      // una concesión amplia no-sensible (p.ej. "messages.*") jamás autoriza un A4.
+      if (!a.sensitive) continue;
+      if (a.action === "*" || a.action.endsWith(".*")) continue; // acción exacta, nunca comodín
       if (!a.scope || a.scope === "*") continue; // scope específico obligatorio
       // Si la petición conlleva importe/volumen, DEBE haber tope numérico (no null).
       if (typeof req.amountCents === "number" && typeof a.maxAmountCents !== "number") continue;
@@ -100,6 +103,7 @@ export function validateApprovalGrant(input: {
   expiresAt?: Date | string | null;
   reason?: string | null;
   sensitive?: boolean;
+  now?: Date | number; // para exigir TTL futuro (defensa en profundidad)
 }): GrantValidation {
   const action = (input.action ?? "").trim();
   if (!action) return { ok: false, error: "action requerida" };
@@ -107,6 +111,8 @@ export function validateApprovalGrant(input: {
   if (!input.reason || !input.reason.trim()) return { ok: false, error: "motivo (reason) requerido para auditoría" };
   const exp = ms(input.expiresAt ?? null);
   if (exp == null) return { ok: false, error: "caducidad (expiresAt) obligatoria: no hay aprobaciones eternas" };
+  const nowMs = input.now instanceof Date ? input.now.getTime() : typeof input.now === "number" ? input.now : null;
+  if (nowMs != null && exp <= nowMs) return { ok: false, error: "expiresAt debe ser futuro" };
   for (const [k, v] of [["maxAmountCents", input.maxAmountCents], ["maxVolume", input.maxVolume]] as const) {
     if (v != null && (!Number.isFinite(v) || (v as number) < 0)) return { ok: false, error: `${k} inválido` };
   }
