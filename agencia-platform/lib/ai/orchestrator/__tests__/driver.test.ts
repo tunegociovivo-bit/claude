@@ -72,7 +72,7 @@ describe("runAndPersistSimulation — persiste traza SHADOW tenant-scoped y ató
     expect(result.finalState).toBe("completed");
     expect(persistedSteps).toBe(result.steps.length);
     expect(prisma._steps.length).toBe(result.steps.length);
-    expect(prisma._steps.every((s) => s.workspaceId === "w1")).toBe(true);
+    expect(prisma._steps.every((s: any) => s.workspaceId === "w1")).toBe(true);
     expect(prisma._orch.state).toBe("completed");
     expect(prisma._orch.mode).toBe("shadow");
     // versión avanzó por el claim + update final (0 → 2)

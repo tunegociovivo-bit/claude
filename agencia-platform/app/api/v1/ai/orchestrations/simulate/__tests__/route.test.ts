@@ -107,7 +107,7 @@ describe("POST /api/v1/ai/orchestrations/simulate", () => {
     expect(body.steps).toBeGreaterThan(0);
     // se creó y se cerró en shadow, con el tenant del solicitante
     expect(prisma.aiOrchestration.create.mock.calls[0][0].data.workspaceId).toBe("w1");
-    expect(prisma._steps.every((s) => s.workspaceId === "w1")).toBe(true);
+    expect(prisma._steps.every((s: any) => s.workspaceId === "w1")).toBe(true);
     expect(prisma._orch.state).toBe("completed");
   });
 

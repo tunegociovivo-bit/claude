@@ -90,6 +90,21 @@ describe("controller.decideRecovery — la lógica de recuperación", () => {
     expect(d.to).toBe("decomposing");
     expect(d.strategy?.kind).toBe("decompose");
   });
+  it("MEDIUM-2: material tiene prioridad sobre presupuesto agotado (causa accionable)", () => {
+    const d = decideRecovery({ ...common, diagnosis: classifyFailure({ error: "falta credencial" }), usage: { attempts: 999, elapsedMs: 0, tokens: 0, costUsd: 0 } });
+    expect(d.to).toBe("materially_blocked");
+    expect(d.packet?.cause).toBe("missing_data"); // no "budget_exhausted"
+  });
+  it("MEDIUM-2: política tiene prioridad sobre bucle", () => {
+    const d = decideRecovery({ ...common, diagnosis: classifyFailure({ policyBlocked: true }), usage: usage0, fingerprintHistory: ["fp1", "fp1"], currentFingerprint: "fp1" });
+    expect(d.to).toBe("approval_required");
+    expect(d.packet?.cause).toBe("policy_approval"); // no "loop_detected"
+  });
+  it("kill-switch → cancelled por encima de todo", () => {
+    const d = decideRecovery({ ...common, diagnosis: classifyFailure({ error: "falta credencial" }), usage: { attempts: 999, elapsedMs: 0, tokens: 0, costUsd: 0 }, killSwitch: true });
+    expect(d.to).toBe("cancelled");
+    expect(d.packet?.cause).toBe("cancelled");
+  });
   it("sin estrategia distinta → materially_blocked (no_distinct_strategy)", () => {
     const tried: Strategy[] = [
       { kind: "decompose", provider: null, model: null, label: "d" },

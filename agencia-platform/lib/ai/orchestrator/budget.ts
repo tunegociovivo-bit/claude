@@ -41,18 +41,32 @@ export function sanitizeLimits(partial?: Partial<BudgetLimits>): BudgetLimits {
 }
 
 /** Evalúa el presupuesto. Determinista. El primer límite superado marca `reason`. */
+/** Uso seguro: un contador NaN/±Infinity significa que la contabilidad se rompió →
+ *  lo tratamos como AGOTADO (Infinity) para parar de forma fail-safe, nunca seguir
+ *  ilimitadamente. Un valor negativo (sin sentido) se satura a 0. */
+function safeUsage(v: number): number {
+  if (!Number.isFinite(v)) return Infinity;
+  return v < 0 ? 0 : v;
+}
+
 export function budgetStatus(usage: BudgetUsage, limits: BudgetLimits = DEFAULT_LIMITS): BudgetStatus {
+  const u = {
+    attempts: safeUsage(usage.attempts),
+    elapsedMs: safeUsage(usage.elapsedMs),
+    tokens: safeUsage(usage.tokens),
+    costUsd: safeUsage(usage.costUsd)
+  };
   const remaining = {
-    attempts: limits.maxAttempts - usage.attempts,
-    wallMs: limits.maxWallMs - usage.elapsedMs,
-    tokens: limits.maxTokens - usage.tokens,
-    costUsd: round4(limits.maxCostUsd - usage.costUsd)
+    attempts: limits.maxAttempts - u.attempts,
+    wallMs: limits.maxWallMs - u.elapsedMs,
+    tokens: limits.maxTokens - u.tokens,
+    costUsd: round4(limits.maxCostUsd - u.costUsd)
   };
   let reason: BudgetStatus["reason"] = null;
-  if (usage.attempts >= limits.maxAttempts) reason = "attempts";
-  else if (usage.elapsedMs >= limits.maxWallMs) reason = "wall";
-  else if (usage.tokens >= limits.maxTokens) reason = "tokens";
-  else if (usage.costUsd >= limits.maxCostUsd) reason = "cost";
+  if (u.attempts >= limits.maxAttempts) reason = "attempts";
+  else if (u.elapsedMs >= limits.maxWallMs) reason = "wall";
+  else if (u.tokens >= limits.maxTokens) reason = "tokens";
+  else if (u.costUsd >= limits.maxCostUsd) reason = "cost";
   return { exhausted: reason !== null, reason, remaining };
 }
 

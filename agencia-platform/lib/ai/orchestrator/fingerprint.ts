@@ -11,18 +11,21 @@ export type AttemptShape = {
   phase: string;
   strategy: string;
   diagnosis?: DiagnosisClass | null;
-  target?: string | null; // p.ej. acción/herramienta
+  target?: string | null; // p.ej. acción/herramienta o proveedor
+  model?: string | null; // el modelo cuenta: dos modelos de un proveedor NO son "el mismo intento"
   error?: string | null;
 };
 
-/** Normaliza texto: minúsculas, ids/uuids/números/tokens → placeholders. */
+/** Normaliza texto: minúsculas, ids/uuids/números/tokens → placeholders. Los números
+ *  se borran AUNQUE estén pegados a letras (task12345, shard7) para que "el mismo
+ *  fallo con un contador embebido" colisione y el detector de bucles no lo evada. */
 export function normalizeError(s: string | null | undefined): string {
   if (!s) return "";
   return s
     .toLowerCase()
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<uuid>")
     .replace(/\b[0-9a-f]{16,}\b/g, "<hex>")
-    .replace(/\b\d[\d.,]*\b/g, "<n>")
+    .replace(/\d[\d.,]*/g, "<n>")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 200);
@@ -36,7 +39,7 @@ export function stableHash(s: string): string {
 }
 
 export function fingerprint(a: AttemptShape): string {
-  const parts = [a.phase, a.strategy, a.diagnosis ?? "", a.target ?? "", normalizeError(a.error)];
+  const parts = [a.phase, a.strategy, a.diagnosis ?? "", a.target ?? "", a.model ?? "", normalizeError(a.error)];
   return stableHash(parts.join("|"));
 }
 

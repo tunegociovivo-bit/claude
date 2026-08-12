@@ -6,7 +6,7 @@
 import type { DiagnosisClass } from "./diagnosis";
 import type { Strategy } from "./strategy";
 
-export type EscalationCause = "missing_data" | "goal_conflict" | "budget_exhausted" | "policy_approval" | "loop_detected" | "no_distinct_strategy";
+export type EscalationCause = "missing_data" | "goal_conflict" | "budget_exhausted" | "policy_approval" | "loop_detected" | "no_distinct_strategy" | "cancelled";
 
 export type AttemptSummary = {
   seq: number;
@@ -37,7 +37,8 @@ const CAUSE_COPY: Record<EscalationCause, { title: string; decision: string }> =
   budget_exhausted: { title: "Presupuesto agotado tras varias estrategias", decision: "¿Amplío el presupuesto (tiempo/tokens/coste) o lo dejo aquí?" },
   policy_approval: { title: "La acción requiere tu aprobación", decision: "¿Apruebas esta acción (una vez o como política reutilizable) o la rechazas?" },
   loop_detected: { title: "Detecté un bucle sin avance", decision: "¿Reformulo el enfoque con tu guía o lo detengo?" },
-  no_distinct_strategy: { title: "No me quedan estrategias distintas", decision: "¿Sugieres un enfoque alternativo o lo detengo?" }
+  no_distinct_strategy: { title: "No me quedan estrategias distintas", decision: "¿Sugieres un enfoque alternativo o lo detengo?" },
+  cancelled: { title: "Detenido por kill-switch", decision: "La ejecución se detuvo por el kill-switch operativo; reactívalo cuando quieras reanudar." }
 };
 
 export function buildDecisionPacket(input: {

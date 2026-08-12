@@ -88,7 +88,7 @@ export function simulateRun(scenario: AttemptOutcome[], config: SimConfig = {}):
     }
 
     push("diagnosing", { diagnosis: diag.class });
-    const fp = fingerprint({ phase: "executing", strategy: strategy.kind, diagnosis: diag.class, target: strategy.provider, error: a.diagnosis?.error });
+    const fp = fingerprint({ phase: "executing", strategy: strategy.kind, diagnosis: diag.class, target: strategy.provider, model: strategy.model, error: a.diagnosis?.error });
     const decision = decideRecovery({
       diagnosis: diag,
       usage,

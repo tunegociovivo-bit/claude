@@ -25,6 +25,9 @@ export type RecoveryInput = {
   attempts: AttemptSummary[];
   backoff?: BackoffOpts;
   rand?: () => number;
+  /** Kill-switch operativo: si está activo, cualquier decisión es `cancelled`
+   *  (parada segura), por encima de todo lo demás. Propagado por el worker/loop. */
+  killSwitch?: boolean;
 };
 
 export type RecoveryDecision = {
@@ -37,18 +40,50 @@ export type RecoveryDecision = {
 
 /**
  * Decide qué hacer tras un fallo (estado `diagnosing`). Orden de comprobaciones:
- *   1) presupuesto agotado → budget_exhausted (+packet)
- *   2) bucle detectado → materially_blocked (+packet loop)
- *   3) diagnóstico material (missing_data/goal_conflict) → materially_blocked (+packet)
- *   4) política → approval_required (+packet)
+ *   0) kill-switch → cancelled (parada segura, por encima de todo)
+ *   1) diagnóstico material (missing_data/goal_conflict) → materially_blocked (+packet)
+ *   2) política → approval_required (+packet)
+ *   3) presupuesto agotado → budget_exhausted (+packet)
+ *   4) bucle detectado → materially_blocked (+packet loop)
  *   5) estrategia distinta disponible → decomposing | waiting_backoff (+strategy)
  *   6) sin estrategia distinta → materially_blocked (+packet)
+ * Material/política van ANTES que presupuesto/bucle: una causa accionable (falta una
+ * credencial, requiere aprobación) debe surgir al humano tal cual, no enmascarada como
+ * "amplía el presupuesto" / "estás en bucle" cuando ambos coinciden (MEDIUM-2).
  * Determinista dado `rand` (por defecto Math.random para el jitter).
  */
 export function decideRecovery(input: RecoveryInput): RecoveryDecision {
   const { diagnosis, usage, limits, attempts, strategyCtx } = input;
 
-  // 1) Presupuesto
+  // 0) Kill-switch operativo → parada segura inmediata.
+  if (input.killSwitch) {
+    return {
+      to: "cancelled",
+      reason: "Kill-switch activo: parada segura",
+      packet: buildDecisionPacket({ cause: "cancelled", diagnosis: "Detenido por kill-switch operativo.", attempts, triedStrategies: strategyCtx.tried })
+    };
+  }
+
+  // 1) Material (accionable): prioridad sobre presupuesto/bucle.
+  if (diagnosis.material) {
+    const cause = diagnosis.class === "goal_conflict" ? "goal_conflict" : "missing_data";
+    return {
+      to: "materially_blocked",
+      reason: diagnosis.reason,
+      packet: buildDecisionPacket({ cause, diagnosis: diagnosis.reason, attempts, triedStrategies: strategyCtx.tried })
+    };
+  }
+
+  // 2) Política → aprobación (accionable): prioridad sobre presupuesto/bucle.
+  if (diagnosis.class === "policy") {
+    return {
+      to: "approval_required",
+      reason: "Requiere aprobación de política",
+      packet: buildDecisionPacket({ cause: "policy_approval", diagnosis: diagnosis.reason, attempts, triedStrategies: strategyCtx.tried })
+    };
+  }
+
+  // 3) Presupuesto
   const budget = budgetStatus(usage, limits);
   if (budget.exhausted) {
     return {
@@ -63,7 +98,7 @@ export function decideRecovery(input: RecoveryInput): RecoveryDecision {
     };
   }
 
-  // 2) Bucle
+  // 4) Bucle
   if (isLooping(input.fingerprintHistory, input.currentFingerprint, input.loopThreshold ?? 3)) {
     return {
       to: "materially_blocked",
@@ -74,25 +109,6 @@ export function decideRecovery(input: RecoveryInput): RecoveryDecision {
         attempts,
         triedStrategies: strategyCtx.tried
       })
-    };
-  }
-
-  // 3) Material
-  if (diagnosis.material) {
-    const cause = diagnosis.class === "goal_conflict" ? "goal_conflict" : "missing_data";
-    return {
-      to: "materially_blocked",
-      reason: diagnosis.reason,
-      packet: buildDecisionPacket({ cause, diagnosis: diagnosis.reason, attempts, triedStrategies: strategyCtx.tried })
-    };
-  }
-
-  // 4) Política → aprobación
-  if (diagnosis.class === "policy") {
-    return {
-      to: "approval_required",
-      reason: "Requiere aprobación de política",
-      packet: buildDecisionPacket({ cause: "policy_approval", diagnosis: diagnosis.reason, attempts, triedStrategies: strategyCtx.tried })
     };
   }
 
