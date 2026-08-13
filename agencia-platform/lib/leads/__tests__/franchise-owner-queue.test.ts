@@ -11,7 +11,7 @@ vi.mock("../franchise-owner-enrichment", () => ({ researchFranchiseOwner: resear
 import { queueFranchiseOwnerResearch, processFranchiseOwnerQueue, franchiseOwnerProgress, franchiseOwnerDiag, MAX_OWNER_ATTEMPTS } from "../franchise-owner-queue";
 
 /** Prisma mock que entiende el filtro JSON `rawData.path=[franchiseOwner,status] equals`. */
-function mkPrisma(rows: any[]) {
+function mkPrisma(rows: any[], searches: any[] = []) {
   const foStatus = (r: any) => r.rawData?.franchiseOwner?.status ?? null;
   const matches = (r: any, where: any) => {
     if (r.workspaceId !== where.workspaceId) return false;
@@ -35,6 +35,9 @@ function mkPrisma(rows: any[]) {
         Object.assign(r, data);
         return { count: 1 };
       })
+    },
+    leadSearch: {
+      findMany: vi.fn(async ({ where }: any) => searches.filter((s) => s.workspaceId === where.workspaceId && (!where.id?.in || where.id.in.includes(s.id))).map((s) => ({ id: s.id, keyword: s.keyword })))
     }
   };
 }
@@ -45,19 +48,37 @@ beforeEach(() => {
   researchMock.mockResolvedValue({ classification: "franchise", operatorName: "Local SL", emails: ["owner@local.es"], phones: [], sources: [], confidence: "high" });
 });
 
-describe("queueFranchiseOwnerResearch — rápido, no investiga", () => {
-  it("marca brand_locations como queued y NO llama al modelo", async () => {
-    const p = mkPrisma([
-      { id: "l1", workspaceId: "w1", rawData: { source: "brand_locations" } },
-      { id: "l2", workspaceId: "w1", rawData: { source: "places" } } // no brand → skip
-    ]);
-    const out = await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["l1", "l2"], now: NOW });
-    expect(out).toMatchObject({ queued: 1, skipped: 1 });
-    expect(p._rows[0].rawData.franchiseOwner.status).toBe("queued");
-    expect(researchMock).not.toHaveBeenCalled(); // clave: encolar NO investiga → no 502
+describe("queueFranchiseOwnerResearch — objetivo explícito, incluye leads NORMALES", () => {
+  it("encola TODOS los leads de una búsqueda concreta (aunque no sean brand_locations) con marca=keyword; no investiga", async () => {
+    const p = mkPrisma(
+      [
+        { id: "l1", workspaceId: "w1", searchId: "s1", rawData: { source: "places" } }, // lead NORMAL
+        { id: "l2", workspaceId: "w1", searchId: "s1", rawData: { source: "brand_locations", brand: "Eroski" } }
+      ],
+      [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]
+    );
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { searchId: "s1", now: NOW });
+    expect(out).toMatchObject({ queued: 2, skipped: 0, scanned: 2 });
+    expect(p._rows[0].rawData.franchiseOwner).toMatchObject({ status: "queued", brand: "Eroski" }); // marca = keyword de la búsqueda
+    expect(researchMock).not.toHaveBeenCalled();
+  });
+  it("SCOPING: no toca leads de otra búsqueda ni de otro workspace", async () => {
+    const p = mkPrisma(
+      [
+        { id: "a", workspaceId: "w1", searchId: "s1", rawData: { source: "places" } },
+        { id: "b", workspaceId: "w1", searchId: "s2", rawData: { source: "places" } }, // otra búsqueda
+        { id: "c", workspaceId: "other", searchId: "s1", rawData: { source: "places" } } // otro workspace
+      ],
+      [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]
+    );
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { searchId: "s1", now: NOW });
+    expect(out.queued).toBe(1);
+    expect(p._rows[0].rawData.franchiseOwner?.status).toBe("queued"); // a
+    expect(p._rows[1].rawData.franchiseOwner).toBeUndefined(); // b (otra búsqueda) intacto
+    expect(p._rows[2].rawData.franchiseOwner).toBeUndefined(); // c (otro workspace) intacto
   });
   it("idempotente: no re-encola lo ya en cola / hecho salvo force", async () => {
-    const p = mkPrisma([{ id: "l1", workspaceId: "w1", rawData: { source: "brand_locations", franchiseOwner: { status: "done" } } }]);
+    const p = mkPrisma([{ id: "l1", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "done" } } }], [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]);
     expect((await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["l1"] })).queued).toBe(0);
     expect((await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["l1"], force: true })).queued).toBe(1);
   });
@@ -109,10 +130,10 @@ describe("retryErrors — re-encola SOLO los fallidos", () => {
     expect(p._rows[0].rawData.franchiseOwner.attempts).toBe(0); // reinicia intentos
     expect(p._rows[1].rawData.franchiseOwner.status).toBe("done"); // el hecho no se toca
   });
-  it("reporta nonBrand cuando ningún lead es de marca (causa de 'no se encoló nada')", async () => {
-    const p = mkPrisma([{ id: "x", workspaceId: "w1", rawData: { source: "places" } }]);
-    const out = await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["x"] });
-    expect(out).toMatchObject({ queued: 0, nonBrand: 1, scanned: 1 });
+  it("scanned=0 cuando la búsqueda no tiene leads (motivo claro, no silencio)", async () => {
+    const p = mkPrisma([], []);
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { searchId: "vacia" });
+    expect(out).toMatchObject({ queued: 0, scanned: 0 });
   });
 });
 
@@ -123,7 +144,7 @@ describe("franchiseOwnerDiag — estado real por búsqueda", () => {
       { id: "b", workspaceId: "w1", searchId: "s1", email: null, rawData: { source: "brand_locations" } } // sin franchiseOwner → none
     ]);
     const diag = await franchiseOwnerDiag(p as any, "w1", "s1");
-    expect(diag.brandLocations).toBe(2);
+    expect(diag.total).toBe(2);
     expect(diag.byStatus).toMatchObject({ error: 1, none: 1 });
     expect(diag.sample.find((s: any) => s.id === "a").lastError).toBe("web_search_unavailable");
   });

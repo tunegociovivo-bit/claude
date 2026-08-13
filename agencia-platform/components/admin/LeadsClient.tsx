@@ -529,13 +529,13 @@ export default function LeadsClient() {
               {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : "✉️"}
               Extraer emails
             </button>
-            {searchIdFilter !== "ALL" && searches.find((s) => s.id === searchIdFilter)?.sourceConfig?.brandSearch && (
+            {searchIdFilter !== "ALL" && (
               <>
                 <button
                   type="button"
                   onClick={() => bulkEnrichFranchiseOwners()}
                   disabled={enrichingOwners}
-                  title="Identifica la sociedad franquiciada, administrador y contactos profesionales usando la dirección y fuentes mercantiles"
+                  title="Investiga la sociedad que explota cada local de esta búsqueda (por su dirección + la marca), administrador y contactos profesionales — nunca la central"
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm disabled:opacity-50"
                 >
                   {enrichingOwners ? <Loader2 className="h-4 w-4 animate-spin" /> : "🔎"}
@@ -1795,7 +1795,7 @@ function LeadDetailModal({
               {dmLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               🎯 Kit directivo
             </button>
-            {(lead.rawData as any)?.source === "brand_locations" && (
+            {(lead.address || (lead.rawData as any)?.source === "brand_locations") && (
               <button
                 type="button"
                 onClick={identifyFranchiseOwner}

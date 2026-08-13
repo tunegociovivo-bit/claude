@@ -31,7 +31,8 @@ const { authenticateMock, prisma, researchMock } = vi.hoisted(() => {
         Object.assign(r, data);
         return { count: 1 };
       })
-    }
+    },
+    leadSearch: { findMany: vi.fn(async () => []) }
   };
   return { authenticateMock: vi.fn(), prisma: prismaObj, researchMock: vi.fn() };
 });

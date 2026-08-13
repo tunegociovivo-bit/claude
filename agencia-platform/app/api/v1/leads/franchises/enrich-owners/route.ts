@@ -37,11 +37,13 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     limit: parsed.data.limit
   });
   const progress = await franchiseOwnerProgress(prisma, api.workspaceId, parsed.data.searchId);
-  // Si no se encoló nada porque ningún lead es de marca, dilo claramente (causa frecuente).
-  const note = out.queued === 0 && out.nonBrand === out.scanned && out.scanned > 0
-    ? "No se encoló nada: esta búsqueda no tiene locales de marca (brand_locations). Usa «Buscar locales de la marca» primero."
-    : "Encolado. Se investiga en segundo plano; refresca para ver los resultados.";
-  return NextResponse.json({ ok: true, queued: out.queued, skipped: out.skipped, scanned: out.scanned, nonBrand: out.nonBrand, progress, note });
+  // Motivos claros de queued=0 (nunca silencio): sin leads en la búsqueda, o ya en cola/hechos.
+  const note = out.scanned === 0
+    ? "La búsqueda no tiene leads que investigar."
+    : out.queued === 0
+      ? "Nada nuevo que encolar: ya estaban en cola o investigados. Usa «Reintentar fallidos» o force."
+      : "Encolado. Se investiga en segundo plano; refresca para ver los resultados.";
+  return NextResponse.json({ ok: true, queued: out.queued, skipped: out.skipped, scanned: out.scanned, progress, note });
 });
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {

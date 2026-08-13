@@ -16,27 +16,37 @@ import { researchFranchiseOwner } from "./franchise-owner-enrichment";
 type PrismaLike = any;
 export const MAX_OWNER_ATTEMPTS = 2;
 
-const isBrandLocation = (raw: any) => raw && raw.source === "brand_locations";
-
-/** Marca leads brand_locations como "queued" para investigar en segundo plano. Rápido: no
- *  llama al modelo. Idempotente: salta los ya en cola o ya resueltos salvo `force`. */
+/**
+ * Encola para investigar los leads de un objetivo EXPLÍCITO (una búsqueda concreta o unos ids),
+ * SIEMPRE dentro del workspace. No exige que sean `brand_locations`: cuando el usuario pulsa el
+ * botón sobre una búsqueda de locales, investiga esos leads por su DIRECCIÓN + el nombre de la
+ * MARCA (keyword de la búsqueda, nunca la central). Rápido (no llama al modelo). Idempotente.
+ * Tenant + búsqueda estrictos: solo toca leads del workspace y del searchId/ids indicados.
+ */
 export async function queueFranchiseOwnerResearch(
   prisma: PrismaLike,
   workspaceId: string,
   opts: { searchId?: string; ids?: string[]; force?: boolean; retryErrors?: boolean; limit?: number; now?: Date }
-): Promise<{ queued: number; skipped: number; scanned: number; nonBrand: number }> {
+): Promise<{ queued: number; skipped: number; scanned: number }> {
   const now = opts.now ?? new Date();
+  // SCOPING ESTRICTO: workspace + (searchId | ids). Nunca toca leads fuera de ese objetivo.
   const leads = await prisma.lead.findMany({
     where: { workspaceId, ...(opts.searchId ? { searchId: opts.searchId } : {}), ...(opts.ids?.length ? { id: { in: opts.ids } } : {}) },
-    select: { id: true, rawData: true },
+    select: { id: true, searchId: true, rawData: true },
     take: opts.limit ?? 1000
   });
+  // Marca = keyword de la(s) búsqueda(s) implicada(s). Se pasa al investigador para acotar por
+  // marca sin usar la central. Los leads `brand_locations` ya llevan rawData.brand (prioritario).
+  const brandBySearch = new Map<string, string>();
+  const searchIds = [...new Set([opts.searchId, ...leads.map((l: any) => l.searchId)].filter(Boolean))] as string[];
+  if (searchIds.length) {
+    const searches = await prisma.leadSearch.findMany({ where: { workspaceId, id: { in: searchIds } }, select: { id: true, keyword: true } });
+    searches.forEach((s: any) => brandBySearch.set(s.id, s.keyword));
+  }
   let queued = 0;
   let skipped = 0;
-  let nonBrand = 0;
   for (const lead of leads) {
     const raw: any = lead.rawData ?? {};
-    if (!isBrandLocation(raw)) { nonBrand++; skipped++; continue; } // no es local de marca → no aplica
     const fo: any = raw.franchiseOwner;
     const st = fo && typeof fo === "object" ? fo.status : null;
     // `retryErrors`: solo re-encola los que fallaron. Sin él: idempotente (salta queued/done).
@@ -46,16 +56,15 @@ export async function queueFranchiseOwnerResearch(
       skipped++;
       continue;
     }
+    const brand: string | null = raw.brand ?? brandBySearch.get(lead.searchId) ?? (opts.searchId ? brandBySearch.get(opts.searchId) : null) ?? null;
     await prisma.lead.updateMany({
       where: { id: lead.id, workspaceId },
-      data: { rawData: { ...raw, franchiseOwner: { status: "queued", queuedAt: now.toISOString(), attempts: 0 } } }
+      data: { rawData: { ...raw, franchiseOwner: { status: "queued", queuedAt: now.toISOString(), attempts: 0, ...(brand ? { brand } : {}) } } }
     });
     queued++;
   }
-  // Observabilidad: si scanned>0 pero nonBrand===scanned, el problema es que NINGÚN lead es
-  // brand_locations (búsqueda no creada por marca) → nada que encolar.
-  console.info(`[franchise-owner] enqueue ws=${workspaceId} search=${opts.searchId ?? "-"} scanned=${leads.length} queued=${queued} skipped=${skipped} nonBrand=${nonBrand}${opts.retryErrors ? " (retryErrors)" : ""}`);
-  return { queued, skipped, scanned: leads.length, nonBrand };
+  console.info(`[franchise-owner] enqueue ws=${workspaceId} search=${opts.searchId ?? "-"} scanned=${leads.length} queued=${queued} skipped=${skipped}${opts.retryErrors ? " (retryErrors)" : ""}`);
+  return { queued, skipped, scanned: leads.length };
 }
 
 /** Procesa hasta `max` leads encolados (llama al modelo). Aislado por lead, reintentos
@@ -81,7 +90,8 @@ export async function processFranchiseOwnerQueue(
     try {
       const owner = await researchFranchiseOwner({
         workspaceId,
-        brand: String(raw.brand ?? lead.name),
+        // Marca: la guardada en el marcador (keyword de la búsqueda) > rawData.brand > nombre.
+        brand: String(fo.brand ?? raw.brand ?? lead.name),
         storeName: lead.name,
         address: lead.address,
         province: lead.province,
@@ -118,8 +128,10 @@ export async function franchiseOwnerDiag(
   prisma: PrismaLike,
   workspaceId: string,
   searchId?: string
-): Promise<{ brandLocations: number; byStatus: Record<string, number>; sample: any[] }> {
-  const scope: any = { workspaceId, ...(searchId ? { searchId } : {}), rawData: { path: ["source"], equals: "brand_locations" } };
+): Promise<{ total: number; byStatus: Record<string, number>; sample: any[] }> {
+  // Ámbito: workspace + búsqueda concreta (recomendado). Sin filtro de source: cuenta TODOS los
+  // leads de esa búsqueda y su estado de identificación (none si aún no se investigó).
+  const scope: any = { workspaceId, ...(searchId ? { searchId } : {}) };
   const rows = await prisma.lead.findMany({ where: scope, select: { id: true, name: true, email: true, rawData: true }, take: 500 });
   const byStatus: Record<string, number> = { none: 0, queued: 0, done: 0, error: 0 };
   const sample: any[] = [];
@@ -131,7 +143,7 @@ export async function franchiseOwnerDiag(
       sample.push({ id: r.id, name: r.name, status: st, classification: fo?.classification ?? null, hasEmail: !!(r.email || fo?.emails?.length), lastError: fo?.lastError ?? null });
     }
   }
-  return { brandLocations: rows.length, byStatus, sample };
+  return { total: rows.length, byStatus, sample };
 }
 
 /** Progreso (para la UI): cuántos en cola / hechos / con error. Tenant-scoped. */
