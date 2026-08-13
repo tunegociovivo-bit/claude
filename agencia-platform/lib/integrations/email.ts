@@ -7,6 +7,15 @@
  * para pruebas sin verificar dominio propio.
  */
 
+/**
+ * Remitente por defecto: el dominio negociovivo.com está VERIFICADO en Resend, así que
+ * `info@negociovivo.com` enruta a cualquier destinatario. (El anterior `onboarding@resend.dev`
+ * es el dominio de PRUEBAS de Resend y provoca 403 "testing-only" a destinatarios externos.)
+ */
+export const DEFAULT_FROM = "Negocio Vivo <info@negociovivo.com>";
+/** Remitente FORZADO para el envío de leads: siempre info@negociovivo.com (dominio verificado). */
+export const LEADS_FROM = DEFAULT_FROM;
+
 export function isEmailEnabled(): boolean {
   return Boolean(process.env.RESEND_API_KEY);
 }
@@ -45,7 +54,7 @@ export async function getResendConfig(
   workspaceId?: string
 ): Promise<{ apiKey: string | null; from: string }> {
   let apiKey: string | null = process.env.RESEND_API_KEY ?? null;
-  let from = process.env.EMAIL_FROM ?? "Hub <onboarding@resend.dev>";
+  let from = process.env.EMAIL_FROM ?? DEFAULT_FROM;
   if (workspaceId) {
     try {
       const { prisma } = await import("@/lib/db/prisma");
@@ -68,11 +77,8 @@ export async function getResendConfig(
 }
 
 export function getFromAddress(): string {
-  return (
-    process.env.EMAIL_FROM ??
-    // Default: dominio de pruebas de Resend (válido sin verificar dominio propio)
-    "Hub <onboarding@resend.dev>"
-  );
+  // Default: dominio propio VERIFICADO en Resend (info@negociovivo.com).
+  return process.env.EMAIL_FROM ?? DEFAULT_FROM;
 }
 
 export async function sendEmail(opts: {
@@ -85,13 +91,19 @@ export async function sendEmail(opts: {
   /** Si se aporta, la clave/remitente de la BÓVEDA del workspace tienen prioridad sobre la
    *  env var (permite reenviar sin depender de RESEND_API_KEY en el runtime). */
   workspaceId?: string;
+  /** Remitente FORZADO (máxima prioridad). Úsalo para fijar info@negociovivo.com en leads. */
+  from?: string;
+  /** Reply-To opcional (se mantiene solo si se aporta). */
+  replyTo?: string;
 }): Promise<{ id: string }> {
   // Resuelve la clave por bóveda (prioridad) o env. Sin workspaceId → comportamiento previo
   // (solo env). Así callers existentes no cambian, y el path de leads usa la bóveda.
-  const { apiKey, from } = await getResendConfig(opts.workspaceId);
+  const { apiKey, from: resolvedFrom } = await getResendConfig(opts.workspaceId);
   if (!apiKey) {
     throw new Error("Email no configurado. Define RESEND_API_KEY o guarda la clave de Resend en /admin/secretos.");
   }
+  // Prioridad del remitente: `opts.from` forzado > EMAIL_FROM/bóveda > default verificado.
+  const from = opts.from ?? resolvedFrom;
   const bccList = (Array.isArray(opts.bcc) ? opts.bcc : opts.bcc ? [opts.bcc] : []).filter(Boolean);
   const payload = JSON.stringify({
     from,
@@ -99,7 +111,8 @@ export async function sendEmail(opts: {
     subject: opts.subject,
     html: opts.html,
     text: opts.text,
-    ...(bccList.length ? { bcc: bccList } : {})
+    ...(bccList.length ? { bcc: bccList } : {}),
+    ...(opts.replyTo ? { reply_to: opts.replyTo } : {})
   });
   // Reintentos con backoff ante fallos transitorios (429 rate limit, 5xx,
   // timeouts de red). Los 4xx deterministas (400/401/403/422) no se reintentan.

@@ -11,7 +11,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
-import { sendEmail, isEmailConfigured } from "@/lib/integrations/email";
+import { sendEmail, isEmailConfigured, LEADS_FROM } from "@/lib/integrations/email";
 
 type Channel = "email" | "linkedin" | "call";
 /** Plan de cadencia: día relativo + canal. */
@@ -408,7 +408,7 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
       if (row.email && emailOk) {
         const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
         const bcc = Array.isArray(rd?.bccEmails) ? (rd.bccEmails as string[]) : undefined;
-        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body, bcc, workspaceId });
+        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body, bcc, workspaceId, from: LEADS_FROM });
         log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id, bcc: bcc?.length ?? 0 });
       } else {
         // Sin email destino o sin Resend → recordatorio manual.
@@ -524,7 +524,7 @@ export async function approveExecOutreach(
   const leadRd = await prisma.lead.findFirst({ where: { id: row.leadId, workspaceId }, select: { rawData: true } });
   const bcc = Array.isArray((leadRd?.rawData as any)?.bccEmails) ? ((leadRd!.rawData as any).bccEmails as string[]) : undefined;
 
-  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc, workspaceId });
+  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc, workspaceId, from: LEADS_FROM });
   const now = new Date();
   const log: any[] = Array.isArray(row.log) ? row.log : [];
   log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true, bcc: bcc?.length ?? 0 });
