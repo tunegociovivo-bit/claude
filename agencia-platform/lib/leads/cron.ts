@@ -40,8 +40,11 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
 
     // 1. Procesar 1 batch de la búsqueda más antigua pendiente (si hay).
     try {
+      // Incluye PAUSING/CANCELLING: si el usuario pidió pausar/cancelar y no había lote en
+      // vuelo, processSearchBatch los finaliza (PAUSED/CANCELLED) en este tick. PAUSED y
+      // CANCELLED quedan FUERA → el cron no reanuda una búsqueda pausada/cancelada.
       const search = await prisma.leadSearch.findFirst({
-        where: { workspaceId: ws.id, status: { in: ["PENDING", "RUNNING"] } },
+        where: { workspaceId: ws.id, status: { in: ["PENDING", "RUNNING", "PAUSING", "CANCELLING"] } },
         orderBy: { createdAt: "asc" }
       });
       if (search) {

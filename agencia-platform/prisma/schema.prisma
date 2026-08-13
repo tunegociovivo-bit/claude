@@ -1182,7 +1182,12 @@ model LeadSearch {
   /// | "doctoralia" | "idealista" | "fotocasa" | "linkedin". Cada fuente
   /// tiene su collector en lib/leads/sources/*.ts.
   source             String    @default("places")
-  status             String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED
+  // PENDING|RUNNING|PAUSING|PAUSED|CANCELLING|CANCELLED|COMPLETED|FAILED
+  status             String    @default("PENDING")
+  // Señal cooperativa de control puesta por el usuario ("pause"|"cancel"|null). El worker
+  // (processSearchBatch) la respeta entre lotes: finaliza a PAUSED/CANCELLED sin corromper
+  // los resultados ya guardados. Aditivo y nullable → migración segura al arrancar.
+  controlSignal      String?
   provincesScope     String    @default("[]") // JSON array (legacy)
   totalProvinces     Int       @default(1)
   processedProvinces Int       @default(0)

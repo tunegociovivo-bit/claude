@@ -2281,13 +2281,45 @@ function EnqueueModal({
 
 // ============ BÚSQUEDAS ============
 
+/** Etiqueta legible + color por estado de búsqueda (accesible: texto, no solo color). */
+const SEARCH_STATUS_META: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: "Pendiente", cls: "bg-slate-100 text-slate-600 border-slate-200" },
+  RUNNING: { label: "En curso", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  PAUSING: { label: "Pausando…", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  PAUSED: { label: "Pausada", cls: "bg-amber-100 text-amber-800 border-amber-200" },
+  CANCELLING: { label: "Cancelando…", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+  CANCELLED: { label: "Cancelada", cls: "bg-slate-200 text-slate-700 border-slate-300" },
+  COMPLETED: { label: "Completada", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  FAILED: { label: "Error", cls: "bg-rose-50 text-rose-700 border-rose-200" }
+};
+
 function SearchesTable({ loading, items, onChanged }: { loading: boolean; items: SearchRow[]; onChanged: () => void }) {
   const [runningAllId, setRunningAllId] = useState<string | null>(null);
+  const [controlBusyId, setControlBusyId] = useState<string | null>(null);
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin búsquedas. Pulsa 'Nueva búsqueda' arriba." />;
   async function process(id: string) {
     await fetch(`/api/v1/leads/searches/${id}/process`, { method: "POST" });
     onChanged();
+  }
+  /** Pausar/Reanudar/Cancelar una búsqueda. Confirma antes de cancelar. */
+  async function control(id: string, action: "pause" | "resume" | "cancel") {
+    if (action === "cancel" && !confirm("¿Cancelar esta búsqueda? Se detendrá el procesamiento; los leads ya guardados se conservan.")) return;
+    setControlBusyId(id);
+    try {
+      const r = await fetch(`/api/v1/leads/searches/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d?.error?.message ?? "No se pudo aplicar la acción.");
+      }
+    } finally {
+      setControlBusyId(null);
+      onChanged();
+    }
   }
   async function toggleMonitor(id: string, monitored: boolean) {
     await fetch(`/api/v1/leads/searches/${id}/monitor`, {
@@ -2334,7 +2366,13 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
         </thead>
         <tbody className="divide-y">
           {items.map((s) => {
-            const pending = s.status !== "COMPLETED" && s.status !== "FAILED";
+            const canProcess = s.status === "PENDING" || s.status === "RUNNING";
+            const canPause = s.status === "PENDING" || s.status === "RUNNING";
+            const canResume = s.status === "PAUSED" || s.status === "PAUSING";
+            const canCancel = !["COMPLETED", "FAILED", "CANCELLED"].includes(s.status);
+            const transitioning = s.status === "PAUSING" || s.status === "CANCELLING";
+            const busy = controlBusyId === s.id || runningAllId === s.id;
+            const pending = canProcess;
             const pct = s.totalProvinces > 0 ? Math.round((s.processedProvinces / s.totalProvinces) * 100) : 0;
             // Indicador de consultas y coste estimado (cada "target" ≈ 1 consulta;
             // ×3 si están activados los sinónimos). Útil en cuadrícula / Toda España.
@@ -2384,14 +2422,8 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                   )}
                 </td>
                 <td className="px-3 py-2 text-xs">
-                  <span
-                    className={
-                      s.status === "FAILED"
-                        ? "inline-block px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200"
-                        : ""
-                    }
-                  >
-                    {s.status}
+                  <span className={`inline-block px-1.5 py-0.5 rounded border ${(SEARCH_STATUS_META[s.status] ?? { cls: "" }).cls}`}>
+                    {(SEARCH_STATUS_META[s.status] ?? { label: s.status }).label}
                   </span>
                   {s.status === "FAILED" && s.errorMessage && (
                     <div
@@ -2425,6 +2457,36 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                         </button>
                       )}
                     </>
+                  )}
+                  {canPause && (
+                    <button
+                      onClick={() => control(s.id, "pause")}
+                      disabled={busy}
+                      aria-label="Pausar búsqueda"
+                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 text-xs disabled:opacity-50"
+                    >
+                      <Pause className="h-3 w-3" /> Pausar
+                    </button>
+                  )}
+                  {canResume && (
+                    <button
+                      onClick={() => control(s.id, "resume")}
+                      disabled={busy}
+                      aria-label="Reanudar búsqueda"
+                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 text-xs disabled:opacity-50"
+                    >
+                      <Play className="h-3 w-3" /> Reanudar
+                    </button>
+                  )}
+                  {canCancel && (
+                    <button
+                      onClick={() => control(s.id, "cancel")}
+                      disabled={busy}
+                      aria-label="Cancelar búsqueda"
+                      className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 text-xs disabled:opacity-50"
+                    >
+                      <Ban className="h-3 w-3" /> {transitioning ? "…" : "Cancelar"}
+                    </button>
                   )}
                   <button
                     onClick={() => toggleMonitor(s.id, !s.monitored)}

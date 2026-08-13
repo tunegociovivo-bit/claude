@@ -545,8 +545,21 @@ export async function processSearchBatch(opts: {
     where: { id: opts.searchId, workspaceId: opts.workspaceId }
   });
   if (!search) throw new Error("Búsqueda no encontrada");
-  if (["COMPLETED", "FAILED"].includes(search.status)) {
-    return { processed: search.processedProvinces, pending: 0, status: search.status, leadsInserted: 0, leadsSkipped: 0 };
+  if (["COMPLETED", "FAILED", "CANCELLED", "PAUSED"].includes(search.status)) {
+    return { processed: search.processedProvinces, pending: search.totalProvinces - search.processedProvinces, status: search.status, leadsInserted: 0, leadsSkipped: 0 };
+  }
+
+  // CONTROL COOPERATIVO: si el usuario pidió pausar/cancelar, finalizamos AQUÍ (entre lotes)
+  // sin procesar nada y sin tocar los resultados ya guardados. Cubre también el caso de un
+  // PAUSING/CANCELLING que quedó sin lote en vuelo (el cron lo re-toma y lo finaliza aquí).
+  const signal = (search as any).controlSignal as string | null;
+  if (signal === "cancel" || search.status === "CANCELLING") {
+    await prisma.leadSearch.update({ where: { id: search.id }, data: { status: "CANCELLED", controlSignal: null, completedAt: new Date() } });
+    return { processed: search.processedProvinces, pending: search.totalProvinces - search.processedProvinces, status: "CANCELLED", leadsInserted: 0, leadsSkipped: 0 };
+  }
+  if (signal === "pause" || search.status === "PAUSING") {
+    await prisma.leadSearch.update({ where: { id: search.id }, data: { status: "PAUSED", controlSignal: null } });
+    return { processed: search.processedProvinces, pending: search.totalProvinces - search.processedProvinces, status: "PAUSED", leadsInserted: 0, leadsSkipped: 0 };
   }
 
   await prisma.leadSearch.update({
@@ -803,15 +816,30 @@ export async function processSearchBatch(opts: {
     newStatus = "RUNNING";
   }
 
+  // CONTROL COOPERATIVO: si el usuario pidió pausar/cancelar DURANTE este lote y aún queda
+  // trabajo, honramos la señal ahora (el checkpoint ya avanzó con los resultados guardados
+  // de este lote: no se corrompe ni se pierde nada). Si el lote completó todo (pending===0),
+  // gana COMPLETED (la pausa/cancelación es irrelevante: ya no queda trabajo).
+  let clearSignal = false;
+  if (pending > 0) {
+    const fresh = await prisma.leadSearch.findFirst({ where: { id: search.id }, select: { controlSignal: true, status: true } });
+    const sig = fresh?.controlSignal ?? null;
+    if (sig === "cancel" || fresh?.status === "CANCELLING") { newStatus = "CANCELLED"; clearSignal = true; }
+    else if (sig === "pause" || fresh?.status === "PAUSING") { newStatus = "PAUSED"; clearSignal = true; }
+  }
+  const cancelled = newStatus === "CANCELLED";
+  const doneOrStopped = pending === 0 || cancelled;
+
   await prisma.leadSearch.update({
     where: { id: search.id },
     data: {
       processedProvinces: newProcessed,
       totalResults: totalAfter,
       status: newStatus,
+      ...(clearSignal ? { controlSignal: null } : {}),
       errorMessage: errorToPersist ?? (newStatus === "COMPLETED" ? null : undefined),
-      currentProvince: pending === 0 ? null : search.currentProvince,
-      completedAt: pending === 0 ? new Date() : null,
+      currentProvince: doneOrStopped ? null : search.currentProvince,
+      completedAt: doneOrStopped ? new Date() : null,
       leadsSkipped: { increment: leadsSkipped }
     }
   });
