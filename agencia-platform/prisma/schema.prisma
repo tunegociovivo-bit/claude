@@ -215,6 +215,7 @@ model Workspace {
   leadSearches              LeadSearch[]
   leadQueryCache            LeadQueryCache[]
   leads                     Lead[]
+  opportunitySignals        OpportunitySignal[]
   leadTemplates             LeadTemplate[]
   leadSequences             LeadSequence[]
   leadInboxMsgs             LeadInboxMessage[]
@@ -263,6 +264,48 @@ model Workspace {
   invoiceCounters           InvoiceCounter[]
   expenses                  Expense[]
   panelNotes                PanelNote[]
+}
+
+model OpportunitySignal {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  fingerprint       String
+  type              String
+  companyName       String
+  companyTaxId      String?
+  title             String
+  summary           String   @db.Text
+  sourceUrl         String   @db.Text
+  sourceName        String
+  sourceAuthority   String   @default("unknown")
+  occurredAt        DateTime?
+  discoveredAt      DateTime @default(now())
+  amount            Float?
+  currency          String   @default("EUR")
+  location          String?
+  evidenceCount     Int      @default(1)
+  evidence          Json?
+  decisionMakerName String?
+  decisionMakerRole String?
+  email             String?
+  phone             String?
+  website           String?
+  score             Int      @default(0)
+  tier              String   @default("watch")
+  scoreReasons      Json?
+  status            String   @default("new") // new|reviewing|qualified|converted|dismissed
+  recommendedOffer  String?  @db.Text
+  nextBestAction    String?  @db.Text
+  leadId            String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, fingerprint])
+  @@index([workspaceId, status, score])
+  @@index([workspaceId, type, occurredAt])
 }
 
 // ====================================================================
