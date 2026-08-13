@@ -32,6 +32,8 @@ import {
   Puzzle,
   Store,
   Landmark,
+  Repeat,
+  Activity,
   AlertTriangle
 } from "lucide-react";
 
@@ -348,13 +350,39 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               href="/facturacion"
               className={clsx(
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                pathname.startsWith("/facturacion")
+                pathname === "/facturacion"
                   ? "bg-brand-600/25 text-white font-medium"
                   : "text-slate-300 hover:bg-slate-800 hover:text-white"
               )}
             >
               <Receipt className="h-4 w-4" />
               Facturación
+            </Link>
+            <Link
+              onClick={onNavigate}
+              href="/admin/facturacion-recurrentes"
+              className={clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                pathname.startsWith("/admin/facturacion-recurrentes")
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <Repeat className="h-4 w-4" />
+              Facturas recurrentes
+            </Link>
+            <Link
+              onClick={onNavigate}
+              href="/facturacion/remesas"
+              className={clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                pathname.startsWith("/facturacion/remesas")
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <Landmark className="h-4 w-4" />
+              Remesas SEPA
             </Link>
           </div>
         )}
@@ -628,9 +656,23 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
       </nav>
 
       <div className="border-t border-slate-800 p-3">
+        {(!me || me.role === "ADMIN") && (
+          <Link onClick={onNavigate}
+            href="/admin/sonia-autonomia"
+            className={clsx(
+              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+              pathname.startsWith("/admin/sonia-autonomia")
+                ? "bg-brand-600/25 text-white font-medium"
+                : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            )}
+          >
+            <Activity className="h-4 w-4" />
+            Autonomía de Sonia
+          </Link>
+        )}
         <Link onClick={onNavigate}
           href="/admin"
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+          className="mt-1 flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
         >
           <Settings className="h-4 w-4" />
           Administración

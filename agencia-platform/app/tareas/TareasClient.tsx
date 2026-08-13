@@ -3218,6 +3218,14 @@ function AiSoniaDebugPanel({
                 .map(([k, n]) => `${n}×${k}`)
                 .join(", ")}
         </span>
+        <a
+          href="/admin/sonia-autonomia"
+          onClick={(e) => e.stopPropagation()}
+          title="Panel de autonomía de Sonia (multimodelo, aprendizaje, canary)"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 font-medium"
+        >
+          Panel de autonomía
+        </a>
         <span
           role="button"
           tabIndex={0}
