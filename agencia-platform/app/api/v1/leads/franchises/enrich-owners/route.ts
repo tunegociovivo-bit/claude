@@ -16,7 +16,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!parsed.data.searchId && !parsed.data.ids?.length) throw new ApiError(400, "missing_target", "Selecciona una búsqueda o leads concretos");
   const leads = await prisma.lead.findMany({
     where: { workspaceId: api.workspaceId, ...(parsed.data.searchId ? { searchId: parsed.data.searchId } : {}), ...(parsed.data.ids?.length ? { id: { in: parsed.data.ids } } : {}) },
-    select: { id: true, name: true, address: true, province: true, website: true, rawData: true },
+    select: { id: true, name: true, address: true, province: true, website: true, email: true, rawData: true },
     take: parsed.data.limit,
   });
   const candidates = leads.filter((lead) => (lead.rawData as any)?.source === "brand_locations" && (parsed.data.force || !(lead.rawData as any)?.franchiseOwner));
@@ -25,7 +25,13 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     const raw: any = lead.rawData ?? {};
     const owner = await researchFranchiseOwner({ workspaceId: api.workspaceId, brand: String(raw.brand ?? lead.name), storeName: lead.name, address: lead.address, province: lead.province, centralWebsite: lead.website });
     const nextRaw = { ...raw, franchiseOwner: owner };
-    await prisma.lead.update({ where: { id: lead.id }, data: { rawData: nextRaw, email: owner.emails[0] ?? undefined } });
+    // NUNCA sobrescribir un email ya existente: solo se rellena si el lead no tenía. La
+    // escritura va tenant-scoped (updateMany con workspaceId) como defensa en profundidad.
+    const fillEmail = !lead.email && owner.emails[0] ? owner.emails[0] : undefined;
+    await prisma.lead.updateMany({
+      where: { id: lead.id, workspaceId: api.workspaceId },
+      data: { rawData: nextRaw, ...(fillEmail ? { email: fillEmail } : {}) }
+    });
     items.push({ id: lead.id, name: lead.name, ...owner });
   }
   return NextResponse.json({ ok: true, scanned: leads.length, enriched: items.length, items, remainingHint: leads.length >= parsed.data.limit });
