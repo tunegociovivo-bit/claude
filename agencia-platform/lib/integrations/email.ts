@@ -12,6 +12,30 @@ export function isEmailEnabled(): boolean {
 }
 
 /**
+ * Estado de configuración de email teniendo en cuenta TANTO la env var como la clave
+ * guardada en la bóveda del workspace (Workspace.settings.integrations.resend, cifrada).
+ * Async y sin exponer la clave. Robusto ante que `RESEND_API_KEY` no esté disponible en el
+ * runtime: si el admin la guardó en /admin/secretos, el email sigue configurado.
+ */
+export async function emailConfigStatus(workspaceId?: string): Promise<{ configured: boolean; source: "env" | "vault" | "none" }> {
+  if (process.env.RESEND_API_KEY) return { configured: true, source: "env" };
+  if (workspaceId) {
+    try {
+      const { apiKey } = await getResendConfig(workspaceId);
+      if (apiKey) return { configured: true, source: "vault" };
+    } catch {
+      /* bóveda inaccesible → tratamos como no configurado */
+    }
+  }
+  return { configured: false, source: "none" };
+}
+
+/** ¿Hay email configurado (env o bóveda del workspace)? Versión async recomendada. */
+export async function isEmailConfigured(workspaceId?: string): Promise<boolean> {
+  return (await emailConfigStatus(workspaceId)).configured;
+}
+
+/**
  * Resuelve la clave de Resend + remitente. La clave guardada en la
  * plataforma (Workspace.settings.integrations.resend, cifrada) tiene
  * prioridad sobre la env var RESEND_API_KEY — así se puede configurar el
@@ -58,13 +82,19 @@ export async function sendEmail(opts: {
   text?: string;
   /** Copia oculta: p.ej. todos los directivos de marketing de la empresa. */
   bcc?: string | string[];
+  /** Si se aporta, la clave/remitente de la BÓVEDA del workspace tienen prioridad sobre la
+   *  env var (permite reenviar sin depender de RESEND_API_KEY en el runtime). */
+  workspaceId?: string;
 }): Promise<{ id: string }> {
-  if (!isEmailEnabled()) {
-    throw new Error("Email no configurado. Define RESEND_API_KEY.");
+  // Resuelve la clave por bóveda (prioridad) o env. Sin workspaceId → comportamiento previo
+  // (solo env). Así callers existentes no cambian, y el path de leads usa la bóveda.
+  const { apiKey, from } = await getResendConfig(opts.workspaceId);
+  if (!apiKey) {
+    throw new Error("Email no configurado. Define RESEND_API_KEY o guarda la clave de Resend en /admin/secretos.");
   }
   const bccList = (Array.isArray(opts.bcc) ? opts.bcc : opts.bcc ? [opts.bcc] : []).filter(Boolean);
   const payload = JSON.stringify({
-    from: getFromAddress(),
+    from,
     to: Array.isArray(opts.to) ? opts.to : [opts.to],
     subject: opts.subject,
     html: opts.html,
@@ -79,7 +109,7 @@ export async function sendEmail(opts: {
       const resp = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
         body: payload,

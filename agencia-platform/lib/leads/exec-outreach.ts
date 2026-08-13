@@ -11,7 +11,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
-import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
+import { sendEmail, isEmailConfigured } from "@/lib/integrations/email";
 
 type Channel = "email" | "linkedin" | "call";
 /** Plan de cadencia: día relativo + canal. */
@@ -394,7 +394,8 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
       const jobDescription = rd?.source === "jobs" && typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
       // Modo REVISIÓN: redacta el email y lo deja pendiente de aprobación. No
       // envía ni avanza de paso; espera a que un admin lo apruebe (o descarte).
-      if (row.mode === "review" && row.email && isEmailEnabled()) {
+      const emailOk = await isEmailConfigured(workspaceId); // env O bóveda del workspace
+      if (row.mode === "review" && row.email && emailOk) {
         const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
         log.push({ at: now.toISOString(), channel: "email_drafted", to: row.email, subject: mail.subject });
         await prisma.leadExecOutreach.update({
@@ -404,10 +405,10 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
         await notifyAdmins(workspaceId, `📝 Email listo para revisar: ${lead.name}${row.email ? ` (${row.email})` : ""}. Apruébalo para enviarlo.`, "/admin/leads?tab=jobs-review", `exec-review-${row.id}`);
         return { processed: true, leadId: row.leadId, channel: "email_review" };
       }
-      if (row.email && isEmailEnabled()) {
+      if (row.email && emailOk) {
         const mail = await writeEmail({ workspaceId, company: lead.name, sector: lead.category, director: row.directorName, touch: emailTouch, jobTitle, jobDescription });
         const bcc = Array.isArray(rd?.bccEmails) ? (rd.bccEmails as string[]) : undefined;
-        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body, bcc });
+        const out = await sendEmail({ to: row.email, subject: mail.subject, html: emailHtml(mail.body), text: mail.body, bcc, workspaceId });
         log.push({ at: now.toISOString(), channel: "email", to: row.email, subject: mail.subject, id: out.id, bcc: bcc?.length ?? 0 });
       } else {
         // Sin email destino o sin Resend → recordatorio manual.
@@ -514,7 +515,7 @@ export async function approveExecOutreach(
   const row = await prisma.leadExecOutreach.findFirst({ where: { id, workspaceId, status: "pending_review" } });
   if (!row) throw new Error("No hay un email pendiente de revisión con ese id.");
   if (!row.email) throw new Error("Este contacto no tiene email destinatario.");
-  if (!isEmailEnabled()) throw new Error("El envío de email no está configurado (falta RESEND_API_KEY).");
+  if (!(await isEmailConfigured(workspaceId))) throw new Error("El envío de email no está configurado (falta RESEND_API_KEY en Railway o la clave de Resend en /admin/secretos).");
   const subject = (edit?.subject ?? row.draftSubject ?? "").trim();
   const body = (edit?.body ?? row.draftBody ?? "").trim();
   if (!subject || !body) throw new Error("El borrador del email está vacío.");
@@ -523,7 +524,7 @@ export async function approveExecOutreach(
   const leadRd = await prisma.lead.findFirst({ where: { id: row.leadId, workspaceId }, select: { rawData: true } });
   const bcc = Array.isArray((leadRd?.rawData as any)?.bccEmails) ? ((leadRd!.rawData as any).bccEmails as string[]) : undefined;
 
-  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc });
+  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc, workspaceId });
   const now = new Date();
   const log: any[] = Array.isArray(row.log) ? row.log : [];
   log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true, bcc: bcc?.length ?? 0 });
