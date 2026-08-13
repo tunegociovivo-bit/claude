@@ -39,10 +39,28 @@ Prioriza fuentes oficiales (BDNS/SNPSAP, BOE/BORME, contratación pública, OEPM
     ] as any,
     messages: [{ role: "user", content: prompt }]
   }, { timeout: 150_000, maxRetries: 1 });
-  const structured = response.content
+  let structured = response.content
     .filter((b: any) => b.type === "tool_use" && b.name === "save_opportunities")
     .flatMap((b: any) => Array.isArray(b.input?.signals) ? b.input.signals : []);
   const text = response.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+  // Web search puede cerrar con prosa pese a la instrucción. Una segunda pasada
+  // barata fuerza la serialización sin volver a navegar ni perder las fuentes.
+  if (!structured.length && text.trim()) {
+    const serialization: any = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 7000,
+      tools: [{
+        name: "save_opportunities",
+        description: "Entrega al Hub las oportunidades verificadas encontradas durante la investigación.",
+        input_schema: { type: "object", properties: { signals: { type: "array", items: { type: "object", additionalProperties: true } } }, required: ["signals"] }
+      }] as any,
+      tool_choice: { type: "tool", name: "save_opportunities" } as any,
+      messages: [{ role: "user", content: `Convierte esta investigación en los objetos JSON exactos pedidos originalmente. Conserva solo señales con empresa y URL verificable.\n\n${text}` }]
+    }, { timeout: 60_000, maxRetries: 1 });
+    structured = serialization.content
+      .filter((b: any) => b.type === "tool_use" && b.name === "save_opportunities")
+      .flatMap((b: any) => Array.isArray(b.input?.signals) ? b.input.signals : []);
+  }
   const candidates = (structured.length ? structured : parseArray(text)).slice(0, maxResults);
   const results = [];
   const rejected: string[] = [];
