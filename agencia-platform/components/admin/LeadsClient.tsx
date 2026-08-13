@@ -260,6 +260,24 @@ export default function LeadsClient() {
     }
   }
 
+  async function bulkEnrichFranchiseOwners() {
+    if (enrichingOwners || searchIdFilter === "ALL") return;
+    setEnrichingOwners(true);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ searchId: searchIdFilter, limit: 5 })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
+      const confirmed = (d.items ?? []).filter((item: any) => item.classification === "franchise").length;
+      const names = (d.items ?? []).filter((item: any) => item.operatorName).map((item: any) => `${item.name}: ${item.operatorName}`).slice(0, 5);
+      alert(`Locales investigados: ${d.enriched}. Franquicias confirmadas: ${confirmed}.${names.length ? `\n\n${names.join("\n")}` : "\nSin titulares locales confirmados en este lote."}${d.remainingHint ? "\n\nVuelve a pulsar para investigar el siguiente lote." : ""}`);
+      load();
+    } finally { setEnrichingOwners(false); }
+  }
+
   // Trae la siguiente página de leads y la añade a la tabla (sin recargar las
   // ya visibles). El offset es el nº de leads ya cargados desde el servidor.
   async function loadMoreLeads() {
@@ -2924,24 +2942,6 @@ function FranchisesView() {
       if (!r.ok) { setErr(j?.error?.message ?? "No se pudo iniciar la búsqueda por marca."); return; }
       setBrandResult(j);
     } finally { setBrandSearching(false); }
-  }
-
-  async function bulkEnrichFranchiseOwners() {
-    if (enrichingOwners || searchIdFilter === "ALL") return;
-    setEnrichingOwners(true);
-    try {
-      const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchId: searchIdFilter, limit: 5 })
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
-      const confirmed = (d.items ?? []).filter((item: any) => item.classification === "franchise").length;
-      const names = (d.items ?? []).filter((item: any) => item.operatorName).map((item: any) => `${item.name}: ${item.operatorName}`).slice(0, 5);
-      alert(`Locales investigados: ${d.enriched}. Franquicias confirmadas: ${confirmed}.${names.length ? `\n\n${names.join("\n")}` : "\nSin titulares locales confirmados en este lote."}${d.remainingHint ? "\n\nVuelve a pulsar para investigar el siguiente lote." : ""}`);
-      load();
-    } finally { setEnrichingOwners(false); }
   }
 
   async function importDirectory() {
