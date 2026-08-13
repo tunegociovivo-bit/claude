@@ -264,16 +264,16 @@ export default function LeadsClient() {
     if (enrichingOwners || searchIdFilter === "ALL") return;
     setEnrichingOwners(true);
     try {
+      // ENCOLA y devuelve rápido (el cron investiga en 2º plano → nunca 502 por timeout).
       const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchId: searchIdFilter, limit: 5 })
+        body: JSON.stringify({ searchId: searchIdFilter })
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
-      const confirmed = (d.items ?? []).filter((item: any) => item.classification === "franchise").length;
-      const names = (d.items ?? []).filter((item: any) => item.operatorName).map((item: any) => `${item.name}: ${item.operatorName}`).slice(0, 5);
-      alert(`Locales investigados: ${d.enriched}. Franquicias confirmadas: ${confirmed}.${names.length ? `\n\n${names.join("\n")}` : "\nSin titulares locales confirmados en este lote."}${d.remainingHint ? "\n\nVuelve a pulsar para investigar el siguiente lote." : ""}`);
+      const p = d.progress ?? {};
+      alert(`🔎 ${d.queued} locales encolados para identificar su titular. Se investigan en segundo plano (unos por minuto).\nEstado: ${p.queued ?? 0} en cola · ${p.done ?? 0} hechos · ${p.error ?? 0} con error.\n\nRefresca esta pestaña para ver los resultados según se completan.`);
       load();
     } finally { setEnrichingOwners(false); }
   }
@@ -1428,15 +1428,27 @@ function LeadDetailModal({
   }, [leadId]);
 
   async function identifyFranchiseOwner() {
+    if (!leadId) return;
     setOwnerLoading(true);
+    setOwnerResearch({ status: "queued", classification: "unconfirmed", explanation: "En cola: investigando en segundo plano…" });
     try {
+      // ENCOLA (devuelve rápido, sin 502) y luego SONDEA el estado hasta que el cron lo procese.
       const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [leadId], limit: 1, force: true })
+        body: JSON.stringify({ ids: [leadId], force: true })
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
-      setOwnerResearch(d.items?.[0] ?? { classification: "unconfirmed", explanation: "No se encontró evidencia suficiente." });
+      // Sondeo cada 5s durante ~2 min. No bloquea la UI: se puede cerrar el modal.
+      for (let i = 0; i < 24; i++) {
+        await new Promise((res) => setTimeout(res, 5000));
+        const sr = await fetch(`/api/v1/leads/franchises/enrich-owners?ids=${encodeURIComponent(leadId)}`);
+        if (!sr.ok) continue;
+        const sd = await sr.json().catch(() => ({}));
+        const fo = sd.items?.[0]?.franchiseOwner;
+        if (fo && (fo.status === "done" || fo.status === "error")) { setOwnerResearch(fo); return; }
+      }
+      setOwnerResearch({ status: "queued", classification: "unconfirmed", explanation: "Aún en cola. Vuelve a abrir el lead en un minuto para ver el resultado." });
     } catch (e: any) {
       setOwnerResearch({ classification: "unconfirmed", explanation: e?.message ?? "No se pudo investigar" });
     } finally { setOwnerLoading(false); }

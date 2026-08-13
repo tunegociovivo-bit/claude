@@ -116,6 +116,15 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       wsReport.jobsInboxError = e?.message ?? String(e);
     }
 
+    // 6c. Cola de identificación de titulares de franquicia (async): investiga hasta 2
+    //     leads brand_locations encolados por tick, en segundo plano (nunca en la request).
+    try {
+      const { processFranchiseOwnerQueue } = await import("./franchise-owner-queue");
+      wsReport.franchiseOwners = await processFranchiseOwnerQueue(prisma, ws.id, { max: 2 });
+    } catch (e: any) {
+      wsReport.franchiseOwnersError = e?.message ?? String(e);
+    }
+
     // 7. Salud de los proxies (throttleado a 15 min): verifica cada proxy
     //    configurado y guarda su estado para badges/avisos en el panel.
     try {
