@@ -57,3 +57,21 @@ export function conversationWhere(workspaceId: string, phones: string[], leadIds
   if (leadIds.length) OR.push({ leadId: { in: leadIds } });
   return { workspaceId, OR };
 }
+
+/**
+ * Identificadores con los que se GUARDA una respuesta SALIENTE para que quede en el mismo
+ * hilo que el último entrante:
+ *  - `fromPhone`: el alias CRUDO del hilo vivo (puede llevar sufijo @c.us/@lid).
+ *  - `phoneNormalized`: el número NORMALIZADO del hilo vivo — NUNCA el alias con sufijo
+ *    (guardar `fromPhone` aquí contaminaría la columna normalizada). Cae al teléfono de
+ *    entrada si el entrante no traía normalizado.
+ */
+export function outgoingReplyIdentity(
+  lastIn: { fromPhone?: string | null; phoneNormalized?: string | null },
+  fallbackPhone: string
+): { fromPhone: string; phoneNormalized: string } {
+  return {
+    fromPhone: lastIn.fromPhone || fallbackPhone,
+    phoneNormalized: lastIn.phoneNormalized || fallbackPhone
+  };
+}

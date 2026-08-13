@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveConversationIdentity } from "../conversation-identity";
+import { resolveConversationIdentity, outgoingReplyIdentity } from "../conversation-identity";
 
 describe("resolveConversationIdentity", () => {
   it("une el LID antiguo de la tarea con el numero real reciente por leadId", async () => {
@@ -37,5 +37,22 @@ describe("resolveConversationIdentity", () => {
     } as any, "w1", "antiguo", "lead-explicit");
     expect(result.leadIds).toContain("lead-explicit");
     expect(result.phones).toContain("34600999888");
+  });
+});
+
+describe("outgoingReplyIdentity — no contamina phoneNormalized con alias crudos", () => {
+  it("usa el phoneNormalized del entrante (número), NO el fromPhone con sufijo @c.us/@lid", () => {
+    const r = outgoingReplyIdentity({ fromPhone: "34600111222@c.us", phoneNormalized: "34600111222" }, "input");
+    expect(r.phoneNormalized).toBe("34600111222"); // normalizado, sin sufijo
+    expect(r.fromPhone).toBe("34600111222@c.us"); // alias crudo del hilo vivo
+  });
+  it("LID: phoneNormalized nunca acaba siendo un @lid", () => {
+    const r = outgoingReplyIdentity({ fromPhone: "123@lid", phoneNormalized: "34699000111" }, "123@lid");
+    expect(r.phoneNormalized).toBe("34699000111");
+    expect(r.phoneNormalized).not.toMatch(/@lid/);
+  });
+  it("si el entrante no trae phoneNormalized, cae al teléfono de entrada", () => {
+    const r = outgoingReplyIdentity({ fromPhone: "34600111222@c.us", phoneNormalized: null }, "34600111222");
+    expect(r.phoneNormalized).toBe("34600111222");
   });
 });

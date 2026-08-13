@@ -16,7 +16,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { sendText } from "@/lib/leads/waha";
-import { conversationWhere, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
+import { conversationWhere, outgoingReplyIdentity, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       direction: "in",
     },
     orderBy: { receivedAt: "desc" },
-    select: { instanceName: true, leadId: true, fromPhone: true, meta: true }
+    select: { instanceName: true, leadId: true, fromPhone: true, phoneNormalized: true, meta: true }
   });
   if (!lastIn) {
     throw new ApiError(404, "no_conversation", "No hay conversación entrante con ese teléfono.");
@@ -69,12 +69,16 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     throw new ApiError(502, "send_failed", `No se pudo enviar: ${e?.message ?? e}`);
   }
 
+  // Se guarda con los identificadores del HILO VIVO (para que la respuesta quede unida a la
+  // conversación reciente), pero `phoneNormalized` mantiene el número normalizado — nunca el
+  // alias crudo con sufijo @c.us/@lid.
+  const replyIds = outgoingReplyIdentity(lastIn, phone);
   const saved = await prisma.leadInboxMessage.create({
     data: {
       workspaceId: api.workspaceId,
       leadId: lastIn.leadId,
-      fromPhone: phone,
-      phoneNormalized: lastIn.fromPhone || phone,
+      fromPhone: replyIds.fromPhone,
+      phoneNormalized: replyIds.phoneNormalized,
       channel: "whatsapp",
       direction: "out",
       body: text,
