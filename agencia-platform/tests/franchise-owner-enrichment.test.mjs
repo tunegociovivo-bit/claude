@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeOwnerResearch } from "../lib/leads/franchise-owner-enrichment.ts";
+import { normalizeOwnerResearch } from "../lib/leads/franchise-owner-validation.ts";
 
 test("rejects central contact details as local owner evidence", () => {
   const out = normalizeOwnerResearch({
