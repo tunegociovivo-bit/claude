@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invoiceSequence, isApprovedNormalHoldedInvoice } from "../holded-auto-sync";
+import { invoiceSequence, isApprovedNormalHoldedInvoice, rectifyingSequence } from "../holded-auto-sync";
 
 describe("isApprovedNormalHoldedInvoice", () => {
   it("acepta una factura aprobada con número fiscal", () => {
@@ -23,5 +23,15 @@ describe("invoiceSequence", () => {
 
   it("rechaza otras series", () => {
     expect(invoiceSequence("R-003027")).toBeNull();
+  });
+});
+
+describe("rectifyingSequence", () => {
+  it("extrae la secuencia R", () => {
+    expect(rectifyingSequence("R-003029")).toBe(3029);
+  });
+
+  it("rechaza facturas normales", () => {
+    expect(rectifyingSequence("FAC-003028")).toBeNull();
   });
 });

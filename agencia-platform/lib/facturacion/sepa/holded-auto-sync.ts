@@ -13,6 +13,11 @@ export function invoiceSequence(number: string | undefined): number | null {
   return match ? Number(match[1]) : null;
 }
 
+export function rectifyingSequence(number: string | undefined): number | null {
+  const match = number?.trim().match(/^R-(\d+)$/i);
+  return match ? Number(match[1]) : null;
+}
+
 /**
  * Sincroniza las facturas aprobadas de Holded con el HUB antes de buscar
  * candidatas SEPA. El importador ya es idempotente por número de factura.
@@ -66,13 +71,20 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   });
   const existingSet = new Set(existingNumbers.map((row) => row.number!.toLowerCase()));
   const highestSequence = existingNumbers.reduce((max, row) => Math.max(max, invoiceSequence(row.number ?? undefined) ?? 0), 0);
+  const highestRectifyingSequence = existingNumbers.reduce(
+    (max, row) => Math.max(max, rectifyingSequence(row.number ?? undefined) ?? 0),
+    0
+  );
   const eligible = inputs.filter((input) => {
-    if (!isApprovedNormalHoldedInvoice(input)) return false;
+    const number = input.number?.trim();
+    if (input.status !== "ISSUED" || !number) return false;
     const key = input.number!.trim().toLowerCase();
     // Los documentos existentes se conservan para reparar nombres. Un
     // documento ausente solo se importa si avanza la secuencia fiscal; así un
     // listado sin fecha nunca reabre huecos históricos.
-    return existingSet.has(key) || (invoiceSequence(input.number) ?? 0) > highestSequence;
+    return existingSet.has(key)
+      || (invoiceSequence(input.number) ?? 0) > highestSequence
+      || (rectifyingSequence(input.number) ?? 0) > highestRectifyingSequence;
   });
   const startedAt = new Date();
   const result = await applyInvoiceImport(workspaceId, eligible, issuer.id);
@@ -80,7 +92,7 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   const createdRows = numbers.length
     ? await prisma.invoice.findMany({
         where: { workspaceId, issuerId: issuer.id, number: { in: numbers }, createdAt: { gte: startedAt } },
-        select: { id: true }
+        select: { id: true, number: true, type: true }
       })
     : [];
   return {
@@ -88,6 +100,8 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
     eligible: eligible.length,
     ...result,
     configured: true,
-    createdInvoiceIds: createdRows.map((row) => row.id)
+    createdInvoiceIds: createdRows
+      .filter((row) => row.type === "NORMAL" && !/^R-/i.test(row.number ?? ""))
+      .map((row) => row.id)
   };
 }

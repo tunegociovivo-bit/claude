@@ -31,6 +31,7 @@ export type CandidacyInput = {
   clientId: string | null | undefined;
   clientSepaEnabled: boolean | null | undefined;
   hasExistingRequest: boolean; // ya existe una remesa para esta factura
+  manuallyExcluded?: boolean;
 };
 
 export type CandidacyResult = { eligible: boolean; reasons: string[] };
@@ -72,6 +73,7 @@ export function evaluateCandidacy(input: CandidacyInput): CandidacyResult {
   if (norm(input.type) !== "normal") reasons.push("No es una factura normal (proforma/presupuesto/rectificativa)");
 
   if (input.hasExistingRequest) reasons.push("Ya tiene una remesa/solicitud");
+  if (input.manuallyExcluded) reasons.push("Excluida manualmente de remesas automáticas");
 
   if (!input.clientSepaEnabled) reasons.push("El cliente no está habilitado para cobro SEPA");
 

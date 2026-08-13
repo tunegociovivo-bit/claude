@@ -394,10 +394,11 @@ export async function applyInvoiceImport(
     const series = input.number?.match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || "IMP";
     const status = input.status ?? (input.number ? "ISSUED" : "DRAFT");
     const isPaid = status === "PAID";
+    const documentType = /^R-/i.test(input.number?.trim() ?? "") ? "RECTIFICATIVA" : "NORMAL";
     await prisma.invoice.create({
       data: {
         workspaceId,
-        type: "NORMAL",
+        type: documentType,
         status,
         series,
         number: input.number ?? null,

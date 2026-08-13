@@ -57,6 +57,11 @@ export async function findCandidateInvoices(
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) return [];
   const take = Math.min(opts?.take ?? 100, 300);
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const excludedNumbers = new Set<string>(
+    (((workspace?.settings as any)?.facturacion?.sepaExcludedInvoiceNumbers ?? []) as string[])
+      .map((number) => number.trim().toLowerCase())
+  );
 
   const invoices = await prisma.invoice.findMany({
     where: {
@@ -69,6 +74,7 @@ export async function findCandidateInvoices(
       paidAt: null,
       clientId: { not: null },
       number: { not: null },
+      NOT: { number: { startsWith: "R-", mode: "insensitive" } },
       ...(opts?.invoiceIds ? { id: { in: opts.invoiceIds } } : {}),
       ...((opts?.issuedAfter || opts?.issuedBefore)
         ? { issueDate: { ...(opts.issuedAfter ? { gte: opts.issuedAfter } : {}), ...(opts.issuedBefore ? { lt: opts.issuedBefore } : {}) } }
@@ -112,7 +118,8 @@ export async function findCandidateInvoices(
       paidAt: inv.paidAt,
       clientId: inv.clientId,
       clientSepaEnabled: inv.client?.sepaEnabled ?? false,
-      hasExistingRequest: withRequest.has(inv.id)
+      hasExistingRequest: withRequest.has(inv.id),
+      manuallyExcluded: excludedNumbers.has((inv.number ?? "").trim().toLowerCase())
     });
     return {
       invoiceId: inv.id,
@@ -156,6 +163,12 @@ export async function createRequestForInvoice(
   });
   if (!inv) throw new Error("Factura no encontrada.");
   if (inv.issuerId !== nv.id) throw new Error("La factura no es de Negocio Vivo S.C.A.");
+  if (/^R-/i.test(inv.number?.trim() ?? "") || inv.type === "RECTIFICATIVA") {
+    throw new Error("Las facturas rectificativas nunca se incluyen en remesas.");
+  }
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const excludedNumbers = (((workspace?.settings as any)?.facturacion?.sepaExcludedInvoiceNumbers ?? []) as string[])
+    .map((number) => number.trim().toLowerCase());
 
   const c = evaluateCandidacy({
     issuerName: nv.name,
@@ -167,7 +180,8 @@ export async function createRequestForInvoice(
     paidAt: inv.paidAt,
     clientId: inv.clientId,
     clientSepaEnabled: inv.client?.sepaEnabled ?? false,
-    hasExistingRequest: false
+    hasExistingRequest: false,
+    manuallyExcluded: excludedNumbers.includes((inv.number ?? "").trim().toLowerCase())
   });
   if (!c.eligible) throw new Error(`La factura no es candidata: ${c.reasons.join("; ")}`);
 

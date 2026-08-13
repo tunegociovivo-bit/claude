@@ -26,7 +26,8 @@ import {
   Pencil,
   CreditCard,
   X,
-  Repeat
+  Repeat,
+  Ban
 } from "lucide-react";
 
 type ClientLite = { id: string; name: string; taxId: string | null };
@@ -116,6 +117,8 @@ export default function FacturasClient({
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<InvoiceRow | "new" | null>(null);
   const [issuersOpen, setIssuersOpen] = useState(false);
+  const [sepaExcluded, setSepaExcluded] = useState<Set<string>>(new Set());
+  const [excludeNumber, setExcludeNumber] = useState("");
 
   const loadInvoices = useCallback(async () => {
     setLoading(true);
@@ -125,11 +128,18 @@ export default function FacturasClient({
       if (statusFilter) params.set("status", statusFilter);
       if (lockedIssuerId) params.set("issuerId", lockedIssuerId);
       if (q.trim()) params.set("q", q.trim());
-      const r = await fetch(`/api/v1/invoices?${params.toString()}`, { cache: "no-store" });
+      const [r, exclusionsResponse] = await Promise.all([
+        fetch(`/api/v1/invoices?${params.toString()}`, { cache: "no-store" }),
+        fetch("/api/v1/facturacion/remesas/exclusions", { cache: "no-store" })
+      ]);
       if (r.ok) {
         const data = await r.json();
         setInvoices(data.items ?? []);
         onInvoicesChanged?.();
+      }
+      if (exclusionsResponse.ok) {
+        const data = await exclusionsResponse.json();
+        setSepaExcluded(new Set((data.numbers ?? []).map((number: string) => number.toUpperCase())));
       }
     } finally {
       setLoading(false);
@@ -160,6 +170,15 @@ export default function FacturasClient({
     return r.json().catch(() => ({}));
   }
 
+  async function setRemittanceExclusion(number: string, excluded: boolean) {
+    const normalized = number.trim().toUpperCase();
+    if (!normalized) return;
+    const result = await action("/api/v1/facturacion/remesas/exclusions", "PATCH", { number: normalized, excluded });
+    if (!result) return;
+    setSepaExcluded(new Set((result.numbers ?? []).map((item: string) => item.toUpperCase())));
+    setExcludeNumber("");
+  }
+
   const totalsByStatus = useMemo(() => {
     const issued = invoices.filter((i) => i.status === "ISSUED");
     const paid = invoices.filter((i) => i.status === "PAID");
@@ -183,6 +202,22 @@ export default function FacturasClient({
         >
           <Building2 className="h-4 w-4" /> Emisores ({issuers.length})
         </button>
+        <div className="inline-flex items-center gap-1 rounded-lg border bg-white p-1">
+          <input
+            value={excludeNumber}
+            onChange={(event) => setExcludeNumber(event.target.value)}
+            placeholder="Nº a excluir (FAC-...)"
+            className="w-40 px-2 py-1 text-sm outline-none"
+          />
+          <button
+            onClick={() => setRemittanceExclusion(excludeNumber, true)}
+            disabled={!excludeNumber.trim()}
+            className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-700 disabled:opacity-40"
+            title="Registrar una factura para que nunca genere remesa automática, aunque aún no se haya importado"
+          >
+            <Ban className="h-3.5 w-3.5" /> Excluir remesa
+          </button>
+        </div>
         <div className="flex-1" />
         <select
           value={typeFilter}
@@ -269,6 +304,12 @@ export default function FacturasClient({
                       {inv.number ?? "(borrador)"}
                     </div>
                     <div className="text-[11px] text-slate-400">{TYPE_LABEL[inv.type as InvoiceType] ?? inv.type}</div>
+                    {(inv.type === "RECTIFICATIVA" || /^R-/i.test(inv.number ?? "")) && (
+                      <div className="text-[11px] text-rose-600">Rectificativa · nunca se remesa</div>
+                    )}
+                    {inv.number && sepaExcluded.has(inv.number.toUpperCase()) && (
+                      <div className="text-[11px] text-amber-700">Excluida de remesas automáticas</div>
+                    )}
                   </td>
                   <td className="px-3 py-2">{inv.client?.name ?? inv.clientSnapshot?.name ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{toDateInput(inv.issueDate)}</td>
@@ -280,6 +321,14 @@ export default function FacturasClient({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1 text-slate-500">
+                      {inv.number && inv.type !== "RECTIFICATIVA" && !/^R-/i.test(inv.number) && (
+                        <IconBtn
+                          title={sepaExcluded.has(inv.number.toUpperCase()) ? "Permitir remesa automática" : "Excluir de remesas automáticas"}
+                          onClick={() => setRemittanceExclusion(inv.number!, !sepaExcluded.has(inv.number!.toUpperCase()))}
+                        >
+                          <Ban className={`h-4 w-4 ${sepaExcluded.has(inv.number.toUpperCase()) ? "text-rose-600" : ""}`} />
+                        </IconBtn>
+                      )}
                       <IconBtn title="Editar" onClick={() => setEditing(inv)}>
                         <Pencil className="h-4 w-4" />
                       </IconBtn>
