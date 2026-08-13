@@ -27,7 +27,7 @@ function fmtTime(iso: string): string {
   }
 }
 
-export default function LeadConversationEmbed({ phone }: { phone: string }) {
+export default function LeadConversationEmbed({ phone, leadId }: { phone: string; leadId?: string | null }) {
   const [items, setItems] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyChannel, setReplyChannel] = useState<string | null>(null);
@@ -42,7 +42,9 @@ export default function LeadConversationEmbed({ phone }: { phone: string }) {
 
   async function load() {
     try {
-      const r = await fetch(`/api/v1/leads/inbox/conversation?phone=${encodeURIComponent(phone)}`);
+      const q = new URLSearchParams({ phone });
+      if (leadId) q.set("leadId", leadId);
+      const r = await fetch(`/api/v1/leads/inbox/conversation?${q.toString()}`, { cache: "no-store" });
       if (!r.ok) return;
       const d = await r.json();
       setItems(d.items ?? []);
@@ -89,7 +91,7 @@ export default function LeadConversationEmbed({ phone }: { phone: string }) {
       const r = await fetch("/api/v1/leads/inbox/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, text: t })
+        body: JSON.stringify({ phone, leadId: leadId ?? undefined, text: t })
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));

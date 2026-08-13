@@ -106,7 +106,7 @@ export type UiTask = (typeof mockTasks)[number] & {
   recurrenceNextAt?: string | null;
   /** Si la tarea se creó desde el generador de leads (WhatsApp), sus datos para
    *  pintar el acento verde en la tarjeta y el botón "Ver conversación". */
-  leadMeta?: { phone?: string; name?: string | null; inboxUrl?: string } | null;
+  leadMeta?: { phone?: string; leadId?: string | null; name?: string | null; inboxUrl?: string } | null;
 };
 
 /** Extrae los datos de lead de customData (source="leads"). */
@@ -114,6 +114,7 @@ function extractLeadMeta(customData: any): UiTask["leadMeta"] {
   if (!customData || customData.source !== "leads") return null;
   return {
     phone: customData.leadPhone ?? undefined,
+    leadId: customData.leadId ?? null,
     name: customData.leadName ?? null,
     inboxUrl: customData.leadInboxUrl ?? undefined
   };

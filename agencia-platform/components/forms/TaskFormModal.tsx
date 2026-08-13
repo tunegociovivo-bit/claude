@@ -779,6 +779,10 @@ export default function TaskFormModal({
     ((currentTask as any)?.leadMeta?.phone as string | undefined) ||
     ((customData as any)?.source === "leads" ? ((customData as any).leadPhone as string) : null) ||
     null;
+  const leadId: string | null =
+    ((currentTask as any)?.leadMeta?.leadId as string | undefined) ||
+    ((customData as any)?.source === "leads" ? ((customData as any).leadId as string) : null) ||
+    null;
 
   return (
     <Modal
@@ -869,7 +873,7 @@ export default function TaskFormModal({
           <div className="mb-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
             🟢 Tarea del generador de leads
           </div>
-          <LeadConversationEmbed phone={leadPhone} />
+          <LeadConversationEmbed phone={leadPhone} leadId={leadId} />
         </div>
       )}
       <form id="task-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-6">

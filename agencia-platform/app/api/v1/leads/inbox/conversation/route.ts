@@ -12,16 +12,20 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/lid";
+import { conversationWhere, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 
 export const dynamic = "force-dynamic";
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const phone = new URL(req.url).searchParams.get("phone")?.trim();
   if (!phone) throw new ApiError(400, "validation_error", "Falta ?phone=");
+  const leadId = new URL(req.url).searchParams.get("leadId")?.trim() || null;
+  const identity = await resolveConversationIdentity(prisma, api.workspaceId, phone, leadId);
+  const messageWhere = conversationWhere(api.workspaceId, identity.phones, identity.leadIds);
 
   const [inboxMsgs, campaignMsgs, optout, convMeta] = await Promise.all([
     prisma.leadInboxMessage.findMany({
-      where: { workspaceId: api.workspaceId, OR: [{ phoneNormalized: phone }, { fromPhone: phone }] },
+      where: messageWhere,
       orderBy: { receivedAt: "asc" },
       take: 500,
       include: { lead: { select: { id: true, name: true, phone: true } } }
@@ -29,7 +33,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     prisma.leadMessage.findMany({
       where: {
         workspaceId: api.workspaceId,
-        phoneNormalized: phone,
+        OR: [
+          { phoneNormalized: { in: identity.phones } },
+          ...(identity.leadIds.length ? [{ leadId: { in: identity.leadIds } }] : [])
+        ],
         status: { in: ["sent", "delivered", "read"] }
       },
       orderBy: { sentAt: "asc" },
@@ -88,7 +95,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   // Marcar entrantes como leídos (fire-and-forget).
   void prisma.leadInboxMessage
     .updateMany({
-      where: { workspaceId: api.workspaceId, phoneNormalized: phone, direction: "in", read: false },
+      where: { ...messageWhere, direction: "in", read: false },
       data: { read: true }
     })
     .catch(() => {});

@@ -16,25 +16,27 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { sendText } from "@/lib/leads/waha";
+import { conversationWhere, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
   phone: z.string().min(6).max(20),
+  leadId: z.string().optional(),
   text: z.string().min(1).max(4000)
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const { phone, text } = parsed.data;
+  const { phone, text, leadId } = parsed.data;
+  const identity = await resolveConversationIdentity(prisma, api.workspaceId, phone, leadId);
 
   // Canal de salida: el del último mensaje ENTRANTE de ese teléfono.
   const lastIn = await prisma.leadInboxMessage.findFirst({
     where: {
-      workspaceId: api.workspaceId,
+      ...conversationWhere(api.workspaceId, identity.phones, identity.leadIds),
       direction: "in",
-      OR: [{ phoneNormalized: phone }, { fromPhone: phone }]
     },
     orderBy: { receivedAt: "desc" },
     select: { instanceName: true, leadId: true, fromPhone: true, meta: true }
@@ -72,7 +74,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       workspaceId: api.workspaceId,
       leadId: lastIn.leadId,
       fromPhone: phone,
-      phoneNormalized: phone,
+      phoneNormalized: lastIn.fromPhone || phone,
       channel: "whatsapp",
       direction: "out",
       body: text,

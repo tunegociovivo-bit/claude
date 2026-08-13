@@ -169,6 +169,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
         source: "leads",
         leadPhone: phone,
         leadName: leadName ?? null,
+        leadId,
         leadInboxUrl
       } as any
     },
