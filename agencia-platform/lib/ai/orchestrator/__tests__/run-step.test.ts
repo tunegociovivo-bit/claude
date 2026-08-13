@@ -235,6 +235,20 @@ describe("runStep — fases", () => {
     expect(used).toBe("openai"); // reutiliza lo aprendido
   });
 
+  it("PREFERENCIA MANUAL (canary): plan.preferProviders sesga la elección sin excluir a los demás", async () => {
+    let used = "";
+    // sin preferencia, el primer slot (anthropic) se elegiría; con preferProviders=[openai] → openai
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ callModel: async (slot) => { used = slot.provider; return okResult() as any; } }));
+    await rs(orch({ state: "executing", plan: { need: { capabilities: [] }, preferProviders: ["openai"] } }));
+    expect(used).toBe("openai");
+  });
+  it("FORCE (canary): plan.need.excludeProviders deja SOLO el proveedor forzado", async () => {
+    let used = "";
+    const rs = makeRunStep(mkPrisma() as any, mkDeps({ callModel: async (slot) => { used = slot.provider; return okResult() as any; } }));
+    await rs(orch({ state: "executing", plan: { need: { capabilities: [], excludeProviders: ["anthropic", "gemini", "perplexity"] } } }));
+    expect(used).toBe("openai"); // los demás excluidos → solo openai elegible
+  });
+
   it("VERIFICADOR built-in: extracción JSON válida → verifying verified:true → aprende (live)", async () => {
     const rec: any[] = [];
     const learning = { recordOutcome: async (a: any) => void rec.push(a), recommend: async () => [] };

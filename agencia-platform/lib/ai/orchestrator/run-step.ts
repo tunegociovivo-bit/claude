@@ -162,14 +162,18 @@ export function makeRunStep(prisma: PrismaLike, deps: RunStepDeps) {
         const attemptStrategyKind = plan.lastStrategyKind ?? "retry_same";
         // APRENDIZAJE: prioriza proveedores que YA resolvieron esta (firma, causa) y evita
         // los que fallaron. Reutiliza lo aprendido en ejecuciones futuras similares.
-        let prefer: string[] = [];
+        // Preferencia MANUAL (canary admin, `plan.preferProviders`) va primero, sin excluir a
+        // los demás → permite demostrar failover (Anthropic→OpenAI) sin desactivar Anthropic.
+        const planPrefer: string[] = Array.isArray(plan.preferProviders) ? plan.preferProviders.filter((p: any) => typeof p === "string") : [];
+        let learnedPrefer: string[] = [];
         let avoid: string[] = [];
         if (deps.learning) {
           const recs = await deps.learning.recommend(orch.workspaceId, signature, addressingCause);
-          prefer = recs.filter((r) => r.provider && r.successCount > r.failureCount).map((r) => r.provider);
+          learnedPrefer = recs.filter((r) => r.provider && r.successCount > r.failureCount).map((r) => r.provider);
           avoid = recs.filter((r) => r.provider && r.failureCount > r.successCount).map((r) => r.provider);
         }
-        const reused = prefer.length > 0;
+        const prefer = [...planPrefer, ...learnedPrefer];
+        const reused = learnedPrefer.length > 0; // telemetría "reuse" = reutilización APRENDIDA, no preferencia manual
         const blocked = await blockedProviders(deps, orch.workspaceId, nowD);
         const slot = chooseProvider(plan.need ?? { capabilities: [] }, deps.env, { exclude: tried, breakerOpen: (p) => blocked.has(p), prefer, avoid });
         if (!slot) {

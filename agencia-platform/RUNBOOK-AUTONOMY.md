@@ -81,6 +81,18 @@ Content-Type: application/json
 ```
 Respuesta `201` → `{ id, taskId, created:true, mode:"live", state:"queued", nextRunAt, autonomy, taskType, verifierType, limits }`. Luego el `/tick` (§6) lo ejecutará: una **llamada de modelo real** (A0/A1), verificación objetiva, y si se resuelve tras un fallo, **aprendizaje durable** (§Aprendizaje). Verifica el progreso con `GET /api/v1/ai/orchestrations/<id>` y lo aprendido con `GET /api/v1/ai/learning`.
 
+## 5.2. Automatización del tick (cron GitHub Actions) — implementado
+El workflow `.github/workflows/sonia-orchestrator-tick.yml` conduce el scheduler **sin depender de nadie**: schedule `*/5 * * * *` (suelo de GitHub) y dentro de cada ejecución 3 sub-ticks espaciados ~90s → cadencia efectiva ~1-2 min. `POST` a `/api/v1/ai/orchestrations/tick` con `Authorization: Bearer <INTERNAL_CRON_TOKEN>`. Es seguro ejecutarlo de más: el endpoint tiene lock por lease guardado por versión, recuperación de leases, single-probe del breaker, límites de lote y kill-switch. Su latido queda monitorizado en el catálogo de crons (`orchestrator-tick`, `maxStaleMin:15`) → el watchdog avisa si el scheduler se queda mudo.
+
+## 5.3. Salud/coste/breaker del multimodelo + canary con proveedor — implementado
+- **`GET /api/v1/ai/providers`** (admin, tenant-scoped): por cada slot devuelve proveedor, modelo, capacidades, coste/1k, `healthy` (¿hay clave en el env?) y el **estado del circuit breaker** durable de ese `(workspace, proveedor)`, más el modo del motor (live/shadow). Nunca expone la clave (solo si existe).
+- **Canary con proveedor** (en `POST …/enqueue`, solo admin):
+  - `forceProvider: "openai"` → routing DURO (excluye a los demás; solo ese proveedor es elegible).
+  - `preferProvider: "openai"` → routing BLANDO (lo prioriza, pero permite **failover** a otros sanos) → demuestra Anthropic→OpenAI **sin desactivar Anthropic**. Para ver el failover: `preferProvider:"anthropic"` y, si su breaker está abierto o falla, el run cae a OpenAI automáticamente. Exclusivos entre sí.
+
+## 5.4. Revocación real de API keys — implementado
+**`DELETE /api/v1/api-keys/{id}`** (admin, tenant-scoped, idempotente) marca `revokedAt`; `authenticate()` la rechaza de inmediato. Para revocar la key temporal del canary: `GET /api/v1/api-keys` (lista las vivas con nombre), localiza «Canary autonomía Sonia 2026-08-12», y `DELETE /api/v1/api-keys/<su-id>`. (El agente no puede borrar filas de producción; ejecútalo tú con una sesión/clave admin.)
+
 ## 6. Entrypoint del scheduler (cron) — implementado
 `POST /api/v1/ai/orchestrations/tick` procesa un lote acotado (claim con lease → avance por fases con presupuesto de tiempo), reanuda runs tras reinicio y NUNCA ejecuta efectos. Auth de cron **fail-closed** (`INTERNAL_CRON_TOKEN`/`CRON_SECRET`, tiempo constante) + flag `AI_RUN_ORCHESTRATOR`.
 - **Programa el cron** desde tu sesión autenticada (Railway cron, o el workflow de GitHub Actions que ya usáis para otros crons), llamando:

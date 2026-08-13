@@ -127,10 +127,16 @@ export function makeDbLearning(prisma: PrismaLike): LearningStore {
         const res = await prisma.aiStrategyMemory.updateMany({ where: { ...where, version: row.version }, data: { ...data, tool, version: row.version + 1 } });
         if (res.count === 1) return;
         // conflicto de versión → reintenta
-      } catch {
-        return; // best-effort: el aprendizaje no debe romper la ejecución
+      } catch (e: any) {
+        // Best-effort: el aprendizaje no debe romper la ejecución. Pero NO en silencio: un
+        // fallo de escritura dejaría `verifiedSuccesses` sin incrementar de forma invisible.
+        // Se registra la CLASE de error (sin PII) para poder diagnosticarlo.
+        console.warn(`[ai-learning] recordOutcome no persistió (${a.ok ? "success" : "failure"}): ${String(e?.name ?? "error")}`);
+        return;
       }
     }
+    // Agotados los reintentos por conflicto de versión (contención): también observable.
+    console.warn(`[ai-learning] recordOutcome no persistió tras ${MAX_TRIES} intentos (contención de versión)`);
   }
 
   async function recommend(workspaceId: string, taskSignature: string, rootCause: string, limit = 5): Promise<StrategyRecommendation[]> {

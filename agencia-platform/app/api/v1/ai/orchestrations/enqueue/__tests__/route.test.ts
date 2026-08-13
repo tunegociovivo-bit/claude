@@ -198,6 +198,28 @@ describe("límites acotados por el techo del canary", () => {
   });
 });
 
+describe("routing de proveedor admin/canary (force/prefer)", () => {
+  it("forceProvider → excluye a los demás (routing duro)", async () => {
+    const res = await call({ ...SUMMARY, taskId: "f1", forceProvider: "openai" });
+    expect(res.status).toBe(201);
+    const need = prisma._rows[0].plan.need;
+    expect(need.excludeProviders).toEqual(expect.arrayContaining(["anthropic", "gemini", "perplexity"]));
+    expect(need.excludeProviders).not.toContain("openai");
+    expect(prisma._rows[0].plan.preferProviders).toBeUndefined();
+  });
+  it("preferProvider → sesga sin excluir (permite failover)", async () => {
+    const res = await call({ ...SUMMARY, taskId: "p1", preferProvider: "openai" });
+    expect(res.status).toBe(201);
+    expect(prisma._rows[0].plan.preferProviders).toEqual(["openai"]);
+    expect(prisma._rows[0].plan.need.excludeProviders).toBeUndefined();
+  });
+  it("proveedor desconocido → 400; force+prefer juntos → 400", async () => {
+    expect((await call({ ...SUMMARY, taskId: "x1", forceProvider: "acme" })).status).toBe(400);
+    expect((await call({ ...SUMMARY, taskId: "x2", preferProvider: "acme" })).status).toBe(400);
+    expect((await call({ ...SUMMARY, taskId: "x3", forceProvider: "openai", preferProvider: "anthropic" })).status).toBe(400);
+  });
+});
+
 describe("CANARY seguro — resumen estructurado", () => {
   it("→ 201 queued/live/nextRunAt, plan válido, audit step 'enqueued', SIN ejecutar nada", async () => {
     const res = await call({ ...SUMMARY, taskId: "canary-1", autonomy: "A1" });

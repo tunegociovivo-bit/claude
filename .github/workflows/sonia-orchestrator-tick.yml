@@ -1,0 +1,39 @@
+name: Sonia · orquestador tick (autonomía A0/A1)
+# Auto-conduce el scheduler del orquestador de Sonia SIN depender de que nadie lo dispare.
+# GitHub Actions tiene un suelo de 5 min por schedule, así que dentro de cada ejecución
+# subdividimos en varios ticks espaciados ~90s para aproximar una cadencia de 1-2 min.
+#
+# El endpoint /tick YA es seguro para ejecuciones solapadas/concurrentes:
+#   - claim con lease guardado por versión (una fila la toma un solo worker) + recuperación
+#     de leases expirados;
+#   - circuit breaker durable con sonda única (single-probe) cross-proceso;
+#   - límites de lote (batchSize/maxStepsPerRun/maxWallMs/attemptBudget);
+#   - kill-switch (HUB_AUTONOMY_KILL) y flag (AI_RUN_ORCHESTRATOR) fail-closed.
+# Por eso es idempotente y seguro ejecutarlo de más. Nunca ejecuta efectos externos
+# (solo llamada de modelo A0/A1); los efectos A2+ paran en approval_required.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # disparo manual desde la UI de GitHub
+
+concurrency:
+  group: sonia-orchestrator-tick
+  cancel-in-progress: false # nunca cancelar un tick en vuelo
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ticks del orquestador (~cada 90s durante la ventana)
+        env:
+          TOKEN: ${{ secrets.INTERNAL_CRON_TOKEN || secrets.CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://hub.negociovivo.app/api/v1/ai/orchestrations/tick"
+          for i in 1 2 3; do
+            echo "· tick #$i"
+            # --fail-with-body: falla si HTTP>=400 pero muestra el cuerpo (sin secretos).
+            curl -sS --fail-with-body --retry 3 --retry-delay 10 --retry-all-errors \
+              -X POST -H "Authorization: Bearer ${TOKEN}" "$URL" || echo "  (tick #$i no OK; el siguiente reintenta)"
+            if [ "$i" -lt 3 ]; then sleep 90; fi
+          done

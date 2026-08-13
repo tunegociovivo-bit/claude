@@ -87,6 +87,18 @@ describe("recordOutcome — solo verificados, idempotente, tenant-scoped", () =>
     expect(db._rows[0].successCount).toBe(1);
     expect(db._rows[0].failureCount).toBe(1);
   });
+  it("best-effort: un fallo de escritura NO rompe la ejecución (se traga, ya no en silencio)", async () => {
+    const db = mkDb();
+    // create lanza un error NO-P2002 (p.ej. validación) → recordOutcome no debe propagar.
+    db.aiStrategyMemory.create = vi.fn(async () => { throw new Error("DB down"); });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const l = makeDbLearning(db as any);
+    await expect(
+      l.recordOutcome({ workspaceId: "w1", taskSignature: sig, rootCause: cause, strategyKind: "switch_provider", provider: "anthropic", verified: true, ok: true, attemptToken: "z", now: NOW })
+    ).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled(); // de-silenciado: deja rastro (sin PII)
+    warn.mockRestore();
+  });
 });
 
 describe("recommend — prioriza lo que funcionó, tenant-scoped", () => {

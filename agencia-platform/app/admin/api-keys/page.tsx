@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { Key, Plus, Copy, Check } from "lucide-react";
+import { Key, Plus, Copy, Check, Trash2 } from "lucide-react";
 
 type ApiKey = { id: string; name: string; prefix: string; scopes: string[]; lastUsedAt?: string; createdAt: string };
 
@@ -36,6 +36,16 @@ export default function ApiKeysPage() {
       setName("");
       load();
     }
+  }
+
+  const [revoking, setRevoking] = useState<string | null>(null);
+  async function revoke(id: string, name: string) {
+    if (!confirm(`¿Revocar la API key «${name}»? Dejará de funcionar de inmediato.`)) return;
+    setRevoking(id);
+    const r = await fetch(`/api/v1/api-keys/${id}`, { method: "DELETE" });
+    setRevoking(null);
+    if (r.ok) load();
+    else alert("No se pudo revocar (¿ya revocada o sin permiso?).");
   }
 
   useEffect(() => { load(); }, []);
@@ -116,6 +126,14 @@ export default function ApiKeysPage() {
                     ? `Usada ${new Date(k.lastUsedAt).toLocaleDateString("es-ES")}`
                     : "Sin usar"}
                 </div>
+                <button
+                  onClick={() => revoke(k.id, k.name)}
+                  disabled={revoking === k.id}
+                  title="Revocar"
+                  className="p-2 rounded-md border bg-white hover:bg-red-50 text-red-600 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </li>
             ))}
           </ul>

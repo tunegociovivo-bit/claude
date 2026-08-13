@@ -27,11 +27,15 @@ export const CRON_CATALOG: Record<string, { label: string; maxStaleMin: number }
   "health-watchdog": { label: "Vigilante de crons", maxStaleMin: 90 },
   "bubui-monthly-ranking": { label: "Bubui · premio ranking mensual", maxStaleMin: 26 * 60 },
   "leads-followups": { label: "NV Leads · recordatorios de seguimiento", maxStaleMin: 35 },
-  "leads-health": { label: "NV Leads · salud de WAHA", maxStaleMin: 25 }
+  "leads-health": { label: "NV Leads · salud de WAHA", maxStaleMin: 25 },
+  "orchestrator-tick": { label: "Sonia · tick del orquestador (autonomía)", maxStaleMin: 15 }
 };
 
 /** Deriva el nombre de cron a partir del path de la request. */
 export function cronNameFromPath(pathname: string): string | null {
+  // El tick del orquestador vive fuera de /api/cron; se mapea explícitamente para que su
+  // latido se registre y el watchdog detecte si el scheduler se queda mudo.
+  if (/\/api\/v1\/ai\/orchestrations\/tick\/?$/.test(pathname)) return "orchestrator-tick";
   const m = /\/api\/(?:cron|v1\/internal|v1\/gmb)\/(.+?)\/?$/.exec(pathname);
   return m ? m[1] : null;
 }

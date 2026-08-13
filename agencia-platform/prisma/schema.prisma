@@ -431,6 +431,9 @@ model Invoice {
   recurrenceConfig  Json?
   // Si esta factura fue GENERADA por una plantilla recurrente, su id.
   recurringSourceId String?
+  // Id de la recurrencia ORIGEN en Holded (si esta PLANTILLA se importó de Holded).
+  // Nullable + único por workspace → idempotencia del import (no duplica al reimportar).
+  holdedRecurringId String?
 
   // Factura-e
   facturaeXml      String?   @db.Text // XML generado (sin firma en fase 1)
@@ -451,11 +454,14 @@ model Invoice {
   bankTransactions BankTransaction[]
 
   @@unique([workspaceId, number])
+  // Idempotencia del import de recurrencias de Holded (múltiples NULL permitidos en Postgres).
+  @@unique([workspaceId, holdedRecurringId])
   @@index([workspaceId])
   @@index([clientId])
   @@index([status])
   @@index([type])
   @@index([issueDate])
+  @@index([workspaceId, recurring])
 }
 
 model Membership {

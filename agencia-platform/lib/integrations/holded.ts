@@ -117,6 +117,52 @@ export async function holdedGetInvoice(opts: {
   return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`);
 }
 
+/** Documento recurrente de Holded (plantilla). Los nombres de campo varían según la
+ *  antigüedad/tipo; el importador es DEFENSIVO y normaliza varias variantes. */
+export type HoldedRecurring = {
+  id: string;
+  contactName?: string;
+  contact?: any;
+  contactId?: string;
+  desc?: string;
+  currency?: string;
+  total?: number;
+  items?: any[];
+  // marcadores de periodicidad (variantes conocidas de Holded)
+  periodicity?: string | number;
+  period?: string | number;
+  every?: number;
+  nextInvoiceDate?: number;
+  nextDate?: number;
+  startDate?: number;
+  endDate?: number;
+  status?: number | string;
+};
+
+/**
+ * Lista las RECURRENCIAS (plantillas) de Holded. El endpoint de recurrentes de Holded no
+ * está uniformemente documentado entre cuentas; probamos el path configurable
+ * `HOLDED_RECURRING_PATH` y, si no, los candidatos habituales. Devuelve SOLO lo que Holded
+ * responde (crudo, normalizado a array). Es de SOLO LECTURA — seguro para dry-run: si el
+ * endpoint no existe en esta cuenta, se propaga el error para mostrarlo en el preview.
+ */
+export async function holdedListRecurringInvoices(opts: { workspaceId: string; limit?: number }): Promise<HoldedRecurring[]> {
+  const envPath = (process.env.HOLDED_RECURRING_PATH || "").trim();
+  const candidates = envPath
+    ? [envPath]
+    : ["/invoicing/v1/documents/recurringinvoice", "/invoicing/v1/documents/invoicerecurring", "/invoicing/v1/documents/recurring"];
+  let lastErr: any = null;
+  for (const path of candidates) {
+    try {
+      const data = await holdedFetch<HoldedRecurring[]>(opts.workspaceId, path);
+      if (Array.isArray(data)) return data.slice(0, opts.limit ?? 1000);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? new Error("Holded: no se pudo listar recurrencias (endpoint no disponible)");
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Contacts (clientes/proveedores)
 // ─────────────────────────────────────────────────────────────────

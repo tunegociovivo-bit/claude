@@ -51,6 +51,8 @@ export const ADMIN_CARDS: AdminCardMeta[] = [
   { href: "/admin/sonia-knowledge", title: "Conocimiento de Sonia", sectionId: "sonia" },
   { href: "/admin/sonia-voice-test", title: "Voz de Sonia (ElevenLabs)", sectionId: "sonia" },
   { href: "/admin/sonia-self-heal", title: "Auto-fix de Sonia", sectionId: "sonia", adminOnly: true },
+  { href: "/admin/sonia-autonomia", title: "Autonomía de Sonia (multimodelo)", sectionId: "sonia", adminOnly: true },
+  { href: "/admin/facturacion-recurrentes", title: "Facturas recurrentes (Holded)", sectionId: "sonia", adminOnly: true },
   { href: "/admin/make-settings", title: "Make.com (automatizaciones)", sectionId: "sonia" },
   { href: "/admin/sonia-lessons", title: "Lecciones aprendidas", sectionId: "sonia" },
   { href: "/admin/memoria-claude", title: "Memoria del proyecto", sectionId: "sonia" },

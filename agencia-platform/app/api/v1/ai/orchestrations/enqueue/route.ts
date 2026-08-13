@@ -31,6 +31,10 @@ import { canaryLimits } from "@/lib/ai/orchestrator/scheduler";
 import { sanitizeLimits, type BudgetLimits } from "@/lib/ai/orchestrator/budget";
 import { ORCH_STATES, isTerminal } from "@/lib/ai/orchestrator/state-machine";
 import { redactPii } from "@/lib/ai/orchestrator/pii-redact";
+import { MODEL_SLOTS } from "@/lib/ai/orchestrator/providers";
+
+// Proveedores conocidos (para `forceProvider`/`preferProvider` del canary admin).
+const KNOWN_PROVIDERS = [...new Set(MODEL_SLOTS.map((s) => s.provider))];
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +132,16 @@ export const POST = withApi({ scope: "*", rate: "admin", admin: true }, async (r
     }
   }
 
+  // 7b) Enrutado de proveedor SOLO-admin/canary (el endpoint ya es admin). Dos modos:
+  //     - forceProvider: routing DURO — excluye a los demás (solo ese proveedor es elegible).
+  //     - preferProvider: routing BLANDO — lo prioriza pero permite failover a otros sanos
+  //       (demuestra failover Anthropic→OpenAI SIN desactivar Anthropic). Excluyentes entre sí.
+  const forceProvider = typeof body.forceProvider === "string" ? body.forceProvider.trim() : "";
+  const preferProvider = typeof body.preferProvider === "string" ? body.preferProvider.trim() : "";
+  if (forceProvider && preferProvider) return bad("bad_request", "usa forceProvider O preferProvider, no ambos");
+  if (forceProvider && !KNOWN_PROVIDERS.includes(forceProvider)) return bad("bad_request", `forceProvider desconocido (usa: ${KNOWN_PROVIDERS.join(", ")})`);
+  if (preferProvider && !KNOWN_PROVIDERS.includes(preferProvider)) return bad("bad_request", `preferProvider desconocido (usa: ${KNOWN_PROVIDERS.join(", ")})`);
+
   // 8) taskType + verification — validación ESTRICTA (debe ser objetivamente verificable).
   const taskType = typeof body.taskType === "string" ? body.taskType.trim() : "";
   if (!taskType) return bad("bad_request", "taskType es obligatorio");
@@ -168,12 +182,16 @@ export const POST = withApi({ scope: "*", rate: "admin", admin: true }, async (r
 
   // 11) Plan saneado. El `objective`/`system` los vuelve a redactar el adaptador antes de
   //     cualquier egress; aquí redactamos PII de entrada como minimización en la frontera.
+  // forceProvider → excluye a los demás proveedores (routing duro); preferProvider → sesga
+  // sin excluir (routing blando, permite failover). El `workspaceId`/scheduler siguen mandando.
+  const excludeProviders = forceProvider ? KNOWN_PROVIDERS.filter((p) => p !== forceProvider) : undefined;
   const plan = {
     taskType,
     autonomy,
     objective: redactPii(objective).text,
     ...(system ? { system: redactPii(system).text } : {}),
-    need: { capabilities },
+    need: { capabilities, ...(excludeProviders ? { excludeProviders } : {}) },
+    ...(preferProvider ? { preferProviders: [preferProvider] } : {}),
     verification: v.spec,
     parentAutonomy: autonomy,
     source: "enqueue" as const
