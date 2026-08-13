@@ -219,6 +219,7 @@ export default function LeadsClient() {
   const [ticketSort, setTicketSort] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [enrichingOwners, setEnrichingOwners] = useState(false);
+  const [ownerProgress, setOwnerProgress] = useState<{ queued: number; done: number; error: number } | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -260,7 +261,20 @@ export default function LeadsClient() {
     }
   }
 
-  async function bulkEnrichFranchiseOwners() {
+  // Sondea el progreso de la cola de titulares hasta que no quede nada en cola (o se agota
+  // el margen). Actualiza el contador visible en cola/hechos/errores. No bloquea la UI.
+  async function pollOwnerProgress() {
+    for (let i = 0; i < 60; i++) {
+      const sr = await fetch(`/api/v1/leads/franchises/enrich-owners?searchId=${encodeURIComponent(searchIdFilter)}`);
+      if (sr.ok) {
+        const sd = await sr.json().catch(() => ({}));
+        if (sd.progress) { setOwnerProgress(sd.progress); if ((sd.progress.queued ?? 0) === 0) { load(); return; } }
+      }
+      await new Promise((res) => setTimeout(res, 6000));
+    }
+    load();
+  }
+  async function bulkEnrichFranchiseOwners(retryErrors = false) {
     if (enrichingOwners || searchIdFilter === "ALL") return;
     setEnrichingOwners(true);
     try {
@@ -268,15 +282,17 @@ export default function LeadsClient() {
       const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchId: searchIdFilter })
+        body: JSON.stringify({ searchId: searchIdFilter, ...(retryErrors ? { retryErrors: true } : {}) })
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
-      const p = d.progress ?? {};
-      alert(`🔎 ${d.queued} locales encolados para identificar su titular. Se investigan en segundo plano (unos por minuto).\nEstado: ${p.queued ?? 0} en cola · ${p.done ?? 0} hechos · ${p.error ?? 0} con error.\n\nRefresca esta pestaña para ver los resultados según se completan.`);
+      setOwnerProgress(d.progress ?? null);
+      if (d.queued === 0 && !retryErrors) { alert(d.note ?? "No había nada nuevo que encolar."); }
+      void pollOwnerProgress();
       load();
     } finally { setEnrichingOwners(false); }
   }
+  async function retryFailedFranchiseOwners() { await bulkEnrichFranchiseOwners(true); }
 
   // Trae la siguiente página de leads y la añade a la tabla (sin recargar las
   // ya visibles). El offset es el nº de leads ya cargados desde el servidor.
@@ -514,16 +530,35 @@ export default function LeadsClient() {
               Extraer emails
             </button>
             {searchIdFilter !== "ALL" && searches.find((s) => s.id === searchIdFilter)?.sourceConfig?.brandSearch && (
-              <button
-                type="button"
-                onClick={bulkEnrichFranchiseOwners}
-                disabled={enrichingOwners}
-                title="Identifica la sociedad franquiciada, administrador y contactos profesionales usando la dirección y fuentes mercantiles"
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm disabled:opacity-50"
-              >
-                {enrichingOwners ? <Loader2 className="h-4 w-4 animate-spin" /> : "🔎"}
-                Identificar franquiciados
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => bulkEnrichFranchiseOwners()}
+                  disabled={enrichingOwners}
+                  title="Identifica la sociedad franquiciada, administrador y contactos profesionales usando la dirección y fuentes mercantiles"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm disabled:opacity-50"
+                >
+                  {enrichingOwners ? <Loader2 className="h-4 w-4 animate-spin" /> : "🔎"}
+                  Identificar franquiciados
+                </button>
+                {ownerProgress && (
+                  <span className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white text-xs text-slate-600" title="Estado de la cola de identificación">
+                    <span className="text-amber-600">⏳ {ownerProgress.queued} en cola</span>
+                    <span className="text-emerald-600">✓ {ownerProgress.done} hechos</span>
+                    {ownerProgress.error > 0 && <span className="text-rose-600">⚠ {ownerProgress.error} errores</span>}
+                  </span>
+                )}
+                {ownerProgress && ownerProgress.error > 0 && (
+                  <button
+                    type="button"
+                    onClick={retryFailedFranchiseOwners}
+                    disabled={enrichingOwners}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-sm disabled:opacity-50"
+                  >
+                    ↻ Reintentar fallidos
+                  </button>
+                )}
+              </>
             )}
             <a
               href={`/api/v1/leads/email-list?source=all${searchIdFilter !== "ALL" ? `&searchId=${searchIdFilter}` : ""}`}

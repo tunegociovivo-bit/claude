@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { researchMock } = vi.hoisted(() => ({ researchMock: vi.fn() }));
 vi.mock("../franchise-owner-enrichment", () => ({ researchFranchiseOwner: researchMock }));
 
-import { queueFranchiseOwnerResearch, processFranchiseOwnerQueue, franchiseOwnerProgress, MAX_OWNER_ATTEMPTS } from "../franchise-owner-queue";
+import { queueFranchiseOwnerResearch, processFranchiseOwnerQueue, franchiseOwnerProgress, franchiseOwnerDiag, MAX_OWNER_ATTEMPTS } from "../franchise-owner-queue";
 
 /** Prisma mock que entiende el filtro JSON `rawData.path=[franchiseOwner,status] equals`. */
 function mkPrisma(rows: any[]) {
@@ -94,6 +94,38 @@ describe("processFranchiseOwnerQueue — por lote, aislado, con reintentos", () 
     await processFranchiseOwnerQueue(p as any, "w1", { now: NOW });
     expect(p._rows[0].rawData.franchiseOwner.status).toBe("error");
     expect(p._rows[0].rawData.franchiseOwner.attempts).toBe(MAX_OWNER_ATTEMPTS);
+  });
+});
+
+describe("retryErrors — re-encola SOLO los fallidos", () => {
+  it("re-encola status=error, ignora done/queued", async () => {
+    const p = mkPrisma([
+      { id: "e1", workspaceId: "w1", rawData: { source: "brand_locations", franchiseOwner: { status: "error", attempts: 2 } } },
+      { id: "d1", workspaceId: "w1", rawData: { source: "brand_locations", franchiseOwner: { status: "done" } } }
+    ]);
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["e1", "d1"], retryErrors: true });
+    expect(out.queued).toBe(1);
+    expect(p._rows[0].rawData.franchiseOwner.status).toBe("queued");
+    expect(p._rows[0].rawData.franchiseOwner.attempts).toBe(0); // reinicia intentos
+    expect(p._rows[1].rawData.franchiseOwner.status).toBe("done"); // el hecho no se toca
+  });
+  it("reporta nonBrand cuando ningún lead es de marca (causa de 'no se encoló nada')", async () => {
+    const p = mkPrisma([{ id: "x", workspaceId: "w1", rawData: { source: "places" } }]);
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["x"] });
+    expect(out).toMatchObject({ queued: 0, nonBrand: 1, scanned: 1 });
+  });
+});
+
+describe("franchiseOwnerDiag — estado real por búsqueda", () => {
+  it("desglosa por estado e incluye motivo de error", async () => {
+    const p = mkPrisma([
+      { id: "a", workspaceId: "w1", searchId: "s1", email: null, rawData: { source: "brand_locations", franchiseOwner: { status: "error", lastError: "web_search_unavailable" } } },
+      { id: "b", workspaceId: "w1", searchId: "s1", email: null, rawData: { source: "brand_locations" } } // sin franchiseOwner → none
+    ]);
+    const diag = await franchiseOwnerDiag(p as any, "w1", "s1");
+    expect(diag.brandLocations).toBe(2);
+    expect(diag.byStatus).toMatchObject({ error: 1, none: 1 });
+    expect(diag.sample.find((s: any) => s.id === "a").lastError).toBe("web_search_unavailable");
   });
 });
 

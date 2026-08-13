@@ -11,7 +11,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { queueFranchiseOwnerResearch, franchiseOwnerProgress } from "@/lib/leads/franchise-owner-queue";
+import { queueFranchiseOwnerResearch, franchiseOwnerProgress, franchiseOwnerDiag } from "@/lib/leads/franchise-owner-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,7 @@ const schema = z.object({
   searchId: z.string().optional(),
   ids: z.array(z.string()).max(50).optional(),
   force: z.boolean().optional(),
+  retryErrors: z.boolean().optional(), // re-encola SOLO los que fallaron
   limit: z.number().int().min(1).max(1000).default(1000)
 });
 
@@ -32,16 +33,26 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     searchId: parsed.data.searchId,
     ids: parsed.data.ids,
     force: parsed.data.force,
+    retryErrors: parsed.data.retryErrors,
     limit: parsed.data.limit
   });
   const progress = await franchiseOwnerProgress(prisma, api.workspaceId, parsed.data.searchId);
-  return NextResponse.json({ ok: true, queued: out.queued, skipped: out.skipped, scanned: out.scanned, progress, note: "Encolado. Se investiga en segundo plano; refresca para ver los resultados." });
+  // Si no se encoló nada porque ningún lead es de marca, dilo claramente (causa frecuente).
+  const note = out.queued === 0 && out.nonBrand === out.scanned && out.scanned > 0
+    ? "No se encoló nada: esta búsqueda no tiene locales de marca (brand_locations). Usa «Buscar locales de la marca» primero."
+    : "Encolado. Se investiga en segundo plano; refresca para ver los resultados.";
+  return NextResponse.json({ ok: true, queued: out.queued, skipped: out.skipped, scanned: out.scanned, nonBrand: out.nonBrand, progress, note });
 });
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
   const searchId = url.searchParams.get("searchId")?.trim() || undefined;
   const idsParam = url.searchParams.get("ids")?.trim();
+  // Diagnóstico completo (estado real de la cola por búsqueda, con motivo de error por lead).
+  if (url.searchParams.get("diag")) {
+    const diag = await franchiseOwnerDiag(prisma, api.workspaceId, searchId);
+    return NextResponse.json({ ok: true, diag });
+  }
   if (idsParam) {
     const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50);
     const leads = await prisma.lead.findMany({ where: { workspaceId: api.workspaceId, id: { in: ids } }, select: { id: true, name: true, rawData: true } });

@@ -120,9 +120,12 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
     //     leads brand_locations encolados por tick, en segundo plano (nunca en la request).
     try {
       const { processFranchiseOwnerQueue } = await import("./franchise-owner-queue");
-      wsReport.franchiseOwners = await processFranchiseOwnerQueue(prisma, ws.id, { max: 2 });
+      const fo = await processFranchiseOwnerQueue(prisma, ws.id, { max: 2 });
+      wsReport.franchiseOwners = fo;
+      if (fo.picked > 0) console.info(`[leads-cron] franchise-owner ws=${ws.id} picked=${fo.picked} done=${fo.processed} error=${fo.errored}`);
     } catch (e: any) {
       wsReport.franchiseOwnersError = e?.message ?? String(e);
+      console.warn(`[leads-cron] franchise-owner ws=${ws.id} FALLO: ${String(e?.name ?? "error")}`);
     }
 
     // 7. Salud de los proxies (throttleado a 15 min): verifica cada proxy
