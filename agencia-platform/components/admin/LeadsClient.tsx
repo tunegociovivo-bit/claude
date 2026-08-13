@@ -2765,6 +2765,10 @@ function DecisionMakerKeys() {
 }
 
 function FranchisesView() {
+  const [brand, setBrand] = useState("");
+  const [brandLocation, setBrandLocation] = useState("");
+  const [brandSearching, setBrandSearching] = useState(false);
+  const [brandResult, setBrandResult] = useState<{ searchId: string; totalProvinces: number } | null>(null);
   const [niche, setNiche] = useState("");
   const [location, setLocation] = useState("");
   const [brands, setBrands] = useState<{ name: string; sampleCount: number; checked: boolean; contacted?: boolean }[] | null>(null);
@@ -2775,6 +2779,29 @@ function FranchisesView() {
   const [diag, setDiag] = useState<{ proposed: number; verified: number; placesErrors: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [dirResult, setDirResult] = useState<{ imported: number; withEmail: number; scanned: number; contacts: any[] } | null>(null);
+
+  async function searchBrandLocations() {
+    if (brand.trim().length < 2) { setErr("Escribe una marca (ej: Alcampo)."); return; }
+    setBrandSearching(true); setErr(null); setBrandResult(null);
+    try {
+      const nationwide = !brandLocation.trim();
+      const r = await fetch("/api/v1/leads/searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyword: brand.trim(),
+          location: brandLocation.trim(),
+          scope: nationwide ? "spain" : "custom",
+          source: "places",
+          skipExisting: true,
+          sourceConfig: { brandSearch: true }
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j?.error?.message ?? "No se pudo iniciar la búsqueda por marca."); return; }
+      setBrandResult(j);
+    } finally { setBrandSearching(false); }
+  }
 
   async function importDirectory() {
     setImporting(true);
@@ -2828,6 +2855,26 @@ function FranchisesView() {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+        <div className="text-sm font-semibold text-slate-800">🏪 Locales por marca — buscar y contactar cada establecimiento</div>
+        <p className="mt-1 text-[11px] text-slate-600">
+          Escribe una cadena concreta, por ejemplo <strong>Alcampo</strong>. El Hub recorrerá España por provincias,
+          conservará solo locales cuyo nombre corresponda a esa marca y los añadirá como leads normales con sus datos
+          de Google. Después podrás seleccionarlos y contactar desde la tabla de leads.
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Marca (ej: Alcampo)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+          <input value={brandLocation} onChange={(e) => setBrandLocation(e.target.value)} placeholder="Provincia/zona (vacío = España)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
+          <button onClick={() => void searchBrandLocations()} disabled={brandSearching} className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50">
+            {brandSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar locales de la marca
+          </button>
+        </div>
+        {brandResult && (
+          <div className="mt-2 rounded-md border border-blue-200 bg-white px-2.5 py-2 text-[11px] text-blue-800">
+            ✅ Búsqueda iniciada en {brandResult.totalProvinces} zonas. Se procesará automáticamente y los locales aparecerán en la tabla de leads, agrupados bajo “{brand.trim()}”.
+          </div>
+        )}
+      </div>
       <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3">
         <div className="text-sm font-semibold text-slate-800">🏢 Franquicias — captar la CENTRAL (gestión de toda la red con GMB HUB)</div>
         <p className="text-[11px] text-slate-600 mt-1">

@@ -15,6 +15,7 @@ import { phoneKind } from "./phone-type";
 import { scoreLead } from "./scorer";
 import { scoreTicket } from "./ticket-score";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
+import { dedupeBrandLocations, isBrandLocation } from "./franchise-brand-search";
 import { municipalitiesForProvince } from "./spain-municipalities";
 import { expandKeyword } from "./synonyms";
 import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
@@ -697,6 +698,14 @@ export async function processSearchBatch(opts: {
       // desde NewSearchModal con el checkbox "Solo negocios con reseñas
       // bajas". Se persiste en LeadSearch.sourceConfig.lowRatingOnly.
       const cfg: any = (search as any).sourceConfig ?? {};
+      if (cfg.brandSearch) {
+        results = dedupeBrandLocations(
+          results.filter((r) => isBrandLocation(r.name, search.keyword))
+        ).map((r) => ({
+          ...r,
+          rawData: { ...(r.rawData ?? {}), source: "brand_locations", brand: search.keyword }
+        }));
+      }
       if (cfg.lowRatingOnly) {
         const maxRating = typeof cfg.maxRating === "number" ? cfg.maxRating : 3.5;
         const minReviews = typeof cfg.minReviewsCount === "number" ? cfg.minReviewsCount : 5;
@@ -718,7 +727,7 @@ export async function processSearchBatch(opts: {
       // se buscaba "masajes eróticos"). Los descartados se guardan igual,
       // pero con contactStatus="excluded" para que NO se encolen mensajes.
       const valid = results.filter((r) => !!r.placeId);
-      const verdicts = await classifyLeadsRelevance({
+      const verdicts = cfg.brandSearch ? new Map<string, RelevanceVerdict>() : await classifyLeadsRelevance({
         workspaceId: opts.workspaceId,
         keyword: search.keyword,
         location: prov.provinceTag,
