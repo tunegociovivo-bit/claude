@@ -218,6 +218,7 @@ export default function LeadsClient() {
   const [painOnly, setPainOnly] = useState(false);
   const [ticketSort, setTicketSort] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [enrichingOwners, setEnrichingOwners] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -494,6 +495,18 @@ export default function LeadsClient() {
               {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : "✉️"}
               Extraer emails
             </button>
+            {searchIdFilter !== "ALL" && searches.find((s) => s.id === searchIdFilter)?.sourceConfig?.brandSearch && (
+              <button
+                type="button"
+                onClick={bulkEnrichFranchiseOwners}
+                disabled={enrichingOwners}
+                title="Identifica la sociedad franquiciada, administrador y contactos profesionales usando la dirección y fuentes mercantiles"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm disabled:opacity-50"
+              >
+                {enrichingOwners ? <Loader2 className="h-4 w-4 animate-spin" /> : "🔎"}
+                Identificar franquiciados
+              </button>
+            )}
             <a
               href={`/api/v1/leads/email-list?source=all${searchIdFilter !== "ALL" ? `&searchId=${searchIdFilter}` : ""}`}
               title="Descarga la lista de emails (leads + clientes) para subir como Custom Audience a Meta"
@@ -1372,6 +1385,8 @@ function LeadDetailModal({
   // Kit directivo: contactar al máximo responsable por la vía profesional.
   const [dmLoading, setDmLoading] = useState(false);
   const [dmErr, setDmErr] = useState<string | null>(null);
+  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [ownerResearch, setOwnerResearch] = useState<any | null>(null);
   const [dm, setDm] = useState<{
     domain: string | null;
     directors: { role: string; name: string }[];
@@ -1391,7 +1406,23 @@ function LeadDetailModal({
     setDmErr(null);
     setExecEmail("");
     setExecStatus(null);
+    setOwnerResearch(null);
   }, [leadId]);
+
+  async function identifyFranchiseOwner() {
+    setOwnerLoading(true);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [leadId], limit: 1, force: true })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setOwnerResearch(d.items?.[0] ?? { classification: "unconfirmed", explanation: "No se encontró evidencia suficiente." });
+    } catch (e: any) {
+      setOwnerResearch({ classification: "unconfirmed", explanation: e?.message ?? "No se pudo investigar" });
+    } finally { setOwnerLoading(false); }
+  }
 
   const [execEmail, setExecEmail] = useState("");
   const [execStatus, setExecStatus] = useState<string | null>(null);
@@ -1699,7 +1730,37 @@ function LeadDetailModal({
               {dmLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               🎯 Kit directivo
             </button>
+            {(lead.rawData as any)?.source === "brand_locations" && (
+              <button
+                type="button"
+                onClick={identifyFranchiseOwner}
+                disabled={ownerLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-medium disabled:opacity-50"
+                title="Investiga la sociedad que explota esta dirección y sus responsables profesionales"
+              >
+                {ownerLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                🔎 Identificar franquiciado
+              </button>
+            )}
           </div>
+          {((lead.rawData as any)?.franchiseOwner || ownerResearch) && (() => {
+            const owner: any = ownerResearch ?? (lead.rawData as any).franchiseOwner;
+            return (
+              <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-xs space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <strong className="text-blue-900">Titular del establecimiento</strong>
+                  <span className="rounded-full border bg-white px-2 py-0.5">{owner.classification === "franchise" ? "Franquicia confirmada" : owner.classification === "corporate" ? "Tienda propia" : "Sin confirmar"}</span>
+                  <span className="text-slate-500">Confianza: {owner.confidence ?? "baja"}</span>
+                </div>
+                {owner.operatorName && <div>Sociedad explotadora: <strong>{owner.operatorName}</strong>{owner.taxId ? ` · CIF ${owner.taxId}` : ""}</div>}
+                {owner.ownerName && <div>Responsable: <strong>{owner.ownerName}</strong>{owner.ownerRole ? ` · ${owner.ownerRole}` : ""}</div>}
+                {owner.emails?.length > 0 && <div>Emails: {owner.emails.map((email: string) => <a key={email} href={`mailto:${email}`} className="ml-1 text-blue-700 underline">{email}</a>)}</div>}
+                {owner.phones?.length > 0 && <div>Teléfonos locales: {owner.phones.join(" · ")}</div>}
+                <div className="text-slate-600">{owner.explanation}</div>
+                {owner.sources?.length > 0 && <div>Fuentes: {owner.sources.map((s: any, i: number) => <a key={s.url} href={s.url} target="_blank" rel="noreferrer" className="ml-1 text-blue-700 underline">{s.title || `Fuente ${i + 1}`}</a>)}</div>}
+              </div>
+            );
+          })()}
           {dmErr && <div className="text-xs text-rose-600">✗ {dmErr}</div>}
           {dm && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 space-y-2 text-xs">
@@ -2863,6 +2924,24 @@ function FranchisesView() {
       if (!r.ok) { setErr(j?.error?.message ?? "No se pudo iniciar la búsqueda por marca."); return; }
       setBrandResult(j);
     } finally { setBrandSearching(false); }
+  }
+
+  async function bulkEnrichFranchiseOwners() {
+    if (enrichingOwners || searchIdFilter === "ALL") return;
+    setEnrichingOwners(true);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ searchId: searchIdFilter, limit: 5 })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
+      const confirmed = (d.items ?? []).filter((item: any) => item.classification === "franchise").length;
+      const names = (d.items ?? []).filter((item: any) => item.operatorName).map((item: any) => `${item.name}: ${item.operatorName}`).slice(0, 5);
+      alert(`Locales investigados: ${d.enriched}. Franquicias confirmadas: ${confirmed}.${names.length ? `\n\n${names.join("\n")}` : "\nSin titulares locales confirmados en este lote."}${d.remainingHint ? "\n\nVuelve a pulsar para investigar el siguiente lote." : ""}`);
+      load();
+    } finally { setEnrichingOwners(false); }
   }
 
   async function importDirectory() {
