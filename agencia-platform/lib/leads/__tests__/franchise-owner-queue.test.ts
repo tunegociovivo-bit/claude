@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { researchMock } = vi.hoisted(() => ({ researchMock: vi.fn() }));
 vi.mock("../franchise-owner-enrichment", () => ({ researchFranchiseOwner: researchMock }));
 
-import { queueFranchiseOwnerResearch, processFranchiseOwnerQueue, franchiseOwnerProgress, franchiseOwnerDiag, MAX_OWNER_ATTEMPTS } from "../franchise-owner-queue";
+import { queueFranchiseOwnerResearch, processFranchiseOwnerQueue, franchiseOwnerProgress, franchiseOwnerDiag, classifyOwnerState, ownerHasEvidence, MAX_OWNER_ATTEMPTS } from "../franchise-owner-queue";
 
 /** Prisma mock que entiende el filtro JSON `rawData.path=[franchiseOwner,status] equals`. */
 function mkPrisma(rows: any[], searches: any[] = []) {
@@ -77,10 +77,53 @@ describe("queueFranchiseOwnerResearch — objetivo explícito, incluye leads NOR
     expect(p._rows[1].rawData.franchiseOwner).toBeUndefined(); // b (otra búsqueda) intacto
     expect(p._rows[2].rawData.franchiseOwner).toBeUndefined(); // c (otro workspace) intacto
   });
-  it("idempotente: no re-encola lo ya en cola / hecho salvo force", async () => {
-    const p = mkPrisma([{ id: "l1", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "done" } } }], [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]);
-    expect((await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["l1"] })).queued).toBe(0);
+  it("no re-encola un 'done' CON datos reales; sí un force", async () => {
+    const withData = { status: "done", operatorName: "Local SL", emails: ["x@local.es"] };
+    const p = mkPrisma([{ id: "l1", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: withData } }], [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]);
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["l1"] });
+    expect(out.queued).toBe(0);
+    expect(out.skippedReasons.alreadyEnriched).toBe(1);
     expect((await queueFranchiseOwnerResearch(p as any, "w1", { ids: ["l1"], force: true })).queued).toBe(1);
+  });
+});
+
+describe("compatibilidad de estados históricos: 'done' VACÍO = stale-empty (reencolable)", () => {
+  it("clasifica done sin evidencia como done_empty y CON evidencia como done_data", () => {
+    expect(classifyOwnerState({ status: "done" })).toBe("done_empty");
+    expect(classifyOwnerState({ status: "done", classification: "unconfirmed", emails: [] })).toBe("done_empty");
+    expect(classifyOwnerState({ status: "done", operatorName: "X SL" })).toBe("done_data");
+    expect(classifyOwnerState({ status: "done", emails: ["a@b.c"] })).toBe("done_data");
+    expect(classifyOwnerState({ status: "error" })).toBe("error");
+    expect(classifyOwnerState(undefined)).toBe("none");
+    expect(ownerHasEvidence({ taxId: "B123" })).toBe(true);
+    expect(ownerHasEvidence({ classification: "unconfirmed" })).toBe(false);
+  });
+  it("clic explícito REENCOLA los 'done' vacíos (los 5 Eroski) con intentos reiniciados, sin tocar los que tienen datos", async () => {
+    const p = mkPrisma(
+      [
+        { id: "empty1", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "done", attempts: 1, classification: "unconfirmed" } } },
+        { id: "data1", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "done", operatorName: "Real SL" } } }
+      ],
+      [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]
+    );
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { searchId: "s1", now: NOW });
+    expect(out.queued).toBe(1); // solo el vacío
+    expect(out.skippedReasons.alreadyEnriched).toBe(1); // el que tiene datos NO se toca
+    expect(p._rows[0].rawData.franchiseOwner).toMatchObject({ status: "queued", attempts: 0 }); // reencolado, intentos reiniciados
+    expect(p._rows[1].rawData.franchiseOwner.status).toBe("done"); // intacto
+  });
+  it("retryEmpty reencola done_empty + error, no los done_data", async () => {
+    const p = mkPrisma(
+      [
+        { id: "e", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "done" } } },
+        { id: "err", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "error", attempts: 2 } } },
+        { id: "d", workspaceId: "w1", searchId: "s1", rawData: { source: "places", franchiseOwner: { status: "done", taxId: "B9" } } }
+      ],
+      [{ id: "s1", workspaceId: "w1", keyword: "Eroski" }]
+    );
+    const out = await queueFranchiseOwnerResearch(p as any, "w1", { searchId: "s1", retryEmpty: true, now: NOW });
+    expect(out.queued).toBe(2);
+    expect(out.skippedReasons.alreadyEnriched).toBe(1);
   });
 });
 
@@ -154,10 +197,11 @@ describe("franchiseOwnerProgress", () => {
   it("cuenta queued/done/error del workspace", async () => {
     const p = mkPrisma([
       { id: "a", workspaceId: "w1", rawData: { franchiseOwner: { status: "queued" } } },
-      { id: "b", workspaceId: "w1", rawData: { franchiseOwner: { status: "done" } } },
+      { id: "b", workspaceId: "w1", rawData: { franchiseOwner: { status: "done", operatorName: "Local SL" } } }, // con datos
+      { id: "e", workspaceId: "w1", rawData: { franchiseOwner: { status: "done" } } }, // hecho SIN datos (stale-empty)
       { id: "c", workspaceId: "w1", rawData: { franchiseOwner: { status: "error" } } },
       { id: "d", workspaceId: "other", rawData: { franchiseOwner: { status: "queued" } } } // otro tenant
     ]);
-    expect(await franchiseOwnerProgress(p as any, "w1")).toEqual({ queued: 1, done: 1, error: 1 });
+    expect(await franchiseOwnerProgress(p as any, "w1")).toEqual({ queued: 1, done: 1, doneEmpty: 1, error: 1 });
   });
 });

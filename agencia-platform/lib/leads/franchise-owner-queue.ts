@@ -16,6 +16,27 @@ import { researchFranchiseOwner } from "./franchise-owner-enrichment";
 type PrismaLike = any;
 export const MAX_OWNER_ATTEMPTS = 2;
 
+/** ¿Un resultado de titular tiene EVIDENCIA ÚTIL (operador/CIF/contactos/responsable)? Un
+ *  "done" sin nada de esto es un resultado vacío (posiblemente del antiguo fallo silencioso). */
+export function ownerHasEvidence(fo: any): boolean {
+  if (!fo || typeof fo !== "object") return false;
+  return !!(fo.operatorName || fo.taxId || (Array.isArray(fo.emails) && fo.emails.length > 0) || (Array.isArray(fo.phones) && fo.phones.length > 0) || fo.ownerName);
+}
+
+export type OwnerState = "none" | "queued" | "error" | "done_empty" | "done_data";
+
+/** Clasifica el estado real de identificación de un lead, distinguiendo un "done" ÚTIL de un
+ *  "done" VACÍO/obsoleto (stale-empty) — el que el botón antiguo daba por completado sin datos. */
+export function classifyOwnerState(fo: any): OwnerState {
+  const st = fo && typeof fo === "object" ? fo.status : null;
+  if (st === "queued") return "queued";
+  if (st === "error") return "error";
+  if (st === "done") return ownerHasEvidence(fo) ? "done_data" : "done_empty";
+  return "none";
+}
+
+export type SkippedReasons = { alreadyEnriched: number; running: number; error: number; staleEmpty: number };
+
 /**
  * Encola para investigar los leads de un objetivo EXPLÍCITO (una búsqueda concreta o unos ids),
  * SIEMPRE dentro del workspace. No exige que sean `brand_locations`: cuando el usuario pulsa el
@@ -26,8 +47,8 @@ export const MAX_OWNER_ATTEMPTS = 2;
 export async function queueFranchiseOwnerResearch(
   prisma: PrismaLike,
   workspaceId: string,
-  opts: { searchId?: string; ids?: string[]; force?: boolean; retryErrors?: boolean; limit?: number; now?: Date }
-): Promise<{ queued: number; skipped: number; scanned: number }> {
+  opts: { searchId?: string; ids?: string[]; force?: boolean; retryErrors?: boolean; retryEmpty?: boolean; limit?: number; now?: Date }
+): Promise<{ queued: number; skipped: number; scanned: number; skippedReasons: SkippedReasons }> {
   const now = opts.now ?? new Date();
   // SCOPING ESTRICTO: workspace + (searchId | ids). Nunca toca leads fuera de ese objetivo.
   const leads = await prisma.lead.findMany({
@@ -44,27 +65,40 @@ export async function queueFranchiseOwnerResearch(
     searches.forEach((s: any) => brandBySearch.set(s.id, s.keyword));
   }
   let queued = 0;
-  let skipped = 0;
+  const skippedReasons: SkippedReasons = { alreadyEnriched: 0, running: 0, error: 0, staleEmpty: 0 };
   for (const lead of leads) {
     const raw: any = lead.rawData ?? {};
     const fo: any = raw.franchiseOwner;
-    const st = fo && typeof fo === "object" ? fo.status : null;
-    // `retryErrors`: solo re-encola los que fallaron. Sin él: idempotente (salta queued/done).
-    if (opts.retryErrors) {
-      if (st !== "error") { skipped++; continue; }
-    } else if (!opts.force && (st === "queued" || st === "done")) {
-      skipped++;
+    const state = classifyOwnerState(fo);
+    // ELEGIBILIDAD (reparación de estados históricos):
+    //  - force: reencola todo.
+    //  - retryErrors: solo los "error".
+    //  - retryEmpty: los "done" VACÍOS (stale-empty) y los "error".
+    //  - por defecto (clic explícito): nuevos + stale-empty (los "done" vacíos del fallo
+    //    antiguo se reprocesan con intentos reiniciados). NUNCA reencola "done" CON datos.
+    let eligible: boolean;
+    if (opts.force) eligible = true;
+    else if (opts.retryErrors) eligible = state === "error";
+    else if (opts.retryEmpty) eligible = state === "done_empty" || state === "error";
+    else eligible = state === "none" || state === "done_empty";
+    if (!eligible) {
+      if (state === "done_data") skippedReasons.alreadyEnriched++;
+      else if (state === "queued") skippedReasons.running++;
+      else if (state === "error") skippedReasons.error++;
+      else if (state === "done_empty") skippedReasons.staleEmpty++;
       continue;
     }
     const brand: string | null = raw.brand ?? brandBySearch.get(lead.searchId) ?? (opts.searchId ? brandBySearch.get(opts.searchId) : null) ?? null;
     await prisma.lead.updateMany({
       where: { id: lead.id, workspaceId },
+      // Reinicia intentos (attempts:0) al reencolar un stale-empty/error → reintento acotado.
       data: { rawData: { ...raw, franchiseOwner: { status: "queued", queuedAt: now.toISOString(), attempts: 0, ...(brand ? { brand } : {}) } } }
     });
     queued++;
   }
-  console.info(`[franchise-owner] enqueue ws=${workspaceId} search=${opts.searchId ?? "-"} scanned=${leads.length} queued=${queued} skipped=${skipped}${opts.retryErrors ? " (retryErrors)" : ""}`);
-  return { queued, skipped, scanned: leads.length };
+  const skipped = skippedReasons.alreadyEnriched + skippedReasons.running + skippedReasons.error + skippedReasons.staleEmpty;
+  console.info(`[franchise-owner] enqueue ws=${workspaceId} search=${opts.searchId ?? "-"} scanned=${leads.length} queued=${queued} skipped=${skipped} reasons=${JSON.stringify(skippedReasons)}${opts.retryEmpty ? " (retryEmpty)" : opts.retryErrors ? " (retryErrors)" : ""}`);
+  return { queued, skipped, scanned: leads.length, skippedReasons };
 }
 
 /** Procesa hasta `max` leads encolados (llama al modelo). Aislado por lead, reintentos
@@ -133,27 +167,37 @@ export async function franchiseOwnerDiag(
   // leads de esa búsqueda y su estado de identificación (none si aún no se investigó).
   const scope: any = { workspaceId, ...(searchId ? { searchId } : {}) };
   const rows = await prisma.lead.findMany({ where: scope, select: { id: true, name: true, email: true, rawData: true }, take: 500 });
-  const byStatus: Record<string, number> = { none: 0, queued: 0, done: 0, error: 0 };
+  // Estados que DISTINGUEN "hecho con datos" de "hecho vacío" (stale-empty del fallo antiguo).
+  const byStatus: Record<string, number> = { none: 0, queued: 0, error: 0, done_data: 0, done_empty: 0 };
   const sample: any[] = [];
   for (const r of rows) {
     const fo: any = (r.rawData as any)?.franchiseOwner;
-    const st = fo && typeof fo === "object" ? fo.status ?? "none" : "none";
-    byStatus[st] = (byStatus[st] ?? 0) + 1;
+    const state = classifyOwnerState(fo);
+    byStatus[state] = (byStatus[state] ?? 0) + 1;
     if (sample.length < 20) {
-      sample.push({ id: r.id, name: r.name, status: st, classification: fo?.classification ?? null, hasEmail: !!(r.email || fo?.emails?.length), lastError: fo?.lastError ?? null });
+      sample.push({ id: r.id, name: r.name, state, classification: fo?.classification ?? null, hasEmail: !!(r.email || fo?.emails?.length), hasEvidence: ownerHasEvidence(fo), lastError: fo?.lastError ?? null });
     }
   }
   return { total: rows.length, byStatus, sample };
 }
 
-/** Progreso (para la UI): cuántos en cola / hechos / con error. Tenant-scoped. */
+/** Progreso (para la UI): en cola / con datos / sin datos (stale-empty) / con error. Tenant-scoped.
+ *  Distingue "done útil" de "done vacío" clasificando en memoria (búsquedas acotadas). */
 export async function franchiseOwnerProgress(
   prisma: PrismaLike,
   workspaceId: string,
   searchId?: string
-): Promise<{ queued: number; done: number; error: number }> {
+): Promise<{ queued: number; done: number; doneEmpty: number; error: number }> {
   const scope: any = { workspaceId, ...(searchId ? { searchId } : {}) };
-  const countBy = (status: string) => prisma.lead.count({ where: { ...scope, rawData: { path: ["franchiseOwner", "status"], equals: status } } });
-  const [queued, done, error] = await Promise.all([countBy("queued"), countBy("done"), countBy("error")]);
-  return { queued, done, error };
+  const rows = await prisma.lead.findMany({ where: scope, select: { rawData: true }, take: 2000 });
+  const p = { queued: 0, done: 0, doneEmpty: 0, error: 0 };
+  for (const r of rows) {
+    switch (classifyOwnerState((r.rawData as any)?.franchiseOwner)) {
+      case "queued": p.queued++; break;
+      case "done_data": p.done++; break;
+      case "done_empty": p.doneEmpty++; break;
+      case "error": p.error++; break;
+    }
+  }
+  return p;
 }

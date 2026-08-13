@@ -20,6 +20,7 @@ const schema = z.object({
   ids: z.array(z.string()).max(50).optional(),
   force: z.boolean().optional(),
   retryErrors: z.boolean().optional(), // re-encola SOLO los que fallaron
+  retryEmpty: z.boolean().optional(), // re-encola los "done" VACÍOS (stale-empty) + errores
   limit: z.number().int().min(1).max(1000).default(1000)
 });
 
@@ -34,16 +35,20 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     ids: parsed.data.ids,
     force: parsed.data.force,
     retryErrors: parsed.data.retryErrors,
+    retryEmpty: parsed.data.retryEmpty,
     limit: parsed.data.limit
   });
   const progress = await franchiseOwnerProgress(prisma, api.workspaceId, parsed.data.searchId);
-  // Motivos claros de queued=0 (nunca silencio): sin leads en la búsqueda, o ya en cola/hechos.
+  const sr = out.skippedReasons;
+  // Motivos claros de queued=0 (nunca silencio).
   const note = out.scanned === 0
     ? "La búsqueda no tiene leads que investigar."
     : out.queued === 0
-      ? "Nada nuevo que encolar: ya estaban en cola o investigados. Usa «Reintentar fallidos» o force."
+      ? (sr.staleEmpty > 0
+          ? `Nada encolado: ${sr.alreadyEnriched} ya con datos, ${sr.staleEmpty} hechos SIN datos. Usa «Reintentar sin resultado» para reprocesarlos.`
+          : `Nada nuevo que encolar: ${sr.alreadyEnriched} ya con datos, ${sr.running} en curso, ${sr.error} con error.`)
       : "Encolado. Se investiga en segundo plano; refresca para ver los resultados.";
-  return NextResponse.json({ ok: true, queued: out.queued, skipped: out.skipped, scanned: out.scanned, progress, note });
+  return NextResponse.json({ ok: true, queued: out.queued, skipped: out.skipped, scanned: out.scanned, skippedReasons: sr, progress, note });
 });
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {

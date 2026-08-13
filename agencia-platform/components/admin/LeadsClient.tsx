@@ -219,7 +219,7 @@ export default function LeadsClient() {
   const [ticketSort, setTicketSort] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [enrichingOwners, setEnrichingOwners] = useState(false);
-  const [ownerProgress, setOwnerProgress] = useState<{ queued: number; done: number; error: number } | null>(null);
+  const [ownerProgress, setOwnerProgress] = useState<{ queued: number; done: number; doneEmpty: number; error: number } | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -274,7 +274,7 @@ export default function LeadsClient() {
     }
     load();
   }
-  async function bulkEnrichFranchiseOwners(retryErrors = false) {
+  async function bulkEnrichFranchiseOwners(mode?: "retryErrors" | "retryEmpty") {
     if (enrichingOwners || searchIdFilter === "ALL") return;
     setEnrichingOwners(true);
     try {
@@ -282,17 +282,18 @@ export default function LeadsClient() {
       const r = await fetch("/api/v1/leads/franchises/enrich-owners", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searchId: searchIdFilter, ...(retryErrors ? { retryErrors: true } : {}) })
+        body: JSON.stringify({ searchId: searchIdFilter, ...(mode === "retryErrors" ? { retryErrors: true } : {}), ...(mode === "retryEmpty" ? { retryEmpty: true } : {}) })
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
       setOwnerProgress(d.progress ?? null);
-      if (d.queued === 0 && !retryErrors) { alert(d.note ?? "No había nada nuevo que encolar."); }
+      if (d.queued === 0 && !mode) { alert(d.note ?? "No había nada nuevo que encolar."); }
       void pollOwnerProgress();
       load();
     } finally { setEnrichingOwners(false); }
   }
-  async function retryFailedFranchiseOwners() { await bulkEnrichFranchiseOwners(true); }
+  async function retryFailedFranchiseOwners() { await bulkEnrichFranchiseOwners("retryErrors"); }
+  async function retryEmptyFranchiseOwners() { await bulkEnrichFranchiseOwners("retryEmpty"); }
 
   // Trae la siguiente página de leads y la añade a la tabla (sin recargar las
   // ya visibles). El offset es el nº de leads ya cargados desde el servidor.
@@ -542,11 +543,23 @@ export default function LeadsClient() {
                   Identificar franquiciados
                 </button>
                 {ownerProgress && (
-                  <span className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white text-xs text-slate-600" title="Estado de la cola de identificación">
+                  <span className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white text-xs text-slate-600" title="Estado de la identificación de titulares">
                     <span className="text-amber-600">⏳ {ownerProgress.queued} en cola</span>
-                    <span className="text-emerald-600">✓ {ownerProgress.done} hechos</span>
+                    <span className="text-emerald-600">✓ {ownerProgress.done} con datos</span>
+                    {ownerProgress.doneEmpty > 0 && <span className="text-slate-500">∅ {ownerProgress.doneEmpty} sin datos</span>}
                     {ownerProgress.error > 0 && <span className="text-rose-600">⚠ {ownerProgress.error} errores</span>}
                   </span>
+                )}
+                {ownerProgress && ownerProgress.doneEmpty > 0 && (
+                  <button
+                    type="button"
+                    onClick={retryEmptyFranchiseOwners}
+                    disabled={enrichingOwners}
+                    title="Reprocesa los locales que quedaron «hechos» pero sin datos (no confirmados / fallo antiguo)"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm disabled:opacity-50"
+                  >
+                    ↻ Reintentar sin resultado
+                  </button>
                 )}
                 {ownerProgress && ownerProgress.error > 0 && (
                   <button
