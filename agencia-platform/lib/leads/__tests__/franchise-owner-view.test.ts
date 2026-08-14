@@ -5,7 +5,7 @@
  * que el filtro y la insignia clasifican coherentemente.
  */
 import { describe, it, expect } from "vitest";
-import { toOwnerView, classifyOwnerState, ownerHasEvidence, ownerStateMeta, matchesOwnerFilter } from "../franchise-owner-view";
+import { toOwnerView, classifyOwnerState, ownerHasEvidence, ownerStateMeta, matchesOwnerFilter, classifyContactState, isContactable, matchesLeadFilter } from "../franchise-owner-view";
 
 // Resultado real enriquecido (franquiciado local confirmado con sociedad, CIF, responsable y fuentes).
 const ENRICHED = {
@@ -110,5 +110,41 @@ describe("insignia y filtro por fila", () => {
     for (const s of ["none", "queued", "error", "done_empty", "done_data"] as const) {
       expect(matchesOwnerFilter(s, "all")).toBe(true);
     }
+  });
+});
+
+describe("FASE 2 — contacto: clasificación, vista y filtro «Contactables»", () => {
+  const withContact = (contact: any) => ({ ...ENRICHED, contact });
+  it("classifyContactState / isContactable", () => {
+    expect(classifyContactState(ENRICHED)).toBe("none"); // aún no ejecutada
+    expect(classifyContactState(withContact({ status: "queued" }))).toBe("queued");
+    expect(classifyContactState(withContact({ status: "actionable_contact" }))).toBe("actionable_contact");
+    expect(classifyContactState(withContact({ status: "identified_no_contact" }))).toBe("identified_no_contact");
+    expect(classifyContactState(withContact({ status: "provider_error" }))).toBe("provider_error");
+    expect(isContactable(withContact({ status: "actionable_contact" }))).toBe(true);
+    expect(isContactable(withContact({ status: "identified_no_contact" }))).toBe(false);
+  });
+  it("toOwnerView expone estado + canales de contacto", () => {
+    const fo = withContact({
+      status: "actionable_contact",
+      channels: [{ type: "email", value: "info@sergisa.es", source: "web_oficial", confidence: "high", verified: { status: "valid", score: 96 }, person: "Sergio", role: "Admin", sourceUrl: "https://sergisa.es", foundAt: "2026-08-14T12:00:00Z" }],
+      explanation: "1 canal accionable"
+    });
+    const v = toOwnerView(fo)!;
+    expect(v.contactState).toBe("actionable_contact");
+    expect(v.contactable).toBe(true);
+    expect(v.contactChannels).toHaveLength(1);
+    expect(v.contactChannels[0]).toMatchObject({ type: "email", value: "info@sergisa.es", source: "web_oficial", confidence: "high" });
+    expect(v.contactChannels[0].verified).toMatchObject({ status: "valid", score: 96 });
+  });
+  it("filtro «Contactables» = fase de contacto accionable (no solo identificado)", () => {
+    const contactable = toOwnerView(withContact({ status: "actionable_contact", channels: [] }));
+    const identifiedOnly = toOwnerView(ENRICHED); // done_data pero contactState none
+    expect(matchesLeadFilter(contactable, "contactable")).toBe(true);
+    expect(matchesLeadFilter(identifiedOnly, "contactable")).toBe(false);
+    // «with» (titular identificado) sí incluye al identificado sin contacto.
+    expect(matchesLeadFilter(identifiedOnly, "with")).toBe(true);
+    expect(matchesLeadFilter(null, "contactable")).toBe(false);
+    expect(matchesLeadFilter(null, "all")).toBe(true);
   });
 });

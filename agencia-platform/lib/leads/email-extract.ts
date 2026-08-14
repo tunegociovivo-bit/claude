@@ -88,11 +88,19 @@ function deobfuscate(html: string): string {
 const SOCIAL_DOMAINS = /(facebook|instagram|twitter|x\.com|linkedin|tiktok|youtube|wa\.me|whatsapp|t\.me|pinterest)\./i;
 
 export async function extractEmailsFromWebsite(website: string): Promise<string[]> {
+  return (await extractContactsFromWebsite(website)).emails;
+}
+
+/**
+ * Recorre la web UNA vez y devuelve emails de contacto Y teléfonos MÓVILES publicados. Los móviles
+ * (España: empiezan por 6 o 7) son contacto profesional publicado; los fijos NO se devuelven aquí
+ * (el llamante ya suele tener el fijo de Google Places y no cuenta como canal nuevo).
+ */
+export async function extractContactsFromWebsite(website: string): Promise<{ emails: string[]; mobiles: string[] }> {
   const domain = domainOf(website);
-  if (!domain) return [];
-  // Si la "web" es una red social (Places a veces la devuelve), no hay email
-  // de contacto real que extraer.
-  if (SOCIAL_DOMAINS.test(domain)) return [];
+  if (!domain) return { emails: [], mobiles: [] };
+  // Si la "web" es una red social (Places a veces la devuelve), no hay contacto real que extraer.
+  if (SOCIAL_DOMAINS.test(domain)) return { emails: [], mobiles: [] };
   const base = `https://${domain}`;
 
   const homeHtml = await fetchText(base);
@@ -106,13 +114,16 @@ export async function extractEmailsFromWebsite(website: string): Promise<string[
   const pages = [...new Set([base, ...discovered, ...common])].slice(0, 12);
 
   const found = new Set<string>();
+  const mobiles = new Set<string>();
   const htmls = await Promise.all(pages.map((p) => fetchText(p)));
   for (const raw of htmls) {
     if (!raw) continue;
     const html = raw + "\n" + deobfuscate(raw);
     for (const m of html.matchAll(/mailto:([^"'?>\s]+)/gi)) addEmail(found, m[1], domain);
     for (const m of html.matchAll(EMAIL_RE)) addEmail(found, m[0], domain);
-    if (found.size >= 12) break;
+    for (const m of html.matchAll(/tel:([+\d\s().-]{7,})/gi)) addMobile(mobiles, m[1]);
+    for (const m of html.matchAll(ES_PHONE_RE)) addMobile(mobiles, m[0]);
+    if (found.size >= 12 && mobiles.size >= 5) break;
   }
 
   // Orden: 1) buzón de contacto del propio dominio, 2) resto del dominio,
@@ -122,7 +133,25 @@ export async function extractEmailsFromWebsite(website: string): Promise<string[
   const isRole = (e: string) => ROLE_PREFIXES.includes(e.split("@")[0]);
   const rank = (e: string) => (isOwn(e) ? 0 : 2) + (isRole(e) ? 0 : 1);
   all.sort((a, b) => rank(a) - rank(b));
-  return all.slice(0, 8);
+  return { emails: all.slice(0, 8), mobiles: [...mobiles].slice(0, 5) };
+}
+
+// Móvil español publicado: opcional +34, luego 6/7 y 8 dígitos más (fijos 8/9 NO se capturan aquí).
+const ES_PHONE_RE = /(?:\+?34[\s.-]?)?([67]\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2})/g;
+
+/** Normaliza a 9 dígitos y guarda solo móviles españoles (6/7). */
+function addMobile(set: Set<string>, raw: string) {
+  const digits = raw.replace(/[^\d]/g, "").replace(/^0+/, "").replace(/^34(?=\d{9}$)/, "");
+  if (digits.length !== 9) return;
+  if (!/^[67]/.test(digits)) return; // solo móviles publicados; fijos fuera
+  set.add(digits);
+}
+
+/** Normaliza un teléfono español a 9 dígitos (para comparar/deduplicar). */
+export function normalizeEsPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = String(raw).replace(/[^\d]/g, "").replace(/^0+/, "").replace(/^34(?=\d{9}$)/, "");
+  return digits.length === 9 ? digits : null;
 }
 
 function addEmail(set: Set<string>, raw: string, domain: string) {

@@ -128,6 +128,18 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       console.warn(`[leads-cron] franchise-owner ws=${ws.id} FALLO: ${String(e?.name ?? "error")}`);
     }
 
+    // 6d. Cola de CONTACTO profesional (fase 2, async): busca email/móvil publicado de hasta 2
+    //     titulares identificados por tick, en segundo plano (web oficial + Hunter + Apollo).
+    try {
+      const { processFranchiseContactQueue } = await import("./franchise-contact-queue");
+      const fc = await processFranchiseContactQueue(prisma, ws.id, { max: 2 });
+      wsReport.franchiseContacts = fc;
+      if (fc.picked > 0) console.info(`[leads-cron] franchise-contact ws=${ws.id} picked=${fc.picked} done=${fc.processed} error=${fc.errored}`);
+    } catch (e: any) {
+      wsReport.franchiseContactsError = e?.message ?? String(e);
+      console.warn(`[leads-cron] franchise-contact ws=${ws.id} FALLO: ${String(e?.name ?? "error")}`);
+    }
+
     // 7. Salud de los proxies (throttleado a 15 min): verifica cada proxy
     //    configurado y guarda su estado para badges/avisos en el panel.
     try {

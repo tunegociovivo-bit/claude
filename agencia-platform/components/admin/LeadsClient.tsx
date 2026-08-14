@@ -19,7 +19,8 @@ import {
 } from "@/lib/leads/enqueue-bulk";
 import {
   ownerStateMeta,
-  matchesOwnerFilter,
+  contactStateMeta,
+  matchesLeadFilter,
   type OwnerView,
   type OwnerState,
   type OwnerResultFilter
@@ -234,6 +235,8 @@ export default function LeadsClient() {
   const [extracting, setExtracting] = useState(false);
   const [enrichingOwners, setEnrichingOwners] = useState(false);
   const [ownerProgress, setOwnerProgress] = useState<{ queued: number; done: number; doneEmpty: number; error: number } | null>(null);
+  const [enrichingContacts, setEnrichingContacts] = useState(false);
+  const [contactProgress, setContactProgress] = useState<{ identified: number; contactable: number; queued: number; noContact: number; error: number } | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [newSearchOpen, setNewSearchOpen] = useState(false);
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -308,6 +311,54 @@ export default function LeadsClient() {
   }
   async function retryFailedFranchiseOwners() { await bulkEnrichFranchiseOwners("retryErrors"); }
   async function retryEmptyFranchiseOwners() { await bulkEnrichFranchiseOwners("retryEmpty"); }
+
+  // FASE 2 (contacto): encola la búsqueda de email/móvil para los titulares identificados.
+  async function pollContactProgress() {
+    for (let i = 0; i < 60; i++) {
+      const sr = await fetch(`/api/v1/leads/franchises/enrich-contacts?searchId=${encodeURIComponent(searchIdFilter)}`);
+      if (sr.ok) {
+        const sd = await sr.json().catch(() => ({}));
+        if (sd.progress) { setContactProgress(sd.progress); if ((sd.progress.queued ?? 0) === 0) { load(); return; } }
+      }
+      await new Promise((res) => setTimeout(res, 6000));
+    }
+    load();
+  }
+  async function bulkFindFranchiseContacts(mode?: "retryErrors") {
+    if (enrichingContacts || searchIdFilter === "ALL") return;
+    setEnrichingContacts(true);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/enrich-contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ searchId: searchIdFilter, ...(mode === "retryErrors" ? { retryErrors: true } : {}) })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(`Error: ${d?.error?.message ?? r.status}`); return; }
+      setContactProgress(d.progress ?? null);
+      if (d.queued === 0 && !mode) { alert(d.note ?? "No hay titulares identificados que buscar."); }
+      void pollContactProgress();
+      load();
+    } finally { setEnrichingContacts(false); }
+  }
+  async function retryFailedFranchiseContacts() { await bulkFindFranchiseContacts("retryErrors"); }
+
+  // Al elegir una búsqueda concreta, carga el estado de titular + contacto (sin encolar nada) para
+  // que los contadores y el botón «Buscar email/móvil» aparezcan aunque ya se identificara antes.
+  useEffect(() => {
+    if (searchIdFilter === "ALL") { setOwnerProgress(null); setContactProgress(null); return; }
+    let cancel = false;
+    (async () => {
+      const [o, c] = await Promise.all([
+        fetch(`/api/v1/leads/franchises/enrich-owners?searchId=${encodeURIComponent(searchIdFilter)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`/api/v1/leads/franchises/enrich-contacts?searchId=${encodeURIComponent(searchIdFilter)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      ]);
+      if (cancel) return;
+      if (o?.progress) setOwnerProgress(o.progress);
+      if (c?.progress) setContactProgress(c.progress);
+    })();
+    return () => { cancel = true; };
+  }, [searchIdFilter]);
 
   // Trae la siguiente página de leads y la añade a la tabla (sin recargar las
   // ya visibles). El offset es el nº de leads ya cargados desde el servidor.
@@ -584,6 +635,40 @@ export default function LeadsClient() {
                   >
                     ↻ Reintentar fallidos
                   </button>
+                )}
+                {/* FASE 2: buscar email/móvil profesional de los titulares ya identificados. */}
+                {((ownerProgress?.done ?? 0) > 0 || (contactProgress?.identified ?? 0) > 0) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => bulkFindFranchiseContacts()}
+                      disabled={enrichingContacts}
+                      title="Busca email profesional verificado o móvil publicado del operador/administrador de cada titular identificado"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-sm disabled:opacity-50"
+                    >
+                      {enrichingContacts ? <Loader2 className="h-4 w-4 animate-spin" /> : "📧"}
+                      Buscar email/móvil
+                    </button>
+                    {contactProgress && (
+                      <span className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-white text-xs text-slate-600" title="Estado de la búsqueda de contacto profesional">
+                        <span className="text-slate-600">👤 {contactProgress.identified} identificados</span>
+                        <span className="text-emerald-600">📧 {contactProgress.contactable} contactables</span>
+                        {contactProgress.queued > 0 && <span className="text-amber-600">⏳ {contactProgress.queued}</span>}
+                        {contactProgress.noContact > 0 && <span className="text-slate-500">∅ {contactProgress.noContact} sin contacto</span>}
+                        {contactProgress.error > 0 && <span className="text-rose-600">⚠ {contactProgress.error}</span>}
+                      </span>
+                    )}
+                    {contactProgress && contactProgress.error > 0 && (
+                      <button
+                        type="button"
+                        onClick={retryFailedFranchiseContacts}
+                        disabled={enrichingContacts}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-sm disabled:opacity-50"
+                      >
+                        ↻ Reintentar contacto
+                      </button>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -1085,16 +1170,38 @@ function OwnerBadge({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
         : state === "done_empty"
           ? "Investigado sin evidencia útil — puedes reintentar sin resultado"
           : "En cola: se investiga en segundo plano";
+  // Segundo chip: estado de CONTACTO (fase 2), solo cuando el titular está identificado.
+  const cState = lead.franchiseOwner?.contactState ?? "none";
+  const cMeta = state === "done_data" && cState !== "none" ? contactStateMeta(cState) : null;
+  const channels = lead.franchiseOwner?.contactChannels ?? [];
+  const cTip = cState === "actionable_contact"
+    ? channels.map((c) => `${c.type === "email" ? "✉" : "📱"} ${c.value}`).join(" · ")
+    : cState === "provider_error"
+      ? lead.franchiseOwner?.contactLastError ?? "Error de proveedor"
+      : cMeta?.label ?? "";
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={tip || meta.label}
-      aria-label={`${meta.label}. Abrir detalle.`}
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border hover:brightness-95 ${OWNER_TONE[meta.tone]}`}
-    >
-      {meta.short || meta.label}
-    </button>
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={tip || meta.label}
+        aria-label={`${meta.label}. Abrir detalle.`}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border hover:brightness-95 ${OWNER_TONE[meta.tone]}`}
+      >
+        {meta.short || meta.label}
+      </button>
+      {cMeta && cMeta.short && (
+        <button
+          type="button"
+          onClick={onOpen}
+          title={cTip || cMeta.label}
+          aria-label={`${cMeta.label}. Abrir detalle.`}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border hover:brightness-95 ${OWNER_TONE[cMeta.tone]}`}
+        >
+          {cMeta.short}
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -1128,14 +1235,16 @@ function LeadsTable({
   const [enqueueKind, setEnqueueKind] = useState<"text" | "ranking">("text");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [detailLeadId, setDetailLeadId] = useState<string | null>(null);
-  // Filtro de TITULAR de franquicia (todos / con resultado real / sin resultado). Filtra las filas
-  // ya cargadas por el estado derivado en la API (con resultado = evidencia útil, no solo "done").
+  // Filtro de TITULAR/CONTACTO de franquicia. El filtro comercialmente útil es «Contactables»
+  // (canal accionable nuevo). Filtra las filas ya cargadas por el estado derivado en la API.
   const [ownerFilter, setOwnerFilter] = useState<OwnerResultFilter>("all");
   // ¿Alguna fila cargada tiene identificación de titular? Si no, ocultamos el filtro para no
   // ensuciar la barra en búsquedas normales sin franquicias.
   const anyOwner = items.some((l) => (l.franchiseOwnerState ?? "none") !== "none");
+  const identifiedCount = items.filter((l) => (l.franchiseOwnerState ?? "none") === "done_data").length;
+  const contactableCount = items.filter((l) => l.franchiseOwner?.contactState === "actionable_contact").length;
   const shownItems =
-    ownerFilter === "all" ? items : items.filter((l) => matchesOwnerFilter((l.franchiseOwnerState ?? "none") as OwnerState, ownerFilter));
+    ownerFilter === "all" ? items : items.filter((l) => matchesLeadFilter(l.franchiseOwner ?? null, ownerFilter));
   // CTA de Franquicias (origen solo-email): generar borradores en la cola.
   const [draftingEmails, setDraftingEmails] = useState(false);
   const [draftResult, setDraftResult] = useState<string | null>(null);
@@ -1293,11 +1402,12 @@ function LeadsTable({
         </div>
       )}
       {anyOwner && (
-        <div className="flex items-center gap-2 text-xs text-slate-600 mb-2" role="group" aria-label="Filtrar por titular de franquicia">
-          <span className="font-medium">Titular:</span>
+        <div className="flex items-center gap-2 text-xs text-slate-600 mb-2 flex-wrap" role="group" aria-label="Filtrar por titular/contacto de franquicia">
+          <span className="font-medium">Franquicia:</span>
           {([
             ["all", "Todos"],
-            ["with", "Con resultado"],
+            ["contactable", `Contactables${contactableCount ? ` (${contactableCount})` : ""}`],
+            ["with", `Titular identificado${identifiedCount ? ` (${identifiedCount})` : ""}`],
             ["without", "Sin resultado"]
           ] as [OwnerResultFilter, string][]).map(([val, label]) => (
             <button
@@ -1543,6 +1653,8 @@ function LeadDetailModal({
   const [dmErr, setDmErr] = useState<string | null>(null);
   const [ownerLoading, setOwnerLoading] = useState(false);
   const [ownerResearch, setOwnerResearch] = useState<any | null>(null);
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contactResult, setContactResult] = useState<any | null>(null);
   const [dm, setDm] = useState<{
     domain: string | null;
     directors: { role: string; name: string }[];
@@ -1563,7 +1675,35 @@ function LeadDetailModal({
     setExecEmail("");
     setExecStatus(null);
     setOwnerResearch(null);
+    setContactResult(null);
   }, [leadId]);
+
+  // FASE 2: busca email/móvil profesional publicado del titular (encola + sondea).
+  async function findFranchiseContact() {
+    if (!leadId) return;
+    setContactLoading(true);
+    setContactResult({ status: "queued", explanation: "En cola: buscando contacto profesional…" });
+    try {
+      const r = await fetch("/api/v1/leads/franchises/enrich-contacts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [leadId], force: true })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      if (d.queued === 0) { setContactResult({ status: "unconfirmed", explanation: d.note ?? "Requiere titular identificado primero." }); return; }
+      for (let i = 0; i < 24; i++) {
+        await new Promise((res) => setTimeout(res, 5000));
+        const sr = await fetch(`/api/v1/leads/franchises/enrich-contacts?ids=${encodeURIComponent(leadId)}`);
+        if (!sr.ok) continue;
+        const sd = await sr.json().catch(() => ({}));
+        const c = sd.items?.[0]?.contact;
+        if (c && c.status && c.status !== "queued") { setContactResult(c); return; }
+      }
+      setContactResult({ status: "queued", explanation: "Aún buscando. Vuelve a abrir el lead en un minuto." });
+    } catch (e: any) {
+      setContactResult({ status: "provider_error", explanation: e?.message ?? "No se pudo buscar contacto" });
+    } finally { setContactLoading(false); }
+  }
 
   async function identifyFranchiseOwner() {
     if (!leadId) return;
@@ -1910,6 +2050,18 @@ function LeadDetailModal({
                 🔎 Identificar franquiciado
               </button>
             )}
+            {((lead.rawData as any)?.franchiseOwner?.operatorName || ownerResearch?.operatorName) && (
+              <button
+                type="button"
+                onClick={findFranchiseContact}
+                disabled={contactLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium disabled:opacity-50"
+                title="Busca email profesional verificado o móvil publicado del operador/administrador"
+              >
+                {contactLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                📧 Buscar email/móvil
+              </button>
+            )}
           </div>
           {((lead.rawData as any)?.franchiseOwner || ownerResearch) && (() => {
             const owner: any = ownerResearch ?? (lead.rawData as any).franchiseOwner;
@@ -1943,6 +2095,49 @@ function LeadDetailModal({
               </div>
                 );
               })()
+            );
+          })()}
+          {((lead.rawData as any)?.franchiseOwner?.contact || contactResult) && (() => {
+            const c: any = contactResult ?? (lead.rawData as any).franchiseOwner.contact;
+            const channels: any[] = Array.isArray(c.channels) ? c.channels : [];
+            const status = c.status ?? null;
+            const toneCls =
+              status === "actionable_contact" ? "border-emerald-200 bg-emerald-50/60" :
+              status === "provider_error" ? "border-rose-200 bg-rose-50/60" : "border-slate-200 bg-slate-50";
+            const badge =
+              status === "actionable_contact" ? <span className="rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-emerald-700">📧 Contacto accionable</span> :
+              status === "queued" ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">⏳ Buscando</span> :
+              status === "provider_error" ? <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">⚠ Error de proveedor</span> :
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600">Sin contacto nuevo</span>;
+            return (
+              <div className={`rounded-lg border p-3 text-xs space-y-1.5 ${toneCls}`}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <strong className="text-slate-800">Contacto profesional</strong>
+                  {badge}
+                </div>
+                {channels.length > 0 && (
+                  <ul className="space-y-1">
+                    {channels.map((ch, i) => (
+                      <li key={`${ch.type}:${ch.value}:${i}`} className="flex flex-wrap items-center gap-1.5">
+                        <span>{ch.type === "email" ? "✉️" : "📱"}</span>
+                        {ch.type === "email"
+                          ? <a href={`mailto:${ch.value}`} className="text-emerald-700 underline font-medium">{ch.value}</a>
+                          : <a href={`tel:${ch.value}`} className="text-emerald-700 underline font-medium">{ch.value}</a>}
+                        {ch.person && <span className="text-slate-600">· {ch.person}{ch.role ? ` (${ch.role})` : ""}</span>}
+                        <span className="text-slate-400">· {ch.source}</span>
+                        {ch.confidence && <span className={`px-1 rounded text-[10px] ${ch.confidence === "high" ? "bg-emerald-100 text-emerald-700" : ch.confidence === "medium" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{ch.confidence}</span>}
+                        {ch.verified?.status && <span className="px-1 rounded text-[10px] bg-blue-100 text-blue-700">{ch.verified.status}{ch.verified.score != null ? ` ${ch.verified.score}` : ""}</span>}
+                        {ch.sourceUrl && <a href={ch.sourceUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">fuente</a>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {c.explanation && <div className="text-slate-600">{c.explanation}</div>}
+                {status === "provider_error" && c.lastError && <div className="text-rose-600">Motivo: {c.lastError}</div>}
+                {status !== "actionable_contact" && status !== "queued" && (
+                  <div className="text-slate-500">Solo se considera «contactable» un email verificado o un móvil publicado NUEVO (el fijo de Google no cuenta). Puedes reintentar la búsqueda.</div>
+                )}
+              </div>
             );
           })()}
           {dmErr && <div className="text-xs text-rose-600">✗ {dmErr}</div>}
