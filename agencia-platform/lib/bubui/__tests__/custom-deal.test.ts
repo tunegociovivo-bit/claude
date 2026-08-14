@@ -7,11 +7,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { prisma } = vi.hoisted(() => ({
-  prisma: { bubuiCustomDeal: { findUnique: vi.fn() }, bubuiDealTrace: { create: vi.fn(), findMany: vi.fn() } }
+  prisma: {
+    bubuiCustomDeal: { findUnique: vi.fn() },
+    bubuiCustomer: { findUnique: vi.fn() },
+    bubuiDealTrace: { create: vi.fn(), findMany: vi.fn() }
+  }
 }));
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
 
-import { getCustomDealPublic, customDealShareCopy } from "../custom-deal";
+import { challengeReferralUrl, getCustomDealPublic, customDealShareCopy } from "../custom-deal";
 import { recordDealTrace } from "../deal-trace";
 import { bubuiUrl } from "../url";
 
@@ -93,6 +97,29 @@ describe("getCustomDealPublic", () => {
   it("devuelve null si el token no existe", async () => {
     prisma.bubuiCustomDeal.findUnique.mockResolvedValue(null);
     expect(await getCustomDealPublic("x")).toBeNull();
+  });
+
+  it("un /reto ya reclamado se convierte en la invitación contextual del participante", async () => {
+    prisma.bubuiCustomDeal.findUnique.mockResolvedValue({
+      ...DEAL_ROW,
+      claimedByCustomerId: "owner-1",
+      offerId: "offer-challenge-123"
+    } as any);
+    prisma.bubuiCustomer.findUnique.mockResolvedValue({ referralCode: "GOOD01" } as any);
+
+    const d = await getCustomDealPublic(REAL_TOKEN);
+
+    expect(d?.claimed).toBe(true);
+    expect(d?.friendShareUrl).toBe(
+      "https://bubui.app/bubui/r/GOOD01?offer=offer-challenge-123"
+    );
+    expect(d?.friendShareUrl).not.toContain(`/reto/${REAL_TOKEN}`);
+  });
+
+  it("el enlace de los cinco amigos siempre conserva code + offerId", () => {
+    expect(challengeReferralUrl("good01", "offer-challenge-123")).toBe(
+      "https://bubui.app/bubui/r/GOOD01?offer=offer-challenge-123"
+    );
   });
 });
 
