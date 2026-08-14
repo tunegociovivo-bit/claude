@@ -17,11 +17,10 @@ import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
 import { initReferralCapture, waitForReferrerCapture } from "./src/lib/referral-pending";
-import { initDealCapture, claimPendingDeal, traceLifecycle, waitForDealCapture, getPendingDeal } from "./src/lib/deal-pending";
-import { retoTokenFromPath } from "./src/lib/links";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { initDealCapture, claimPendingDeal, waitForDealCapture, getPendingDeal } from "./src/lib/deal-pending";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
+import { fontsReadyForUi } from "./src/lib/startup-gate";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
 // Registra la task de geofencing en background (debe importarse pronto).
 import "./src/lib/geofence";
@@ -77,14 +76,14 @@ const linking = {
 function AppInner() {
     const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
     const [fontsLoaded, fontsError] = useAppFonts();
-    // Salvaguarda: si la carga de fuentes tarda o falla (p. ej. simulador),
-    // arrancamos igualmente pasado un margen para no quedarnos en el Splash.
+    // El margen solo sirve para diagnóstico. Nunca autoriza a renderizar antes
+    // de que Ionicons esté registrada: hacerlo deja el menú sin glifos.
     const [fontsTimedOut, setFontsTimedOut] = useState(false);
     useEffect(() => {
         const t = setTimeout(() => setFontsTimedOut(true), 4000);
         return () => clearTimeout(t);
     }, []);
-    const fontsReady = fontsLoaded || !!fontsError || fontsTimedOut;
+    const fontsReady = fontsReadyForUi({ loaded: fontsLoaded, error: fontsError, timedOut: fontsTimedOut });
     const { colors, dark } = useThemeMeta();
 
   useEffect(() => {
@@ -120,8 +119,7 @@ function AppInner() {
   useEffect(() => setOnAuthExpired(() => { void clearSession(); }), []);
 
   // Esperamos a sesión Y fuentes (Poppins + Ionicons) para que el menú inferior
-  // pinte sus iconos desde el primer render. `fontsReady` incluye timeout/errores
-  // para no bloquear el arranque si la carga de fuentes fallara.
+  // pinte sus iconos desde el primer render, también en dispositivos lentos.
   if (!initial || !fontsReady) return <Splash />;
 
   const navTheme: Theme = {

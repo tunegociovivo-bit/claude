@@ -43,7 +43,8 @@ describe("customDealShareCopy — texto del preview de WhatsApp", () => {
     const deal = {
       token: REAL_TOKEN, businessName: "Roman Trainer", city: "Málaga", logoUrl: null,
       title: "Entrenamiento personal", clientDiscountPct: 30, friendsRequired: 5,
-      friendDiscountPct: 15, friendTitle: null, message: null, expired: false, claimed: false
+      friendDiscountPct: 15, friendTitle: null, message: null, expired: false, claimed: false,
+      friendShareUrl: null
     };
     const { title, description } = customDealShareCopy(deal);
     expect(title).toContain("Roman Trainer");

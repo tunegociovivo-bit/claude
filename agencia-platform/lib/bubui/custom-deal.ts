@@ -10,6 +10,7 @@
  * NINGÚN metadato específico: WhatsApp solo veía el título genérico de Bubui.
  */
 import { prisma } from "@/lib/db/prisma";
+import { bubuiUrl } from "./url";
 
 export type CustomDealPublic = {
   token: string;
@@ -24,7 +25,12 @@ export type CustomDealPublic = {
   message: string | null;
   expired: boolean;
   claimed: boolean;
+  friendShareUrl: string | null;
 };
+
+export function challengeReferralUrl(code: string, offerId: string): string {
+  return bubuiUrl(`/bubui/r/${encodeURIComponent(code.toUpperCase())}?offer=${encodeURIComponent(offerId)}`);
+}
 
 /** Devuelve la info pública del reto, o null si el token no existe. */
 export async function getCustomDealPublic(token: string): Promise<CustomDealPublic | null> {
@@ -33,6 +39,14 @@ export async function getCustomDealPublic(token: string): Promise<CustomDealPubl
     include: { business: { select: { name: true, city: true, logoUrl: true } } }
   });
   if (!deal) return null;
+  let friendShareUrl: string | null = null;
+  if (deal.claimedByCustomerId && deal.offerId) {
+    const owner = await prisma.bubuiCustomer.findUnique({
+      where: { id: deal.claimedByCustomerId },
+      select: { referralCode: true }
+    });
+    if (owner?.referralCode) friendShareUrl = challengeReferralUrl(owner.referralCode, deal.offerId);
+  }
   return {
     token: deal.token,
     businessName: deal.business?.name ?? "el negocio",
@@ -45,7 +59,8 @@ export async function getCustomDealPublic(token: string): Promise<CustomDealPubl
     friendTitle: deal.friendTitle,
     message: deal.message,
     expired: deal.expiresAt.getTime() < Date.now(),
-    claimed: !!deal.claimedByCustomerId
+    claimed: !!deal.claimedByCustomerId,
+    friendShareUrl
   };
 }
 

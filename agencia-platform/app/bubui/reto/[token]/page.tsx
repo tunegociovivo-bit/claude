@@ -12,6 +12,7 @@ import { getCustomDealPublic, customDealShareCopy } from "@/lib/bubui/custom-dea
 import { recordDealTrace } from "@/lib/bubui/deal-trace";
 import { bubuiUrl } from "@/lib/bubui/url";
 import RetoClient from "./RetoClient";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -40,5 +41,7 @@ export async function generateMetadata({ params }: { params: { token: string } }
 export default async function RetoPage({ params }: { params: { token: string } }) {
   // Traza segura (sin PII): la página del reto se ha abierto/crawleado.
   await recordDealTrace({ token: params.token, stage: "web_page_view", platform: "web", source: "server" });
+  const deal = await getCustomDealPublic(params.token).catch(() => null);
+  if (deal?.friendShareUrl) redirect(deal.friendShareUrl);
   return <RetoClient token={params.token} />;
 }
