@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 
-const SCOPE = "https://www.googleapis.com/auth/drive openid email profile";
+const SCOPE = "https://www.googleapis.com/auth/drive.file openid email profile";
+
+function stateSecret(): string {
+  if (!process.env.NEXTAUTH_SECRET) throw new Error("NEXTAUTH_SECRET no configurado");
+  return process.env.NEXTAUTH_SECRET;
+}
 
 export function driveRedirectUri(): string {
   return `${(process.env.NEXTAUTH_URL ?? "").replace(/\/$/, "")}/api/integrations/google-drive/callback`;
@@ -8,14 +13,14 @@ export function driveRedirectUri(): string {
 
 export function signDriveState(payload: { userId: string; workspaceId: string; ts: number }): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const sig = crypto.createHmac("sha256", process.env.NEXTAUTH_SECRET ?? "dev").update(body).digest("base64url");
+  const sig = crypto.createHmac("sha256", stateSecret()).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
 
 export function verifyDriveState(state: string): { userId: string; workspaceId: string; ts: number } | null {
   const [body, sig] = state.split(".");
   if (!body || !sig) return null;
-  const expected = crypto.createHmac("sha256", process.env.NEXTAUTH_SECRET ?? "dev").update(body).digest("base64url");
+  const expected = crypto.createHmac("sha256", stateSecret()).update(body).digest("base64url");
   if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   try { return JSON.parse(Buffer.from(body, "base64url").toString("utf8")); } catch { return null; }
 }

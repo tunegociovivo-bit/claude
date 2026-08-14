@@ -142,6 +142,7 @@ export type DriveFile = {
   size?: string;
   createdTime?: string;
   modifiedTime?: string;
+  md5Checksum?: string;
 };
 
 /**
@@ -164,7 +165,7 @@ export async function listDriveFiles(opts: {
     "https://www.googleapis.com/drive/v3/files?" +
     new URLSearchParams({
       q,
-      fields: "files(id, name, mimeType, size, createdTime, modifiedTime)",
+      fields: "files(id, name, mimeType, size, createdTime, modifiedTime, md5Checksum)",
       pageSize: "100",
       orderBy: "createdTime desc",
       // Necesario para que funcione con Unidades compartidas (Shared Drives).
@@ -198,6 +199,34 @@ export async function uploadDriveFile(opts: {
     namePrefix: opts.fileName
   });
   const exactMatch = existing.find((f) => f.name === opts.fileName);
+  const bodyBuf = Buffer.isBuffer(opts.body) ? opts.body : Buffer.from(opts.body);
+
+  // Drive exige resumable upload para archivos grandes. También lo usamos
+  // para actualizar, manteniendo el mismo fileId del slot de rotación.
+  if (bodyBuf.byteLength > 5 * 1024 * 1024) {
+    const initUrl = exactMatch
+      ? `https://www.googleapis.com/upload/drive/v3/files/${exactMatch.id}?uploadType=resumable&supportsAllDrives=true&fields=id,name,size,createdTime,modifiedTime,md5Checksum`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,size,createdTime,modifiedTime,md5Checksum";
+    const init = await fetch(initUrl, {
+      method: exactMatch ? "PATCH" : "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": opts.mimeType,
+        "X-Upload-Content-Length": String(bodyBuf.byteLength)
+      },
+      body: JSON.stringify(exactMatch ? {} : { name: opts.fileName, parents: [folderId] })
+    });
+    const location = init.headers.get("location");
+    if (!init.ok || !location) throw new Error(`Drive resumable init ${init.status}: ${(await init.text()).slice(0, 300)}`);
+    const uploaded = await fetch(location, {
+      method: "PUT",
+      headers: { "Content-Type": opts.mimeType, "Content-Length": String(bodyBuf.byteLength) },
+      body: bodyBuf as unknown as BodyInit
+    });
+    if (!uploaded.ok) throw new Error(`Drive resumable upload ${uploaded.status}: ${(await uploaded.text()).slice(0, 300)}`);
+    return (await uploaded.json()) as DriveFile;
+  }
 
   if (exactMatch) {
     // PATCH /upload/drive/v3/files/{fileId}?uploadType=media
@@ -227,7 +256,6 @@ export async function uploadDriveFile(opts: {
     "utf8"
   );
   const tail = Buffer.from(`\r\n--${boundary}--`, "utf8");
-  const bodyBuf = Buffer.isBuffer(opts.body) ? opts.body : Buffer.from(opts.body);
   const multipart = Buffer.concat([head, bodyBuf, tail]);
 
   const resp = await fetch(

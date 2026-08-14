@@ -23,10 +23,15 @@ describe("Google Drive OAuth", () => {
     expect(verifyDriveState(`${signed.slice(0, -1)}x`)).toBeNull();
   });
 
+  it("falla cerrado si falta NEXTAUTH_SECRET", () => {
+    delete process.env.NEXTAUTH_SECRET;
+    expect(() => signDriveState({ userId: "u1", workspaceId: "w1", ts: 123 })).toThrow("NEXTAUTH_SECRET");
+  });
+
   it("pide permiso offline de Drive y usa el callback propio", () => {
     const url = new URL(driveAuthorizeUrl("state"));
     expect(url.searchParams.get("access_type")).toBe("offline");
-    expect(url.searchParams.get("scope")).toContain("auth/drive");
+    expect(url.searchParams.get("scope")).toContain("auth/drive.file");
     expect(url.searchParams.get("redirect_uri")).toBe("https://hub.example.com/api/integrations/google-drive/callback");
   });
 });

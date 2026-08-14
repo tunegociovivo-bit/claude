@@ -126,17 +126,22 @@ async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffe
   });
   const manifest: Array<Record<string, unknown>> = [];
   for (const file of files) {
-    const hash = createHash("sha256").update(file.s3Key).digest("hex").slice(0, 24);
+    const body = await downloadBuffer(file.s3Key);
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const md5 = createHash("md5").update(body).digest("hex");
+    const hash = sha256.slice(0, 24);
     const safe = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
     const driveName = `hub-adjunto-${hash}-${safe}`;
-    const existing = (await listDriveFiles({ workspaceId, namePrefix: driveName })).find((f) => f.name === driveName);
+    const existing = (await listDriveFiles({ workspaceId, namePrefix: driveName })).find(
+      (f) => f.name === driveName && f.size === String(body.byteLength) && (!f.md5Checksum || f.md5Checksum === md5)
+    );
     const remote = existing ?? await uploadDriveFile({
       workspaceId,
       fileName: driveName,
-      body: await downloadBuffer(file.s3Key),
+      body,
       mimeType: file.mimeType || "application/octet-stream"
     });
-    manifest.push({ ...file, driveFileId: remote.id, driveName });
+    manifest.push({ ...file, driveFileId: remote.id, driveName, sha256 });
   }
   const json = JSON.stringify({ format: "hub-complete-backup-v1", dump, attachments: manifest });
   const gz = gzipSync(Buffer.from(json, "utf8"));
@@ -194,7 +199,10 @@ export async function cleanupOrphanBackups(workspaceId: string): Promise<{ delet
   const files = await listDriveFiles({ workspaceId, namePrefix: "agencia-hub-" });
   const deleted: string[] = [];
   for (const f of files) {
-    if (!validNames.has(f.name) && !f.name.startsWith("hub-adjunto-")) {
+    // Los .zip antiguos siguen siendo puntos de recuperación válidos durante
+    // la migración; solo se retiran manualmente cuando ya exista el mismo slot
+    // nuevo y se haya validado una restauración.
+    if (!validNames.has(f.name) && !f.name.startsWith("hub-adjunto-") && !/^agencia-hub-(daily|weekly|monthly)-[AB]\.zip$/.test(f.name)) {
       try {
         await deleteDriveFile({ workspaceId, fileId: f.id });
         deleted.push(f.name);
