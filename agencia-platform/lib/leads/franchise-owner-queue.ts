@@ -90,11 +90,15 @@ export async function queueFranchiseOwnerResearch(
 export async function processFranchiseOwnerQueue(
   prisma: PrismaLike,
   workspaceId: string,
-  opts: { max?: number; now?: Date } = {}
+  opts: { max?: number; now?: Date; ids?: string[] } = {}
 ): Promise<{ processed: number; errored: number; picked: number }> {
   const now = opts.now ?? new Date();
   const leads = await prisma.lead.findMany({
-    where: { workspaceId, rawData: { path: ["franchiseOwner", "status"], equals: "queued" } },
+    where: {
+      workspaceId,
+      ...(opts.ids?.length ? { id: { in: opts.ids } } : {}),
+      rawData: { path: ["franchiseOwner", "status"], equals: "queued" }
+    },
     select: { id: true, name: true, address: true, province: true, website: true, email: true, rawData: true },
     take: opts.max ?? 2
   });

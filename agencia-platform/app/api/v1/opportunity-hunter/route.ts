@@ -26,7 +26,31 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     db.opportunitySignal.count({ where: { workspaceId: api.workspaceId, tier: "hot", status: { not: "dismissed" } } }),
     db.opportunitySignal.count({ where: { workspaceId: api.workspaceId, status: "converted" } })
   ]);
-  return NextResponse.json({ items, stats: { total, hot, converted } });
+  const leadIds = items.map((item: any) => item.leadId).filter(Boolean);
+  const leads = leadIds.length ? await db.lead.findMany({
+    where: { workspaceId: api.workspaceId, id: { in: leadIds } },
+    select: { id: true, email: true, phone: true, rawData: true }
+  }) : [];
+  const leadById = new Map(leads.map((lead: any) => [lead.id, lead]));
+  const enrichedItems = items.map((item: any) => {
+    const lead: any = item.leadId ? leadById.get(item.leadId) : null;
+    const research: any = lead?.rawData?.franchiseOwner;
+    return {
+      ...item,
+      researchStatus: research?.status ?? null,
+      researchError: research?.lastError ?? null,
+      researchResult: research?.status === "done" ? {
+        ownerName: research.ownerName ?? null,
+        operatorName: research.operatorName ?? null,
+        ownerRole: research.ownerRole ?? null,
+        emails: research.emails ?? (lead?.email ? [lead.email] : []),
+        phones: research.phones ?? (lead?.phone ? [lead.phone] : []),
+        confidence: research.confidence ?? null,
+        classification: research.classification ?? null
+      } : null
+    };
+  });
+  return NextResponse.json({ items: enrichedItems, stats: { total, hot, converted } });
 });
 
 export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => {
