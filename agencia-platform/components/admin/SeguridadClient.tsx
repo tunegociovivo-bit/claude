@@ -140,13 +140,13 @@ export default function SeguridadClient() {
           <li className="flex items-start gap-2">
             <Clock className="h-4 w-4 text-slate-400 mt-0.5" />
             <div>
-              <strong>Google Drive</strong> — Pendiente. Requiere OAuth con cuenta de servicio; lo añadimos en próximo PR cuando configures Drive.
+              <strong>Google Drive</strong> — Copias completas incrementales mediante tu cuenta de Google, sin contratar almacenamiento adicional.
             </div>
           </li>
           <li className="flex items-start gap-2">
             <Clock className="h-4 w-4 text-slate-400 mt-0.5" />
             <div>
-              <strong>VPS (Hetzner)</strong> — Pendiente. Lo activaremos cuando rotemos las credenciales SSH del VPS.
+              <strong>Hetzner</strong> — Descartado para evitar una nueva cuota mensual.
             </div>
           </li>
         </ul>
@@ -253,6 +253,9 @@ function DriveBackupSection() {
   }
   useEffect(() => {
     load();
+    const status = new URLSearchParams(window.location.search).get("drive");
+    if (status === "connected") setMsg("✓ Google Drive conectado. Ya puedes ejecutar la primera copia completa.");
+    else if (status) setError(`No se pudo conectar Google Drive (${status}).`);
   }, []);
 
   async function save() {
@@ -294,7 +297,7 @@ function DriveBackupSection() {
       setError(j?.error?.message ?? `Error ${r.status}`);
       return;
     }
-    if (action === "test") setMsg(`✓ Conexión OK · SA ${j.serviceAccountEmail} · ${j.fileCount} archivos en la carpeta`);
+    if (action === "test") setMsg(`✓ Conexión OK · ${j.serviceAccountEmail} · ${j.fileCount} archivos en la carpeta`);
     else if (action === "backup_now") {
       const ok = (j.results ?? []).filter((r: any) => r.ok).length;
       const failedItems = (j.results ?? []).filter((r: any) => !r.ok);
@@ -322,7 +325,7 @@ function DriveBackupSection() {
           Rotación: <strong>2 diarios</strong> (hoy + ayer) ·{" "}
           <strong>2 semanales</strong> (cada lunes, máx 2 semanas) ·{" "}
           <strong>2 mensuales</strong> (día 1 del mes, máx 2 meses). Total 6 archivos.
-          Diariamente a las 03:00 UTC.
+          Diariamente a las 03:00 UTC. Cada instantánea incluye la base de datos y un manifiesto verificable de todos los adjuntos; cada binario se guarda una sola vez para no desperdiciar espacio.
         </p>
       </header>
 
@@ -338,7 +341,7 @@ function DriveBackupSection() {
                   ✓ Configurado
                 </div>
                 <div className="text-slate-700 mt-0.5">
-                  Service account: <code className="text-[10px]">{data.serviceAccountEmail ?? "—"}</code>
+                  Cuenta: <code className="text-[10px]">{data.accountEmail ?? data.serviceAccountEmail ?? "—"}</code>
                 </div>
                 <div className="text-slate-700">
                   Folder ID: <code className="text-[10px]">{data.folderId}</code>
@@ -349,16 +352,29 @@ function DriveBackupSection() {
               </>
             ) : (
               <div className="text-amber-900">
-                Sin configurar. Pega abajo el JSON del service account y la URL de la carpeta de Drive.
+                Sin configurar. Conecta tu cuenta de Google para usar el espacio de tu Drive sin cuotas adicionales del Hub.
               </div>
             )}
           </div>
         )}
 
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="font-medium text-sm text-blue-950">Conexión recomendada</div>
+          <p className="text-xs text-blue-800 mt-1">
+            Autoriza tu Google Drive. El Hub creará una carpeta privada llamada “Hub Negocio Vivo — Copias de seguridad” y guardará el permiso cifrado.
+          </p>
+          <a
+            href="/api/integrations/google-drive/connect"
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm"
+          >
+            {data?.authMode === "oauth" ? "Reconectar Google Drive" : "Conectar mi Google Drive"}
+          </a>
+        </div>
+
         {/* Pasos para obtener el service account */}
         <details className="rounded-lg border bg-slate-50">
           <summary className="cursor-pointer px-3 py-2 text-xs font-medium">
-            📖 Cómo crear el Service Account en Google Cloud (1ª vez)
+            Configuración avanzada antigua (Service Account)
           </summary>
           <ol className="px-3 py-3 text-[11px] text-slate-700 space-y-1 list-decimal list-inside border-t bg-white">
             <li>Entra a <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noreferrer" className="text-brand-600 underline">Google Cloud Console → IAM → Service Accounts</a></li>

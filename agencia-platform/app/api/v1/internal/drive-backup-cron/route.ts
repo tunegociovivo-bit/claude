@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   for (const ws of workspaces) {
     const gd: any = (ws.settings as any)?.integrations?.googleDrive ?? {};
-    if (!gd.serviceAccountJsonEncrypted || !gd.folderId) {
+    if ((!gd.refreshTokenEncrypted && !gd.serviceAccountJsonEncrypted) || !gd.folderId) {
       report.push({ workspaceId: ws.id, skipped: "drive_not_configured" });
       continue;
     }

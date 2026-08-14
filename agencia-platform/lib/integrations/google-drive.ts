@@ -30,17 +30,24 @@ type ServiceAccountKey = {
 const SCOPE = "https://www.googleapis.com/auth/drive";
 
 export async function getDriveConfig(workspaceId: string): Promise<{
-  serviceAccount: ServiceAccountKey;
+  serviceAccount?: ServiceAccountKey;
+  refreshToken?: string;
+  accountEmail?: string;
   folderId: string;
 }> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const settings: any = ws?.settings ?? {};
   const gd = settings?.integrations?.googleDrive ?? {};
-  if (!gd.serviceAccountJsonEncrypted) {
-    throw new Error("Google Drive no configurado: falta service account.");
+  if (!gd.serviceAccountJsonEncrypted && !gd.refreshTokenEncrypted) {
+    throw new Error("Google Drive no configurado: conecta una cuenta de Google.");
   }
   if (!gd.folderId) {
     throw new Error("Google Drive no configurado: falta carpeta destino.");
+  }
+  if (gd.refreshTokenEncrypted) {
+    const refreshToken = decryptSecret(gd.refreshTokenEncrypted);
+    if (!refreshToken) throw new Error("No se pudo descifrar el permiso de Google Drive.");
+    return { refreshToken, accountEmail: gd.accountEmail, folderId: String(gd.folderId) };
   }
   const jsonStr = decryptSecret(gd.serviceAccountJsonEncrypted);
   if (!jsonStr) throw new Error("No se pudo descifrar el service account.");
@@ -105,6 +112,29 @@ async function getAccessToken(sa: ServiceAccountKey): Promise<string> {
   return data.access_token as string;
 }
 
+async function refreshUserAccessToken(refreshToken: string): Promise<string> {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error("Google OAuth no configurado en el servidor");
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" })
+  });
+  if (!resp.ok) throw new Error(`Google OAuth refresh ${resp.status}: ${(await resp.text()).slice(0, 250)}`);
+  const data = await resp.json();
+  if (!data.access_token) throw new Error("Google OAuth: sin access_token");
+  return data.access_token;
+}
+
+async function auth(workspaceId: string): Promise<{ token: string; folderId: string; accountEmail?: string }> {
+  const cfg = await getDriveConfig(workspaceId);
+  const token = cfg.refreshToken
+    ? await refreshUserAccessToken(cfg.refreshToken)
+    : await getAccessToken(cfg.serviceAccount!);
+  return { token, folderId: cfg.folderId, accountEmail: cfg.accountEmail ?? cfg.serviceAccount?.client_email };
+}
+
 export type DriveFile = {
   id: string;
   name: string;
@@ -122,8 +152,7 @@ export async function listDriveFiles(opts: {
   workspaceId: string;
   namePrefix?: string;
 }): Promise<DriveFile[]> {
-  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
-  const token = await getAccessToken(serviceAccount);
+  const { token, folderId } = await auth(opts.workspaceId);
 
   let q = `'${folderId}' in parents and trashed = false`;
   if (opts.namePrefix) {
@@ -161,8 +190,7 @@ export async function uploadDriveFile(opts: {
   body: Buffer | Uint8Array;
   mimeType: string;
 }): Promise<DriveFile> {
-  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
-  const token = await getAccessToken(serviceAccount);
+  const { token, folderId } = await auth(opts.workspaceId);
 
   // ¿Existe ya un fichero con ese nombre exacto? → actualizar
   const existing = await listDriveFiles({
@@ -230,8 +258,7 @@ export async function deleteDriveFile(opts: {
   workspaceId: string;
   fileId: string;
 }): Promise<void> {
-  const { serviceAccount } = await getDriveConfig(opts.workspaceId);
-  const token = await getAccessToken(serviceAccount);
+  const { token } = await auth(opts.workspaceId);
   const resp = await fetch(
     `https://www.googleapis.com/drive/v3/files/${opts.fileId}?supportsAllDrives=true`,
     {
@@ -284,8 +311,7 @@ export async function createDriveNativeFile(opts: {
   /** "text/plain" (default), "text/csv" (Sheets), "text/html" (Doc con formato). */
   sourceMimeType?: string;
 }): Promise<{ id: string; name: string; webViewLink: string }> {
-  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
-  const token = await getAccessToken(serviceAccount);
+  const { token, folderId } = await auth(opts.workspaceId);
 
   const targetMime =
     opts.kind === "document"
@@ -337,8 +363,7 @@ export async function downloadDriveFile(opts: {
   workspaceId: string;
   fileId: string;
 }): Promise<{ buffer: Buffer; mimeType: string; name: string }> {
-  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
-  const token = await getAccessToken(serviceAccount);
+  const { token, folderId } = await auth(opts.workspaceId);
 
   // 1. Metadata + verificación de parents.
   const metaUrl =
@@ -383,8 +408,7 @@ export async function exportDriveFile(opts: {
   fileId: string;
   exportMimeType: string;
 }): Promise<{ buffer: Buffer; name: string; sourceMimeType: string }> {
-  const { serviceAccount, folderId } = await getDriveConfig(opts.workspaceId);
-  const token = await getAccessToken(serviceAccount);
+  const { token, folderId } = await auth(opts.workspaceId);
 
   const metaUrl =
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(opts.fileId)}?` +
@@ -417,12 +441,12 @@ export async function testDriveConnection(workspaceId: string): Promise<{
   folderId: string;
   fileCount: number;
 }> {
-  const { serviceAccount, folderId } = await getDriveConfig(workspaceId);
+  const cfg = await getDriveConfig(workspaceId);
   const files = await listDriveFiles({ workspaceId });
   return {
     ok: true,
-    serviceAccountEmail: serviceAccount.client_email,
-    folderId,
+    serviceAccountEmail: cfg.accountEmail ?? cfg.serviceAccount?.client_email ?? "Cuenta de Google",
+    folderId: cfg.folderId,
     fileCount: files.length
   };
 }

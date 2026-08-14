@@ -34,7 +34,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   let listError: string | null = null;
   let serviceAccountEmail: string | null = null;
 
-  if (gd.serviceAccountJsonEncrypted && gd.folderId) {
+  if ((gd.refreshTokenEncrypted || gd.serviceAccountJsonEncrypted) && gd.folderId) {
     try {
       const t = await testDriveConnection(api.workspaceId);
       serviceAccountEmail = t.serviceAccountEmail;
@@ -45,7 +45,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   }
 
   return NextResponse.json({
-    configured: !!gd.serviceAccountJsonEncrypted && !!gd.folderId,
+    configured: !!(gd.refreshTokenEncrypted || gd.serviceAccountJsonEncrypted) && !!gd.folderId,
+    authMode: gd.refreshTokenEncrypted ? "oauth" : gd.serviceAccountJsonEncrypted ? "service_account" : null,
+    accountEmail: gd.accountEmail ?? serviceAccountEmail,
     folderId: gd.folderId ?? null,
     serviceAccountEmail,
     files,
@@ -87,6 +89,8 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
         throw new ApiError(400, "bad_sa", "Service account JSON sin client_email o private_key");
       }
       gd.serviceAccountJsonEncrypted = encryptSecret(parsed.data.serviceAccountJson);
+      delete gd.refreshTokenEncrypted;
+      delete gd.accountEmail;
     }
   }
   if (parsed.data.folder !== undefined) {

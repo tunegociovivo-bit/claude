@@ -21,6 +21,9 @@
 
 import { uploadDriveFile, listDriveFiles, deleteDriveFile } from "@/lib/integrations/google-drive";
 import { generateWorkspaceDump } from "@/lib/backup/dump";
+import { prisma } from "@/lib/db/prisma";
+import { downloadBuffer } from "@/lib/storage/r2";
+import { createHash } from "node:crypto";
 
 export type BackupKind = "daily" | "weekly" | "monthly";
 
@@ -65,7 +68,7 @@ export function backupFileNames(kind: BackupKind, when: Date): { fileName: strin
   if (kind === "daily") {
     const slot = dayOfYear(when) % 2 === 0 ? "A" : "B";
     return {
-      fileName: `agencia-hub-daily-${slot}.zip`,
+      fileName: `agencia-hub-daily-${slot}.json.gz`,
       humanLabel: `Diario [${slot}] · ${dateStr}`
     };
   }
@@ -73,7 +76,7 @@ export function backupFileNames(kind: BackupKind, when: Date): { fileName: strin
     const { week } = isoWeek(when);
     const slot = week % 2 === 0 ? "A" : "B";
     return {
-      fileName: `agencia-hub-weekly-${slot}.zip`,
+      fileName: `agencia-hub-weekly-${slot}.json.gz`,
       humanLabel: `Semanal [${slot}] · semana ${week}`
     };
   }
@@ -81,7 +84,7 @@ export function backupFileNames(kind: BackupKind, when: Date): { fileName: strin
   const slot = when.getUTCMonth() % 2 === 0 ? "A" : "B";
   const monthLabel = `${when.getUTCFullYear()}-${pad(when.getUTCMonth() + 1)}`;
   return {
-    fileName: `agencia-hub-monthly-${slot}.zip`,
+    fileName: `agencia-hub-monthly-${slot}.json.gz`,
     humanLabel: `Mensual [${slot}] · ${monthLabel}`
   };
 }
@@ -111,12 +114,33 @@ export function whichBackupsToday(when: Date = new Date()): BackupKind[] {
  *
  * NOTA: si en el futuro se quiere ZIP multifichero, instalar `archiver`.
  */
-async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffer; mimeType: string }> {
+async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffer; mimeType: string; mirroredFiles: number }> {
   const { gzipSync } = await import("zlib");
   const dump = await generateWorkspaceDump(workspaceId);
-  const json = JSON.stringify(dump, null, 0);
+  if (dump.modelErrors && Object.keys(dump.modelErrors).length) {
+    throw new Error(`Backup incompleto: fallaron modelos ${Object.keys(dump.modelErrors).join(", ")}`);
+  }
+  const files = await prisma.file.findMany({
+    where: { workspaceId },
+    select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
+  });
+  const manifest: Array<Record<string, unknown>> = [];
+  for (const file of files) {
+    const hash = createHash("sha256").update(file.s3Key).digest("hex").slice(0, 24);
+    const safe = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
+    const driveName = `hub-adjunto-${hash}-${safe}`;
+    const existing = (await listDriveFiles({ workspaceId, namePrefix: driveName })).find((f) => f.name === driveName);
+    const remote = existing ?? await uploadDriveFile({
+      workspaceId,
+      fileName: driveName,
+      body: await downloadBuffer(file.s3Key),
+      mimeType: file.mimeType || "application/octet-stream"
+    });
+    manifest.push({ ...file, driveFileId: remote.id, driveName });
+  }
+  const json = JSON.stringify({ format: "hub-complete-backup-v1", dump, attachments: manifest });
   const gz = gzipSync(Buffer.from(json, "utf8"));
-  return { body: gz, mimeType: "application/gzip" };
+  return { body: gz, mimeType: "application/gzip", mirroredFiles: manifest.length };
 }
 
 export async function runDriveBackup(opts: {
@@ -164,13 +188,13 @@ export async function cleanupOrphanBackups(workspaceId: string): Promise<{ delet
   const validNames = new Set<string>();
   for (const kind of ["daily", "weekly", "monthly"] as BackupKind[]) {
     for (const slot of ["A", "B"]) {
-      validNames.add(`agencia-hub-${kind}-${slot}.zip`);
+      validNames.add(`agencia-hub-${kind}-${slot}.json.gz`);
     }
   }
   const files = await listDriveFiles({ workspaceId, namePrefix: "agencia-hub-" });
   const deleted: string[] = [];
   for (const f of files) {
-    if (!validNames.has(f.name)) {
+    if (!validNames.has(f.name) && !f.name.startsWith("hub-adjunto-")) {
       try {
         await deleteDriveFile({ workspaceId, fileId: f.id });
         deleted.push(f.name);
