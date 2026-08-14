@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import OpportunityHunterPage from "@/app/admin/opportunity-hunter/page";
 import Modal from "@/components/ui/Modal";
 import { SectionBoundary } from "@/components/admin/SectionBoundary";
 import { BUSINESS_TYPE_GROUPS, ALL_BUSINESS_TYPES } from "@/lib/leads/business-types";
@@ -43,7 +44,7 @@ function isPainNow(l: { rating: number | null; reviewsCount: number }): boolean 
 }
 import {
   Loader2, Plus, Search, Inbox, ListChecks, BarChart3, MessageCircle,
-  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye, Mail, Building2
+  Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye, Mail, Building2, Radar
 } from "lucide-react";
 
 type Lead = {
@@ -134,7 +135,7 @@ type QueueRow = {
   channelCap?: number;
 };
 
-type Tab = "leads" | "searches" | "queue" | "jobs-review" | "franchises" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
+type Tab = "leads" | "opportunities" | "searches" | "queue" | "jobs-review" | "franchises" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
 /** ¿Este mensaje de la cola se ENVIÓ hoy? (día natural local del navegador —
  *  España ≈ Madrid). Para resaltar en verde los envíos del día. */
@@ -184,6 +185,8 @@ export default function LeadsClient() {
     if (t === "inbox") setTab("inbox");
     // La notificación "Email listo para revisar" enlaza a ?tab=jobs-review.
     if (t === "jobs-review") setTab("jobs-review");
+    if (t === "opportunities") setTab("opportunities");
+    if (t === "leads" && sp.get("search")) setSearchQ(sp.get("search")!);
     if (phone) setDeepLinkPhone(phone);
   }, []);
   const [recoveryInfo, setRecoveryInfo] = useState<{ active: boolean; since: string | null; days: number } | null>(null);
@@ -620,6 +623,7 @@ export default function LeadsClient() {
       {tab === "searches" && <SearchesTable loading={loading} items={searches} onChanged={load} />}
       {tab === "queue" && <QueueTable loading={loading} items={queue} onChanged={load} />}
       {tab === "jobs-review" && <JobsReviewPanel />}
+      {tab === "opportunities" && <OpportunityHunterPage />}
       {tab === "franchises" && <FranchisesView />}
       {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} initialPhone={deepLinkPhone} />}
       {tab === "sequences" && <SequencesView />}
@@ -937,6 +941,7 @@ function TabBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label
  *  localStorage ("leads.tabOrder"); este array solo aporta el catálogo. */
 const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "leads",      label: "Leads",       icon: <BarChart3 className="h-3.5 w-3.5" /> },
+  { key: "opportunities", label: "Opportunity Hunter", icon: <Radar className="h-3.5 w-3.5" /> },
   { key: "searches",   label: "Búsquedas",   icon: <Search className="h-3.5 w-3.5" /> },
   { key: "queue",      label: "Cola envío",  icon: <Send className="h-3.5 w-3.5" /> },
   { key: "jobs-review", label: "📧 Empleos", icon: <Mail className="h-3.5 w-3.5" /> },

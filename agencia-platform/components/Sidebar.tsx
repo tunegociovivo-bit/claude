@@ -34,8 +34,7 @@ import {
   Landmark,
   Repeat,
   Activity,
-  AlertTriangle,
-  Radar
+  AlertTriangle
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -669,20 +668,6 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
           >
             <Activity className="h-4 w-4" />
             Autonomía de Sonia
-          </Link>
-        )}
-        {(!me || me.role === "ADMIN") && (
-          <Link onClick={onNavigate}
-            href="/admin/opportunity-hunter"
-            className={clsx(
-              "mt-1 flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
-              pathname.startsWith("/admin/opportunity-hunter")
-                ? "bg-violet-500/15 text-violet-200"
-                : "text-slate-300 hover:bg-slate-800 hover:text-white"
-            )}
-          >
-            <Radar className="h-4 w-4" />
-            Opportunity Hunter
           </Link>
         )}
         <Link onClick={onNavigate}

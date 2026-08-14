@@ -72,7 +72,10 @@ export async function convertSignalToLead(prisma: any, workspaceId: string, id: 
   return prisma.$transaction(async (tx: any) => {
     const signal = await tx.opportunitySignal.findFirst({ where: { id, workspaceId } });
     if (!signal) return null;
-    if (signal.leadId) return { signal, leadId: signal.leadId, created: false };
+    if (signal.leadId) {
+      await queueOpportunityResearch(tx, workspaceId, signal, signal.leadId);
+      return { signal, leadId: signal.leadId, created: false, automation: "decision_maker_research_queued" };
+    }
     const lead = await tx.lead.create({
       data: {
         workspaceId,
@@ -87,10 +90,29 @@ export async function convertSignalToLead(prisma: any, workspaceId: string, id: 
         urgency: signal.tier === "hot" ? "critica" : signal.tier === "warm" ? "alta" : "media",
         ticketScore: signal.score,
         ticketTier: signal.tier === "hot" ? "premium" : signal.tier === "warm" ? "alto" : "medio",
-        rawData: { source: "opportunity_hunter", signalId: signal.id, type: signal.type, title: signal.title, summary: signal.summary, sourceUrl: signal.sourceUrl, recommendedOffer: signal.recommendedOffer }
+        notes: `Señal: ${signal.title}\n\n${signal.summary}\n\nOferta recomendada: ${signal.recommendedOffer}`,
+        aiOpener: signal.nextBestAction,
+        rawData: { source: "opportunity_hunter", signalId: signal.id, type: signal.type, title: signal.title, summary: signal.summary, sourceUrl: signal.sourceUrl, recommendedOffer: signal.recommendedOffer, opportunityWorkflow: { status: "researching", queuedAt: new Date().toISOString() }, franchiseOwner: { status: "queued", queuedAt: new Date().toISOString(), attempts: 0, brand: signal.companyName } }
       }
     });
     await tx.opportunitySignal.updateMany({ where: { id, workspaceId }, data: { leadId: lead.id, status: "converted" } });
-    return { signal, leadId: lead.id, created: true };
+    return { signal, leadId: lead.id, created: true, automation: "decision_maker_research_queued" };
   });
+}
+
+export async function startOpportunityResearch(prisma: any, workspaceId: string, id: string) {
+  return prisma.$transaction(async (tx: any) => {
+    const signal = await tx.opportunitySignal.findFirst({ where: { id, workspaceId } });
+    if (!signal?.leadId) return null;
+    await queueOpportunityResearch(tx, workspaceId, signal, signal.leadId);
+    return { leadId: signal.leadId, automation: "decision_maker_research_queued" };
+  });
+}
+
+async function queueOpportunityResearch(tx: any, workspaceId: string, signal: any, leadId: string) {
+  const lead = await tx.lead.findFirst({ where: { id: leadId, workspaceId }, select: { rawData: true } });
+  if (!lead) return;
+  const raw = lead.rawData && typeof lead.rawData === "object" ? lead.rawData : {};
+  const now = new Date().toISOString();
+  await tx.lead.updateMany({ where: { id: leadId, workspaceId }, data: { rawData: { ...raw, opportunityWorkflow: { status: "researching", queuedAt: now }, franchiseOwner: { status: "queued", queuedAt: now, attempts: 0, brand: signal.companyName } } } });
 }
