@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { SENT_STATUSES } from "@/lib/leads/send-queue";
 import { isEmailOnlyLead } from "@/lib/leads/email-only";
+import { toOwnerView } from "@/lib/leads/franchise-owner-view";
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -85,6 +86,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       latitude: true,
       longitude: true,
       placeId: true,
+      // rawData solo para derivar la vista compacta del TITULAR (no se devuelve entero).
+      rawData: true,
       search: { select: { keyword: true, location: true, source: true } },
       _count: {
         select: {
@@ -105,8 +108,11 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   });
   // Aplana _count.messages → messagesSent y derivado nextScheduledAt.
   const flat = items.map((l) => {
-    const { _count, messages, search, placeId, ...rest } = l as any;
+    const { _count, messages, search, placeId, rawData, ...rest } = l as any;
     const next = Array.isArray(messages) && messages.length > 0 ? messages[0] : null;
+    // Vista compacta del TITULAR de franquicia (operador/CIF/contactos/fuentes/estado). `null` si
+    // el lead nunca se investigó. Nunca se devuelve el rawData completo (solo este subconjunto).
+    const franchiseOwner = toOwnerView((rawData as any)?.franchiseOwner);
     return {
       ...rest,
       searchQuery: search?.keyword ?? null,
@@ -115,7 +121,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       // generar borradores de email en su lugar.
       emailOnly: isEmailOnlyLead({ placeId, search }),
       messagesSent: _count?.messages ?? 0,
-      nextScheduledAt: next?.scheduledAt ?? null
+      nextScheduledAt: next?.scheduledAt ?? null,
+      franchiseOwner,
+      franchiseOwnerState: franchiseOwner?.state ?? "none"
     };
   });
   return NextResponse.json({ items: flat, total });

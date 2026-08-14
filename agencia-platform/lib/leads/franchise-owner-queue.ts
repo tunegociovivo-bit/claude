@@ -12,28 +12,12 @@
  *   - todo TENANT-SCOPED (workspaceId en cada consulta/escritura).
  */
 import { researchFranchiseOwner } from "./franchise-owner-enrichment";
+// Clasificación de estado y evidencia: fuente ÚNICA compartida con la API de listado y la UI.
+import { ownerHasEvidence, classifyOwnerState, type OwnerState } from "./franchise-owner-view";
+export { ownerHasEvidence, classifyOwnerState, type OwnerState };
 
 type PrismaLike = any;
 export const MAX_OWNER_ATTEMPTS = 2;
-
-/** ¿Un resultado de titular tiene EVIDENCIA ÚTIL (operador/CIF/contactos/responsable)? Un
- *  "done" sin nada de esto es un resultado vacío (posiblemente del antiguo fallo silencioso). */
-export function ownerHasEvidence(fo: any): boolean {
-  if (!fo || typeof fo !== "object") return false;
-  return !!(fo.operatorName || fo.taxId || (Array.isArray(fo.emails) && fo.emails.length > 0) || (Array.isArray(fo.phones) && fo.phones.length > 0) || fo.ownerName);
-}
-
-export type OwnerState = "none" | "queued" | "error" | "done_empty" | "done_data";
-
-/** Clasifica el estado real de identificación de un lead, distinguiendo un "done" ÚTIL de un
- *  "done" VACÍO/obsoleto (stale-empty) — el que el botón antiguo daba por completado sin datos. */
-export function classifyOwnerState(fo: any): OwnerState {
-  const st = fo && typeof fo === "object" ? fo.status : null;
-  if (st === "queued") return "queued";
-  if (st === "error") return "error";
-  if (st === "done") return ownerHasEvidence(fo) ? "done_data" : "done_empty";
-  return "none";
-}
 
 export type SkippedReasons = { alreadyEnriched: number; running: number; error: number; staleEmpty: number };
 

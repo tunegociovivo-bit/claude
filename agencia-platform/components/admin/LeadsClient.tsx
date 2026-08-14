@@ -17,6 +17,13 @@ import {
   enqueueRetryDelayMs,
   splitEnqueueBatches
 } from "@/lib/leads/enqueue-bulk";
+import {
+  ownerStateMeta,
+  matchesOwnerFilter,
+  type OwnerView,
+  type OwnerState,
+  type OwnerResultFilter
+} from "@/lib/leads/franchise-owner-view";
 
 // Para saber si el keyword actual coincide con un tipo del desplegable (y
 // reflejarlo seleccionado) sin recalcular el array en cada render.
@@ -68,6 +75,10 @@ type Lead = {
   emailOnly?: boolean;
   messagesSent: number;
   nextScheduledAt: string | null;
+  // Vista compacta del TITULAR de franquicia serializada por la API de listado (o null si el lead
+  // nunca se investigó). Alimenta la insignia por fila, el filtro y el panel de detalle.
+  franchiseOwner?: OwnerView | null;
+  franchiseOwnerState?: OwnerState;
 };
 
 // Forma reducida que devuelve la API en modo idsOnly (para "Seleccionar todos").
@@ -1050,6 +1061,43 @@ function DraggableTabs({ tab, setTab, inboxUnread = 0 }: { tab: Tab; setTab: (t:
 
 // ============ LEADS ============
 
+// Clases de color por tono de estado del titular (insignia por fila).
+const OWNER_TONE: Record<string, string> = {
+  emerald: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  slate: "bg-slate-100 text-slate-600 border-slate-200",
+  rose: "bg-rose-50 text-rose-700 border-rose-200",
+  amber: "bg-amber-50 text-amber-700 border-amber-200",
+  none: "bg-white text-slate-400 border-slate-200"
+};
+
+/** Insignia por fila del estado del TITULAR de franquicia. "Con datos" resalta la evidencia real
+ *  (operador/CIF); al pulsar abre la tarjeta de detalle con todos los campos y fuentes. */
+function OwnerBadge({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
+  const state = (lead.franchiseOwnerState ?? "none") as OwnerState;
+  if (state === "none") return <span className="text-slate-300 text-xs">—</span>;
+  const meta = ownerStateMeta(state);
+  const o = lead.franchiseOwner;
+  const tip =
+    state === "done_data"
+      ? [o?.operatorName, o?.taxId ? `CIF ${o.taxId}` : null, o?.confidence ? `confianza ${o.confidence}` : null].filter(Boolean).join(" · ")
+      : state === "error"
+        ? o?.lastError ?? "Error al investigar"
+        : state === "done_empty"
+          ? "Investigado sin evidencia útil — puedes reintentar sin resultado"
+          : "En cola: se investiga en segundo plano";
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={tip || meta.label}
+      aria-label={`${meta.label}. Abrir detalle.`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border hover:brightness-95 ${OWNER_TONE[meta.tone]}`}
+    >
+      {meta.short || meta.label}
+    </button>
+  );
+}
+
 function LeadsTable({
   loading,
   items,
@@ -1080,6 +1128,14 @@ function LeadsTable({
   const [enqueueKind, setEnqueueKind] = useState<"text" | "ranking">("text");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [detailLeadId, setDetailLeadId] = useState<string | null>(null);
+  // Filtro de TITULAR de franquicia (todos / con resultado real / sin resultado). Filtra las filas
+  // ya cargadas por el estado derivado en la API (con resultado = evidencia útil, no solo "done").
+  const [ownerFilter, setOwnerFilter] = useState<OwnerResultFilter>("all");
+  // ¿Alguna fila cargada tiene identificación de titular? Si no, ocultamos el filtro para no
+  // ensuciar la barra en búsquedas normales sin franquicias.
+  const anyOwner = items.some((l) => (l.franchiseOwnerState ?? "none") !== "none");
+  const shownItems =
+    ownerFilter === "all" ? items : items.filter((l) => matchesOwnerFilter((l.franchiseOwnerState ?? "none") as OwnerState, ownerFilter));
   // CTA de Franquicias (origen solo-email): generar borradores en la cola.
   const [draftingEmails, setDraftingEmails] = useState(false);
   const [draftResult, setDraftResult] = useState<string | null>(null);
@@ -1236,6 +1292,29 @@ function LeadsTable({
           </div>
         </div>
       )}
+      {anyOwner && (
+        <div className="flex items-center gap-2 text-xs text-slate-600 mb-2" role="group" aria-label="Filtrar por titular de franquicia">
+          <span className="font-medium">Titular:</span>
+          {([
+            ["all", "Todos"],
+            ["with", "Con resultado"],
+            ["without", "Sin resultado"]
+          ] as [OwnerResultFilter, string][]).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setOwnerFilter(val)}
+              aria-pressed={ownerFilter === val}
+              className={`px-2.5 py-1 rounded-full border transition ${ownerFilter === val ? "bg-brand-600 text-white border-brand-600" : "bg-white hover:bg-slate-50 border-slate-200"}`}
+            >
+              {label}
+            </button>
+          ))}
+          {ownerFilter !== "all" && (
+            <span className="text-slate-400">· {shownItems.length} de {items.length}</span>
+          )}
+        </div>
+      )}
       <div className="bg-white rounded-xl border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -1254,10 +1333,11 @@ function LeadsTable({
               <th className="text-left px-3 py-2.5" title="Próximo mensaje programado para este lead">Próximo</th>
               <th className="text-left px-3 py-2.5" title="Mensajes WhatsApp enviados a este lead">Enviados</th>
               <th className="text-left px-3 py-2.5">Estado</th>
+              {anyOwner && <th className="text-left px-3 py-2.5" title="Titular/franquiciado del establecimiento identificado">Titular</th>}
             </tr>
           </thead>
           <tbody className="divide-y">
-            {items.map((l) => {
+            {shownItems.map((l) => {
               const st = CONTACT_STATUSES.find((s) => s.value === l.contactStatus) ?? CONTACT_STATUSES[0];
               const urg = l.urgency ? URGENCY_COLORS[l.urgency] : "";
               const rowContactable = canContact(l);
@@ -1350,6 +1430,11 @@ function LeadsTable({
                   <td className="px-3 py-2">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${st.color}`}>{st.label}</span>
                   </td>
+                  {anyOwner && (
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <OwnerBadge lead={l} onOpen={() => setDetailLeadId(l.id)} />
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -1829,19 +1914,35 @@ function LeadDetailModal({
           {((lead.rawData as any)?.franchiseOwner || ownerResearch) && (() => {
             const owner: any = ownerResearch ?? (lead.rawData as any).franchiseOwner;
             return (
+              (() => {
+                // Estado real: evidencia útil (operador/CIF/contactos/responsable) vs. "hecho sin datos".
+                const hasEvidence = !!(owner.operatorName || owner.taxId || (owner.emails?.length ?? 0) > 0 || (owner.phones?.length ?? 0) > 0 || owner.ownerName);
+                const status = owner.status ?? null;
+                const isError = status === "error";
+                const isQueued = status === "queued";
+                const isEmpty = status === "done" && !hasEvidence;
+                return (
               <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-xs space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   <strong className="text-blue-900">Titular del establecimiento</strong>
                   <span className="rounded-full border bg-white px-2 py-0.5">{owner.classification === "franchise" ? "Franquicia confirmada" : owner.classification === "corporate" ? "Tienda propia" : "Sin confirmar"}</span>
-                  <span className="text-slate-500">Confianza: {owner.confidence ?? "baja"}</span>
+                  {hasEvidence && <span className="text-slate-500">Confianza: {owner.confidence ?? "baja"}</span>}
+                  {isError && <span className="rounded-full border border-rose-200 bg-rose-50 text-rose-700 px-2 py-0.5">⚠ Error al investigar</span>}
+                  {isQueued && <span className="rounded-full border border-amber-200 bg-amber-50 text-amber-700 px-2 py-0.5">⏳ En cola</span>}
+                  {isEmpty && <span className="rounded-full border border-slate-200 bg-slate-100 text-slate-600 px-2 py-0.5">∅ Sin datos</span>}
                 </div>
                 {owner.operatorName && <div>Sociedad explotadora: <strong>{owner.operatorName}</strong>{owner.taxId ? ` · CIF ${owner.taxId}` : ""}</div>}
-                {owner.ownerName && <div>Responsable: <strong>{owner.ownerName}</strong>{owner.ownerRole ? ` · ${owner.ownerRole}` : ""}</div>}
+                {owner.ownerName && <div>Administrador/responsable: <strong>{owner.ownerName}</strong>{owner.ownerRole ? ` · ${owner.ownerRole}` : ""}</div>}
+                {owner.operatorWebsite && <div>Web local: <a href={/^https?:/i.test(owner.operatorWebsite) ? owner.operatorWebsite : `https://${owner.operatorWebsite}`} target="_blank" rel="noreferrer" className="text-blue-700 underline">{owner.operatorWebsite}</a></div>}
                 {owner.emails?.length > 0 && <div>Emails: {owner.emails.map((email: string) => <a key={email} href={`mailto:${email}`} className="ml-1 text-blue-700 underline">{email}</a>)}</div>}
                 {owner.phones?.length > 0 && <div>Teléfonos locales: {owner.phones.join(" · ")}</div>}
-                <div className="text-slate-600">{owner.explanation}</div>
+                {owner.explanation && <div className="text-slate-600">{owner.explanation}</div>}
+                {isEmpty && !owner.explanation && <div className="text-slate-500">Se investigó pero no se encontró evidencia útil del titular local. Puedes usar «Reintentar sin resultado».</div>}
+                {isError && owner.lastError && <div className="text-rose-600">Motivo: {owner.lastError}</div>}
                 {owner.sources?.length > 0 && <div>Fuentes: {owner.sources.map((s: any, i: number) => <a key={s.url} href={s.url} target="_blank" rel="noreferrer" className="ml-1 text-blue-700 underline">{s.title || `Fuente ${i + 1}`}</a>)}</div>}
               </div>
+                );
+              })()
             );
           })()}
           {dmErr && <div className="text-xs text-rose-600">✗ {dmErr}</div>}
