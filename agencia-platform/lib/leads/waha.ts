@@ -170,6 +170,53 @@ export async function sendImage(opts: {
   return { messageId, raw: data };
 }
 
+/** Envía un archivo como DOCUMENTO nativo de WhatsApp (no como enlace). */
+export async function sendFile(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  file: Buffer;
+  filename: string;
+  mimetype: string;
+  caption?: string;
+  session?: string;
+}): Promise<{ messageId: string; raw?: any }> {
+  if ((await getWhatsappProvider(opts.workspaceId)) === "evolution") {
+    const { evoSendFile } = await import("./evolution");
+    return evoSendFile(opts);
+  }
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const chatId = String(opts.phoneNormalized).includes("@")
+    ? String(opts.phoneNormalized)
+    : `${opts.phoneNormalized}@c.us`;
+  const resp = await fetch(`${cfg.baseUrl}/api/sendFile`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Key": cfg.apiKey },
+    body: JSON.stringify({
+      session: opts.session ?? cfg.session,
+      chatId,
+      file: {
+        mimetype: opts.mimetype || "application/octet-stream",
+        filename: opts.filename,
+        data: opts.file.toString("base64")
+      },
+      caption: opts.caption ?? ""
+    })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`WAHA sendFile ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json().catch(() => null);
+  const messageId = extractWahaMessageId(data);
+  if (!messageId) {
+    throw new Error(
+      `WAHA aceptó sendFile (HTTP ${resp.status}) pero no devolvió ID de mensaje. ` +
+        `Respuesta: ${JSON.stringify(data ?? {}).slice(0, 200)}`
+    );
+  }
+  return { messageId, raw: data };
+}
+
 /**
  * Envía una NOTA DE VOZ (PTT) por WhatsApp. WhatsApp solo acepta audio en
  * OGG/Opus; ElevenLabs nos da MP3, así que lo transcodificamos a Opus en

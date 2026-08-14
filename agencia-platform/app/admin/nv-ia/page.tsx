@@ -578,7 +578,7 @@ export default function NvIaAdminPage() {
               mark_complete.
               <br />
               <strong>Borradores (9, requieren aprobación salvo auto-approve por cliente):</strong>{" "}
-              draft_email, draft_whatsapp, draft_editorial_post, draft_calendar_event,
+              draft_email, draft_whatsapp, draft_whatsapp_file, draft_editorial_post, draft_calendar_event,
               draft_drive_file, draft_gmb_post, draft_holded_invoice, draft_holded_quote,
               draft_stripe_payment_link. Se aprueban en{" "}
               <a href="/admin/nv-ia/drafts" className="text-brand-600 underline">/admin/nv-ia/drafts</a>.

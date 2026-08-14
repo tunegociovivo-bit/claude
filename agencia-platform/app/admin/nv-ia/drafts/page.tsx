@@ -315,6 +315,12 @@ function DraftCard({ draft, onChanged }: { draft: Draft; onChanged: () => void }
 }
 
 function DraftPreview({ kind, payload }: { kind: Kind; payload: any }) {
+  async function openAttachedFile() {
+    if (!payload?.fileId) return;
+    const response = await fetch(`/api/v1/files/${encodeURIComponent(payload.fileId)}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.url) window.open(data.url, "_blank", "noopener,noreferrer");
+  }
   if (kind === "EMAIL") {
     return (
       <div className="mt-2 text-xs text-slate-600 space-y-1">
@@ -330,8 +336,9 @@ function DraftPreview({ kind, payload }: { kind: Kind; payload: any }) {
     return (
       <div className="mt-2 text-xs text-slate-600 space-y-1">
         <div><strong>Tel:</strong> +{payload?.phoneNormalized}</div>
+        {payload?.fileName && <div className="flex flex-wrap items-center gap-2"><strong>Archivo nativo:</strong><span>📎 {payload.fileName}</span><span className="text-slate-400">{payload?.mimeType || "tipo desconocido"} · {payload?.sizeBytes ? `${Math.ceil(payload.sizeBytes / 1024)} KB` : "tamaño desconocido"}</span><button type="button" onClick={openAttachedFile} className="rounded border bg-white px-2 py-0.5 text-violet-700">Abrir y verificar</button></div>}
         <div className="bg-emerald-50 p-2 rounded border-emerald-200 whitespace-pre-wrap max-h-32 overflow-y-auto text-[11px]">
-          {payload?.text}
+          {payload?.text || (payload?.fileName ? "(sin texto adicional)" : "")}
         </div>
       </div>
     );

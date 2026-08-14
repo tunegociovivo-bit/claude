@@ -111,6 +111,41 @@ export async function executeDraft(draftId: string): Promise<{
         break;
       }
       case "WHATSAPP": {
+        if (payload.fileId) {
+          if (!draft.taskId) {
+            result = { ok: false, error: "El borrador de archivo no está vinculado a una tarea" };
+            break;
+          }
+          const file = await prisma.file.findFirst({
+            where: {
+              id: String(payload.fileId),
+              workspaceId: draft.workspaceId,
+              targetType: "TASK",
+              targetId: draft.taskId
+            }
+          });
+          if (!file) {
+            result = { ok: false, error: "El archivo adjunto ya no existe o no pertenece a la tarea" };
+            break;
+          }
+          if (file.sizeBytes > 50 * 1024 * 1024) {
+            result = { ok: false, error: "El archivo supera el límite de 50 MB" };
+            break;
+          }
+          const { downloadBuffer } = await import("@/lib/storage/r2");
+          const { sendFile } = await import("@/lib/leads/waha");
+          const buffer = await downloadBuffer(file.s3Key);
+          const r = await sendFile({
+            workspaceId: draft.workspaceId,
+            phoneNormalized: payload.phoneNormalized,
+            file: buffer,
+            filename: file.name,
+            mimetype: file.mimeType || "application/octet-stream",
+            caption: payload.text || ""
+          });
+          result = { ok: true, externalId: r.messageId };
+          break;
+        }
         if (payload.voice) {
           const { elevenlabsSynthesize } = await import("@/lib/integrations/elevenlabs");
           const { sendVoice } = await import("@/lib/leads/waha");

@@ -157,6 +157,55 @@ export async function evoSendImage(opts: {
   throw new Error(`Evolution sendMedia ${lastErr}`);
 }
 
+/** Envía un documento/archivo nativo. Tolerante a los payloads v1/v2. */
+export async function evoSendFile(opts: {
+  workspaceId: string;
+  phoneNormalized: string;
+  file: Buffer;
+  filename: string;
+  mimetype: string;
+  caption?: string;
+  session?: string;
+}): Promise<{ messageId: string }> {
+  const cfg = await getEvolutionConfig(opts.workspaceId);
+  const instance = opts.session?.trim() || cfg.instance;
+  const url = `${cfg.baseUrl}/message/sendMedia/${encodeURIComponent(instance)}`;
+  const b64 = opts.file.toString("base64");
+  const bodies = [
+    {
+      number: opts.phoneNormalized,
+      mediatype: "document",
+      mimetype: opts.mimetype || "application/octet-stream",
+      media: b64,
+      caption: opts.caption ?? "",
+      fileName: opts.filename
+    },
+    {
+      number: opts.phoneNormalized,
+      mediaMessage: {
+        mediatype: "document",
+        mimetype: opts.mimetype || "application/octet-stream",
+        media: b64,
+        caption: opts.caption ?? "",
+        fileName: opts.filename
+      }
+    }
+  ];
+  let lastErr = "";
+  for (const body of bodies) {
+    const resp = await fetch(url, { method: "POST", headers: headers(cfg.apiKey), body: JSON.stringify(body) });
+    if (resp.ok) {
+      const data: any = await resp.json().catch(() => ({}));
+      const messageId = String(data?.key?.id ?? data?.id ?? data?.message?.key?.id ?? "");
+      if (!messageId) throw new Error("Evolution sendMedia aceptó el archivo pero no devolvió ID de mensaje");
+      return { messageId };
+    }
+    lastErr = `${resp.status}: ${(await resp.text().catch(() => "")).slice(0, 200)}`;
+    if (resp.status !== 400) break;
+  }
+  throw new Error(`Evolution sendMedia document ${lastErr}`);
+}
+
 /** Estado de conexión de la instancia. "open" = vinculada/operativa. */
 export async function evoConnectionState(workspaceId: string): Promise<{
   reachable: boolean;

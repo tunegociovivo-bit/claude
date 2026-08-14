@@ -321,6 +321,21 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "draft_whatsapp_file",
+    description:
+      "Prepara el envío de un ARCHIVO NATIVO por WhatsApp para aprobación humana. Usa primero list_task_files y pasa el fileId exacto. Al aprobarse, el archivo se descarga de R2 y se envía como documento real (PDF, XLSX, DOCX, ZIP, etc.), no como enlace temporal.",
+    input_schema: {
+      type: "object",
+      properties: {
+        phone: { type: "string", description: "Teléfono del destinatario, preferiblemente con prefijo internacional." },
+        fileId: { type: "string", description: "ID del archivo obtenido con list_task_files." },
+        caption: { type: "string", description: "Texto opcional que acompaña al documento (máx. 2000 caracteres)." }
+      },
+      required: ["phone", "fileId"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "draft_editorial_post",
     description:
       "Redacta un post editorial (Instagram, blog, LinkedIn, etc.) PARA QUE LO APRUEBE UN HUMANO antes de programarlo o publicarlo. NO se publica automáticamente — al aprobar se crea como DRAFT en /editorial.",
@@ -3613,6 +3628,50 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       message: auto.autoApproved
         ? "Borrador de nota de voz creado y AUTO-ENVIADO (regla del cliente)."
         : "Borrador de nota de voz creado. Al aprobarlo se generará el audio y se enviará."
+    };
+  },
+
+  async draft_whatsapp_file(input, ctx) {
+    const { normalizePhone } = await import("@/lib/leads/waha");
+    const phone = normalizePhone(String(input?.phone ?? ""));
+    const fileId = String(input?.fileId ?? "").trim();
+    const caption = input?.caption ? String(input.caption).trim() : "";
+    if (!phone) return { error: "teléfono inválido o no normalizable" };
+    if (!fileId) return { error: "fileId vacío" };
+    if (caption.length > 2000) return { error: "caption demasiado largo (>2000)" };
+    const file = await prisma.file.findFirst({
+      where: { id: fileId, workspaceId: ctx.workspaceId, targetType: "TASK", targetId: ctx.taskId },
+      select: { id: true, name: true, mimeType: true, sizeBytes: true }
+    });
+    if (!file) return { error: `El archivo ${fileId} no pertenece a esta tarea o no existe` };
+    if (file.sizeBytes > 50 * 1024 * 1024) return { error: "El archivo supera el límite de 50 MB" };
+    const draft = await prisma.aiDraft.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        aiAgentRunId: ctx.runId,
+        taskId: ctx.taskId,
+        kind: "WHATSAPP",
+        title: `📎 ${file.name} por WhatsApp a +${phone}`,
+        payload: {
+          phoneNormalized: phone,
+          text: caption,
+          fileId: file.id,
+          fileName: file.name,
+          mimeType: file.mimeType,
+          sizeBytes: file.sizeBytes
+        }
+      }
+    });
+    const auto = await maybeAutoApproveDraft(draft.id, "WHATSAPP", ctx);
+    return {
+      ok: true,
+      draftId: draft.id,
+      fileName: file.name,
+      autoApproved: auto.autoApproved,
+      executionResult: auto.executionResult,
+      message: auto.autoApproved
+        ? `Archivo ${file.name} enviado como documento nativo por WhatsApp.`
+        : `Envío nativo de ${file.name} preparado. Queda pendiente de aprobación.`
     };
   },
 
