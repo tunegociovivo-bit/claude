@@ -15,7 +15,7 @@ import { sanitize } from "../src/logger.js";
 import { isReconciliationRetryDue, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
-import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 
 let passed = 0;
 let failed = 0;
@@ -23,6 +23,13 @@ function ok(name: string, cond: boolean, detail = "") {
   if (cond) { passed++; console.log(`  ✓ ${name}`); }
   else { failed++; console.error(`  ✗ ${name} ${detail}`); }
 }
+
+ok("recognizes the official Santander login path",
+  isOfficialSantanderLoginUrl("https://empresas3.gruposantander.es/paas/loginnwe/", "https://empresas3.gruposantander.es"));
+ok("does not classify an authenticated Santander route as login",
+  !isOfficialSantanderLoginUrl("https://empresas3.gruposantander.es/paas/nwe/app/posglobal", "https://empresas3.gruposantander.es"));
+ok("rejects a lookalike Santander login origin",
+  !isOfficialSantanderLoginUrl("https://evil.example/paas/loginnwe/", "https://empresas3.gruposantander.es"));
 
 const JOB: AuthorizedJob = {
   jobId: "job_1", invoiceNumber: "F-2026-001", clientName: "Cliente Demo SL",

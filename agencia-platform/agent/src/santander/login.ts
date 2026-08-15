@@ -49,6 +49,19 @@ export function isAuthenticatedSantanderUrl(currentUrl: string, allowedOrigin: s
   }
 }
 
+export function isOfficialSantanderLoginUrl(currentUrl: string, allowedOrigin: string): boolean {
+  try {
+    const current = new URL(currentUrl);
+    const allowed = new URL(allowedOrigin);
+    return current.protocol === "https:"
+      && allowed.protocol === "https:"
+      && current.origin === allowed.origin
+      && current.pathname.startsWith("/paas/loginnwe/");
+  } catch {
+    return false;
+  }
+}
+
 export function shouldAttemptSavedLogin(sessionReadyVisible: boolean): boolean {
   return !sessionReadyVisible;
 }

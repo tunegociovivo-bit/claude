@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { exactRoleNamePattern, loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, hasEncryptedUsername, readEncryptedAccessKey, readEncryptedUsername } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -73,7 +73,16 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       await hooks.onProgress("CHECK_ALLOWLIST", "Pestaña en dominio oficial verificada");
 
       // 3) Sesión lista (no la iniciamos nosotros).
-      if (shouldAttemptSavedLogin(await this.visible(page, S.sessionReady))) {
+      const sessionReadyVisible = await this.visible(page, S.sessionReady);
+      const authenticatedUrl = isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin);
+      if (shouldAttemptSavedLogin(sessionReadyVisible) && !authenticatedUrl) {
+        if (!isAuthenticatedSantanderUrl(page.url(), this.opts.santanderOrigin)
+          && !isOfficialSantanderLoginUrl(page.url(), this.opts.santanderOrigin)) {
+          await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, {
+            waitUntil: "domcontentloaded",
+            timeout: STEP_TIMEOUT_MS
+          });
+        }
         const loginResult = await this.trySavedLogin(page, S);
         if (!loginResult.ok) return this.pause(hooks, loginResult.reason);
         await hooks.onProgress("CHECK_SESSION", "Acceso solicitado en el dominio oficial de Santander");
