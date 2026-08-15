@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { driveAuthorizeUrl, signDriveState, verifyDriveState } from "../google-drive-oauth";
+import { driveAuthorizeUrl, driveOAuthConfigured, signDriveState, verifyDriveState } from "../google-drive-oauth";
 
 describe("Google Drive OAuth", () => {
   beforeEach(() => {
@@ -33,5 +33,12 @@ describe("Google Drive OAuth", () => {
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("scope")).toContain("auth/drive.file");
     expect(url.searchParams.get("redirect_uri")).toBe("https://hub.example.com/api/integrations/google-drive/callback");
+  });
+
+  it("detecta la configuración incompleta antes de iniciar OAuth", () => {
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    expect(driveOAuthConfigured()).toBe(false);
+    process.env.GOOGLE_CLIENT_SECRET = "secret";
+    expect(driveOAuthConfigured()).toBe(true);
   });
 });
