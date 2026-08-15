@@ -255,6 +255,8 @@ function DriveBackupSection() {
     load();
     const status = new URLSearchParams(window.location.search).get("drive");
     if (status === "connected") setMsg("✓ Google Drive conectado. Ya puedes ejecutar la primera copia completa.");
+    else if (status === "oauth_missing_google_credentials") setError("La conexión con Google Drive aún no está configurada en Railway. Faltan GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET; no es un problema de tu cuenta de Drive.");
+    else if (status === "oauth_missing_server") setError("La configuración base de autenticación del Hub está incompleta en Railway. Revisa NEXTAUTH_URL y NEXTAUTH_SECRET.");
     else if (status) setError(`No se pudo conectar Google Drive (${status}).`);
   }, []);
 
@@ -363,12 +365,22 @@ function DriveBackupSection() {
           <p className="text-xs text-blue-800 mt-1">
             Autoriza tu Google Drive. El Hub creará una carpeta privada llamada “Hub Negocio Vivo — Copias de seguridad” y guardará el permiso cifrado.
           </p>
-          <a
-            href="/api/integrations/google-drive/connect"
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm"
-          >
-            {data?.authMode === "oauth" ? "Reconectar Google Drive" : "Conectar mi Google Drive"}
-          </a>
+          {data?.oauthConfigured === false ? (
+            <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {data?.oauthConfigurationIssue === "google_credentials" ? (
+                <>OAuth pendiente en Railway: <code>GOOGLE_CLIENT_ID</code> y <code>GOOGLE_CLIENT_SECRET</code>.</>
+              ) : (
+                <>Configuración base pendiente en Railway: <code>NEXTAUTH_URL</code> o <code>NEXTAUTH_SECRET</code>.</>
+              )}
+            </div>
+          ) : (
+            <a
+              href="/api/integrations/google-drive/connect"
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm"
+            >
+              {data?.authMode === "oauth" ? "Reconectar Google Drive" : "Conectar mi Google Drive"}
+            </a>
+          )}
         </div>
 
         {/* Pasos para obtener el service account */}

@@ -11,6 +11,7 @@ describe("Google Drive OAuth", () => {
     delete process.env.NEXTAUTH_SECRET;
     delete process.env.NEXTAUTH_URL;
     delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
   });
 
   it("firma y valida un state ligado a usuario y workspace", () => {

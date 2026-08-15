@@ -18,6 +18,7 @@ import {
   parseFolderIdFromUrl
 } from "@/lib/integrations/google-drive";
 import { runDriveBackup, cleanupOrphanBackups } from "@/lib/backup/drive-rotation";
+import { driveOAuthConfigurationIssue, driveOAuthConfigured } from "@/lib/integrations/google-drive-oauth";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -47,6 +48,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   return NextResponse.json({
     configured: !!(gd.refreshTokenEncrypted || gd.serviceAccountJsonEncrypted) && !!gd.folderId,
     authMode: gd.refreshTokenEncrypted ? "oauth" : gd.serviceAccountJsonEncrypted ? "service_account" : null,
+    oauthConfigured: driveOAuthConfigured(),
+    oauthConfigurationIssue: driveOAuthConfigurationIssue(),
     accountEmail: gd.accountEmail ?? serviceAccountEmail,
     folderId: gd.folderId ?? null,
     serviceAccountEmail,

@@ -2,6 +2,16 @@ import crypto from "node:crypto";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file openid email profile";
 
+export function driveOAuthConfigurationIssue(): "server" | "google_credentials" | null {
+  if (!process.env.NEXTAUTH_URL?.trim() || !process.env.NEXTAUTH_SECRET?.trim()) return "server";
+  if (!process.env.GOOGLE_CLIENT_ID?.trim() || !process.env.GOOGLE_CLIENT_SECRET?.trim()) return "google_credentials";
+  return null;
+}
+
+export function driveOAuthConfigured(): boolean {
+  return driveOAuthConfigurationIssue() === null;
+}
+
 function stateSecret(): string {
   if (!process.env.NEXTAUTH_SECRET) throw new Error("NEXTAUTH_SECRET no configurado");
   return process.env.NEXTAUTH_SECRET;
