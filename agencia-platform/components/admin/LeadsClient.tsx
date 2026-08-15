@@ -5226,7 +5226,8 @@ function InboxChat({
     autoFollowupOff: boolean;
     replyChannel: string | null;
     optedOut: boolean;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false });
+    conversationTask: { id: string; title: string; status: string } | null;
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false, conversationTask: null });
   const [noteDraft, setNoteDraft] = useState("");
   // Mientras el usuario edita la nota, el sondeo de la conversación (cada 8s) NO
   // debe sobrescribir lo que está escribiendo. Este ref marca el foco.
@@ -5237,6 +5238,7 @@ function InboxChat({
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const threadReqSeq = useRef(0);
 
   async function loadConvs() {
     const q = new URLSearchParams();
@@ -5271,9 +5273,11 @@ function InboxChat({
     }
   }
   async function loadThread(phone: string) {
+    const seq = ++threadReqSeq.current;
     const r = await fetch(`/api/v1/leads/inbox/conversation?phone=${encodeURIComponent(phone)}`);
     if (!r.ok) return;
     const d = await r.json();
+    if (seq !== threadReqSeq.current) return;
     setThread(d.items ?? []);
     setThreadMeta({
       leadName: d.lead?.name ?? null,
@@ -5295,7 +5299,8 @@ function InboxChat({
       autoFollowupStep: d.autoFollowupStep ?? 0,
       autoFollowupOff: !!d.autoFollowupOff,
       replyChannel: d.replyChannel ?? null,
-      optedOut: !!d.optedOut
+      optedOut: !!d.optedOut,
+      conversationTask: d.conversationTask ?? null
     });
     // No pisar la nota que el usuario está escribiendo (sondeo cada 8s).
     if (!noteFocusedRef.current) setNoteDraft(d.note ?? "");
@@ -5501,6 +5506,12 @@ function InboxChat({
         return;
       }
       setCtOpen(false);
+      if (d.task?.id) {
+        setThreadMeta((m) => ({
+          ...m,
+          conversationTask: { id: d.task.id, title: d.task.title, status: d.task.status }
+        }));
+      }
       if (d.taskUrl && confirm("✅ Tarea creada. ¿Abrirla ahora?")) {
         window.open(d.taskUrl, "_blank");
       }
@@ -5832,7 +5843,12 @@ function InboxChat({
           return (
             <button
               key={c.phone}
-              onClick={() => setSelected(c.phone)}
+              onClick={() => {
+                threadReqSeq.current++;
+                setThread([]);
+                setThreadMeta((m) => ({ ...m, conversationTask: null }));
+                setSelected(c.phone);
+              }}
               className={`w-full text-left px-3 py-2.5 border-b hover:brightness-95 transition ${notInterested ? "border-l-4 border-l-rose-400 " : ""}${selectedCls}`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -5988,12 +6004,16 @@ function InboxChat({
                 ))}
                 <span className="flex-1" />
                 <button
-                  onClick={() => void openCreateTask()}
+                  onClick={() => threadMeta.conversationTask
+                    ? window.open(`/tareas?task=${threadMeta.conversationTask.id}`, "_blank")
+                    : void openCreateTask()}
                   disabled={savingMeta}
                   className="text-[11px] px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 font-medium disabled:opacity-50"
-                  title="Crear una tarea sobre este lead (proyecto y columna por defecto: NEGOCIO VIVO GENERAL · REUNIONES Y LLAMADAS). La IA genera el título con el teléfono."
+                  title={threadMeta.conversationTask
+                    ? `Tarea ya creada: ${threadMeta.conversationTask.title}. Pulsa para abrirla.`
+                    : "Crear una tarea sobre este lead (proyecto y columna por defecto: NEGOCIO VIVO GENERAL · REUNIONES Y LLAMADAS). La IA genera el título con el teléfono."}
                 >
-                  ＋ Crear tarea
+                  {threadMeta.conversationTask ? "✅ Tarea creada" : "＋ Crear tarea"}
                 </button>
                 <button
                   onClick={() => void blockForever()}

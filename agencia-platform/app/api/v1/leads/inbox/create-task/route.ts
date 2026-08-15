@@ -17,6 +17,8 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { complete } from "@/lib/ai/anthropic";
 import { readKanbanColumns, DEFAULT_COLUMNS } from "@/lib/kanban";
+import { conversationTaskWhere } from "@/lib/leads/conversation-task";
+import { resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 
 const DEFAULT_PROJECT_HINT = "NEGOCIO VIVO GENERAL";
 const DEFAULT_COLUMN_HINT = "REUNIONES"; // "REUNIONES Y LLAMADAS"
@@ -127,6 +129,16 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const { phone } = parsed.data;
   const leadId = parsed.data.leadId || null;
+  const identity = await resolveConversationIdentity(prisma, api.workspaceId, phone, leadId);
+
+  const existingTask = await prisma.task.findFirst({
+    where: conversationTaskWhere(api.workspaceId, identity.phones, identity.leadIds),
+    orderBy: { createdAt: "desc" },
+    select: { id: true, title: true, projectId: true, status: true }
+  });
+  if (existingTask) {
+    return NextResponse.json({ ok: true, existing: true, task: existingTask, taskUrl: `/tareas?task=${existingTask.id}` });
+  }
 
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
 
@@ -158,23 +170,46 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
 
   const leadInboxUrl = `/admin/leads?tab=inbox&phone=${encodeURIComponent(phone)}`;
 
-  const task = await prisma.task.create({
-    data: {
-      workspaceId: api.workspaceId,
-      projectId: project.id,
-      title,
-      status,
-      priority: "HIGH",
-      customData: {
-        source: "leads",
-        leadPhone: phone,
-        leadName: leadName ?? null,
-        leadId,
-        leadInboxUrl
-      } as any
-    },
-    select: { id: true, title: true, projectId: true, status: true }
+  const canonicalIdentity = identity.leadIds.length
+    ? `lead:${[...identity.leadIds].sort()[0]}`
+    : `phone:${[...identity.phones].map((v) => v.trim()).sort()[0]}`;
+  const result = await prisma.$transaction(async (tx) => {
+    // El advisory lock hace atómico el find-or-create incluso con dos pestañas
+    // o solicitudes simultáneas. Su ámbito termina con esta transacción.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${api.workspaceId}:${canonicalIdentity}`}, 0))`;
+    const concurrentExisting = await tx.task.findFirst({
+      where: conversationTaskWhere(api.workspaceId, identity.phones, identity.leadIds),
+      orderBy: { createdAt: "desc" },
+      select: { id: true, title: true, projectId: true, status: true }
+    });
+    if (concurrentExisting) return { task: concurrentExisting, existing: true };
+
+    const task = await tx.task.create({
+      data: {
+        workspaceId: api.workspaceId,
+        projectId: project.id,
+        title,
+        status,
+        priority: "HIGH",
+        customData: {
+          source: "leads",
+          leadPhone: phone,
+          leadPhones: identity.phones,
+          leadName: leadName ?? null,
+          leadId,
+          leadIds: identity.leadIds,
+          leadInboxUrl
+        } as any
+      },
+      select: { id: true, title: true, projectId: true, status: true }
+    });
+    return { task, existing: false };
   });
 
-  return NextResponse.json({ ok: true, task, taskUrl: `/tareas?task=${task.id}` });
+  return NextResponse.json({
+    ok: true,
+    existing: result.existing,
+    task: result.task,
+    taskUrl: `/tareas?task=${result.task.id}`
+  });
 });

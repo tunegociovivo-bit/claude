@@ -13,6 +13,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/lid";
 import { conversationWhere, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
+import { conversationTaskWhere } from "@/lib/leads/conversation-task";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const identity = await resolveConversationIdentity(prisma, api.workspaceId, phone, leadId);
   const messageWhere = conversationWhere(api.workspaceId, identity.phones, identity.leadIds);
 
-  const [inboxMsgs, campaignMsgs, optout, convMeta] = await Promise.all([
+  const [inboxMsgs, campaignMsgs, optout, convMeta, conversationTask] = await Promise.all([
     prisma.leadInboxMessage.findMany({
       where: messageWhere,
       orderBy: { receivedAt: "asc" },
@@ -49,6 +50,11 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     }),
     prisma.leadConversationMeta.findUnique({
       where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } }
+    }),
+    prisma.task.findFirst({
+      where: conversationTaskWhere(api.workspaceId, identity.phones, identity.leadIds),
+      orderBy: { createdAt: "desc" },
+      select: { id: true, title: true, status: true }
     })
   ]);
 
@@ -134,6 +140,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     autoFollowupOff: convMeta?.autoFollowupOff ?? false,
     replyChannel: lastIn?.instanceName ?? null,
     optedOut: !!optout,
+    conversationTask,
     items
   });
 });
