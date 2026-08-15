@@ -152,9 +152,14 @@ export async function renderTemplate(opts: {
   // {{competidor_top}} deben salir del MISMO ranking en vivo por cercanía que
   // usa la tarjeta (getCompetitorRanking), no del scrape por palabra clave (que
   // da otra posición y contradecía la imagen). Solo si la plantilla los usa.
-  if (/\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/.test(opts.body)) {
+  if (/\{\{\s*(posicion|competidor_top\d*|competidores_lista|competidores_por_delante)\s*\}\}/.test(opts.body)) {
     // Si nos dan un snapshot lo usamos (consistencia texto↔imagen); si no, en vivo.
     const live = opts.ranking !== undefined ? opts.ranking : await getLiveRanking(opts.workspaceId, lead);
+    const needsCompetitor = /\{\{\s*(competidor_top\d*|competidores_lista)\s*\}\}/.test(opts.body);
+    const liveCompetitors = live?.rows.filter((r) => !r.isLead) ?? [];
+    if (needsCompetitor && liveCompetitors.length === 0) {
+      throw new Error("No se enviará: Google no devolvió ningún competidor verificable del mismo sector.");
+    }
     if (live) {
       // Fuera del top → "20+" (igual que el badge de la imagen), no el total.
       vars.posicion = live.leadPosition != null ? String(live.leadPosition) : "20+";

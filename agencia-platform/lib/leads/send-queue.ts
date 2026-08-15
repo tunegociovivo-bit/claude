@@ -11,7 +11,7 @@ import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, sendImage, sendVoice, getWahaConfig, getSession, checkNumberExists } from "./waha";
 import { generateVoiceMp3 } from "./voice-tts";
 import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupReroute } from "./channels";
-import { getCompetitorRanking, rankingAutoCaption } from "./competitors";
+import { findUnsafeCompetitorMention, getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
 import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "./email-only";
 
@@ -593,7 +593,7 @@ export async function enqueueMessage(opts: {
   // texto, la imagen y la preview usen EXACTAMENTE los mismos datos (el ranking
   // en vivo varía entre llamadas y descuadraba texto vs imagen).
   const needsRanking =
-    kind === "ranking" || /\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/.test(opts.body);
+    kind === "ranking" || /\{\{\s*(posicion|competidor_top\d*|competidores_lista|competidores_por_delante)\s*\}\}/.test(opts.body);
   let rankingSnapshot: any = null;
   if (needsRanking) {
     try {
@@ -605,14 +605,14 @@ export async function enqueueMessage(opts: {
 
   let rendered = opts.body;
   if (rendered.trim()) {
-    try {
-      rendered = await renderTemplate({
-        workspaceId: opts.workspaceId,
-        body: opts.body,
-        leadId: lead.id,
-        ...(needsRanking ? { ranking: rankingSnapshot } : {})
-      });
-    } catch {}
+    // Renderizar es una barrera de seguridad: si falla (por ejemplo, porque no
+    // hay un competidor verificable del mismo sector), el mensaje no se encola.
+    rendered = await renderTemplate({
+      workspaceId: opts.workspaceId,
+      body: opts.body,
+      leadId: lead.id,
+      ...(needsRanking ? { ranking: rankingSnapshot } : {})
+    });
     // Variaciones IA: evita texto idéntico entre leads (anti-spam) y mejora el
     // formato. Si falla, cae al texto renderizado.
     if (settings.enableVariations) {
@@ -1590,6 +1590,31 @@ export async function sendMessageById(
         });
       }
     }
+    // Segunda barrera, inmediatamente antes del envío: vuelve a validar los
+    // competidores de snapshots ya encolados. Así un mensaje antiguo y erróneo
+    // tampoco puede salir después de desplegar esta corrección.
+    let validatedRanking: Awaited<ReturnType<typeof getCompetitorRanking>> | null = null;
+    const savedRanking = (msg as any).rankingSnapshot as Awaited<ReturnType<typeof getCompetitorRanking>>;
+    if (savedRanking) {
+      const safetyLead = await prisma.lead.findFirst({
+        where: { id: msg.leadId, workspaceId },
+        select: {
+          id: true, placeId: true, name: true, category: true, types: true, province: true,
+          formattedAddress: true, address: true, latitude: true, longitude: true,
+          rating: true, reviewsCount: true
+        }
+      });
+      if (!safetyLead) throw new Error("Lead no encontrado para validar el sector");
+      validatedRanking = await getCompetitorRanking(workspaceId, safetyLead as any, { store: false, harvest: false });
+      if (!validatedRanking) {
+        throw new Error("Bloqueado por seguridad sectorial: no se pudo validar de nuevo el ranking antes del envío.");
+      }
+      const unsafeName = findUnsafeCompetitorMention(savedRanking, validatedRanking, msg.renderedMessage);
+      if (unsafeName) {
+        throw new Error(`Bloqueado por seguridad sectorial: "${unsafeName}" no es un competidor verificable de este negocio.`);
+      }
+    }
+
     let out: { messageId: string; raw?: any };
     if ((msg as any).kind === "ranking") {
       // Imagen de posicionamiento: calcula el ranking del lead en Google (1
@@ -1607,6 +1632,7 @@ export async function sendMessageById(
       // Usa el snapshot guardado al encolar (mismo dato que el texto/preview);
       // solo si no hay, consulta en vivo como reserva.
       const data =
+        validatedRanking ||
         ((msg as any).rankingSnapshot as Awaited<ReturnType<typeof getCompetitorRanking>>) ||
         (await getCompetitorRanking(workspaceId, lead as any));
       if (!data) throw new Error("No se pudo obtener el ranking de Google (categoría/zona o API key de Places)");

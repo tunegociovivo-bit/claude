@@ -47,6 +47,70 @@ export type CompetitorRanking = {
 
 const SHOWN = 5; // filas en la tarjeta
 
+const GENERIC_PLACE_TYPES = new Set([
+  "establishment", "point_of_interest", "premise", "store", "food",
+  "general_contractor", "home_goods_store", "shopping_mall"
+]);
+const GENERIC_WORDS = new Set([
+  "de", "del", "la", "las", "los", "el", "en", "y", "the", "and",
+  "alicante", "valencia", "madrid", "espana", "spain", "servicio", "servicios",
+  "empresa", "empresas", "negocio", "grupo", "mantenimiento", "contractor",
+  "contratista", "profesional", "especialista"
+]);
+
+function sectorTokens(value: unknown): Set<string> {
+  const text = Array.isArray(value) ? value.join(" ") : String(value ?? "");
+  return new Set(text.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/_/g, " ").split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4 && !GENERIC_WORDS.has(word)));
+}
+
+/** Fail-closed sector check for Google results used in personalised outreach. */
+export function isRelevantCompetitor(
+  lead: Pick<RankingLead, "placeId" | "name" | "category" | "types">,
+  candidate: Pick<PlacesResult, "placeId" | "name" | "category" | "types">
+): boolean {
+  if (candidate.placeId === lead.placeId) return true;
+  const leadTypes = new Set((Array.isArray(lead.types) ? lead.types : [])
+    .map(String).filter((type) => !GENERIC_PLACE_TYPES.has(type)));
+  const candidateTypes = new Set((Array.isArray(candidate.types) ? candidate.types : [])
+    .map(String).filter((type) => !GENERIC_PLACE_TYPES.has(type)));
+  if ([...leadTypes].some((type) => candidateTypes.has(type))) return true;
+
+  // Cuando Google aporta tipos sectoriales en ambos lados, no usamos nombres
+  // comerciales como atajo: solo aceptamos familias de tipo compatibles
+  // (p. ej. swimming_pool y swimming_pool_contractor comparten swimming/pool).
+  if (leadTypes.size && candidateTypes.size) {
+    const leadTypeWords = sectorTokens([...leadTypes]);
+    const candidateTypeWords = sectorTokens([...candidateTypes]);
+    return [...leadTypeWords].some((word) => candidateTypeWords.has(word));
+  }
+
+  // Los nombres comerciales pueden compartir marcas/apellidos sin compartir
+  // actividad; el fallback compara únicamente categoría y tipos sectoriales.
+  const leadWords = sectorTokens([lead.category, ...leadTypes]);
+  const candidateWords = sectorTokens([candidate.category, ...candidateTypes]);
+  return [...leadWords].some((word) => candidateWords.has(word));
+}
+
+/** Detects a competitor from an old snapshot that is no longer sector-valid. */
+export function findUnsafeCompetitorMention(
+  saved: Pick<CompetitorRanking, "rows"> | null | undefined,
+  fresh: Pick<CompetitorRanking, "rows"> | null | undefined,
+  message: string
+): string | null {
+  const allowed = new Set((fresh?.rows ?? []).filter((row) => !row.isLead)
+    .map((row) => row.name.trim().toLocaleLowerCase("es")));
+  for (const row of saved?.rows ?? []) {
+    if (row.isLead || !row.name.trim()) continue;
+    const normalized = row.name.trim().toLocaleLowerCase("es");
+    if (!allowed.has(normalized) && message.toLocaleLowerCase("es").includes(normalized)) {
+      return row.name;
+    }
+  }
+  return null;
+}
+
 /** Localidad legible para la consulta: provincia o, si no, "tu zona". */
 function localityOf(lead: RankingLead): string {
   if (lead.province?.trim()) return lead.province.trim();
@@ -165,7 +229,7 @@ export async function getCompetitorRanking(
   const locality = localityOf(lead);
   const query = `${category}${locality ? ` en ${locality}` : ""}`;
 
-  const results = await placesTextSearch({
+  const rawResults = await placesTextSearch({
     workspaceId,
     query,
     lat: lead.latitude ?? undefined,
@@ -174,6 +238,7 @@ export async function getCompetitorRanking(
     maxPages: 1,
     pageSize: 20
   });
+  const results = rawResults.filter((result) => isRelevantCompetitor(lead, result));
   if (!results.length) return null;
 
   const idx = results.findIndex((r) => r.placeId === lead.placeId);
