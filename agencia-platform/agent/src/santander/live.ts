@@ -19,7 +19,7 @@
 import type { AuthorizedJob, AdapterHooks, SantanderAdapter, StepOutcome } from "./types.js";
 import { isForbiddenActionLabel } from "./types.js";
 import { exactRoleNamePattern, loadSelectors, type SantanderSelectors, type SelectorSpec } from "./selectors.js";
-import { amountFieldIsConfirmed, amountSummaryIsConfirmed, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
+import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex } from "./login.js";
 import { hasEncryptedCredential, hasEncryptedUsername, readEncryptedAccessKey, readEncryptedUsername } from "../credential-store.js";
 
 const STEP_TIMEOUT_MS = 15000;
@@ -95,8 +95,18 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!portal) return this.pause(hooks, "No encuentro el marco interno oficial de remesas.");
       let app = await this.findGeneratorFrame(page, 4);
       if (!app) {
-        if (!(await this.clickRemittanceGeneration(portal, S.remittancesNav))) return this.pause(hooks, "No encuentro una entrada visible y segura a Generación de remesas (posible cambio de interfaz).");
-        app = await this.findGeneratorFrame(page);
+        if (await this.clickRemittanceGeneration(portal, S.remittancesNav)) {
+          app = await this.findGeneratorFrame(page);
+        } else {
+          // Santander puede ocultar el acceso lateral aunque la sesión siga
+          // autenticada. La ruta directa está construida sobre el origen
+          // HTTPS allowlisted y evita depender de esa etiqueta cambiante.
+          await page.goto(buildRemittanceGeneratorUrl(this.opts.santanderOrigin), {
+            waitUntil: "domcontentloaded",
+            timeout: STEP_TIMEOUT_MS
+          });
+          app = await this.findGeneratorFrame(page);
+        }
       }
       if (!app) return this.pause(hooks, "No encuentro el listado interno oficial de adeudos SEPA.");
       await hooks.onProgress("OPEN_REMITTANCES", "Sección de remesas abierta");
