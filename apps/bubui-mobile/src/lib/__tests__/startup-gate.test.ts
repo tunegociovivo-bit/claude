@@ -2,15 +2,19 @@ import { describe, expect, it } from "vitest";
 import { fontsReadyForUi } from "../startup-gate";
 
 describe("fontsReadyForUi", () => {
-  it("no renderiza el menú sin Ionicons aunque haya vencido el margen de arranque", () => {
-    expect(fontsReadyForUi({ loaded: false, error: null, timedOut: true })).toBe(false);
+  it("abre la app al vencer el margen aunque Ionicons siga pendiente", () => {
+    expect(fontsReadyForUi({ loaded: false, error: null, timedOut: true })).toBe(true);
   });
 
   it("renderiza cuando todas las fuentes, incluida Ionicons, están registradas", () => {
     expect(fontsReadyForUi({ loaded: true, error: null, timedOut: false })).toBe(true);
   });
 
-  it("un error de fuentes no se disfraza como estado listo", () => {
-    expect(fontsReadyForUi({ loaded: false, error: new Error("font failed"), timedOut: false })).toBe(false);
+  it("abre la app con fuentes de sistema si Ionicons falla", () => {
+    expect(fontsReadyForUi({ loaded: false, error: new Error("font failed"), timedOut: false })).toBe(true);
+  });
+
+  it("mantiene el splash mientras la fuente está dentro del margen", () => {
+    expect(fontsReadyForUi({ loaded: false, error: null, timedOut: false })).toBe(false);
   });
 });
