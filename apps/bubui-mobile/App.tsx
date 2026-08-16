@@ -76,8 +76,8 @@ const linking = {
 function AppInner() {
     const [initial, setInitial] = useState<keyof RootStackParamList | null>(null);
     const [fontsLoaded, fontsError] = useAppFonts();
-    // El margen solo sirve para diagnóstico. Nunca autoriza a renderizar antes
-    // de que Ionicons esté registrada: hacerlo deja el menú sin glifos.
+    // Ionicons suele cargarse inmediatamente, pero una fuente defectuosa no
+    // puede dejar toda la aplicación atrapada para siempre en el splash.
     const [fontsTimedOut, setFontsTimedOut] = useState(false);
     useEffect(() => {
         const t = setTimeout(() => setFontsTimedOut(true), 4000);
@@ -118,8 +118,8 @@ function AppInner() {
   // de mostrar un genérico "servidor no responde".
   useEffect(() => setOnAuthExpired(() => { void clearSession(); }), []);
 
-  // Esperamos a sesión Y fuentes (Poppins + Ionicons) para que el menú inferior
-  // pinte sus iconos desde el primer render, también en dispositivos lentos.
+  // Esperamos a sesión y fuentes (Poppins + Ionicons), con un límite estricto
+  // para que cualquier fallo de fuente degrade la UI sin bloquear el arranque.
   if (!initial || !fontsReady) return <Splash />;
 
   const navTheme: Theme = {
