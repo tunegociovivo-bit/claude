@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import GrowthCenter from "@/components/gmb/GrowthCenter";
 import {
   Loader2,
   Plus,
@@ -70,7 +71,7 @@ export default function GmbHubClient() {
   const [showNew, setShowNew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [view, setView] = useState<"fichas" | "buscador">("fichas");
+  const [view, setView] = useState<"fichas" | "buscador" | "crecimiento">("fichas");
 
   async function load() {
     setLoading(true);
@@ -123,6 +124,7 @@ export default function GmbHubClient() {
       <div className="flex gap-1 mb-4 bg-slate-100 rounded-lg p-1 w-fit">
         {([
           ["fichas", "Fichas"],
+          ["crecimiento", "Crecimiento local"],
           ["buscador", "Buscador GMB"]
         ] as const).map(([k, label]) => (
           <button
@@ -139,6 +141,8 @@ export default function GmbHubClient() {
       </div>
 
       {view === "buscador" && <BuscadorView />}
+
+      {view === "crecimiento" && <GrowthCenter />}
 
       {view === "fichas" && (
       <>

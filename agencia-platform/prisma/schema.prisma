@@ -3689,6 +3689,11 @@ model GmbClient {
   emails       String   @default("") // emails de notificación, separados por coma
   mainKeyword  String   @default("")
   autoReply    String   @default("manual") // manual|auto
+  // Piloto automático (por ficha): qué puede hacer el sistema sin intervención.
+  //   suggest_only    → solo sugiere acciones
+  //   prepare_drafts  → prepara borradores (posts/respuestas/paquetes de alta)
+  //   execute_safe    → ejecuta SOLO acciones internas seguras; lo externo sensible sigue pidiendo aprobación
+  autopilotMode String  @default("suggest_only")
   connectionId String   @default("") // override de connection de Make
   frequency    Int      @default(15) // minutos
   scenarioId   String   @default("") // id del escenario de Make
@@ -3987,6 +3992,145 @@ model GmbSearchResult {
   @@unique([searchId, placeId])
   @@index([workspaceId])
   @@index([searchId])
+}
+
+// === GMB Hub — Centro de crecimiento SEO local (Presencia + Citaciones + Acciones + AI Council) ===
+
+// Snapshots del Local Presence Score (0–100) por ficha, para ver evolución.
+// breakdown = { profile, reviews, content, citations, ranking, web } (cada uno 0–100) + pesos.
+model GmbPresenceScore {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  total       Int      @default(0)
+  breakdown   Json
+  recordedAt  DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId, recordedAt])
+}
+
+// NAP canónico VERSIONADO por ficha (fuente de verdad para comparar citaciones).
+// Solo una versión activa por ficha; las anteriores se conservan para auditoría.
+model GmbNapProfile {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  version     Int      @default(1)
+  active      Boolean  @default(true)
+  name        String   @default("")
+  address     String   @default("")
+  phone       String   @default("")
+  website     String   @default("")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId, active])
+}
+
+// Inventario de CITACIONES por ficha y directorio (NAP en directorios locales).
+// napObserved = { name, address, phone, website }; diffs = { name, address, phone, website } (bool).
+model GmbCitation {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  clientId      String
+  directorySlug String
+  directoryName String    @default("")
+  country       String    @default("ES")
+  city          String    @default("")
+  sector        String    @default("")
+  authority     Int       @default(0) // relevancia/autoridad 0-100
+  url           String    @default("")
+  // not_found|pending|prepared|submitted|published|inconsistent|duplicate|error
+  status        String    @default("not_found")
+  napObserved   Json?
+  diffs         Json?
+  attempts      Int       @default(0)
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  events GmbCitationEvent[]
+
+  @@unique([clientId, directorySlug])
+  @@index([workspaceId])
+  @@index([clientId, status])
+}
+
+// Historial de transiciones de estado de una citación (auditoría, reintentos).
+model GmbCitationEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  citationId  String
+  fromStatus  String?
+  toStatus    String
+  note        String?  @db.Text
+  actorId     String?
+  createdAt   DateTime @default(now())
+
+  citation GmbCitation @relation(fields: [citationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([citationId])
+}
+
+// Cola CENTRAL de acciones (piloto automático + AI Council). Impacto/esfuerzo/confianza,
+// evidencia, dependencias, aprobación y auditoría. Las acciones EXTERNAS sensibles
+// (external=true) SIEMPRE requieren aprobación humana explícita.
+model GmbAction {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  clientId         String
+  module           String // presence|citations|reviews|content|rank|web
+  type             String // slug de la acción
+  title            String
+  description      String?  @db.Text
+  impact           Int      @default(0) // 0-100
+  effort           Int      @default(0) // 0-100 (menor = más fácil)
+  confidence       Int      @default(0) // 0-100
+  priority         Float    @default(0) // derivada impacto/esfuerzo/confianza
+  evidence         Json?
+  // suggested|prepared|needs_approval|approved|executing|done|dismissed|error
+  status           String   @default("suggested")
+  requiresApproval Boolean  @default(true)
+  external         Boolean  @default(false) // efecto externo sensible
+  dependsOn        String?
+  source           String   @default("rule") // rule|ai_council
+  result           Json?
+  lastError        String?
+  approvedById     String?
+  approvedAt       DateTime?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([clientId, status])
+  @@index([workspaceId, status])
+}
+
+// Log de ejecuciones del AI Council (multimodelo). SIN secretos ni PII cruda:
+// models = [{provider, model, status, latencyMs, costUsd}]; consensus/discrepancies estructurados.
+model GmbAiRun {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  clientId      String?
+  purpose       String // opportunities|citation_reco|review_reply|content_ideas
+  models        Json
+  consensus     Json?
+  discrepancies Json?
+  promptVersion String   @default("v1")
+  costUsd       Float    @default(0)
+  latencyMs     Int      @default(0)
+  status        String   @default("done") // done|partial|no_providers|error
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
 }
 
 // Base de conocimiento de Sonia: textos de aprendizaje + documentos de
