@@ -92,7 +92,7 @@ export default function GmbHubClient() {
     <div className="max-w-5xl mx-auto">
       <PageHeader
         title="GMB Hub"
-        description="Gestiona las fichas de Google My Business y responde reseñas. Las reseñas entran vía Make."
+        description="Centro de crecimiento SEO local: presencia, citaciones NAP, rank grid, contenido, reseñas inteligentes y un piloto con AI Council. Las reseñas entran vía Make."
         actions={
           <>
             <NotificationsBell />
