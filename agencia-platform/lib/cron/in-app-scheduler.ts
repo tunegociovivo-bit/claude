@@ -135,6 +135,14 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] gmb-rank:", (e as Error).message);
     }
+    // Piloto automático (solo fichas con política activa; efectos internos seguros; externas → aprobación).
+    try {
+      const { processAllAutopilot } = await import("@/lib/gmb/autopilot-scheduler");
+      const { prisma } = await import("@/lib/db/prisma");
+      await processAllAutopilot(prisma, { maxClients: 50 });
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-autopilot:", (e as Error).message);
+    }
   }
   setTimeout(gmbTick, 120_000);
   setInterval(gmbTick, GMB_TICK_MS);

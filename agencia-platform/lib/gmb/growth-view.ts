@@ -4,8 +4,8 @@
  */
 import { GROWTH_DEMO } from "./growth-demo";
 
-export type GrowthTab = "presencia" | "aicouncil" | "rank" | "contenido" | "reseñas" | "web" | "informes" | "citaciones" | "acciones";
-export const GROWTH_TABS: GrowthTab[] = ["presencia", "aicouncil", "rank", "contenido", "reseñas", "web", "informes", "citaciones", "acciones"];
+export type GrowthTab = "presencia" | "aicouncil" | "rank" | "contenido" | "reseñas" | "web" | "informes" | "citaciones" | "acciones" | "conexiones";
+export const GROWTH_TABS: GrowthTab[] = ["presencia", "aicouncil", "rank", "contenido", "reseñas", "web", "informes", "citaciones", "acciones", "conexiones"];
 
 /** Nº de elementos visibles que la demo de cada pestaña renderiza (>0 = no vacía). */
 export function demoPanelCount(tab: GrowthTab): number {
@@ -20,6 +20,7 @@ export function demoPanelCount(tab: GrowthTab): number {
     case "informes": return 1; // tarjeta estática con CTA al informe imprimible (siempre visible)
     case "citaciones": return d.citations.citations.length;
     case "acciones": return d.actions.actions.length;
+    case "conexiones": return d.connections.connections.length + d.connections.checklist.length;
   }
 }
 

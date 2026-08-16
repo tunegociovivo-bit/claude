@@ -9,7 +9,7 @@
  * aprobación. El AI Council nunca finge llamadas: sin claves/consentimiento → "no conectado".
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Gauge, Sparkles, MapPin, Megaphone, MessageSquare, Globe, FileText, ListChecks, Check, X, ChevronRight, ExternalLink } from "lucide-react";
+import { Loader2, Gauge, Sparkles, MapPin, Megaphone, MessageSquare, Globe, FileText, ListChecks, Check, X, ChevronRight, ExternalLink, Plug } from "lucide-react";
 import { GROWTH_DEMO } from "@/lib/gmb/growth-demo";
 
 type Ficha = { id: string; name: string; category?: string };
@@ -18,11 +18,12 @@ type Breakdown = { profile: number; reviews: number; content: number; citations:
 const BREAKDOWN_LABELS: Record<keyof Breakdown, string> = { profile: "Perfil", reviews: "Reseñas", content: "Contenido", citations: "Citaciones", ranking: "Ranking", web: "Web" };
 const CARD = "bg-white rounded-xl border p-4";
 
-type TabKey = "presencia" | "aicouncil" | "rank" | "contenido" | "reseñas" | "web" | "informes" | "citaciones" | "acciones";
+type TabKey = "presencia" | "aicouncil" | "rank" | "contenido" | "reseñas" | "web" | "informes" | "citaciones" | "acciones" | "conexiones";
 const TABS: [TabKey, string, any][] = [
   ["presencia", "Presencia", Gauge], ["aicouncil", "AI Council", Sparkles], ["rank", "Rank & Competencia", MapPin],
   ["contenido", "Contenido", Megaphone], ["reseñas", "Reseñas IA", MessageSquare], ["web", "Web local", Globe],
-  ["informes", "Informes", FileText], ["citaciones", "Citaciones", MapPin], ["acciones", "Acciones", ListChecks]
+  ["informes", "Informes", FileText], ["citaciones", "Citaciones", MapPin], ["acciones", "Acciones", ListChecks],
+  ["conexiones", "Conexiones", Plug]
 ];
 
 const scoreColor = (n: number) => (n >= 75 ? "text-emerald-600" : n >= 50 ? "text-amber-600" : "text-rose-600");
@@ -123,6 +124,7 @@ export default function GrowthCenter() {
           {tab === "informes" && <ReportPanel clientId={clientId} />}
           {tab === "citaciones" && <CitationsPanel clientId={clientId} />}
           {tab === "acciones" && <ActionsPanel clientId={clientId} />}
+          {tab === "conexiones" && <ConnectionsPanel demo={showDemo} />}
         </>
       )}
     </div>
@@ -284,12 +286,21 @@ function ContentPanel({ clientId }: { clientId: string | null }) {
   const isDemo = !clientId;
   const [ideas, setIdeas] = useState<any>(null);
   const [posts, setPosts] = useState<any[]>([]);
+  const [photos, setPhotos] = useState<any[]>([]);
   const load = useCallback(() => {
     if (isDemo) return;
     fetch(`/api/v1/gmb/clients/${clientId}/content-ideas`).then((r) => r.json()).then((d) => setIdeas(d.ok ? d : null));
     fetch(`/api/v1/gmb/clients/${clientId}/posts`).then((r) => r.json()).then((d) => setPosts(d.posts ?? []));
+    fetch(`/api/v1/gmb/clients/${clientId}/photos`).then((r) => r.json()).then((d) => setPhotos(d.photos ?? []));
   }, [clientId, isDemo]);
-  useEffect(() => { setIdeas(null); setPosts([]); load(); }, [load]);
+  useEffect(() => { setIdeas(null); setPosts([]); setPhotos([]); load(); }, [load]);
+  async function addPhoto() {
+    if (!clientId) return;
+    const url = window.prompt("URL de la imagen (https://…)"); if (!url) return;
+    const r = await fetch(`/api/v1/gmb/clients/${clientId}/photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+    const j = await r.json().catch(() => ({})); if (j.duplicate) alert("Imagen duplicada (mismo hash): no se añade."); load();
+  }
+  async function delPhoto(id: string) { if (!clientId) return; await fetch(`/api/v1/gmb/clients/${clientId}/photos?photoId=${id}`, { method: "DELETE" }); load(); }
   async function createDraft(idea: any) {
     if (!clientId) return;
     await fetch(`/api/v1/gmb/clients/${clientId}/posts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: idea.title, content: idea.content, cta: idea.cta }) });
@@ -344,6 +355,25 @@ function ContentPanel({ clientId }: { clientId: string | null }) {
         )}
         <div className="text-[11px] text-slate-400 mt-1">La publicación en Google es adapter-gated: solo se publica lo programado y aprobado, nunca automáticamente sin aprobación.</div>
       </div>
+
+      {!isDemo && (
+        <div>
+          <div className="flex items-center justify-between mb-2"><span className="text-sm font-semibold text-slate-800">Biblioteca multimedia</span><button onClick={addPhoto} className="text-[11px] px-2 py-0.5 rounded border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100">＋ Añadir por URL</button></div>
+          {photos.length === 0 ? <div className={`${CARD} text-sm text-slate-500`}>Sin imágenes. Añade por URL; se deduplican por hash y quedan en cola (envío solo con GBP conectado + aprobación).</div> : (
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              {photos.map((p: any) => (
+                <div key={p.id} className="relative group rounded-lg overflow-hidden border bg-slate-50 aspect-square">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.url} alt={p.caption || "foto"} className="w-full h-full object-cover" />
+                  {p.isDuplicate && <span className="absolute top-1 left-1 text-[9px] px-1 rounded bg-fuchsia-100 text-fuchsia-700">dup</span>}
+                  <span className="absolute bottom-1 left-1 text-[9px] px-1 rounded bg-white/80 text-slate-600">{p.status ?? "library"}</span>
+                  <button onClick={() => delPhoto(p.id)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-[10px] bg-white/90 rounded px-1 text-rose-600">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -515,12 +545,48 @@ function CitationsPanel({ clientId }: { clientId: string | null }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `alta-${packet.directory}.txt`; a.click(); URL.revokeObjectURL(url);
   }
+  const [filter, setFilter] = useState<string>("all");
+  const [importOpen, setImportOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  async function importCsv() {
+    if (!clientId || !csvText.trim()) return;
+    const r = await fetch(`/api/v1/gmb/clients/${clientId}/citations/csv`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csv: csvText }) });
+    const j = await r.json().catch(() => ({}));
+    alert(r.ok ? `Importadas ${j.imported}${j.errors?.length ? `, ${j.errors.length} avisos` : ""}.` : `Error: ${j?.error?.message ?? r.status}`);
+    setImportOpen(false); setCsvText(""); load();
+  }
+  async function downloadPackets() {
+    if (!clientId) return;
+    const j = await fetch(`/api/v1/gmb/clients/${clientId}/citations/packets`).then((r) => r.json()).catch(() => ({}));
+    const text = (j.packets ?? []).map((p: any) => `— ${p.directoryName} (${p.status})\nAlta: ${p.submitUrl}\nNombre: ${p.fields.name}\nDirección: ${p.fields.address}\nTeléfono: ${p.fields.phone}\nWeb: ${p.fields.website}\n`).join("\n");
+    const blob = new Blob([text || "Sin paquetes accionables."], { type: "text/plain" }); const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "paquetes-alta.txt"; a.click(); URL.revokeObjectURL(url);
+  }
   const data = isDemo ? GROWTH_DEMO.citations : fetched;
   if (!data) return <Spinner />;
-  const citations: any[] = data.citations ?? [];
+  const allCitations: any[] = data.citations ?? [];
+  const citations = filter === "all" ? allCitations : filter === "actionable" ? allCitations.filter((c) => !["published", "duplicate"].includes(c.status)) : allCitations.filter((c) => c.status === filter);
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs"><span className="text-slate-600">Total <b>{data.summary?.total ?? 0}</b></span><span className="text-rose-600">Accionables <b>{data.summary?.actionable ?? 0}</b></span>{clientId && <button onClick={seed} disabled={busy} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "＋"} Generar inventario</button>}</div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-slate-600">Total <b>{data.summary?.total ?? 0}</b></span><span className="text-rose-600">Accionables <b>{data.summary?.actionable ?? 0}</b></span>
+        {clientId && <button onClick={seed} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "＋"} Generar inventario</button>}
+        {clientId && <button onClick={() => setImportOpen((v) => !v)} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Importar CSV</button>}
+        {clientId && <a href={`/api/v1/gmb/clients/${clientId}/citations/csv`} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Exportar CSV</a>}
+        {clientId && <button onClick={downloadPackets} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Paquetes (todos)</button>}
+        <span className="ml-auto flex items-center gap-1">Filtro:
+          {(["all", "actionable", "inconsistent", "not_found", "published"] as const).map((f) => (
+            <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f} className={`px-2 py-0.5 rounded-full border ${filter === f ? "bg-brand-600 text-white border-brand-600" : "bg-white hover:bg-slate-50"}`}>{f === "all" ? "todos" : f === "actionable" ? "accionables" : CITATION_STATUS_META[f]?.label ?? f}</button>
+          ))}
+        </span>
+      </div>
+      {importOpen && clientId && (
+        <div className={`${CARD} space-y-2`}>
+          <div className="text-xs text-slate-500">Pega un CSV con cabecera <code>directory,url,status,name,address,phone,website</code>. Importar registra lo declarado; no inventa presencia.</div>
+          <textarea value={csvText} onChange={(e) => setCsvText(e.target.value)} rows={4} className="w-full rounded-lg border px-2 py-1 text-xs font-mono" placeholder="directory,url,status,name,address,phone,website" />
+          <button onClick={importCsv} className="text-[11px] px-3 py-1 rounded bg-brand-600 text-white hover:bg-brand-700">Importar</button>
+        </div>
+      )}
       {packet && (
         <div className={`${CARD} text-xs space-y-1`}>
           <div className="flex items-center justify-between"><span className="font-semibold text-slate-800">Paquete de alta — {packet.directoryName}</span><button onClick={() => setPacket(null)} className="text-slate-400 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button></div>
@@ -557,10 +623,15 @@ function ActionsPanel({ clientId }: { clientId: string | null }) {
   const isDemo = !clientId;
   const [fetched, setFetched] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [policy, setPolicy] = useState<any>(null);
+  const [pilotMsg, setPilotMsg] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (isDemo) return;
-    const a = await fetch(`/api/v1/gmb/clients/${clientId}/actions`).then((r) => r.json()).catch(() => null);
-    setFetched(a);
+    const [a, p] = await Promise.all([
+      fetch(`/api/v1/gmb/clients/${clientId}/actions`).then((r) => r.json()).catch(() => null),
+      fetch(`/api/v1/gmb/clients/${clientId}/autopilot`).then((r) => r.json()).catch(() => null)
+    ]);
+    setFetched(a); setPolicy(p?.policy ?? null);
   }, [clientId, isDemo]);
   useEffect(() => { void load(); }, [load]);
   async function generate() { if (!clientId) return; setBusy(true); try { await fetch(`/api/v1/gmb/clients/${clientId}/actions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ useAiCouncil: false }) }); await load(); } finally { setBusy(false); } }
@@ -570,11 +641,37 @@ function ActionsPanel({ clientId }: { clientId: string | null }) {
     await fetch(`/api/v1/gmb/actions/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) });
     await load();
   }
+  async function savePolicy(patch: any) {
+    if (!clientId) return;
+    const next = { ...(policy ?? {}), ...patch }; setPolicy(next);
+    await fetch(`/api/v1/gmb/clients/${clientId}/autopilot`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+  }
+  async function runPilot() {
+    if (!clientId) return; setBusy(true); setPilotMsg(null);
+    try { const r = await fetch(`/api/v1/gmb/clients/${clientId}/autopilot/run`, { method: "POST" }); const d = await r.json().catch(() => ({})); setPilotMsg(d.note ?? null); await load(); } finally { setBusy(false); }
+  }
   const data = isDemo ? GROWTH_DEMO.actions : fetched;
   if (!data) return <Spinner />;
   const actions: any[] = data.actions ?? [];
+  const pol = policy ?? { mode: data.autopilotMode ?? "suggest_only", dailyLimit: 3, minConfidence: 70, killSwitch: false, quietStart: null, quietEnd: null };
   return (
     <div className="space-y-3">
+      {/* Piloto automático */}
+      {clientId && (
+        <div className={`${CARD} space-y-2`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-800">Piloto automático</span>
+            <select value={pol.mode} onChange={(e) => savePolicy({ mode: e.target.value })} className="rounded-lg border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
+              <option value="suggest_only">Solo sugerir</option><option value="prepare_drafts">Preparar borradores</option><option value="execute_safe">Ejecutar seguros</option>
+            </select>
+            <label className="text-[11px] text-slate-600 flex items-center gap-1">Límite/día <input type="number" min={0} max={50} value={pol.dailyLimit} onChange={(e) => savePolicy({ dailyLimit: Number(e.target.value) })} className="w-14 rounded border px-1 py-0.5" /></label>
+            <label className="text-[11px] text-slate-600 flex items-center gap-1">Confianza mín. <input type="number" min={0} max={100} value={pol.minConfidence} onChange={(e) => savePolicy({ minConfidence: Number(e.target.value) })} className="w-14 rounded border px-1 py-0.5" /></label>
+            <label className={`text-[11px] flex items-center gap-1 ${pol.killSwitch ? "text-rose-600 font-medium" : "text-slate-600"}`}><input type="checkbox" checked={!!pol.killSwitch} onChange={(e) => savePolicy({ killSwitch: e.target.checked })} className="accent-rose-600" />Kill switch</label>
+            <button onClick={runPilot} disabled={busy} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs disabled:opacity-50">Ejecutar piloto ahora</button>
+          </div>
+          <div className="text-[11px] text-slate-400">Las acciones externas siempre requieren aprobación. El piloto solo ejecuta efectos internos reversibles, respetando límite diario, confianza mínima y quiet hours.{pilotMsg ? ` · ${pilotMsg}` : ""}</div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-xs"><span className="text-slate-600">Cola: <b>{data.summary?.open ?? 0}</b> abiertas</span><span className="text-slate-400">modo: {data.autopilotMode ?? "suggest_only"}</span>{clientId && <button onClick={generate} disabled={busy} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListChecks className="h-3.5 w-3.5" />} Generar plan</button>}</div>
       {actions.length === 0 ? (
         <div className={`${CARD} text-sm text-slate-500`}>Cola vacía. {clientId ? "Pulsa «Generar plan» para crear acciones priorizadas a partir de la presencia y las citaciones." : "En demo verías acciones de ejemplo."}</div>
@@ -601,6 +698,36 @@ function ActionsPanel({ clientId }: { clientId: string | null }) {
           </li>); })}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ── Conexiones ──────────────────────────────────────────────────────────────────────────────────
+function ConnectionsPanel({ demo }: { demo: boolean }) {
+  const [data, setData] = useState<any>(null);
+  useEffect(() => {
+    fetch("/api/v1/gmb/connections").then((r) => r.json()).then((d) => setData(d.ok ? d : GROWTH_DEMO.connections)).catch(() => setData(GROWTH_DEMO.connections));
+  }, []);
+  if (!data) return <Spinner />;
+  return (
+    <div className="space-y-4">
+      {demo && <DemoBanner text="Estado de conexiones de ejemplo. Con tu cuenta verás el estado real (nunca se muestran claves)." />}
+      <div className="text-xs text-slate-500">Conectadas <b className="text-slate-700">{data.summary?.connected ?? 0}</b> de {data.summary?.total ?? 0}. Nunca se muestran claves, solo el estado.</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(data.connections ?? []).map((c: any) => (
+          <div key={c.id} className={`${CARD} flex items-start justify-between gap-2`}>
+            <div><div className="text-sm font-medium text-slate-800">{c.name} <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${c.connected ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>{c.connected ? "conectado" : "sin conectar"}</span></div><div className="text-[11px] text-slate-500 mt-0.5">{c.scope}</div><div className="text-[11px] text-slate-400 mt-0.5">{c.note}</div>{c.envVar && <div className="text-[10px] text-slate-300 mt-0.5">Config: {c.envVar}</div>}</div>
+          </div>
+        ))}
+      </div>
+      <div>
+        <div className="text-sm font-semibold text-slate-800 mb-2">Checklist de puesta en marcha</div>
+        <ul className="space-y-1">
+          {(data.checklist ?? []).map((it: any, i: number) => (
+            <li key={i} className="flex items-start gap-2 text-xs"><span className={it.done ? "text-emerald-600" : "text-slate-300"}>{it.done ? "✓" : "○"}</span><span className={it.done ? "text-slate-500 line-through" : "text-slate-700"}>{it.label}</span><span className="text-slate-400">— {it.hint}</span></li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

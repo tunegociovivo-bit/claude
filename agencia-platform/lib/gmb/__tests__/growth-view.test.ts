@@ -4,8 +4,8 @@ import { GROWTH_TABS, demoPanelCount, demoPanelVisible } from "../growth-view";
 // Prueba PARAMETRIZADA: ninguna de las 9 pestañas del Centro de crecimiento puede quedar vacía en
 // demo (regresión QA de AI Council y de cualquier otro panel).
 describe("demo de las 9 pestañas — contenido visible", () => {
-  it("hay exactamente 9 pestañas", () => {
-    expect(GROWTH_TABS).toHaveLength(9);
+  it("hay exactamente 10 pestañas", () => {
+    expect(GROWTH_TABS).toHaveLength(10);
   });
   it.each(GROWTH_TABS)("la pestaña '%s' muestra contenido en demo", (tab) => {
     expect(demoPanelVisible(tab)).toBe(true);

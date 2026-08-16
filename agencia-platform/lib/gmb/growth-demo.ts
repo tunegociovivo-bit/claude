@@ -84,6 +84,19 @@ export const GROWTH_DEMO = {
     ],
     recent: [{ id: "p1", title: "Nuevo horario de verano", status: "published", scheduledAt: null, publishedAt: "2026-07-01T10:00:00Z" }]
   },
+  connections: {
+    summary: { connected: 2, total: 7 },
+    connections: [
+      { id: "maps", name: "Google Maps", connected: false, scope: "rank grid", note: "Sin conectar (demo)." },
+      { id: "make", name: "Make", connected: true, scope: "reseñas", note: "Conectado (demo)." },
+      { id: "anthropic", name: "Claude", connected: true, scope: "AI Council", note: "Clave configurada (demo)." }
+    ],
+    checklist: [
+      { label: "Conectar Make para reseñas", done: true, hint: "Sin Make no entran reseñas." },
+      { label: "Conectar Google Maps", done: false, hint: "Necesario para el Rank Grid." },
+      { label: "Configurar un modelo de IA", done: true, hint: "Habilita el AI Council." }
+    ]
+  },
   web: {
     hasWebsite: false,
     recommendations: [
