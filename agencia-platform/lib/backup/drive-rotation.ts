@@ -136,6 +136,8 @@ async function generateBackupArchive(workspaceId: string): Promise<{
     where: { workspaceId },
     select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
   });
+  const existingDriveFiles = await listDriveFiles({ workspaceId, namePrefix: "hub-adjunto-" });
+  const existingByName = new Map(existingDriveFiles.map((file) => [file.name, file]));
   const manifest: Array<Record<string, unknown>> = [];
   let missingFiles = 0;
   for (const file of files) {
@@ -157,15 +159,17 @@ async function generateBackupArchive(workspaceId: string): Promise<{
     const hash = sha256.slice(0, 24);
     const safe = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
     const driveName = `hub-adjunto-${hash}-${safe}`;
-    const existing = (await listDriveFiles({ workspaceId, namePrefix: driveName })).find(
-      (f) => f.name === driveName && f.size === String(body.byteLength) && (!f.md5Checksum || f.md5Checksum === md5)
-    );
+    const candidate = existingByName.get(driveName);
+    const existing = candidate && candidate.size === String(body.byteLength) && (!candidate.md5Checksum || candidate.md5Checksum === md5)
+      ? candidate
+      : undefined;
     const remote = existing ?? await uploadDriveFile({
       workspaceId,
       fileName: driveName,
       body,
       mimeType: file.mimeType || "application/octet-stream"
     });
+    existingByName.set(driveName, remote);
     manifest.push({ ...file, backupStatus: "mirrored", driveFileId: remote.id, driveName, sha256 });
   }
   const json = JSON.stringify({
