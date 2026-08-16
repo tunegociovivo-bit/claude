@@ -114,7 +114,19 @@ export function whichBackupsToday(when: Date = new Date()): BackupKind[] {
  *
  * NOTA: si en el futuro se quiere ZIP multifichero, instalar `archiver`.
  */
-async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffer; mimeType: string; mirroredFiles: number }> {
+export function isMissingStorageObjectError(error: unknown): boolean {
+  const candidate = error as { name?: string; code?: string; Code?: string; message?: string } | null;
+  const code = candidate?.name ?? candidate?.code ?? candidate?.Code ?? "";
+  const message = candidate?.message ?? "";
+  return code === "NoSuchKey" || code === "NotFound" || /specified key does not exist/i.test(message);
+}
+
+async function generateBackupArchive(workspaceId: string): Promise<{
+  body: Buffer;
+  mimeType: string;
+  mirroredFiles: number;
+  missingFiles: number;
+}> {
   const { gzipSync } = await import("zlib");
   const dump = await generateWorkspaceDump(workspaceId);
   if (dump.modelErrors && Object.keys(dump.modelErrors).length) {
@@ -125,8 +137,21 @@ async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffe
     select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
   });
   const manifest: Array<Record<string, unknown>> = [];
+  let missingFiles = 0;
   for (const file of files) {
-    const body = await downloadBuffer(file.s3Key);
+    let body: Buffer;
+    try {
+      body = await downloadBuffer(file.s3Key);
+    } catch (error) {
+      if (!isMissingStorageObjectError(error)) throw error;
+      missingFiles += 1;
+      manifest.push({
+        ...file,
+        backupStatus: "source_missing",
+        error: "El objeto no existe en el almacenamiento de origen"
+      });
+      continue;
+    }
     const sha256 = createHash("sha256").update(body).digest("hex");
     const md5 = createHash("md5").update(body).digest("hex");
     const hash = sha256.slice(0, 24);
@@ -141,11 +166,26 @@ async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffe
       body,
       mimeType: file.mimeType || "application/octet-stream"
     });
-    manifest.push({ ...file, driveFileId: remote.id, driveName, sha256 });
+    manifest.push({ ...file, backupStatus: "mirrored", driveFileId: remote.id, driveName, sha256 });
   }
-  const json = JSON.stringify({ format: "hub-complete-backup-v1", dump, attachments: manifest });
+  const json = JSON.stringify({
+    format: "hub-complete-backup-v1",
+    dump,
+    attachments: manifest,
+    integrity: {
+      databaseComplete: true,
+      attachmentRecords: files.length,
+      attachmentsMirrored: files.length - missingFiles,
+      sourceObjectsMissing: missingFiles
+    }
+  });
   const gz = gzipSync(Buffer.from(json, "utf8"));
-  return { body: gz, mimeType: "application/gzip", mirroredFiles: manifest.length };
+  return {
+    body: gz,
+    mimeType: "application/gzip",
+    mirroredFiles: files.length - missingFiles,
+    missingFiles
+  };
 }
 
 export async function runDriveBackup(opts: {
@@ -170,7 +210,14 @@ export async function runDriveBackup(opts: {
         body: archive.body,
         mimeType: archive.mimeType
       });
-      results.push({ kind, fileName, humanLabel, ok: true });
+      results.push({
+        kind,
+        fileName,
+        humanLabel,
+        ok: true,
+        mirroredFiles: archive.mirroredFiles,
+        missingFiles: archive.missingFiles
+      });
     } catch (e: any) {
       results.push({
         kind,
