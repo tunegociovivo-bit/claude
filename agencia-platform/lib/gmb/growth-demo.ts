@@ -60,9 +60,10 @@ export const GROWTH_DEMO = {
   rank: {
     provider: { provider: "google_maps", connected: false, reason: "sin_clave_maps" },
     tracked: 2,
+    config: { centerLat: 36.7213, centerLng: -4.4214, radiusKm: 3, gridSize: 5, frequency: "manual" },
     keywords: [
-      { keyword: "cafetería málaga centro", isPrimary: true, avgPosition: 4.2, top3Count: 3, foundCount: 7, cellCount: 9, visibilityShare: 78, lastCheckedAt: null },
-      { keyword: "desayunos málaga", isPrimary: false, avgPosition: 8.1, top3Count: 0, foundCount: 4, cellCount: 9, visibilityShare: 44, lastCheckedAt: null }
+      { keyword: "cafetería málaga centro", isPrimary: true, avgPosition: 4.2, top3Count: 3, foundCount: 7, cellCount: 9, visibilityShare: 78, deltaAvgPosition: -0.8, running: false, lastCheckedAt: "2026-08-10T09:00:00Z" },
+      { keyword: "desayunos málaga", isPrimary: false, avgPosition: 8.1, top3Count: 0, foundCount: 4, cellCount: 9, visibilityShare: 44, deltaAvgPosition: 1.2, running: false, lastCheckedAt: "2026-08-10T09:00:00Z" }
     ],
     gap: { market: { avgRating: 4.5, avgReviews: 95, count: 4 }, you: { rating: 4.2, reviewCount: 40 }, reviewGap: 55, ratingGap: 0.3, categoryGaps: ["desayunos", "brunch"], ahead: false }
   },

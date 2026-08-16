@@ -217,22 +217,43 @@ function AiCouncilPanel({ clientId }: { clientId: string | null }) {
 function RankPanel({ clientId }: { clientId: string | null }) {
   const isDemo = !clientId;
   const [fetched, setFetched] = useState<any>(null);
-  useEffect(() => {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = useCallback(() => {
     if (isDemo) return;
-    setFetched(null);
     fetch(`/api/v1/gmb/clients/${clientId}/rank`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
   }, [clientId, isDemo]);
+  useEffect(() => { setFetched(null); load(); }, [load]);
+  async function measure() {
+    if (!clientId) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${clientId}/rank/measure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const d = await r.json().catch(() => ({}));
+      setMsg(d.note ?? (d.blocked ? "Bloqueado." : "Encolado."));
+      // Sondeo de progreso.
+      for (let i = 0; i < 20 && !d.blocked; i++) { await new Promise((res) => setTimeout(res, 6000)); const jr = await fetch(`/api/v1/gmb/clients/${clientId}/rank/measure`).then((x) => x.json()).catch(() => ({})); if ((jr.running ?? 0) === 0) { load(); break; } }
+      load();
+    } finally { setBusy(false); }
+  }
   const data = isDemo ? GROWTH_DEMO.rank : fetched;
   if (!data) return <Spinner />;
   const connected = data.provider?.connected;
+  const cfg = data.config ?? {};
   return (
     <div className="space-y-3">
-      {!connected && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Proveedor de rank (Google Maps) <b>sin conectar</b>. Se muestran las últimas mediciones guardadas; no se fabrican posiciones. Configura la clave de Maps para medir en vivo.</div>}
+      <div className="flex flex-wrap items-center gap-2">
+        {!connected
+          ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex-1">Proveedor de rank (Google Maps) <b>sin conectar</b>. Se muestran las últimas mediciones guardadas; no se fabrican posiciones. Configura la clave de Maps en Ajustes para medir en vivo.</div>
+          : <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 flex-1">Google Maps <b>conectado</b>. Centro {cfg.centerLat != null ? `${Number(cfg.centerLat).toFixed(3)}, ${Number(cfg.centerLng).toFixed(3)}` : "sin fijar"} · radio {cfg.radiusKm ?? 3}km · cuadrícula {cfg.gridSize ?? 5}×{cfg.gridSize ?? 5}.</div>}
+        {clientId && <button onClick={measure} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />} Medir ahora</button>}
+      </div>
+      {msg && <div className="text-[11px] text-slate-500">{msg}</div>}
       {data.keywords?.length === 0 ? <div className={`${CARD} text-sm text-slate-500`}>No hay keywords rastreadas. Añádelas desde la ficha (pestaña Ranking) para medir el rank grid.</div> : (
         <div className="bg-white rounded-xl border overflow-x-auto">
-          <table className="w-full text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="text-left px-3 py-2.5">Keyword</th><th className="text-left px-3 py-2.5">Pos. media</th><th className="text-left px-3 py-2.5">Top3</th><th className="text-left px-3 py-2.5">Cobertura</th><th className="text-left px-3 py-2.5">Última</th></tr></thead>
+          <table className="w-full text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="text-left px-3 py-2.5">Keyword</th><th className="text-left px-3 py-2.5">Pos. media</th><th className="text-left px-3 py-2.5">Δ</th><th className="text-left px-3 py-2.5">Top3</th><th className="text-left px-3 py-2.5">Cobertura</th><th className="text-left px-3 py-2.5">Última</th></tr></thead>
             <tbody className="divide-y">{data.keywords.map((k: any) => (
-              <tr key={k.keyword} className="hover:bg-slate-50"><td className="px-3 py-2 font-medium">{k.keyword}{k.isPrimary && <span className="ml-1 text-[10px] px-1 rounded bg-brand-50 text-brand-700">principal</span>}</td><td className="px-3 py-2">{k.avgPosition ?? "—"}</td><td className="px-3 py-2">{k.top3Count ?? "—"}</td><td className="px-3 py-2">{k.visibilityShare != null ? `${k.visibilityShare}%` : "—"}</td><td className="px-3 py-2 text-[11px] text-slate-400">{k.lastCheckedAt ? new Date(k.lastCheckedAt).toLocaleDateString("es-ES") : "sin medir"}</td></tr>))}
+              <tr key={k.keyword} className="hover:bg-slate-50"><td className="px-3 py-2 font-medium">{k.keyword}{k.isPrimary && <span className="ml-1 text-[10px] px-1 rounded bg-brand-50 text-brand-700">principal</span>}{k.running && <span className="ml-1 text-[10px] px-1 rounded bg-amber-50 text-amber-700">midiendo…</span>}</td><td className="px-3 py-2">{k.avgPosition ?? "—"}</td><td className="px-3 py-2">{k.deltaAvgPosition == null ? "—" : k.deltaAvgPosition < 0 ? <span className="text-emerald-600">▲ {Math.abs(k.deltaAvgPosition)}</span> : k.deltaAvgPosition > 0 ? <span className="text-rose-600">▼ {k.deltaAvgPosition}</span> : <span className="text-slate-400">=</span>}</td><td className="px-3 py-2">{k.top3Count ?? "—"}</td><td className="px-3 py-2">{k.visibilityShare != null ? `${k.visibilityShare}%` : "—"}</td><td className="px-3 py-2 text-[11px] text-slate-400">{k.lastCheckedAt ? new Date(k.lastCheckedAt).toLocaleDateString("es-ES") : "sin medir"}</td></tr>))}
             </tbody>
           </table>
         </div>
@@ -254,30 +275,75 @@ function RankPanel({ clientId }: { clientId: string | null }) {
 }
 
 // ── Contenido ─────────────────────────────────────────────────────────────────────────────────
+const POST_STATUS_META: Record<string, { label: string; cls: string }> = {
+  draft: { label: "Borrador", cls: "bg-slate-100 text-slate-600" }, pending_approval: { label: "Pend. aprobación", cls: "bg-amber-50 text-amber-700" },
+  approved: { label: "Aprobada", cls: "bg-indigo-50 text-indigo-700" }, scheduled: { label: "Programada", cls: "bg-blue-50 text-blue-700" },
+  published: { label: "Publicada", cls: "bg-emerald-50 text-emerald-700" }, failed: { label: "Error", cls: "bg-rose-100 text-rose-700" }
+};
 function ContentPanel({ clientId }: { clientId: string | null }) {
   const isDemo = !clientId;
-  const [fetched, setFetched] = useState<any>(null);
-  useEffect(() => {
+  const [ideas, setIdeas] = useState<any>(null);
+  const [posts, setPosts] = useState<any[]>([]);
+  const load = useCallback(() => {
     if (isDemo) return;
-    setFetched(null);
-    fetch(`/api/v1/gmb/clients/${clientId}/content-ideas`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
+    fetch(`/api/v1/gmb/clients/${clientId}/content-ideas`).then((r) => r.json()).then((d) => setIdeas(d.ok ? d : null));
+    fetch(`/api/v1/gmb/clients/${clientId}/posts`).then((r) => r.json()).then((d) => setPosts(d.posts ?? []));
   }, [clientId, isDemo]);
-  const data = isDemo ? GROWTH_DEMO.content : fetched;
+  useEffect(() => { setIdeas(null); setPosts([]); load(); }, [load]);
+  async function createDraft(idea: any) {
+    if (!clientId) return;
+    await fetch(`/api/v1/gmb/clients/${clientId}/posts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: idea.title, content: idea.content, cta: idea.cta }) });
+    load();
+  }
+  async function transition(postId: string, command: string, scheduledAt?: string) {
+    if (!clientId) return;
+    if (command === "schedule") { const when = window.prompt("Fecha/hora de programación (YYYY-MM-DDTHH:mm)", new Date(Date.now() + 86400000).toISOString().slice(0, 16)); if (!when) return; scheduledAt = new Date(when).toISOString(); await fetch(`/api/v1/gmb/clients/${clientId}/posts/${postId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scheduledAt }) }); }
+    await fetch(`/api/v1/gmb/clients/${clientId}/posts/${postId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command, ...(scheduledAt ? { scheduledAt } : {}) }) });
+    load();
+  }
+  async function del(postId: string) { if (!clientId || !window.confirm("¿Eliminar el borrador?")) return; await fetch(`/api/v1/gmb/clients/${clientId}/posts/${postId}`, { method: "DELETE" }); load(); }
+
+  const data = isDemo ? GROWTH_DEMO.content : ideas;
   if (!data) return <Spinner />;
   const cadenceCls = data.cadence?.status === "good" ? "text-emerald-700 bg-emerald-50 border-emerald-200" : data.cadence?.status === "low" ? "text-amber-700 bg-amber-50 border-amber-200" : "text-rose-700 bg-rose-50 border-rose-200";
+  const list = isDemo ? (GROWTH_DEMO.content.recent ?? []).map((p: any) => ({ ...p, content: "" })) : posts;
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className={`rounded-lg border px-3 py-2 text-xs ${cadenceCls}`}>{data.cadence?.message}</div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {data.ideas.map((idea: any, i: number) => (
-          <div key={i} className={`${CARD}`}>
-            <div className="flex items-center gap-2 mb-1"><span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 uppercase">{idea.type === "update" ? "novedad" : idea.type === "offer" ? "oferta" : "evento"}</span><span className="text-sm font-medium text-slate-800">{idea.title}</span></div>
-            <div className="text-xs text-slate-500">{idea.content}</div>
-            <div className="mt-2 text-[11px] text-slate-400">CTA sugerido: {idea.cta} · <span className="text-slate-500">borrador (no publica)</span></div>
-          </div>
-        ))}
+
+      <div>
+        <div className="text-sm font-semibold text-slate-800 mb-2">Ideas de contenido (borradores)</div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {data.ideas.map((idea: any, i: number) => (
+            <div key={i} className={`${CARD}`}>
+              <div className="flex items-center gap-2 mb-1"><span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 uppercase">{idea.type === "update" ? "novedad" : idea.type === "offer" ? "oferta" : "evento"}</span><span className="text-sm font-medium text-slate-800">{idea.title}</span></div>
+              <div className="text-xs text-slate-500">{idea.content}</div>
+              <div className="mt-2 flex items-center justify-between"><span className="text-[11px] text-slate-400">CTA: {idea.cta}</span>{clientId && <button onClick={() => createDraft(idea)} className="text-[11px] px-2 py-0.5 rounded border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100">Crear borrador</button>}</div>
+            </div>
+          ))}
+        </div>
       </div>
-      {(data.recent?.length ?? 0) > 0 && <div className="text-xs text-slate-500">Últimas publicaciones: {data.recent.map((p: any) => `${p.title} (${p.status})`).join(" · ")}</div>}
+
+      <div>
+        <div className="text-sm font-semibold text-slate-800 mb-2">Calendario y cola de publicaciones</div>
+        {list.length === 0 ? <div className={`${CARD} text-sm text-slate-500`}>Sin publicaciones. Crea un borrador desde una idea. La publicación externa nunca ocurre sin aprobación.</div> : (
+          <ul className="space-y-2">
+            {list.map((p: any) => { const meta = POST_STATUS_META[p.status] ?? POST_STATUS_META.draft; return (
+              <li key={p.id} className={`${CARD} flex items-start justify-between gap-3`}>
+                <div className="min-w-0"><div className="text-sm font-medium text-slate-800">{p.title || "(sin título)"} <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${meta.cls}`}>{meta.label}</span></div>{p.scheduledAt && <div className="text-[11px] text-slate-500">Programada: {new Date(p.scheduledAt).toLocaleString("es-ES")}</div>}</div>
+                {clientId && (
+                  <div className="shrink-0 flex flex-wrap gap-1 justify-end">
+                    {p.status === "draft" && <button onClick={() => transition(p.id, "submit")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Enviar a aprobación</button>}
+                    {p.status === "pending_approval" && <button onClick={() => transition(p.id, "approve")} className="text-[11px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50">Aprobar</button>}
+                    {p.status === "approved" && <button onClick={() => transition(p.id, "schedule")} className="text-[11px] px-2 py-0.5 rounded border border-blue-200 text-blue-700 hover:bg-blue-50">Programar</button>}
+                    {(p.status === "draft" || p.status === "pending_approval") && <button onClick={() => del(p.id)} title="Eliminar" className="text-[11px] px-2 py-0.5 rounded border text-slate-500 hover:bg-slate-50"><X className="h-3 w-3" /></button>}
+                  </div>
+                )}
+              </li>); })}
+          </ul>
+        )}
+        <div className="text-[11px] text-slate-400 mt-1">La publicación en Google es adapter-gated: solo se publica lo programado y aprobado, nunca automáticamente sin aprobación.</div>
+      </div>
     </div>
   );
 }
@@ -376,15 +442,41 @@ function WebPanel({ clientId }: { clientId: string | null }) {
 }
 
 // ── Informes ──────────────────────────────────────────────────────────────────────────────────
+function currentMonth(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 function ReportPanel({ clientId }: { clientId: string | null }) {
+  const [month, setMonth] = useState<string>(currentMonth());
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(() => {
+    if (!clientId) { setReport(null); return; }
+    setLoading(true);
+    fetch(`/api/v1/gmb/clients/${clientId}/growth-report?month=${month}`).then((r) => r.json()).then((d) => setReport(d.ok ? d.report : null)).finally(() => setLoading(false));
+  }, [clientId, month]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!clientId) {
+    return <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">En demo no hay informe real. Con una ficha conectada verás el informe mensual con datos reales, imprimible/exportable a PDF.</div>;
+  }
   return (
-    <div className={`${CARD} space-y-2`}>
-      <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-brand-600" /><span className="text-sm font-semibold text-slate-800">Informe mensual del cliente</span></div>
-      <p className="text-xs text-slate-500">Resumen con evolución, reseñas, tareas y recomendaciones, en formato imprimible/exportable.</p>
-      {clientId ? (
-        <a href={`/gmb-hub/report/${clientId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm w-fit">Abrir informe imprimible <ChevronRight className="h-3.5 w-3.5" /></a>
-      ) : (
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">En demo no hay informe real. Con una ficha conectada podrás abrir el informe mensual imprimible.</div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 no-print">
+        <FileText className="h-4 w-4 text-brand-600" /><span className="text-sm font-semibold text-slate-800">Informe mensual</span>
+        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-lg border px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        <button onClick={() => window.print()} disabled={!report} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50">Imprimir / PDF</button>
+      </div>
+      {loading || !report ? <Spinner /> : (
+        <div id="gmb-report" className={`${CARD} space-y-4`}>
+          <div className="border-b pb-2"><h2 className="text-lg font-bold text-slate-900">{report.client.name}</h2><div className="text-xs text-slate-500">Informe de crecimiento local · {report.period.label}</div></div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div><div className="text-2xl font-bold text-brand-600">{report.presence.score}</div><div className="text-[11px] text-slate-400">Presencia /100</div></div>
+            <div><div className="text-2xl font-bold text-slate-800">{report.citations.published}/{report.citations.total}</div><div className="text-[11px] text-slate-400">Citaciones ok</div></div>
+            <div><div className="text-2xl font-bold text-slate-800">{report.reviews.total}</div><div className="text-[11px] text-slate-400">Reseñas</div></div>
+            <div><div className="text-2xl font-bold text-slate-800">{report.actions.done}</div><div className="text-[11px] text-slate-400">Acciones hechas</div></div>
+          </div>
+          <div><div className="text-sm font-semibold text-slate-800 mb-1">Resumen</div><ul className="text-xs text-slate-600 space-y-0.5">{report.highlights.map((h: string, i: number) => <li key={i}>• {h}</li>)}</ul></div>
+          {report.rank.length > 0 && <div><div className="text-sm font-semibold text-slate-800 mb-1">Rankings</div><ul className="text-xs text-slate-600 space-y-0.5">{report.rank.map((r: any, i: number) => <li key={i}>• {r.keyword}: pos. {r.avgPosition ?? "—"}, cobertura {r.visibilityShare ?? "—"}%</li>)}</ul></div>}
+          <div className="text-[10px] text-slate-400 pt-2 border-t">Generado {new Date(report.generatedAtIso).toLocaleString("es-ES")} · datos reales de la ficha.</div>
+        </div>
       )}
     </div>
   );

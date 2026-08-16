@@ -5,11 +5,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const { authenticateMock, prisma } = vi.hoisted(() => {
-  const db: any = { gmbClient: [], gmbReview: [], gmbKeyword: [], gmbPosition: [] };
+  const db: any = { gmbClient: [], gmbReview: [], gmbKeyword: [], gmbPosition: [], gmbRankConfig: [], gmbRankJob: [] };
   const findFirst = (coll: string) => vi.fn(async ({ where }: any) => db[coll].find((r: any) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null);
   const findMany = (coll: string) => vi.fn(async ({ where }: any) => db[coll].filter((r: any) => !where || Object.entries(where).every(([k, v]: any) => v == null || typeof v === "object" || r[k] === v)));
   const prismaObj: any = { _db: db };
-  for (const coll of ["gmbClient", "gmbReview", "gmbKeyword", "gmbPosition"]) prismaObj[coll] = { findFirst: findFirst(coll), findMany: findMany(coll) };
+  for (const coll of ["gmbClient", "gmbReview", "gmbKeyword", "gmbPosition", "gmbRankConfig", "gmbRankJob"]) prismaObj[coll] = { findFirst: findFirst(coll), findMany: findMany(coll) };
   return { authenticateMock: vi.fn(), prisma: prismaObj };
 });
 vi.mock("@/lib/db/prisma", () => ({ prisma }));

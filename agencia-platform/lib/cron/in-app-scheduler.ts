@@ -128,6 +128,13 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] gmb-posts:", (e as Error).message);
     }
+    // Jobs del Rank Grid (bounded, tenant-scoped). Solo miden si hay proveedor (clave Maps).
+    try {
+      const { processAllRankJobs } = await import("@/lib/gmb/rank-cron");
+      await processAllRankJobs(2);
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-rank:", (e as Error).message);
+    }
   }
   setTimeout(gmbTick, 120_000);
   setInterval(gmbTick, GMB_TICK_MS);

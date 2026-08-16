@@ -3865,6 +3865,10 @@ model GmbPhoto {
   url         String   @db.Text
   type        String   @default("general") // general|logo|cover|interior|exterior|producto
   caption     String   @default("")
+  // Cola multimedia (fase 4): hash para deduplicar, estado y programación.
+  hash        String? // sha1/md5 de la imagen (dedupe)
+  status      String   @default("library") // library|queued|scheduled|published|failed
+  scheduledAt DateTime?
   createdAt   DateTime @default(now())
 
   @@index([workspaceId])
@@ -3908,7 +3912,11 @@ model GmbPost {
   cta         String    @default("")
   imageUrl    String?   @db.Text
   scheduledAt DateTime?
-  status      String    @default("draft") // draft|scheduled|published|failed
+  // draft|pending_approval|approved|scheduled|published|failed
+  status      String    @default("draft")
+  postType    String    @default("update") // update|offer|event
+  approvedById String?
+  approvedAt   DateTime?
   publishedAt DateTime?
   createdById String?
   createdAt   DateTime  @default(now())
@@ -4115,6 +4123,49 @@ model GmbAction {
   @@index([workspaceId])
   @@index([clientId, status])
   @@index([workspaceId, status])
+}
+
+// Configuración del Rank Grid por ficha (centro, radio, tamaño, proveedor, frecuencia).
+model GmbRankConfig {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String   @unique
+  centerLat   Float?
+  centerLng   Float?
+  radiusKm    Float    @default(3)
+  gridSize    Int      @default(5) // celdas por lado (3-7)
+  provider    String   @default("google_maps")
+  frequency   String   @default("manual") // manual|weekly|monthly
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Job ASÍNCRONO de medición del Rank Grid (tenant-scoped, reintentos acotados, idempotente).
+model GmbRankJob {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  status      String    @default("queued") // queued|running|done|error|cancelled
+  provider    String    @default("google_maps")
+  gridSize    Int       @default(5)
+  radiusKm    Float     @default(3)
+  centerLat   Float?
+  centerLng   Float?
+  attempts    Int       @default(0)
+  lastError   String?
+  result      Json? // resumen (avgPosition/top3/coverage) — los puntos van a GmbPosition
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([clientId])
 }
 
 // Log de ejecuciones del AI Council (multimodelo). SIN secretos ni PII cruda:
