@@ -3729,6 +3729,11 @@ model GmbReview {
   rating      Int       @default(0) // 1-5
   comment     String?   @db.Text
   reviewReply String?   @db.Text
+  // Borrador de respuesta (fase 3): se genera y guarda SIN publicar; la publicación externa es una
+  // acción aparte que exige aprobación. Reversible (se puede limpiar).
+  replyDraft     String?   @db.Text
+  replyDraftTone String?
+  replyDraftAt   DateTime?
   reviewTime  DateTime?
   updateTime  DateTime?
   createdAt   DateTime  @default(now())

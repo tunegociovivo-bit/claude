@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const { authenticateMock, prisma } = vi.hoisted(() => {
-  const db: any = { gmbAction: [], gmbCitation: [], gmbCitationEvent: [], gmbClient: [], gmbNapProfile: [] };
+  const db: any = { gmbAction: [], gmbCitation: [], gmbCitationEvent: [], gmbClient: [], gmbNapProfile: [], gmbPost: [] };
   const findFirst = (coll: string) => vi.fn(async ({ where }: any) => db[coll].find((r: any) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null);
   const findMany = (coll: string) => vi.fn(async ({ where }: any) => db[coll].filter((r: any) => !where || Object.entries(where).every(([k, v]: any) => v == null || typeof v === "object" || r[k] === v)));
   const updateMany = (coll: string) => vi.fn(async ({ where, data }: any) => {
@@ -16,7 +16,7 @@ const { authenticateMock, prisma } = vi.hoisted(() => {
   });
   const create = (coll: string) => vi.fn(async ({ data }: any) => { const row = { id: `${coll}_${db[coll].length + 1}`, ...data }; db[coll].push(row); return row; });
   const prismaObj: any = { _db: db };
-  for (const coll of ["gmbAction", "gmbCitation", "gmbCitationEvent", "gmbClient", "gmbNapProfile"]) {
+  for (const coll of ["gmbAction", "gmbCitation", "gmbCitationEvent", "gmbClient", "gmbNapProfile", "gmbPost"]) {
     prismaObj[coll] = { findFirst: findFirst(coll), findMany: findMany(coll), updateMany: updateMany(coll), create: create(coll) };
   }
   return { authenticateMock: vi.fn(), prisma: prismaObj };
@@ -55,6 +55,15 @@ describe("actions/[id] PATCH — tenant + transiciones + aprobación", () => {
   it("acción externa NO se aprueba saltándose needs_approval → 409", async () => {
     prisma._db.gmbAction.push({ id: "a1", workspaceId: "w1", status: "suggested", external: true, requiresApproval: true });
     expect((await patch(actionPatch, "a1", { command: "approve" })).status).toBe(409);
+  });
+  it("EXECUTE de acción interna de contenido → crea borrador GmbPost y done (efecto reversible)", async () => {
+    prisma._db.gmbClient.push({ id: "cl1", workspaceId: "w1", name: "Café" });
+    prisma._db.gmbAction.push({ id: "a1", workspaceId: "w1", clientId: "cl1", module: "content", type: "schedule_posts", title: "Programar", status: "approved", external: false, requiresApproval: false });
+    const res = await patch(actionPatch, "a1", { command: "execute" });
+    const body = await res.json();
+    expect(body.status).toBe("done");
+    expect(body.result.kind).toBe("content_draft");
+    expect(prisma._db.gmbPost[0].status).toBe("draft"); // borrador, no publica
   });
 });
 

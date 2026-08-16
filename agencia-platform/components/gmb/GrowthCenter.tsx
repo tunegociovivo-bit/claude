@@ -9,7 +9,7 @@
  * aprobación. El AI Council nunca finge llamadas: sin claves/consentimiento → "no conectado".
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Gauge, Sparkles, MapPin, Megaphone, MessageSquare, Globe, FileText, ListChecks, Check, X, ChevronRight } from "lucide-react";
+import { Loader2, Gauge, Sparkles, MapPin, Megaphone, MessageSquare, Globe, FileText, ListChecks, Check, X, ChevronRight, ExternalLink } from "lucide-react";
 import { GROWTH_DEMO } from "@/lib/gmb/growth-demo";
 
 type Ficha = { id: string; name: string; category?: string };
@@ -131,12 +131,14 @@ export default function GrowthCenter() {
 
 // ── Presencia ─────────────────────────────────────────────────────────────────────────────────
 function PresencePanel({ clientId, onGoActions }: { clientId: string | null; onGoActions: () => void }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   useEffect(() => {
-    if (!clientId) { setData(GROWTH_DEMO.presence); return; }
-    setData(null);
-    fetch(`/api/v1/gmb/clients/${clientId}/presence?snapshot=1`).then((r) => r.json()).then((d) => setData(d.ok ? d : null));
-  }, [clientId]);
+    if (isDemo) return;
+    setFetched(null);
+    fetch(`/api/v1/gmb/clients/${clientId}/presence?snapshot=1`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
+  }, [clientId, isDemo]);
+  const data = isDemo ? GROWTH_DEMO.presence : fetched;
   if (!data) return <Spinner />;
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -159,24 +161,27 @@ function PresencePanel({ clientId, onGoActions }: { clientId: string | null; onG
 
 // ── AI Council (superficie propia) ──────────────────────────────────────────────────────────────
 function AiCouncilPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [lastRun, setLastRun] = useState<any>(null);
+  const [ranResult, setRanResult] = useState<any>(null);
   const load = useCallback(async () => {
-    if (!clientId) { setData(GROWTH_DEMO.aiCouncil); setLastRun(GROWTH_DEMO.aiCouncil.exampleRun); return; }
+    if (isDemo) return;
     const r = await fetch(`/api/v1/gmb/clients/${clientId}/ai-council`);
-    setData(await r.json().catch(() => null));
-  }, [clientId]);
+    setFetched(await r.json().catch(() => null));
+  }, [clientId, isDemo]);
   useEffect(() => { void load(); }, [load]);
   async function run() {
     if (!clientId) return;
     setBusy(true);
-    try { const r = await fetch(`/api/v1/gmb/clients/${clientId}/ai-council`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: "opportunities", consent }) }); const d = await r.json().catch(() => ({})); setLastRun(d.run ?? null); await load(); } finally { setBusy(false); }
+    try { const r = await fetch(`/api/v1/gmb/clients/${clientId}/ai-council`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: "opportunities", consent }) }); const d = await r.json().catch(() => ({})); setRanResult(d.run ?? null); await load(); } finally { setBusy(false); }
   }
+  // Demo: datos SÍNCRONOS (sin ventana null) → el panel nunca aparece vacío.
+  const data = isDemo ? GROWTH_DEMO.aiCouncil : fetched;
+  const lastRun = isDemo ? GROWTH_DEMO.aiCouncil.exampleRun : ranResult;
   if (!data) return <Spinner />;
   const connectedCount = data.connectedCount ?? 0;
-  const isDemo = !clientId;
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <div className={`${CARD} space-y-3 lg:col-span-1`}>
@@ -210,12 +215,14 @@ function AiCouncilPanel({ clientId }: { clientId: string | null }) {
 
 // ── Rank & Competencia ──────────────────────────────────────────────────────────────────────────
 function RankPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   useEffect(() => {
-    if (!clientId) { setData(GROWTH_DEMO.rank); return; }
-    setData(null);
-    fetch(`/api/v1/gmb/clients/${clientId}/rank`).then((r) => r.json()).then((d) => setData(d.ok ? d : null));
-  }, [clientId]);
+    if (isDemo) return;
+    setFetched(null);
+    fetch(`/api/v1/gmb/clients/${clientId}/rank`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
+  }, [clientId, isDemo]);
+  const data = isDemo ? GROWTH_DEMO.rank : fetched;
   if (!data) return <Spinner />;
   const connected = data.provider?.connected;
   return (
@@ -248,12 +255,14 @@ function RankPanel({ clientId }: { clientId: string | null }) {
 
 // ── Contenido ─────────────────────────────────────────────────────────────────────────────────
 function ContentPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   useEffect(() => {
-    if (!clientId) { setData(GROWTH_DEMO.content); return; }
-    setData(null);
-    fetch(`/api/v1/gmb/clients/${clientId}/content-ideas`).then((r) => r.json()).then((d) => setData(d.ok ? d : null));
-  }, [clientId]);
+    if (isDemo) return;
+    setFetched(null);
+    fetch(`/api/v1/gmb/clients/${clientId}/content-ideas`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
+  }, [clientId, isDemo]);
+  const data = isDemo ? GROWTH_DEMO.content : fetched;
   if (!data) return <Spinner />;
   const cadenceCls = data.cadence?.status === "good" ? "text-emerald-700 bg-emerald-50 border-emerald-200" : data.cadence?.status === "low" ? "text-amber-700 bg-amber-50 border-amber-200" : "text-rose-700 bg-rose-50 border-rose-200";
   return (
@@ -277,12 +286,25 @@ function ContentPanel({ clientId }: { clientId: string | null }) {
 const SENT_CLS: Record<string, string> = { positive: "bg-emerald-50 text-emerald-700", neutral: "bg-slate-100 text-slate-600", negative: "bg-rose-50 text-rose-700" };
 const LEVEL_CLS: Record<string, string> = { high: "bg-rose-50 text-rose-700", medium: "bg-amber-50 text-amber-700", low: "bg-slate-100 text-slate-500" };
 function ReviewsPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   useEffect(() => {
-    if (!clientId) { setData(GROWTH_DEMO.reviews); return; }
-    setData(null);
-    fetch(`/api/v1/gmb/clients/${clientId}/review-intel`).then((r) => r.json()).then((d) => setData(d.ok ? d : null));
-  }, [clientId]);
+    if (isDemo) return;
+    setFetched(null);
+    fetch(`/api/v1/gmb/clients/${clientId}/review-intel`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
+  }, [clientId, isDemo]);
+  const data = isDemo ? GROWTH_DEMO.reviews : fetched;
+  const [drafts, setDrafts] = useState<Record<string, { draft: string; requiresApproval: boolean; busy?: boolean }>>({});
+  async function genDraft(reviewId: string, tone?: string) {
+    if (!clientId) return;
+    setDrafts((d) => ({ ...d, [reviewId]: { ...(d[reviewId] ?? { draft: "", requiresApproval: true }), busy: true } }));
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${clientId}/reviews/${reviewId}/reply-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tone ? { tone } : {}) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setDrafts((d) => ({ ...d, [reviewId]: { draft: j.draft, requiresApproval: j.decision?.requiresApproval ?? true } }));
+      else setDrafts((d) => ({ ...d, [reviewId]: { draft: `Error: ${j?.error?.message ?? r.status}`, requiresApproval: true } }));
+    } catch (e: any) { setDrafts((d) => ({ ...d, [reviewId]: { draft: e?.message ?? "error", requiresApproval: true } })); }
+  }
   if (!data) return <Spinner />;
   const s = data.summary;
   return (
@@ -295,7 +317,9 @@ function ReviewsPanel({ clientId }: { clientId: string | null }) {
       {s.topTopics?.length > 0 && <div className="text-xs text-slate-500">Temas: {s.topTopics.map((t: any) => `${t.topic} (${t.count})`).join(" · ")}</div>}
       {!data.rules?.autoReplyEnabled && <div className="text-[11px] text-slate-500">Auto-respuesta <b>desactivada</b>: todas las respuestas requieren aprobación humana (nunca se publican solas).</div>}
       <ul className="space-y-2">
-        {(data.items ?? []).slice(0, 20).map((it: any) => (
+        {(data.items ?? []).slice(0, 20).map((it: any) => {
+          const d = drafts[it.id];
+          return (
           <li key={it.id} className={`${CARD}`}>
             <div className="flex items-center gap-2 flex-wrap text-[11px]">
               <span className="font-medium text-slate-800 text-sm">{it.authorName || "Anónimo"}</span>
@@ -306,9 +330,19 @@ function ReviewsPanel({ clientId }: { clientId: string | null }) {
               {it.analysis.topics.map((t: string) => <span key={t} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{t}</span>)}
             </div>
             {it.comment && <div className="text-xs text-slate-600 mt-1">{it.comment}</div>}
-            <div className="text-[11px] text-slate-400 mt-1">Tono sugerido: {it.analysis.suggestedTone} · {it.reply?.requiresApproval ? "requiere aprobación" : "auto-sugerible (borrador)"}</div>
-          </li>
-        ))}
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <div className="text-[11px] text-slate-400">Tono sugerido: {it.analysis.suggestedTone} · {it.reply?.requiresApproval ? "requiere aprobación" : "auto-sugerible (borrador)"}</div>
+              {clientId && <button onClick={() => genDraft(it.id)} disabled={d?.busy} className="shrink-0 text-[11px] px-2 py-0.5 rounded border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{d?.busy ? "…" : "Generar borrador"}</button>}
+            </div>
+            {d && !d.busy && (
+              <div className="mt-2 rounded-lg border bg-slate-50 p-2 text-xs">
+                <div className="flex items-center justify-between mb-1"><span className="font-medium text-slate-600">Borrador (no publica)</span><span className={`text-[10px] px-1.5 py-0.5 rounded ${d.requiresApproval ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{d.requiresApproval ? "requiere aprobación" : "auto-sugerible"}</span></div>
+                <div className="text-slate-700 whitespace-pre-wrap">{d.draft}</div>
+                <button onClick={() => { void navigator.clipboard?.writeText(d.draft); }} className="mt-1 text-[11px] text-brand-600 hover:underline">Copiar</button>
+              </div>
+            )}
+          </li>);
+        })}
       </ul>
     </div>
   );
@@ -316,12 +350,14 @@ function ReviewsPanel({ clientId }: { clientId: string | null }) {
 
 // ── Web local ─────────────────────────────────────────────────────────────────────────────────
 function WebPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   useEffect(() => {
-    if (!clientId) { setData(GROWTH_DEMO.web); return; }
-    setData(null);
-    fetch(`/api/v1/gmb/clients/${clientId}/web-local`).then((r) => r.json()).then((d) => setData(d.ok ? d : null));
-  }, [clientId]);
+    if (isDemo) return;
+    setFetched(null);
+    fetch(`/api/v1/gmb/clients/${clientId}/web-local`).then((r) => r.json()).then((d) => setFetched(d.ok ? d : null));
+  }, [clientId, isDemo]);
+  const data = isDemo ? GROWTH_DEMO.web : fetched;
   if (!data) return <Spinner />;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -362,26 +398,54 @@ const CITATION_STATUS_META: Record<string, { label: string; cls: string }> = {
   duplicate: { label: "Duplicada", cls: "bg-fuchsia-50 text-fuchsia-700" }, error: { label: "Error", cls: "bg-rose-100 text-rose-700" }
 };
 function CitationsPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
-    if (!clientId) { setData(GROWTH_DEMO.citations); return; }
+    if (isDemo) return;
     const r = await fetch(`/api/v1/gmb/clients/${clientId}/citations`);
-    setData(await r.json().catch(() => null));
-  }, [clientId]);
+    setFetched(await r.json().catch(() => null));
+  }, [clientId, isDemo]);
   useEffect(() => { void load(); }, [load]);
   async function seed() { if (!clientId) return; setBusy(true); try { await fetch(`/api/v1/gmb/clients/${clientId}/citations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "seed" }) }); await load(); } finally { setBusy(false); } }
   async function transition(id: string, command: string) { if (!clientId) return; await fetch(`/api/v1/gmb/citations/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) }); await load(); }
+  const [packet, setPacket] = useState<any>(null);
+  async function showPacket(id: string, directoryName: string) {
+    if (!clientId) return;
+    const r = await fetch(`/api/v1/gmb/citations/${id}`);
+    const j = await r.json().catch(() => ({}));
+    setPacket(j.packet ? { ...j.packet, directoryName } : null);
+  }
+  function downloadPacket() {
+    if (!packet) return;
+    const text = `Paquete de alta — ${packet.directoryName}\nURL de alta: ${packet.submitUrl}\n\nNombre: ${packet.fields.name}\nDirección: ${packet.fields.address}\nTeléfono: ${packet.fields.phone}\nWeb: ${packet.fields.website}\n\nChecklist:\n- ${packet.checklist.join("\n- ")}\n\n${packet.note}`;
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `alta-${packet.directory}.txt`; a.click(); URL.revokeObjectURL(url);
+  }
+  const data = isDemo ? GROWTH_DEMO.citations : fetched;
   if (!data) return <Spinner />;
   const citations: any[] = data.citations ?? [];
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs"><span className="text-slate-600">Total <b>{data.summary?.total ?? 0}</b></span><span className="text-rose-600">Accionables <b>{data.summary?.actionable ?? 0}</b></span>{clientId && <button onClick={seed} disabled={busy} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "＋"} Generar inventario</button>}</div>
+      {packet && (
+        <div className={`${CARD} text-xs space-y-1`}>
+          <div className="flex items-center justify-between"><span className="font-semibold text-slate-800">Paquete de alta — {packet.directoryName}</span><button onClick={() => setPacket(null)} className="text-slate-400 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button></div>
+          <div>Nombre: <b>{packet.fields.name}</b></div><div>Dirección: <b>{packet.fields.address}</b></div><div>Teléfono: <b>{packet.fields.phone}</b></div><div>Web: <b>{packet.fields.website}</b></div>
+          <a href={packet.submitUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline inline-flex items-center gap-1">Abrir alta del directorio <ExternalLink className="h-3 w-3" /></a>
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => { void navigator.clipboard?.writeText(`${packet.fields.name}\n${packet.fields.address}\n${packet.fields.phone}\n${packet.fields.website}`); }} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Copiar NAP</button>
+            <button onClick={downloadPacket} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Descargar .txt</button>
+          </div>
+          <div className="text-slate-400">{packet.note}</div>
+        </div>
+      )}
       {citations.length === 0 ? <div className={`${CARD} text-sm text-slate-500`}>Sin citaciones catalogadas. Pulsa «Generar inventario».</div> : (
         <div className="bg-white rounded-xl border overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="text-left px-3 py-2.5">Directorio</th><th className="text-left px-3 py-2.5">Aut.</th><th className="text-left px-3 py-2.5">Estado</th><th className="text-left px-3 py-2.5">NAP</th><th className="text-left px-3 py-2.5">Acción</th></tr></thead>
           <tbody className="divide-y">{citations.map((c) => { const meta = CITATION_STATUS_META[c.status] ?? CITATION_STATUS_META.not_found; const diffFields = c.diffs ? Object.entries(c.diffs).filter(([, v]) => v).map(([k]) => k) : []; return (
             <tr key={c.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-medium">{c.directoryName}</td><td className="px-3 py-2 text-slate-500">{c.authority}</td><td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-[10px] ${meta.cls}`}>{meta.label}</span></td><td className="px-3 py-2 text-[11px] text-slate-500">{diffFields.length ? <span className="text-rose-600">difiere: {diffFields.join(", ")}</span> : c.status === "published" ? "consistente" : "—"}</td>
-              <td className="px-3 py-2">{clientId ? <div className="flex gap-1">{c.status === "not_found" && <button onClick={() => transition(c.id, "prepare")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Preparar alta</button>}{c.status === "prepared" && <button onClick={() => transition(c.id, "submit")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Marcar enviada</button>}{c.status === "submitted" && <button onClick={() => transition(c.id, "publish")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Marcar publicada</button>}{c.status === "inconsistent" && <button onClick={() => transition(c.id, "prepare")} className="text-[11px] px-2 py-0.5 rounded border border-rose-200 text-rose-700 hover:bg-rose-50">Corregir</button>}</div> : <span className="text-[11px] text-slate-400">demo</span>}</td>
+              <td className="px-3 py-2">{clientId ? <div className="flex gap-1 flex-wrap">{c.status === "not_found" && <button onClick={() => transition(c.id, "prepare")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Preparar alta</button>}{c.status === "prepared" && <button onClick={() => transition(c.id, "submit")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Marcar enviada</button>}{c.status === "submitted" && <button onClick={() => transition(c.id, "publish")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Marcar publicada</button>}{c.status === "inconsistent" && <button onClick={() => transition(c.id, "prepare")} className="text-[11px] px-2 py-0.5 rounded border border-rose-200 text-rose-700 hover:bg-rose-50">Corregir</button>}<button onClick={() => showPacket(c.id, c.directoryName)} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Paquete</button></div> : <span className="text-[11px] text-slate-400">demo</span>}</td>
             </tr>); })}
           </tbody></table></div>
       )}
@@ -398,16 +462,23 @@ const ACTION_STATUS_META: Record<string, { label: string; cls: string }> = {
   dismissed: { label: "Descartada", cls: "bg-slate-100 text-slate-400" }, error: { label: "Error", cls: "bg-rose-100 text-rose-700" }
 };
 function ActionsPanel({ clientId }: { clientId: string | null }) {
-  const [data, setData] = useState<any>(null);
+  const isDemo = !clientId;
+  const [fetched, setFetched] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
-    if (!clientId) { setData(GROWTH_DEMO.actions); return; }
+    if (isDemo) return;
     const a = await fetch(`/api/v1/gmb/clients/${clientId}/actions`).then((r) => r.json()).catch(() => null);
-    setData(a);
-  }, [clientId]);
+    setFetched(a);
+  }, [clientId, isDemo]);
   useEffect(() => { void load(); }, [load]);
   async function generate() { if (!clientId) return; setBusy(true); try { await fetch(`/api/v1/gmb/clients/${clientId}/actions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ useAiCouncil: false }) }); await load(); } finally { setBusy(false); } }
-  async function transition(id: string, command: string) { if (!clientId) return; await fetch(`/api/v1/gmb/actions/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) }); await load(); }
+  async function transition(id: string, command: string) {
+    if (!clientId) return;
+    if (command === "execute" && !window.confirm("Ejecutar el efecto interno seguro (crea borradores; no publica nada externo). ¿Continuar?")) return;
+    await fetch(`/api/v1/gmb/actions/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) });
+    await load();
+  }
+  const data = isDemo ? GROWTH_DEMO.actions : fetched;
   if (!data) return <Spinner />;
   const actions: any[] = data.actions ?? [];
   return (
@@ -418,12 +489,21 @@ function ActionsPanel({ clientId }: { clientId: string | null }) {
       ) : (
         <ul className="space-y-2">{actions.map((a) => { const meta = ACTION_STATUS_META[a.status] ?? ACTION_STATUS_META.suggested; return (
           <li key={a.id} className={`${CARD} flex items-start justify-between gap-3`}>
-            <div><div className="text-sm font-medium text-slate-800">{a.title}<span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${meta.cls}`}>{meta.label}</span>{a.external && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">externa</span>}{a.source === "ai_council" && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">AI Council</span>}</div><div className="text-[11px] text-slate-500 mt-0.5">{a.module} · impacto {a.impact} · esfuerzo {a.effort} · confianza {a.confidence}</div></div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-800">{a.title}<span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${meta.cls}`}>{meta.label}</span>{a.external && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">externa</span>}{a.source === "ai_council" && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">AI Council</span>}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">{a.module} · impacto {a.impact} · esfuerzo {a.effort} · confianza {a.confidence}</div>
+              {a.result?.note && <div className="text-[11px] text-emerald-700 mt-1">✓ {a.result.note}</div>}
+              {a.lastError && <div className="text-[11px] text-rose-600 mt-1">⚠ {a.lastError}</div>}
+            </div>
             {clientId && (
               <div className="shrink-0 flex flex-wrap gap-1 justify-end">
-                {(a.status === "suggested" || a.status === "prepared") && a.external && <button onClick={() => transition(a.id, "request_approval")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Pedir aprobación</button>}
-                {(a.status === "needs_approval" || (!a.external && a.status !== "done" && a.status !== "approved")) && <button onClick={() => transition(a.id, a.external ? "approve" : "prepare")} className="text-[11px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1"><Check className="h-3 w-3" />{a.external ? "Aprobar" : "Preparar"}</button>}
-                {a.status !== "done" && a.status !== "dismissed" && <button onClick={() => transition(a.id, "dismiss")} className="text-[11px] px-2 py-0.5 rounded border text-slate-500 hover:bg-slate-50 inline-flex items-center gap-1"><X className="h-3 w-3" /></button>}
+                {/* Externas: solo pedir/otorgar aprobación; nunca se ejecutan como efecto interno. */}
+                {a.external && (a.status === "suggested" || a.status === "prepared") && <button onClick={() => transition(a.id, "request_approval")} className="text-[11px] px-2 py-0.5 rounded border hover:bg-slate-50">Pedir aprobación</button>}
+                {a.external && a.status === "needs_approval" && <button onClick={() => transition(a.id, "approve")} className="text-[11px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1"><Check className="h-3 w-3" />Aprobar</button>}
+                {/* Internas: aprobar y luego ejecutar el efecto seguro reversible. */}
+                {!a.external && (a.status === "suggested" || a.status === "prepared" || a.status === "needs_approval") && <button onClick={() => transition(a.id, "approve")} className="text-[11px] px-2 py-0.5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1"><Check className="h-3 w-3" />Aprobar</button>}
+                {!a.external && a.status === "approved" && <button onClick={() => transition(a.id, "execute")} className="text-[11px] px-2 py-0.5 rounded bg-brand-600 text-white hover:bg-brand-700">Ejecutar (seguro)</button>}
+                {a.status !== "done" && a.status !== "dismissed" && <button onClick={() => transition(a.id, "dismiss")} title="Descartar" className="text-[11px] px-2 py-0.5 rounded border text-slate-500 hover:bg-slate-50 inline-flex items-center gap-1"><X className="h-3 w-3" /></button>}
               </div>
             )}
           </li>); })}

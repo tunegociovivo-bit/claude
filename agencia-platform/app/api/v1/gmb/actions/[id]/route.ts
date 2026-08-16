@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { computeActionTransition, type ActionStatus, type ActionCommand } from "@/lib/gmb/actions";
+import { applySafeEffect } from "@/lib/gmb/execute-safe";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,14 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.command === "fail") data.lastError = parsed.data.note ?? "error";
   if (parsed.data.command === "complete") data.result = { note: parsed.data.note ?? "completada", at: new Date().toISOString() };
 
+  // EXECUTE de una acción INTERNA → aplica el efecto seguro REVERSIBLE (crear borrador GmbPost /
+  // preparar paquetes NAP / nota). Idempotente y auditado. Externas nunca llegan aquí como internas.
+  if (parsed.data.command === "execute" && !action.external) {
+    const eff = await applySafeEffect(prisma, api.workspaceId, { id: action.id, clientId: action.clientId, module: action.module, type: action.type, title: action.title, external: action.external, evidence: action.evidence, result: action.result }, api.userId ?? null);
+    if (eff.ok) { data.status = "done"; data.result = eff.result; }
+    else { data.status = "error"; data.lastError = eff.error ?? "no se pudo ejecutar"; }
+  }
+
   await prisma.gmbAction.updateMany({ where: { id: action.id, workspaceId: api.workspaceId }, data });
-  return NextResponse.json({ ok: true, id: action.id, status: t.next });
+  return NextResponse.json({ ok: true, id: action.id, status: data.status, result: data.result ?? null });
 });

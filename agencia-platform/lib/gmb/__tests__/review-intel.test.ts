@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { analyzeReview, summarizeReviews, decideReply, DEFAULT_REPLY_RULES } from "../review-intel";
+import { analyzeReview, summarizeReviews, decideReply, buildReplyDraft, DEFAULT_REPLY_RULES } from "../review-intel";
 
 describe("analyzeReview", () => {
   it("reseña 1★ con palabras negativas → negativo, urgencia alta", () => {
@@ -64,5 +64,23 @@ describe("decideReply — nunca auto-publica por defecto", () => {
     const a = analyzeReview({ rating: 2, comment: "regular" });
     const d = decideReply(a, 2, { autoReplyEnabled: true, autoReplyMinRating: 4, neverAutoOnRisk: true });
     expect(d.requiresApproval).toBe(true);
+  });
+});
+
+describe("buildReplyDraft — borrador editable, no publica", () => {
+  it("negativa → tono empático que ofrece solución", () => {
+    const a = analyzeReview({ rating: 1, comment: "trato pésimo" });
+    const draft = buildReplyDraft(a, { businessName: "Café Demo", authorName: "Ana" });
+    expect(draft).toMatch(/lamentamos/i);
+    expect(draft).toContain("Café Demo");
+    expect(draft).toContain("Ana");
+  });
+  it("positiva → agradece", () => {
+    const a = analyzeReview({ rating: 5, comment: "excelente amable" });
+    expect(buildReplyDraft(a, { businessName: "X" })).toMatch(/gracias/i);
+  });
+  it("pregunta → deja hueco para respuesta concreta", () => {
+    const a = analyzeReview({ rating: 4, comment: "¿abrís domingos?" });
+    expect(buildReplyDraft(a, {})).toMatch(/\[completa/i);
   });
 });

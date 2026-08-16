@@ -102,6 +102,25 @@ export type ReplyRules = {
 };
 export const DEFAULT_REPLY_RULES: ReplyRules = { autoReplyEnabled: false, autoReplyMinRating: 4, neverAutoOnRisk: true };
 
+/** Genera un BORRADOR de respuesta (determinista, editable). No publica: es un texto sugerido. */
+export function buildReplyDraft(a: ReviewAnalysis, opts: { businessName?: string | null; authorName?: string | null; tone?: string | null }): string {
+  const name = opts.authorName ? `${opts.authorName}, ` : "";
+  const firma = opts.businessName ? `\n\nUn saludo,\n${opts.businessName}` : "";
+  const temas = a.topics.length ? ` sobre ${a.topics.join(", ")}` : "";
+  const tono = (opts.tone ?? "").toLowerCase();
+  if (a.sentiment === "negative") {
+    return `Hola ${name}lamentamos que tu experiencia${temas} no haya sido la esperada. Queremos solucionarlo: por favor, escríbenos para poder ayudarte y mejorar. Gracias por tu sinceridad.${firma}`.trim();
+  }
+  if (a.intent === "question") {
+    return `Hola ${name}gracias por tu consulta${temas}. Te respondemos encantados: [completa aquí la respuesta concreta]. Si necesitas más información, estamos a tu disposición.${firma}`.trim();
+  }
+  if (a.sentiment === "positive") {
+    const extra = tono.includes("entusiasta") ? " ¡Nos ha encantado leerte!" : "";
+    return `¡Hola ${name}muchas gracias por tu reseña${temas}!${extra} Nos alegra mucho que hayas tenido una buena experiencia. Te esperamos de nuevo pronto.${firma}`.trim();
+  }
+  return `Hola ${name}gracias por tu comentario${temas}. Tomamos nota para seguir mejorando. Cualquier cosa, quedamos a tu disposición.${firma}`.trim();
+}
+
 export type ReplyDecision = { canAutoSuggest: boolean; requiresApproval: boolean; reason: string };
 
 /** Decide si una respuesta puede AUTO-SUGERIRSE (draft sin enviar) o requiere aprobación humana.
