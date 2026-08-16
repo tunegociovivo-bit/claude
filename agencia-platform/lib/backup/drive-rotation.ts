@@ -138,21 +138,25 @@ async function generateBackupArchive(workspaceId: string): Promise<{
   });
   const existingDriveFiles = await listDriveFiles({ workspaceId, namePrefix: "hub-adjunto-" });
   const existingByName = new Map(existingDriveFiles.map((file) => [file.name, file]));
-  const manifest: Array<Record<string, unknown>> = [];
+  const manifest: Array<Record<string, unknown>> = new Array(files.length);
+  const uploadsByName = new Map<string, ReturnType<typeof uploadDriveFile>>();
   let missingFiles = 0;
-  for (const file of files) {
+  let nextFileIndex = 0;
+
+  async function mirrorFile(index: number): Promise<void> {
+    const file = files[index];
     let body: Buffer;
     try {
       body = await downloadBuffer(file.s3Key);
     } catch (error) {
       if (!isMissingStorageObjectError(error)) throw error;
       missingFiles += 1;
-      manifest.push({
+      manifest[index] = {
         ...file,
         backupStatus: "source_missing",
         error: "El objeto no existe en el almacenamiento de origen"
-      });
-      continue;
+      };
+      return;
     }
     const sha256 = createHash("sha256").update(body).digest("hex");
     const md5 = createHash("md5").update(body).digest("hex");
@@ -163,15 +167,31 @@ async function generateBackupArchive(workspaceId: string): Promise<{
     const existing = candidate && candidate.size === String(body.byteLength) && (!candidate.md5Checksum || candidate.md5Checksum === md5)
       ? candidate
       : undefined;
-    const remote = existing ?? await uploadDriveFile({
-      workspaceId,
-      fileName: driveName,
-      body,
-      mimeType: file.mimeType || "application/octet-stream"
-    });
+    let upload = uploadsByName.get(driveName);
+    if (!existing && !upload) {
+      upload = uploadDriveFile({
+        workspaceId,
+        fileName: driveName,
+        body,
+        mimeType: file.mimeType || "application/octet-stream"
+      });
+      uploadsByName.set(driveName, upload);
+    }
+    const remote = existing ?? await upload!;
     existingByName.set(driveName, remote);
-    manifest.push({ ...file, backupStatus: "mirrored", driveFileId: remote.id, driveName, sha256 });
+    manifest[index] = { ...file, backupStatus: "mirrored", driveFileId: remote.id, driveName, sha256 };
   }
+
+  async function worker(): Promise<void> {
+    while (nextFileIndex < files.length) {
+      const index = nextFileIndex++;
+      await mirrorFile(index);
+    }
+  }
+
+  // Tres workers reducen drásticamente el tiempo sin cargar demasiados
+  // adjuntos grandes simultáneamente en memoria.
+  await Promise.all(Array.from({ length: Math.min(3, files.length) }, () => worker()));
   const json = JSON.stringify({
     format: "hub-complete-backup-v1",
     dump,
