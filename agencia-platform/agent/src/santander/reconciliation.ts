@@ -31,12 +31,17 @@ export function shouldRunDailyReconciliation(now: Date, lastSyncAt: Date | null,
   return `${last.year}-${last.month}-${last.day}` !== `${current.year}-${current.month}-${current.day}`;
 }
 
-export function isReconciliationRetryDue(now: Date, lastAttemptAt: Date | null, timeZone = "Europe/Madrid"): boolean {
-  if (!Number.isFinite(now.getTime())) return false;
-  if (!lastAttemptAt || !Number.isFinite(lastAttemptAt.getTime())) return true;
+export type ReconciliationRetryDecision = "RUN" | "WAIT" | "EXHAUSTED";
+
+export function reconciliationRetryDecision(now: Date, lastAttemptAt: Date | null, failedAttempts: number, timeZone = "Europe/Madrid", retryMinutes = 30): ReconciliationRetryDecision {
+  if (!Number.isFinite(now.getTime())) return "WAIT";
+  if (!lastAttemptAt || !Number.isFinite(lastAttemptAt.getTime())) return "RUN";
   const current = localParts(now, timeZone);
   const last = localParts(lastAttemptAt, timeZone);
-  return `${last.year}-${last.month}-${last.day}` !== `${current.year}-${current.month}-${current.day}`;
+  const sameDay = `${last.year}-${last.month}-${last.day}` === `${current.year}-${current.month}-${current.day}`;
+  if (!sameDay) return "RUN";
+  if (failedAttempts >= 3) return "EXHAUSTED";
+  return now.getTime() - lastAttemptAt.getTime() >= retryMinutes * 60_000 ? "RUN" : "WAIT";
 }
 
 export type SepaRemittanceRow = { dueAt: string; amountCents: number; remittanceNumber: string; status: string };

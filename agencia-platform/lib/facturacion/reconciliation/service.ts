@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement } from "./matching";
+import { sendEmail } from "@/lib/integrations/email";
 
 export const NEGOCIO_VIVO_RECONCILIATION_START = new Date("2026-08-09T22:00:00.000Z");
 
@@ -29,7 +30,17 @@ function fingerprint(workspaceId: string, movement: IncomingBankMovement): strin
 
 export async function ensureReconciliationConfig(workspaceId: string) {
   const existing = await prisma.bankReconciliationConfig.findUnique({ where: { workspaceId } });
-  const oldVersion = Number((existing?.profile as Record<string, unknown> | null)?.schemaVersion ?? 0);
+  const existingProfile = (existing?.profile as Record<string, unknown> | null) ?? {};
+  const oldVersion = Number(existingProfile.schemaVersion ?? 0);
+  const profile = {
+    ...existingProfile,
+    schemaVersion: 5,
+    santanderOrigin: "https://empresas3.gruposantander.es",
+    reconciliationMode: "sepa-core-receipts-and-account-expenses",
+    dailyAt: "08:00",
+    timeZone: "Europe/Madrid",
+    storesBankCredentials: false
+  };
   return prisma.bankReconciliationConfig.upsert({
     where: { workspaceId },
     create: {
@@ -38,25 +49,11 @@ export async function ensureReconciliationConfig(workspaceId: string) {
       startsAt: NEGOCIO_VIVO_RECONCILIATION_START,
       provider: "SANTANDER",
       pollMinutes: 1440,
-      profile: {
-        schemaVersion: 4,
-        santanderOrigin: "https://empresas3.gruposantander.es",
-        reconciliationMode: "sepa-core-receipts-and-account-expenses",
-        dailyAt: "08:00",
-        timeZone: "Europe/Madrid",
-        storesBankCredentials: false
-      }
+      profile
     },
     update: {
       pollMinutes: 1440,
-      profile: {
-        schemaVersion: 4,
-        santanderOrigin: "https://empresas3.gruposantander.es",
-        reconciliationMode: "sepa-core-receipts-and-account-expenses",
-        dailyAt: "08:00",
-        timeZone: "Europe/Madrid",
-        storesBankCredentials: false
-      },
+      profile,
       ...(oldVersion < 4 ? { lastSyncAt: null } : {})
     }
   });
@@ -428,9 +425,48 @@ export async function importAndReconcileMovements(workspaceId: string, movements
 
   await prisma.bankReconciliationConfig.update({
     where: { workspaceId },
-    data: { lastSyncAt: new Date(), lastError: null }
+    data: { lastSyncAt: new Date(), lastError: null, profile: { ...((config.profile as Record<string, unknown>) ?? {}), retryState: null } }
   });
   return { imported, matched, ignored };
+}
+
+type RetryState = { attempts: number; lastFailureAt: string; notifiedAt?: string };
+
+export async function recordReconciliationFailure(workspaceId: string, reason: string) {
+  const config = await ensureReconciliationConfig(workspaceId);
+  const profile = (config.profile as Record<string, unknown> | null) ?? {};
+  const previous = (profile.retryState as RetryState | null) ?? null;
+  const now = new Date();
+  const today = madridDay(now);
+  const sameDay = previous?.lastFailureAt && madridDay(new Date(previous.lastFailureAt)) === today;
+  const attempts = sameDay ? Math.min(3, previous.attempts + 1) : 1;
+  const shouldNotify = attempts >= 3 && !(sameDay && previous?.notifiedAt);
+  let notifiedAt = sameDay ? previous?.notifiedAt : undefined;
+
+  await prisma.bankReconciliationConfig.update({
+    where: { workspaceId },
+    data: { lastError: reason.slice(0, 1000), profile: { ...profile, retryState: { attempts, lastFailureAt: now.toISOString(), ...(notifiedAt ? { notifiedAt } : {}) } } }
+  });
+
+  if (shouldNotify) {
+    await sendEmail({
+      to: "info@negociovivo.com",
+      workspaceId,
+      subject: "⚠️ Facturación · conciliación bloqueada tras 3 intentos",
+      html: `<p>La conciliación bancaria automática no ha podido completarse después de 3 intentos.</p><p><b>Error:</b> ${escapeHtml(reason.slice(0, 1000))}</p><p>El agente volverá a intentarlo en la siguiente ejecución diaria. Revisa que el PC-Oficina, Chrome y la sesión de Santander estén disponibles.</p>`,
+      text: `La conciliación bancaria no ha podido completarse después de 3 intentos. Error: ${reason.slice(0, 1000)}`
+    });
+    notifiedAt = new Date().toISOString();
+    await prisma.bankReconciliationConfig.update({
+      where: { workspaceId },
+      data: { profile: { ...profile, retryState: { attempts, lastFailureAt: now.toISOString(), notifiedAt } } }
+    });
+  }
+  return { attempts, notified: Boolean(notifiedAt) };
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]!);
 }
 
 export async function reconciliationDashboard(workspaceId: string) {

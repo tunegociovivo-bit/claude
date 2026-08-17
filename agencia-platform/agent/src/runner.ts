@@ -14,7 +14,7 @@ import { HubClient, type ClaimedJob } from "./hub-client.js";
 import type { SantanderAdapter, AdapterHooks, AuthorizedJob } from "./santander/types.js";
 import { MockSantanderAdapter } from "./santander/mock.js";
 import { LiveSantanderAdapter } from "./santander/live.js";
-import { isReconciliationRetryDue, SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
+import { reconciliationRetryDecision, SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
 
 export class Runner {
   private stopped = false;
@@ -64,14 +64,22 @@ export class Runner {
       if (!shouldRunDailyReconciliation(now, config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
       // Si Santander no está disponible, no reabrir una ventana en cada ciclo
       // de sondeo. Un intento fallido queda enfriado durante 30 minutos.
-      if (!isReconciliationRetryDue(now, this.lastReconciliationAttemptAt, config.timeZone)) return;
+      const lastAttempt = config.lastFailureAt ? new Date(config.lastFailureAt) : this.lastReconciliationAttemptAt;
+      if (reconciliationRetryDecision(now, lastAttempt, config.retryAttempts, config.timeZone) !== "RUN") return;
       this.lastReconciliationAttemptAt = now;
       const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin, credentialFile: this.cfg.santanderCredentialFile });
       const movements = await reader.scan(new Date(config.startsAt));
       const result = await this.hub.reportMovements(movements);
       this.log.info(`Conciliación: ${result.imported} movimientos nuevos, ${result.matched} facturas conciliadas.`);
     } catch (e: any) {
-      this.log.warn(`Conciliación aplazada: ${e?.message ?? e}`);
+      const reason = String(e?.message ?? e).slice(0, 1000);
+      this.log.warn(`Conciliación aplazada: ${reason}`);
+      try {
+        const incident = await this.hub.reportReconciliationFailure(reason);
+        this.log.warn(`Conciliación: intento ${incident.attempts}/3${incident.notified ? "; aviso enviado" : ""}.`);
+      } catch (reportError: any) {
+        this.log.warn(`No se pudo registrar el fallo de conciliación: ${reportError?.message ?? reportError}`);
+      }
     }
   }
 
