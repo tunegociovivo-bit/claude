@@ -128,7 +128,6 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
     const nearbyRequests = await prisma.sepaRemittanceRequest.findMany({
       where: {
         workspaceId,
-        archivedAt: null,
         status: { in: ["PENDING_SIGNATURE", "SIGNED"] },
         amountCents: summary.amountCents,
         chargeDate: {
