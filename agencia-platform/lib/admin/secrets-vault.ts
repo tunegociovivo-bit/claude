@@ -66,6 +66,8 @@ async function collectSecrets(
   // Leads / WhatsApp
   addEnc("waha_key", "WAHA API key", "WhatsApp", s.leads?.wahaApiKey);
   add("waha_url", "WAHA URL", "WhatsApp", s.leads?.wahaUrl);
+  addEnc("waha_panel_username", "WAHA panel — usuario", "WhatsApp", s.leads?.wahaPanelUsernameEnc);
+  addEnc("waha_panel_password", "WAHA panel — contraseña", "WhatsApp", s.leads?.wahaPanelPasswordEnc);
   addEnc("evolution_key", "Evolution API key", "WhatsApp", s.leads?.evolutionApiKey);
 
   // Leads / captación (fuentes y enriquecimiento de contacto)

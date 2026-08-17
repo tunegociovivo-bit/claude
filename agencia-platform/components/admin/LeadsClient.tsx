@@ -7837,6 +7837,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [s, setS] = useState<any>(null);
   const [googleKey, setGoogleKey] = useState("");
   const [wahaKey, setWahaKey] = useState("");
+  const [wahaPanelUsername, setWahaPanelUsername] = useState("");
+  const [wahaPanelPassword, setWahaPanelPassword] = useState("");
   const [evoKey, setEvoKey] = useState("");
   const [metaAdsKey, setMetaAdsKey] = useState("");
   const [scrapflyKey, setScrapflyKey] = useState("");
@@ -7913,7 +7915,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   useEffect(() => {
     if (!open) return;
-    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setElevenKey(""); setError(null); setSavedAt(null);
+    setGoogleKey(""); setWahaKey(""); setWahaPanelUsername(""); setWahaPanelPassword(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setElevenKey(""); setError(null); setSavedAt(null);
     setS(null);
     loadSettings();
   }, [open]);
@@ -8014,6 +8016,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     const gk = googleKey.trim();
     if (gk && /^AIza[\w-]{20,}$/.test(gk)) body.googleApiKey = gk;
     if (wahaKey) body.wahaApiKey = wahaKey;
+    if (wahaPanelUsername.trim()) body.wahaPanelUsername = wahaPanelUsername.trim();
+    if (wahaPanelPassword.trim()) body.wahaPanelPassword = wahaPanelPassword.trim();
     if (evoKey) body.evolutionApiKey = evoKey;
     if (metaAdsKey) body.metaAdsToken = metaAdsKey;
     if (scrapflyKey) body.scrapflyApiKey = scrapflyKey;
@@ -8027,6 +8031,15 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       const j = await r.json().catch(() => ({}));
       setError(j?.error?.message ?? `Error ${r.status}`);
       return false;
+    }
+    if (wahaPanelUsername.trim() || wahaPanelPassword.trim()) {
+      setS((prev: any) => ({
+        ...prev,
+        wahaPanelUsernameConfigured: prev?.wahaPanelUsernameConfigured || !!wahaPanelUsername.trim(),
+        wahaPanelPasswordConfigured: prev?.wahaPanelPasswordConfigured || !!wahaPanelPassword.trim()
+      }));
+      setWahaPanelUsername("");
+      setWahaPanelPassword("");
     }
     setSavedAt(new Date());
     return true;
@@ -8431,6 +8444,28 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <>
                 <input value={s.wahaUrl ?? ""} onChange={(e) => setField("wahaUrl", e.target.value)} placeholder="https://waha.ejemplo.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
                 <input type="password" autoComplete="off" data-lpignore="true" data-1p-ignore value={wahaKey} onChange={(e) => setWahaKey(e.target.value)} placeholder={s.wahaConfigured ? "•••• (configurada)" : "API key WAHA"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore
+                    value={wahaPanelUsername}
+                    onChange={(e) => setWahaPanelUsername(e.target.value)}
+                    placeholder={s.wahaPanelUsernameConfigured ? "Usuario del panel (configurado)" : "Usuario del panel WAHA"}
+                    className="px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore
+                    value={wahaPanelPassword}
+                    onChange={(e) => setWahaPanelPassword(e.target.value)}
+                    placeholder={s.wahaPanelPasswordConfigured ? "Contraseña del panel (configurada)" : "Contraseña del panel WAHA"}
+                    className="px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <input value={s.wahaSession ?? "default"} onChange={(e) => setField("wahaSession", e.target.value)} placeholder="Nombre sesión" className="px-3 py-2 rounded-lg border bg-white text-sm" />
                   <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />

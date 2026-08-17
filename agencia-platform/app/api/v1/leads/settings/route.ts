@@ -40,6 +40,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     whatsappProvider: s.whatsappProvider === "evolution" ? "evolution" : "waha",
     wahaUrl: s.wahaUrl ?? evo.url ?? process.env.WAHA_URL ?? null,
     wahaConfigured: !!(s.wahaApiKey || evo.apiKeyEnc || process.env.WAHA_API_KEY),
+    wahaPanelUsernameConfigured: !!s.wahaPanelUsernameEnc,
+    wahaPanelPasswordConfigured: !!s.wahaPanelPasswordEnc,
     wahaSession: s.wahaSession ?? process.env.WAHA_SESSION ?? "default",
     evolutionUrl: s.evolutionUrl ?? evo.url ?? process.env.EVOLUTION_API_URL ?? null,
     evolutionConfigured: !!(s.evolutionApiKey || evo.apiKeyEnc || process.env.EVOLUTION_API_KEY),
@@ -125,6 +127,10 @@ const schema = z.object({
   wahaUrl: z.string().url().or(z.literal("")).nullable().optional(),
   wahaApiKey: z.string().nullable().optional(),
   clearWahaApiKey: z.boolean().optional(),
+  wahaPanelUsername: z.string().max(200).optional(),
+  wahaPanelPassword: z.string().max(400).optional(),
+  clearWahaPanelUsername: z.boolean().optional(),
+  clearWahaPanelPassword: z.boolean().optional(),
   wahaSession: z.string().optional(),
   evolutionUrl: z.string().url().or(z.literal("")).nullable().optional(),
   evolutionApiKey: z.string().nullable().optional(),
@@ -242,6 +248,16 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     delete s.wahaApiKey;
   } else if (typeof parsed.data.wahaApiKey === "string" && parsed.data.wahaApiKey.trim()) {
     s.wahaApiKey = encryptSecret(parsed.data.wahaApiKey.trim());
+  }
+  if (parsed.data.clearWahaPanelUsername) {
+    delete s.wahaPanelUsernameEnc;
+  } else if (typeof parsed.data.wahaPanelUsername === "string" && parsed.data.wahaPanelUsername.trim()) {
+    s.wahaPanelUsernameEnc = encryptSecret(parsed.data.wahaPanelUsername.trim());
+  }
+  if (parsed.data.clearWahaPanelPassword) {
+    delete s.wahaPanelPasswordEnc;
+  } else if (typeof parsed.data.wahaPanelPassword === "string" && parsed.data.wahaPanelPassword.trim()) {
+    s.wahaPanelPasswordEnc = encryptSecret(parsed.data.wahaPanelPassword.trim());
   }
   if (parsed.data.evolutionUrl !== undefined) {
     s.evolutionUrl = parsed.data.evolutionUrl || null;
