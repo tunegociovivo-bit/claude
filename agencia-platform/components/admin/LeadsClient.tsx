@@ -147,7 +147,7 @@ type QueueRow = {
   channelCap?: number;
 };
 
-type Tab = "leads" | "opportunities" | "searches" | "queue" | "jobs-review" | "franchises" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
+type Tab = "leads" | "opportunities" | "searches" | "queue" | "jobs-review" | "franchises" | "trade-fairs" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
 /** ¿Este mensaje de la cola se ENVIÓ hoy? (día natural local del navegador —
  *  España ≈ Madrid). Para resaltar en verde los envíos del día. */
@@ -721,6 +721,7 @@ export default function LeadsClient() {
       {tab === "jobs-review" && <JobsReviewPanel />}
       {tab === "opportunities" && <OpportunityHunterPage />}
       {tab === "franchises" && <FranchisesView />}
+      {tab === "trade-fairs" && <TradeFairsView />}
       {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} initialPhone={deepLinkPhone} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
@@ -1042,6 +1043,7 @@ const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "queue",      label: "Cola envío",  icon: <Send className="h-3.5 w-3.5" /> },
   { key: "jobs-review", label: "📧 Empleos", icon: <Mail className="h-3.5 w-3.5" /> },
   { key: "franchises", label: "🏢 Franquicias", icon: <Building2 className="h-3.5 w-3.5" /> },
+  { key: "trade-fairs", label: "🎪 Expositores", icon: <Building2 className="h-3.5 w-3.5" /> },
   { key: "inbox",      label: "Inbox",       icon: <Inbox className="h-3.5 w-3.5" /> },
   { key: "sequences",  label: "Secuencias",  icon: <GitBranch className="h-3.5 w-3.5" /> },
   { key: "templates",  label: "Plantillas",  icon: <ListChecks className="h-3.5 w-3.5" /> },
@@ -3263,6 +3265,68 @@ function DecisionMakerKeys() {
         </div>
       </div>
     </details>
+  );
+}
+
+function TradeFairsView() {
+  const [form, setForm] = useState({ name: "", url: "", venue: "", startsAt: "", endsAt: "", maxExhibitors: 100, autoQueue: false });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+
+  const load = useCallback(async () => {
+    const response = await fetch("/api/v1/leads/trade-fairs", { cache: "no-store" });
+    const json = await response.json().catch(() => ({}));
+    if (response.ok) setHistory(json.items ?? []);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function run() {
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const response = await fetch("/api/v1/leads/trade-fairs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error?.message ?? "No se pudo procesar el catálogo");
+      setResult(json); await load();
+    } catch (e: any) { setError(e?.message ?? String(e)); }
+    finally { setBusy(false); }
+  }
+
+  const field = (key: keyof typeof form, value: string | number | boolean) => setForm((current) => ({ ...current, [key]: value }));
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5">
+        <div className="text-base font-semibold text-violet-950">🎪 Robot de expositores — amplificar el stand</div>
+        <p className="mt-1 max-w-4xl text-sm text-violet-900/80">
+          Importa el catálogo de una feria, extrae y enriquece los contactos de sus expositores y prepara un WhatsApp ofreciendo anuncios geolocalizados alrededor del recinto durante las fechas exactas del evento.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="text-xs font-medium text-slate-700">Nombre de la feria<input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.name} onChange={(e) => field("name", e.target.value)} placeholder="Genera 2026" /></label>
+          <label className="text-xs font-medium text-slate-700">Recinto y ciudad<input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.venue} onChange={(e) => field("venue", e.target.value)} placeholder="IFEMA Madrid" /></label>
+          <label className="text-xs font-medium text-slate-700 md:col-span-2">URL pública del catálogo de expositores<input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.url} onChange={(e) => field("url", e.target.value)} placeholder="https://…/catalogo-expositores" /></label>
+          <label className="text-xs font-medium text-slate-700">Primer día<input type="date" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.startsAt} onChange={(e) => field("startsAt", e.target.value)} /></label>
+          <label className="text-xs font-medium text-slate-700">Último día<input type="date" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.endsAt} onChange={(e) => field("endsAt", e.target.value)} /></label>
+          <label className="text-xs font-medium text-slate-700">Máximo de expositores<input type="number" min={1} max={300} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.maxExhibitors} onChange={(e) => field("maxExhibitors", Number(e.target.value))} /></label>
+          <label className="flex items-center gap-2 self-end rounded-lg border bg-white px-3 py-2 text-sm text-slate-700"><input type="checkbox" checked={form.autoQueue} onChange={(e) => field("autoQueue", e.target.checked)} />Encolar WhatsApp automáticamente</label>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button onClick={run} disabled={busy || !form.name || !form.url || !form.venue || !form.startsAt || !form.endsAt} className="inline-flex items-center gap-2 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Extraer expositores
+          </button>
+          <span className="text-xs text-slate-500">Por seguridad, el envío automático viene desactivado.</span>
+        </div>
+        {error && <p className="mt-3 text-sm text-rose-700">{error}</p>}
+        {result && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">✓ {result.discovered} fichas detectadas · {result.imported} leads nuevos · {result.skipped} duplicados · {result.queued} WhatsApp en cola.</p>}
+      </div>
+      <div className="rounded-xl border bg-white">
+        <div className="border-b px-4 py-3 text-sm font-semibold text-slate-800">Ferias procesadas</div>
+        {!history.length ? <p className="p-4 text-sm text-slate-500">Todavía no se ha procesado ninguna feria.</p> : history.map((item) => {
+          const cfg = item.sourceConfig ?? {};
+          return <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm last:border-0"><div><b>{item.keyword}</b><div className="text-xs text-slate-500">{item.location} · {cfg.startsAt} → {cfg.endsAt}</div></div><div className="text-right"><b>{item.totalResults}</b> leads<div className="text-xs text-slate-500">{item.leadsSkipped ?? 0} duplicados · {item.status}</div></div></div>;
+        })}
+      </div>
+    </div>
   );
 }
 

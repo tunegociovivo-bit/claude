@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFairOutreach, discoverExhibitorUrls, normalizeFairInput } from "../trade-fair-exhibitors";
+import { buildFairOutreach, discoverExhibitorUrls, normalizeFairInput } from "../trade-fair-core";
 
 describe("robot de expositores", () => {
   it("descubre fichas de expositores y elimina enlaces ajenos y duplicados", () => {
