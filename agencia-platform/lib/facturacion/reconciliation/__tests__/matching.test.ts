@@ -34,7 +34,7 @@ describe("conciliación bancaria desde la fecha de corte", () => {
   it("matches a unique SEPA summary by date and amount", () => {
     expect(matchUniqueSepaSummary(
       { amountCents: 42350, bookedAt: new Date("2026-08-12T12:00:00Z") },
-      [{ invoiceId: "invoice-423", amountCents: 42350, chargeDate: new Date("2026-08-12T08:00:00Z") }]
+      [{ invoiceId: "invoice-423", amountCents: 42350, chargeDate: new Date("2026-08-10T08:00:00Z") }]
     )).toMatchObject({ invoiceId: "invoice-423", confidence: "SEPA_RECEIPT" });
   });
 
@@ -45,6 +45,13 @@ describe("conciliación bancaria desde la fecha de corte", () => {
         { invoiceId: "invoice-a", amountCents: 18150, chargeDate: new Date("2026-08-12T07:00:00Z") },
         { invoiceId: "invoice-b", amountCents: 18150, chargeDate: new Date("2026-08-12T09:00:00Z") }
       ]
+    )).toBeNull();
+  });
+
+  it("rejects requests outside the safe settlement window", () => {
+    expect(matchUniqueSepaSummary(
+      { amountCents: 54450, bookedAt: new Date("2026-08-13T12:00:00Z") },
+      [{ invoiceId: "too-old", amountCents: 54450, chargeDate: new Date("2026-08-08T08:00:00Z") }]
     )).toBeNull();
   });
 });

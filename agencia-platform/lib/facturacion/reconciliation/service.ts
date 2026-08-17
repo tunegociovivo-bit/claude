@@ -132,8 +132,8 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
         status: { in: ["PENDING_SIGNATURE", "SIGNED"] },
         amountCents: summary.amountCents,
         chargeDate: {
-          gte: new Date(summary.bookedAt.getTime() - 18 * 60 * 60 * 1000),
-          lt: new Date(summary.bookedAt.getTime() + 18 * 60 * 60 * 1000)
+          gte: new Date(summary.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000),
+          lte: new Date(summary.bookedAt.getTime() + 12 * 60 * 60 * 1000)
         }
       },
       select: { invoiceId: true, amountCents: true, chargeDate: true }
