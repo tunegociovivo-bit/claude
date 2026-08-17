@@ -41,6 +41,7 @@ const PUBLIC_PATHS = [
   "/api/webhooks/",
   "/api/v1/gmb/reviews/webhook",
   "/api/v1/gmb/widget/",
+  "/api/v1/gmb/public/report/",
   "/api/v1/gmb/buscador/run-scheduled",
   "/api/v1/gmb/reports/monthly-cron",
   "/api/v1/voice/webhook",

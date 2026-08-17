@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import GrowthCenter from "@/components/gmb/GrowthCenter";
+import PortfolioView from "@/components/gmb/PortfolioView";
+import AlertsView from "@/components/gmb/AlertsView";
 import {
   Loader2,
   Plus,
@@ -71,7 +73,7 @@ export default function GmbHubClient() {
   const [showNew, setShowNew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [view, setView] = useState<"fichas" | "buscador" | "crecimiento">("fichas");
+  const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento">("fichas");
 
   async function load() {
     setLoading(true);
@@ -124,6 +126,8 @@ export default function GmbHubClient() {
       <div className="flex gap-1 mb-4 bg-slate-100 rounded-lg p-1 w-fit">
         {([
           ["fichas", "Fichas"],
+          ["portfolio", "Portfolio"],
+          ["alertas", "Alertas"],
           ["crecimiento", "Crecimiento local"],
           ["buscador", "Buscador GMB"]
         ] as const).map(([k, label]) => (
@@ -141,6 +145,10 @@ export default function GmbHubClient() {
       </div>
 
       {view === "buscador" && <BuscadorView />}
+
+      {view === "portfolio" && <PortfolioView />}
+
+      {view === "alertas" && <AlertsView />}
 
       {view === "crecimiento" && <GrowthCenter />}
 

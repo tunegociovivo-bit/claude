@@ -356,12 +356,14 @@ function ContentPanel({ clientId }: { clientId: string | null }) {
         <div className="text-[11px] text-slate-400 mt-1">La publicación en Google es adapter-gated: solo se publica lo programado y aprobado, nunca automáticamente sin aprobación.</div>
       </div>
 
-      {!isDemo && (
+      {(() => {
+        const mediaList = isDemo ? ((GROWTH_DEMO.content as any).photos ?? []) : photos;
+        return (
         <div>
-          <div className="flex items-center justify-between mb-2"><span className="text-sm font-semibold text-slate-800">Biblioteca multimedia</span><button onClick={addPhoto} className="text-[11px] px-2 py-0.5 rounded border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100">＋ Añadir por URL</button></div>
-          {photos.length === 0 ? <div className={`${CARD} text-sm text-slate-500`}>Sin imágenes. Añade por URL; se deduplican por hash y quedan en cola (envío solo con GBP conectado + aprobación).</div> : (
+          <div className="flex items-center justify-between mb-2"><span className="text-sm font-semibold text-slate-800">Biblioteca multimedia{isDemo && <span className="ml-1 text-[10px] text-amber-600">(demo)</span>}</span><button onClick={addPhoto} disabled={isDemo} className="text-[11px] px-2 py-0.5 rounded border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">＋ Añadir por URL</button></div>
+          {mediaList.length === 0 ? <div className={`${CARD} text-sm text-slate-500`}>Sin imágenes. Añade por URL; se deduplican por hash y quedan en cola (envío solo con GBP conectado + aprobación).</div> : (
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {photos.map((p: any) => (
+              {mediaList.map((p: any) => (
                 <div key={p.id} className="relative group rounded-lg overflow-hidden border bg-slate-50 aspect-square">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={p.url} alt={p.caption || "foto"} className="w-full h-full object-cover" />
@@ -373,7 +375,8 @@ function ContentPanel({ clientId }: { clientId: string | null }) {
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -483,17 +486,36 @@ function ReportPanel({ clientId }: { clientId: string | null }) {
     fetch(`/api/v1/gmb/clients/${clientId}/growth-report?month=${month}`).then((r) => r.json()).then((d) => setReport(d.ok ? d.report : null)).finally(() => setLoading(false));
   }, [clientId, month]);
   useEffect(() => { load(); }, [load]);
+  const [share, setShare] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [sharing, setSharing] = useState(false);
+  async function createShare() {
+    if (!clientId) return;
+    setSharing(true);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${clientId}/report-share`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month, expiryDays: 30, includePII: false }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setShare({ url: d.url, expiresAt: d.expiresAt });
+    } finally { setSharing(false); }
+  }
 
   if (!clientId) {
-    return <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">En demo no hay informe real. Con una ficha conectada verás el informe mensual con datos reales, imprimible/exportable a PDF.</div>;
+    return <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">En demo no hay informe real. Con una ficha conectada verás el informe mensual con datos reales, imprimible/exportable a PDF, y podrás generar un enlace white-label compartible (token revocable, con caducidad y sin PII).</div>;
   }
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 no-print">
         <FileText className="h-4 w-4 text-brand-600" /><span className="text-sm font-semibold text-slate-800">Informe mensual</span>
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-lg border px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-        <button onClick={() => window.print()} disabled={!report} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50">Imprimir / PDF</button>
+        <button onClick={createShare} disabled={sharing || !report} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 text-sm disabled:opacity-50">{sharing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Compartir (white-label)</button>
+        <button onClick={() => window.print()} disabled={!report} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50">Imprimir / PDF</button>
       </div>
+      {share && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs no-print flex items-center gap-2">
+          <span className="text-emerald-800">Enlace compartible (caduca {new Date(share.expiresAt).toLocaleDateString("es-ES")}, sin PII):</span>
+          <input readOnly value={share.url} className="flex-1 min-w-0 rounded border px-2 py-1 font-mono text-[11px]" onFocus={(e) => e.currentTarget.select()} />
+          <button onClick={() => { void navigator.clipboard?.writeText(share.url); }} className="px-2 py-1 rounded border bg-white hover:bg-slate-50">Copiar</button>
+        </div>
+      )}
       {loading || !report ? <Spinner /> : (
         <div id="gmb-report" className={`${CARD} space-y-4`}>
           <div className="border-b pb-2"><h2 className="text-lg font-bold text-slate-900">{report.client.name}</h2><div className="text-xs text-slate-500">Informe de crecimiento local · {report.period.label}</div></div>
@@ -570,10 +592,10 @@ function CitationsPanel({ clientId }: { clientId: string | null }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-slate-600">Total <b>{data.summary?.total ?? 0}</b></span><span className="text-rose-600">Accionables <b>{data.summary?.actionable ?? 0}</b></span>
-        {clientId && <button onClick={seed} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "＋"} Generar inventario</button>}
-        {clientId && <button onClick={() => setImportOpen((v) => !v)} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Importar CSV</button>}
-        {clientId && <a href={`/api/v1/gmb/clients/${clientId}/citations/csv`} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Exportar CSV</a>}
-        {clientId && <button onClick={downloadPackets} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Paquetes (todos)</button>}
+        {(clientId || isDemo) && <button onClick={seed} disabled={busy || isDemo} title={isDemo ? "demo" : ""} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "＋"} Generar inventario</button>}
+        {(clientId || isDemo) && <button onClick={() => setImportOpen((v) => !v)} disabled={isDemo} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50">Importar CSV</button>}
+        {clientId ? <a href={`/api/v1/gmb/clients/${clientId}/citations/csv`} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50">Exportar CSV</a> : isDemo && <button disabled className="px-2.5 py-1.5 rounded-lg border opacity-50">Exportar CSV</button>}
+        {(clientId || isDemo) && <button onClick={downloadPackets} disabled={isDemo} className="px-2.5 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50">Paquetes (todos)</button>}
         <span className="ml-auto flex items-center gap-1">Filtro:
           {(["all", "actionable", "inconsistent", "not_found", "published"] as const).map((f) => (
             <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f} className={`px-2 py-0.5 rounded-full border ${filter === f ? "bg-brand-600 text-white border-brand-600" : "bg-white hover:bg-slate-50"}`}>{f === "all" ? "todos" : f === "actionable" ? "accionables" : CITATION_STATUS_META[f]?.label ?? f}</button>
@@ -656,12 +678,12 @@ function ActionsPanel({ clientId }: { clientId: string | null }) {
   const pol = policy ?? { mode: data.autopilotMode ?? "suggest_only", dailyLimit: 3, minConfidence: 70, killSwitch: false, quietStart: null, quietEnd: null };
   return (
     <div className="space-y-3">
-      {/* Piloto automático */}
-      {clientId && (
+      {/* Piloto automático (visible también en demo, controles desactivados) */}
+      {(clientId || isDemo) && (
         <div className={`${CARD} space-y-2`}>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-slate-800">Piloto automático</span>
-            <select value={pol.mode} onChange={(e) => savePolicy({ mode: e.target.value })} className="rounded-lg border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <span className="text-sm font-semibold text-slate-800">Piloto automático{isDemo && <span className="ml-1 text-[10px] text-amber-600">(demo)</span>}</span>
+            <select disabled={isDemo} value={pol.mode} onChange={(e) => savePolicy({ mode: e.target.value })} className="rounded-lg border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-60">
               <option value="suggest_only">Solo sugerir</option><option value="prepare_drafts">Preparar borradores</option><option value="execute_safe">Ejecutar seguros</option>
             </select>
             <label className="text-[11px] text-slate-600 flex items-center gap-1">Límite/día <input type="number" min={0} max={50} value={pol.dailyLimit} onChange={(e) => savePolicy({ dailyLimit: Number(e.target.value) })} className="w-14 rounded border px-1 py-0.5" /></label>

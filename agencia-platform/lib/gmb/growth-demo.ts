@@ -82,7 +82,12 @@ export const GROWTH_DEMO = {
       { type: "offer", title: "Oferta especial", content: "Promoción por tiempo limitado con condiciones y fecha de fin.", cta: "Ver oferta" },
       { type: "event", title: "Evento o jornada", content: "Anuncia un evento con fecha, hora y cómo apuntarse.", cta: "Reservar" }
     ],
-    recent: [{ id: "p1", title: "Nuevo horario de verano", status: "published", scheduledAt: null, publishedAt: "2026-07-01T10:00:00Z" }]
+    recent: [{ id: "p1", title: "Nuevo horario de verano", status: "published", scheduledAt: null, publishedAt: "2026-07-01T10:00:00Z" }],
+    photos: [
+      { id: "ph1", url: "https://picsum.photos/seed/gmb1/200", caption: "Fachada", status: "library", isDuplicate: false },
+      { id: "ph2", url: "https://picsum.photos/seed/gmb2/200", caption: "Interior", status: "scheduled", isDuplicate: false },
+      { id: "ph3", url: "https://picsum.photos/seed/gmb1/200", caption: "Duplicada", status: "library", isDuplicate: true }
+    ]
   },
   connections: {
     summary: { connected: 2, total: 7 },

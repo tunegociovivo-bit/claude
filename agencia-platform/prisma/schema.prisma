@@ -4125,6 +4125,71 @@ model GmbAction {
   @@index([workspaceId, status])
 }
 
+// === GMB Hub — Fase 6: operación de agencia (alertas/SLA + informes white-label) ===
+
+// Alertas del portfolio (reseñas sin responder, citaciones rotas, caída de ranking, contenido
+// vencido, conexión caída…). Deduplicadas por dedupKey mientras están abiertas. Auditables.
+model GmbAlert {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  clientId     String?
+  type         String // unreplied_reviews|broken_citation|ranking_drop|content_stale|connection_down|negative_review
+  severity     String    @default("info") // info|warning|critical
+  title        String
+  body         String?   @db.Text
+  dedupKey     String // evita duplicar la misma alerta abierta
+  status       String    @default("open") // open|ack|resolved
+  assignedTo   String?
+  deepLink     String?
+  data         Json?
+  ackedById    String?
+  ackedAt      DateTime?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, dedupKey])
+  @@index([clientId])
+}
+
+// Reglas de alerta configurables (por ficha o por workspace). webhookUrl es adapter-gated: si hay
+// URL se notifica de verdad; si no, solo alerta interna. Nunca se simula un envío externo.
+model GmbAlertRule {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String? // null = aplica a todo el workspace
+  type        String
+  enabled     Boolean  @default(true)
+  severity    String   @default("warning")
+  threshold   Int? // días (content_stale) o cantidad (unreplied), según tipo
+  webhookUrl  String?
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Enlaces compartibles de informe white-label. Solo se guarda el HASH del token (nunca en claro),
+// con expiración y revocación. `includePII` por defecto false (sin datos personales).
+model GmbReportShare {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  tokenHash   String    @unique
+  month       String?
+  includePII  Boolean   @default(false)
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
 // Política del PILOTO AUTOMÁTICO por ficha. Controla qué puede hacer el scheduler sin humano.
 // Las acciones EXTERNAS sensibles siempre requieren aprobación, sea cual sea el modo.
 model GmbAutopilotPolicy {

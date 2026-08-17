@@ -143,6 +143,14 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] gmb-autopilot:", (e as Error).message);
     }
+    // Alertas del portfolio (idempotente, auto-sanadora; webhooks solo si están configurados).
+    try {
+      const { processAllGmbAlerts } = await import("@/lib/gmb/alerts-cron");
+      const { prisma } = await import("@/lib/db/prisma");
+      await processAllGmbAlerts(prisma, { maxWorkspaces: 50 });
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-alerts:", (e as Error).message);
+    }
   }
   setTimeout(gmbTick, 120_000);
   setInterval(gmbTick, GMB_TICK_MS);
