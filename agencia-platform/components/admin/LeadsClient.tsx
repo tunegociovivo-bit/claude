@@ -3274,6 +3274,10 @@ function TradeFairsView() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [fairQuery, setFairQuery] = useState("");
+  const [finding, setFinding] = useState(false);
+  const [foundFairs, setFoundFairs] = useState<any[]>([]);
+  const [finderInfo, setFinderInfo] = useState("");
 
   const load = useCallback(async () => {
     const response = await fetch("/api/v1/leads/trade-fairs", { cache: "no-store" });
@@ -3293,10 +3297,43 @@ function TradeFairsView() {
     finally { setBusy(false); }
   }
 
+  async function findFairs() {
+    setFinding(true); setError(""); setFinderInfo("");
+    try {
+      const response = await fetch("/api/v1/leads/trade-fairs/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: fairQuery, max: 100 }) });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error?.message ?? "No se pudieron buscar ferias");
+      setFoundFairs(json.fairs ?? []);
+      const scanned = (json.diagnostics ?? []).map((item: any) => `${item.organizer}: ${item.events}`).join(" · ");
+      setFinderInfo(`${json.fairs?.length ?? 0} próximas ferias encontradas${scanned ? ` · ${scanned}` : ""}`);
+    } catch (e: any) { setError(e?.message ?? String(e)); }
+    finally { setFinding(false); }
+  }
+
+  function chooseFair(fair: any) {
+    setForm((current) => ({ ...current, name: fair.name, url: fair.catalogUrl ?? fair.url, venue: fair.venue, startsAt: fair.startsAt, endsAt: fair.endsAt }));
+    document.getElementById("trade-fair-import-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const field = (key: keyof typeof form, value: string | number | boolean) => setForm((current) => ({ ...current, [key]: value }));
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5">
+      <div className="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-5">
+        <div className="text-base font-semibold text-sky-950">🔎 Buscador automático de próximas ferias</div>
+        <p className="mt-1 text-sm text-sky-900/80">Rastrea los calendarios de IFEMA Madrid, Fira Barcelona, Feria Valencia y Bilbao Exhibition Centre. La búsqueda no crea leads ni envía mensajes.</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm" value={fairQuery} onChange={(e) => setFairQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void findFairs(); }} placeholder="Filtrar por sector, feria, ciudad… (vacío = todas)" />
+          <button onClick={findFairs} disabled={finding} className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{finding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar ferias</button>
+        </div>
+        {finderInfo && <p className="mt-2 text-xs text-slate-600">{finderInfo}</p>}
+        {!!foundFairs.length && <div className="mt-4 max-h-[430px] overflow-auto rounded-lg border bg-white">
+          {foundFairs.map((fair) => <div key={`${fair.url}-${fair.startsAt}`} className="flex flex-wrap items-center justify-between gap-3 border-b p-3 last:border-0">
+            <div className="min-w-0"><div className="font-semibold text-slate-800">{fair.name}</div><div className="text-xs text-slate-500">{fair.startsAt} → {fair.endsAt} · {fair.venue} · {fair.organizer}</div><div className={`mt-0.5 text-xs ${fair.catalogUrl ? "text-emerald-700" : "text-amber-700"}`}>{fair.catalogUrl ? "Catálogo de expositores localizado" : "Evento localizado; catálogo no publicado todavía"}</div></div>
+            <div className="flex gap-2"><a href={fair.url} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Ver feria</a><button onClick={() => chooseFair(fair)} className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white">Usar en robot</button></div>
+          </div>)}
+        </div>}
+      </div>
+      <div id="trade-fair-import-form" className="scroll-mt-4 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5">
         <div className="text-base font-semibold text-violet-950">🎪 Robot de expositores — amplificar el stand</div>
         <p className="mt-1 max-w-4xl text-sm text-violet-900/80">
           Importa el catálogo de una feria, extrae y enriquece los contactos de sus expositores y prepara un WhatsApp ofreciendo anuncios geolocalizados alrededor del recinto durante las fechas exactas del evento.
