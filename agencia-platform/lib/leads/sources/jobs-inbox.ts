@@ -30,8 +30,14 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 // dar de comer a la IA correos que no sean de portales de empleo.
 const JOB_SENDERS = [
   "linkedin.com", "infojobs.net", "indeed.com", "glassdoor.com", "jobtoday",
-  "tecnoempleo.com", "jobandtalent", "epreselec", "turijobs", "cornerjob"
+  "tecnoempleo.com", "jobandtalent", "epreselec", "turijobs", "cornerjob",
+  "googlealerts-noreply@google.com"
 ];
+
+export function isJobAlertSender(fromAddress: string): boolean {
+  const normalized = fromAddress.trim().toLowerCase();
+  return JOB_SENDERS.some((sender) => normalized.includes(sender));
+}
 
 export type JobsInboxConfig = { host: string; port: number; user: string; pass: string; enabled: boolean };
 
@@ -97,7 +103,7 @@ export async function testJobsInbox(
         const msg = await client.fetchOne(String(uid), { envelope: true }, { uid: true });
         if (!msg || typeof msg === "boolean") continue;
         const fromAddr = ((msg.envelope as any)?.from ?? []).map((a: any) => a.address ?? "").join(",").toLowerCase();
-        if (JOB_SENDERS.some((d) => fromAddr.includes(d))) jobUnseen++;
+        if (isJobAlertSender(fromAddr)) jobUnseen++;
       }
       return { ok: true, unseen: uids.length, jobUnseen };
     } finally {
@@ -145,7 +151,13 @@ Si el email no lista ofertas, devuelve {"offers": []}. Devuelve SOLO el JSON.`;
 async function extractOffers(workspaceId: string, email: { from: string; subject: string; text: string }): Promise<RawOffer[]> {
   const body = (email.text || "").slice(0, 12000);
   if (body.trim().length < 20) return [];
-  const board = /linkedin/i.test(email.from) ? "linkedin" : /infojobs/i.test(email.from) ? "infojobs" : "email";
+  const board = /linkedin/i.test(email.from)
+    ? "linkedin"
+    : /infojobs/i.test(email.from)
+      ? "infojobs"
+      : /googlealerts/i.test(email.from)
+        ? "google_alerts"
+        : "email";
   let res: { offers?: any[] };
   try {
     res = await completeJson<{ offers?: any[] }>({
@@ -213,7 +225,7 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
         const from = (env.from ?? []).map((a: any) => `${a.name ?? ""} <${a.address ?? ""}>`).join(", ");
         const fromAddr = (env.from ?? []).map((a: any) => a.address ?? "").join(",").toLowerCase();
         // Solo procesamos emails de portales de empleo conocidos.
-        if (!JOB_SENDERS.some((d) => fromAddr.includes(d))) continue;
+        if (!isJobAlertSender(fromAddr)) continue;
         let text = "";
         try {
           const { simpleParser } = await import("mailparser");
