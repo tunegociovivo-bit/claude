@@ -121,7 +121,10 @@ export function isMissingStorageObjectError(error: unknown): boolean {
   return code === "NoSuchKey" || code === "NotFound" || /specified key does not exist/i.test(message);
 }
 
-async function generateBackupArchive(workspaceId: string): Promise<{
+async function generateBackupArchive(
+  workspaceId: string,
+  onProgress?: (message: string, progressPct: number) => Promise<void> | void
+): Promise<{
   body: Buffer;
   mimeType: string;
   mirroredFiles: number;
@@ -142,6 +145,7 @@ async function generateBackupArchive(workspaceId: string): Promise<{
   const uploadsByName = new Map<string, ReturnType<typeof uploadDriveFile>>();
   let missingFiles = 0;
   let nextFileIndex = 0;
+  let processedFiles = 0;
 
   async function mirrorFile(index: number): Promise<void> {
     const file = files[index];
@@ -186,6 +190,11 @@ async function generateBackupArchive(workspaceId: string): Promise<{
     while (nextFileIndex < files.length) {
       const index = nextFileIndex++;
       await mirrorFile(index);
+      const processed = ++processedFiles;
+      await onProgress?.(
+        `Verificando adjuntos ${processed}/${files.length}`,
+        Math.min(90, 5 + Math.round((processed / Math.max(1, files.length)) * 85))
+      );
     }
   }
 
@@ -216,18 +225,21 @@ export async function runDriveBackup(opts: {
   workspaceId: string;
   kinds?: BackupKind[];
   when?: Date;
+  onProgress?: (message: string, progressPct: number) => Promise<void> | void;
 }): Promise<{
   workspaceId: string;
   results: { kind: BackupKind; fileName: string; humanLabel: string; ok: boolean; error?: string }[];
 }> {
   const when = opts.when ?? new Date();
   const kinds = opts.kinds ?? whichBackupsToday(when);
-  const archive = await generateBackupArchive(opts.workspaceId);
+  await opts.onProgress?.("Preparando la base de datos y el manifiesto", 3);
+  const archive = await generateBackupArchive(opts.workspaceId, opts.onProgress);
 
   const results: any[] = [];
   for (const kind of kinds) {
     const { fileName, humanLabel } = backupFileNames(kind, when);
     try {
+      await opts.onProgress?.(`Subiendo snapshot ${humanLabel}`, 94);
       await uploadDriveFile({
         workspaceId: opts.workspaceId,
         fileName,
@@ -252,6 +264,7 @@ export async function runDriveBackup(opts: {
       });
     }
   }
+  await opts.onProgress?.("Snapshot guardado y verificado en Google Drive", 100);
   return { workspaceId: opts.workspaceId, results };
 }
 
