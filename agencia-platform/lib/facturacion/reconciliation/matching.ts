@@ -19,6 +19,7 @@ export type PaymentMatch = {
 };
 
 export type SepaJobCandidate = { invoiceId: string; amountCents: number; ibanMasked: string | null; chargeDate: Date | null };
+export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null };
 
 function localDay(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -31,6 +32,14 @@ export function matchSepaReceipt(payment: { amountCents: number; debtorIbanLast4
       && Boolean(job.chargeDate) && localDay(job.chargeDate!) === localDay(payment.bookedAt);
   });
   return matches.length === 1 ? { invoiceId: matches[0].invoiceId, confidence: "SEPA_RECEIPT" } : null;
+}
+
+export function matchUniqueSepaSummary(payment: { amountCents: number; bookedAt: Date }, requests: SepaRequestCandidate[]): PaymentMatch | null {
+  const matches = requests.filter((request) => request.amountCents === payment.amountCents
+    && Boolean(request.chargeDate)
+    && localDay(request.chargeDate!) === localDay(payment.bookedAt));
+  const invoiceIds = [...new Set(matches.map((request) => request.invoiceId))];
+  return invoiceIds.length === 1 ? { invoiceId: invoiceIds[0], confidence: "SEPA_RECEIPT" } : null;
 }
 
 function normalize(value: string): string {

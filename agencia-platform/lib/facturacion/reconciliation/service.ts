@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
-import { matchIncomingPayment, matchSepaReceipt, shouldImportMovement } from "./matching";
+import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement } from "./matching";
 
 export const NEGOCIO_VIVO_RECONCILIATION_START = new Date("2026-08-09T22:00:00.000Z");
 
@@ -125,6 +125,40 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
     select: { id: true, amountCents: true, bookedAt: true }
   });
   for (const summary of summaries) {
+    const nearbyRequests = await prisma.sepaRemittanceRequest.findMany({
+      where: {
+        workspaceId,
+        archivedAt: null,
+        status: { in: ["PENDING_SIGNATURE", "SIGNED"] },
+        amountCents: summary.amountCents,
+        chargeDate: {
+          gte: new Date(summary.bookedAt.getTime() - 18 * 60 * 60 * 1000),
+          lt: new Date(summary.bookedAt.getTime() + 18 * 60 * 60 * 1000)
+        }
+      },
+      select: { invoiceId: true, amountCents: true, chargeDate: true }
+    });
+    const requestMatch = matchUniqueSepaSummary({ amountCents: summary.amountCents, bookedAt: summary.bookedAt }, nearbyRequests);
+    if (requestMatch) {
+      const invoice = await prisma.invoice.findFirst({
+        where: { id: requestMatch.invoiceId, workspaceId, status: "ISSUED", deletedAt: null, paidCents: 0 },
+        select: { id: true, totalCents: true }
+      });
+      if (invoice?.totalCents === summary.amountCents) {
+        await prisma.$transaction(async (tx) => {
+          const claimed = await tx.bankTransaction.updateMany({
+            where: { id: summary.id, workspaceId, status: "UNMATCHED" },
+            data: { status: "MATCHED", matchedInvoiceId: invoice.id, matchConfidence: "SEPA_REQUEST_DATE_AMOUNT", matchedAt: new Date() }
+          });
+          if (!claimed.count) return;
+          await tx.invoice.updateMany({
+            where: { id: invoice.id, workspaceId, status: "ISSUED", paidCents: 0 },
+            data: { status: "PAID", paidCents: invoice.totalCents, paidAt: summary.bookedAt }
+          });
+        });
+        continue;
+      }
+    }
     const candidates = await prisma.invoice.findMany({
       where: {
         workspaceId,
