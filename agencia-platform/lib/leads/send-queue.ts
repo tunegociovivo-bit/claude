@@ -69,6 +69,10 @@ export type LeadsSendSettings = {
   recoveryMode: boolean;
   recoverySince: string | null; // ISO date
   recoveryDurationDays: number;
+  /** Recuperación selectiva por número. `__principal__` representa el canal
+   *  principal (instanceName=null). La configuración global anterior se sigue
+   *  aceptando y, si está activa, afecta a todos los canales. */
+  recoveryByChannel?: Record<string, { enabled?: boolean; recoveryMode?: boolean; since?: string | null; recoverySince?: string | null; durationDays?: number }>;
   // ── WARMUP (calentamiento de número nuevo) ──
   /** Si true, el tope diario crece poco a poco durante los primeros días de
    *  uso del número, en vez de empezar mandando al máximo (lo que banea
@@ -150,7 +154,7 @@ const RECOVERY_OVERRIDES = {
   minCoolDownDaysPerRecipient: 10
 };
 
-export async function getSendSettings(workspaceId: string): Promise<LeadsSendSettings> {
+export async function getSendSettings(workspaceId: string, instanceName?: string | null): Promise<LeadsSendSettings> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const s: any = (ws?.settings as any)?.leads ?? {};
   const base: LeadsSendSettings = {
@@ -172,6 +176,7 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
     recoveryMode: s.recoveryMode ?? DEFAULTS.recoveryMode,
     recoverySince: s.recoverySince ?? DEFAULTS.recoverySince,
     recoveryDurationDays: s.recoveryDurationDays ?? DEFAULTS.recoveryDurationDays,
+    recoveryByChannel: s.recoveryByChannel ?? undefined,
     warmupEnabled: s.warmupEnabled ?? DEFAULTS.warmupEnabled,
     warmupDays: s.warmupDays ?? DEFAULTS.warmupDays,
     warmupStartCap: s.warmupStartCap ?? DEFAULTS.warmupStartCap,
@@ -199,6 +204,23 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
           }
         })
         .catch(() => {});
+    }
+  }
+
+  // Recuperación por canal. Es deliberadamente compatible con los nombres de
+  // campo usados por la configuración global y con la forma corta enabled/since.
+  // Solo se evalúa cuando el caller indica canal; getSendSettings(ws) conserva
+  // exactamente el comportamiento agregado/legacy.
+  if (arguments.length >= 2 && !base.recoveryMode) {
+    const key = instanceName == null ? "__principal__" : instanceName;
+    const entry = base.recoveryByChannel?.[key];
+    const enabled = entry?.enabled ?? entry?.recoveryMode ?? false;
+    const since = entry?.since ?? entry?.recoverySince ?? null;
+    const durationDays = entry?.durationDays ?? base.recoveryDurationDays;
+    const expires = since ? Date.parse(since) + durationDays * 86_400_000 : Number.POSITIVE_INFINITY;
+    if (enabled && Date.now() < expires) {
+      base.recoveryMode = true;
+      base.recoverySince = since;
     }
   }
 
@@ -258,7 +280,7 @@ export async function getSendSettings(workspaceId: string): Promise<LeadsSendSet
         (c: any) => c && typeof c.name === "string" && c.name.trim() && c.active !== false
       ).length
     : 0;
-  const senders = 1 + extraChannels; // principal + extra
+  const senders = arguments.length >= 2 ? 1 : 1 + extraChannels; // por canal o agregado
   if (senders > 1) {
     base.dailyLimit = base.dailyLimit * senders;
     base.maxPerHour = base.maxPerHour * senders;
@@ -415,20 +437,20 @@ export function isInsideWindow(settings: LeadsSendSettings, now: Date = new Date
 
 /** Mensajes realmente ENVIADOS hoy (para el tope diario en el envío). Cuenta
  *  por día natural de Madrid, no por día UTC del servidor. */
-export async function countSentToday(workspaceId: string): Promise<number> {
+export async function countSentToday(workspaceId: string, instanceName?: string | null): Promise<number> {
   const mp = getMadridParts(new Date());
   const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   return prisma.leadMessage.count({
-    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { gte: dayStart, lt: dayEnd } }
+    where: { workspaceId, ...(arguments.length >= 2 ? { instanceName } : {}), status: { in: SENT_STATUSES }, sentAt: { gte: dayStart, lt: dayEnd } }
   });
 }
 
 /** Mensajes enviados en los últimos N minutos (cap por hora anti-baneo). */
-export async function countSentInWindow(workspaceId: string, minutes: number): Promise<number> {
+export async function countSentInWindow(workspaceId: string, minutes: number, instanceName?: string | null): Promise<number> {
   const since = new Date(Date.now() - minutes * 60_000);
   return prisma.leadMessage.count({
-    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { gte: since } }
+    where: { workspaceId, ...(arguments.length >= 3 ? { instanceName } : {}), status: { in: SENT_STATUSES }, sentAt: { gte: since } }
   });
 }
 
@@ -436,12 +458,12 @@ export async function countSentInWindow(workspaceId: string, minutes: number): P
  *  conversación = un mensaje "sent" cuyo phoneNormalized no había recibido
  *  ningún mensaje sent antes. Aproximación: contamos `phoneNormalized`s
  *  cuyo primer "sent" cae dentro de hoy. */
-export async function countNewConversationsToday(workspaceId: string): Promise<number> {
+export async function countNewConversationsToday(workspaceId: string, instanceName?: string | null): Promise<number> {
   const mp = getMadridParts(new Date());
   const dayStart = madridWallToDate(mp.year, mp.month, mp.day, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const sentTodayPhones = await prisma.leadMessage.findMany({
-    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { gte: dayStart, lt: dayEnd } },
+    where: { workspaceId, ...(arguments.length >= 2 ? { instanceName } : {}), status: { in: SENT_STATUSES }, sentAt: { gte: dayStart, lt: dayEnd } },
     select: { phoneNormalized: true },
     distinct: ["phoneNormalized"]
   });
@@ -454,6 +476,7 @@ export async function countNewConversationsToday(workspaceId: string): Promise<n
   const priorPhones = await prisma.leadMessage.findMany({
     where: {
       workspaceId,
+      ...(arguments.length >= 2 ? { instanceName } : {}),
       status: { in: SENT_STATUSES },
       phoneNormalized: { in: phones },
       sentAt: { lt: dayStart }
@@ -1132,30 +1155,8 @@ export async function processQueueTick(workspaceId: string): Promise<{
   if (!isInsideWindow(settings, now)) {
     return { processed: false, error: "outside_window" };
   }
-  // 2) Tope diario REAL: contar mensajes ya enviados hoy (no solo programados).
-  const sentToday = await countSentToday(workspaceId);
-  if (sentToday >= settings.dailyLimit) {
-    return { processed: false, error: "daily_limit_reached" };
-  }
-  // 3) Cap por hora — ANTI-BANEO: incluso si el daily lo permite, evitamos
-  //    ráfagas que dispararían las alertas de Meta.
-  const sentLastHour = await countSentInWindow(workspaceId, 60);
-  if (sentLastHour >= settings.maxPerHour) {
-    return { processed: false, error: "hourly_limit_reached" };
-  }
-  // 4) Cadencia mínima desde el último envío real: aunque haya varios
-  //    mensajes vencidos en cola, respeta el delay mínimo entre envíos.
-  const lastSent = await prisma.leadMessage.findFirst({
-    where: { workspaceId, status: { in: SENT_STATUSES }, sentAt: { not: null } },
-    orderBy: { sentAt: "desc" },
-    select: { sentAt: true }
-  });
-  if (lastSent?.sentAt) {
-    const elapsedSec = (now.getTime() - lastSent.sentAt.getTime()) / 1000;
-    if (elapsedSec < settings.sendDelayMinSec) {
-      return { processed: false, error: "pacing_wait" };
-    }
-  }
+  // Los topes se validan después de conocer el canal del candidato. Así un
+  // principal en recuperación no bloquea los números extra del workspace.
 
   // ── SELECCIÓN CON SALTA-ADELANTE + PRIORIDAD ──
   // Antes se cogía 1 mensaje y, si estaba en cool-down, se aparcaba y se hacía
@@ -1169,11 +1170,10 @@ export async function processQueueTick(workspaceId: string): Promise<{
     where: { workspaceId, status: "queued", scheduledAt: { lte: now } },
     orderBy: { scheduledAt: "asc" },
     take: BATCH,
-    select: { id: true, leadId: true, phoneNormalized: true, renderedMessage: true }
+    select: { id: true, leadId: true, phoneNormalized: true, renderedMessage: true, instanceName: true }
   });
   if (due.length === 0) return { processed: false };
 
-  const cooldownDays = settings.minCoolDownDaysPerRecipient;
   const phones = [...new Set(due.map((m) => m.phoneNormalized))];
   const leadIds = [...new Set(due.map((m) => m.leadId))];
 
@@ -1183,23 +1183,22 @@ export async function processQueueTick(workspaceId: string): Promise<{
   const [optouts, excludedLeads, lastSentRows] = await Promise.all([
     prisma.leadOptout.findMany({ where: { workspaceId, phone: { in: phones } }, select: { phone: true } }),
     prisma.lead.findMany({ where: { id: { in: leadIds }, contactStatus: "excluded" }, select: { id: true } }),
-    prisma.leadMessage.groupBy({
-      by: ["phoneNormalized"],
+    prisma.leadMessage.findMany({
       where: { workspaceId, phoneNormalized: { in: phones }, status: { in: SENT_STATUSES } },
-      _max: { sentAt: true }
+      orderBy: { sentAt: "desc" },
+      select: { phoneNormalized: true, instanceName: true, sentAt: true }
     })
   ]);
   const optoutSet = new Set(optouts.map((o) => o.phone));
   const excludedSet = new Set(excludedLeads.map((l) => l.id));
   const lastSentByPhone = new Map<string, Date>();
-  for (const r of lastSentRows) if (r._max.sentAt) lastSentByPhone.set(r.phoneNormalized, r._max.sentAt);
-
-  const cutoffMs = now.getTime() - cooldownDays * 86_400_000;
-
-  // ¿Tope de NUEVAS conversaciones alcanzado hoy? Se calcula una sola vez (solo
-  // afecta a los nunca-contactados; los re-contactos fuera de cool-down no).
-  const newChatsToday = await countNewConversationsToday(workspaceId).catch(() => Number.MAX_SAFE_INTEGER);
-  const newChatsCapReached = newChatsToday >= settings.maxNewChatsPerDay;
+  const lastSentByPhoneChannel = new Map<string, Date>();
+  for (const r of lastSentRows) if (r.sentAt) {
+    if (!lastSentByPhone.has(r.phoneNormalized)) lastSentByPhone.set(r.phoneNormalized, r.sentAt);
+    const k = `${r.instanceName ?? "__principal__"}\0${r.phoneNormalized}`;
+    if (!lastSentByPhoneChannel.has(k)) lastSentByPhoneChannel.set(k, r.sentAt);
+  }
+  const channelChecks = new Map<string, { settings: LeadsSendSettings; blocked: boolean; newChatsCapReached: boolean }>();
 
   const toCancel: string[] = [];
   const toBlockLink: string[] = [];
@@ -1214,8 +1213,45 @@ export async function processQueueTick(workspaceId: string): Promise<{
       toCancel.push(m.id);
       continue;
     }
-    const lastSent = lastSentByPhone.get(m.phoneNormalized);
+    const channelKey = m.instanceName ?? "__principal__";
+    let check = channelChecks.get(channelKey);
+    if (!check) {
+      const channelSettings = await getSendSettings(workspaceId, m.instanceName);
+      const [sentDay, sentHour, lastChannel, newChats] = await Promise.all([
+        countSentToday(workspaceId, m.instanceName),
+        countSentInWindow(workspaceId, 60, m.instanceName),
+        prisma.leadMessage.findFirst({
+          where: { workspaceId, instanceName: m.instanceName, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+          orderBy: { sentAt: "desc" }, select: { sentAt: true }
+        }),
+        countNewConversationsToday(workspaceId, m.instanceName).catch(() => Number.MAX_SAFE_INTEGER)
+      ]);
+      const pacingBlocked = !!lastChannel?.sentAt &&
+        (now.getTime() - lastChannel.sentAt.getTime()) / 1000 < channelSettings.sendDelayMinSec;
+      check = {
+        settings: channelSettings,
+        blocked: sentDay >= channelSettings.dailyLimit || sentHour >= channelSettings.maxPerHour || pacingBlocked,
+        newChatsCapReached: newChats >= channelSettings.maxNewChatsPerDay
+      };
+      channelChecks.set(channelKey, check);
+    }
+    if (check.blocked) {
+      // Sácalo del lote vencido para que, si los primeros BATCH mensajes son
+      // todos de este canal, un teléfono sano situado detrás pueda avanzar en
+      // el siguiente tick.
+      toPark.push({
+        id: m.id,
+        at: new Date(now.getTime() + Math.max(60, check.settings.sendDelayMinSec) * 1000)
+      });
+      continue;
+    }
+    const channelRecovery = check.settings.recoveryMode;
+    const lastSent = channelRecovery
+      ? lastSentByPhoneChannel.get(`${channelKey}\0${m.phoneNormalized}`)
+      : lastSentByPhone.get(m.phoneNormalized);
     const neverContacted = !lastSent;
+    const cooldownDays = check.settings.minCoolDownDaysPerRecipient;
+    const cutoffMs = now.getTime() - cooldownDays * 86_400_000;
     // En cool-down → aparcar a último_envío + cooldown (fecha real).
     if (!neverContacted && cooldownDays > 0 && lastSent!.getTime() >= cutoffMs) {
       toPark.push({ id: m.id, at: new Date(lastSent!.getTime() + cooldownDays * 86_400_000) });
@@ -1228,7 +1264,7 @@ export async function processQueueTick(workspaceId: string): Promise<{
         continue;
       }
       // Tope de chats nuevos alcanzado → aplazar a mañana.
-      if (newChatsCapReached) {
+      if (check.newChatsCapReached) {
         toDefer.push(m.id);
         continue;
       }
@@ -1551,6 +1587,55 @@ export async function sendMessageById(
       // Si pref === null (no se pudo determinar) y no encontramos alternativa
       // confirmada, seguimos con el canal original (fail-open): puede ser un
       // fallo puntual de la comprobación y no queremos parar los envíos.
+    }
+
+    // Un reroute puede haber cambiado el teléfono después de que el tick
+    // eligiera el mensaje. Revalidamos el canal FINAL para no saltarnos sus
+    // límites de recuperación. Los envíos manuales conservan su semántica de
+    // "enviar ahora"; esta barrera aplica a mensajes procedentes del tick.
+    if (ctx?.settings) {
+      const finalSettings = await getSendSettings(workspaceId, msg.instanceName);
+      {
+        const [sentDay, sentHour, lastChannel, newChats, priorForPhone, firstSending] = await Promise.all([
+          countSentToday(workspaceId, msg.instanceName),
+          countSentInWindow(workspaceId, 60, msg.instanceName),
+          prisma.leadMessage.findFirst({
+            where: { workspaceId, instanceName: msg.instanceName, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+            orderBy: { sentAt: "desc" }, select: { sentAt: true }
+          }),
+          countNewConversationsToday(workspaceId, msg.instanceName).catch(() => Number.MAX_SAFE_INTEGER),
+          prisma.leadMessage.findFirst({
+            where: { workspaceId, instanceName: msg.instanceName, phoneNormalized: msg.phoneNormalized, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+            orderBy: { sentAt: "desc" }, select: { sentAt: true }
+          }),
+          prisma.leadMessage.findFirst({
+            where: { workspaceId, instanceName: msg.instanceName, status: "sending" },
+            orderBy: [{ sendingStartedAt: "asc" }, { id: "asc" }],
+            select: { id: true }
+          })
+        ]);
+        const nowMs = Date.now();
+        const pacingBlocked = !!lastChannel?.sentAt &&
+          (nowMs - lastChannel.sentAt.getTime()) / 1000 < finalSettings.sendDelayMinSec;
+        const cooldownBlocked = !!priorForPhone?.sentAt &&
+          nowMs - priorForPhone.sentAt.getTime() < finalSettings.minCoolDownDaysPerRecipient * 86_400_000;
+        const newChatBlocked = !priorForPhone?.sentAt && newChats >= finalSettings.maxNewChatsPerDay;
+        // Una sola reserva en vuelo por canal: dos cron concurrentes no pueden
+        // consumir simultáneamente el último hueco diario/horario.
+        const anotherSendOwnsChannel = !!firstSending && firstSending.id !== msg.id;
+        if (anotherSendOwnsChannel || sentDay >= finalSettings.dailyLimit || sentHour >= finalSettings.maxPerHour || pacingBlocked || cooldownBlocked || newChatBlocked) {
+          await prisma.leadMessage.update({
+            where: { id: msg.id },
+            data: {
+              status: "queued",
+              scheduledAt: new Date(nowMs + finalSettings.sendDelayMinSec * 1000),
+              sendingStartedAt: null,
+              sendAttempts: { decrement: 1 }
+            }
+          });
+          return { processed: false, messageId: msg.id, error: "recovery_channel_limit" };
+        }
+      }
     }
 
     if (settings.validateWaBeforeSend) {

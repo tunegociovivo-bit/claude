@@ -7991,6 +7991,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       maxPerHour: s.maxPerHour,
       minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient,
       maxNewChatsPerDay: s.maxNewChatsPerDay,
+      recoveryMode: !!s.recoveryMode,
+      recoveryByChannel: s.recoveryByChannel ?? {},
       recoveryDurationDays: s.recoveryDurationDays,
       warmupEnabled: s.warmupEnabled,
       warmupDays: s.warmupDays,
@@ -9163,35 +9165,69 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               />
             </label>
           </div>
-          <div className={
-            "mt-3 p-3 rounded-lg border " +
-            (s.recoveryMode
-              ? "bg-rose-50 border-rose-300 text-rose-900"
-              : "bg-amber-50/40 border-amber-200 text-amber-900")
-          }>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!s.recoveryMode}
-                onChange={(e) => setField("recoveryMode", e.target.checked)}
-                className="mt-0.5 accent-rose-600"
-              />
-              <div className="flex-1 text-xs">
-                <strong className="block text-sm">🛡 Modo recuperación post-restricción WhatsApp</strong>
-                <p className="mt-1">
-                  Activa esto cuando Meta te haya restringido la cuenta. Aplica límites ultra-cautelosos
-                  durante {s.recoveryDurationDays ?? 14} días: máx <strong>15/día</strong>, <strong>3/hora</strong>,
-                  <strong> 8 nuevas convos/día</strong>, delay entre envíos <strong>5-15 min</strong>, cool-down
-                  por número <strong>10 días</strong>. Después se auto-desactiva.
-                </p>
-                {s.recoveryMode && s.recoverySince && (
-                  <p className="mt-1 font-mono text-[11px]">
-                    Activo desde: {new Date(s.recoverySince).toLocaleString("es-ES")} ·
-                    expira: {new Date(new Date(s.recoverySince).getTime() + (s.recoveryDurationDays ?? 14) * 86_400_000).toLocaleString("es-ES")}
-                  </p>
-                )}
-              </div>
-            </label>
+          <div className="mt-3 p-3 rounded-lg border bg-amber-50/40 border-amber-200 text-amber-900">
+            <strong className="block text-sm">🛡 Modo recuperación por teléfono</strong>
+            <p className="mt-1 text-xs">
+              Actívalo solo en el número restringido. Durante {s.recoveryDurationDays ?? 14} días ese teléfono queda en
+              15/día, 3/hora, 8 conversaciones nuevas/día, delay de 5-15 min y cool-down de 10 días. Los demás números
+              mantienen sus límites normales.
+            </p>
+            {s.recoveryMode && (
+              <label className="mt-2 flex items-center gap-2 rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800">
+                <input
+                  type="checkbox"
+                  checked={!!s.recoveryMode}
+                  onChange={(e) => setField("recoveryMode", e.target.checked)}
+                  className="accent-rose-600"
+                />
+                Modo global antiguo activo: desmárcalo para que dejen de verse afectados todos los teléfonos.
+              </label>
+            )}
+            <div className="mt-2 space-y-1.5">
+              {[
+                { key: "__principal__", label: `Principal (${s.wahaSession ?? "default"})`, phone: s.principalPhone },
+                ...(s.channels ?? []).map((channel: any) => ({
+                  key: channel.name,
+                  label: channel.label || channel.name,
+                  phone: channel.phone
+                }))
+              ].filter((channel: any) => channel.key).map((channel: any) => {
+                const state = s.recoveryByChannel?.[channel.key];
+                const active = !!state?.enabled;
+                const durationDays = state?.durationDays ?? 14;
+                const expiresAt = state?.since
+                  ? new Date(new Date(state.since).getTime() + durationDays * 86_400_000)
+                  : null;
+                return (
+                  <label
+                    key={channel.key}
+                    className={`flex items-center gap-2 rounded border px-2.5 py-2 text-xs cursor-pointer ${
+                      active ? "border-rose-300 bg-rose-50 text-rose-900" : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={(e) => setField("recoveryByChannel", {
+                        ...(s.recoveryByChannel ?? {}),
+                        [channel.key]: {
+                          enabled: e.target.checked,
+                          since: active ? state?.since ?? null : null,
+                          durationDays
+                        }
+                      })}
+                      className="accent-rose-600"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <b>{channel.label}</b>{channel.phone ? <span className="ml-1 font-mono text-slate-500">{channel.phone}</span> : null}
+                    </span>
+                    <span className={active ? "text-rose-700" : "text-slate-400"}>
+                      {active && expiresAt ? `hasta ${expiresAt.toLocaleDateString("es-ES")}` : active ? "recuperación activa" : "límites normales"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
           <div className="flex flex-wrap gap-3 mt-2 text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer">

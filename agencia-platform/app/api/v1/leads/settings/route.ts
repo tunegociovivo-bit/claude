@@ -77,6 +77,16 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     recoveryMode: !!s.recoveryMode,
     recoverySince: s.recoverySince ?? null,
     recoveryDurationDays: s.recoveryDurationDays ?? 14,
+    recoveryByChannel: Object.fromEntries(
+      Object.entries(s.recoveryByChannel ?? {}).map(([key, raw]: [string, any]) => {
+        const durationDays = raw?.durationDays ?? 14;
+        const expiresAt = raw?.since
+          ? Date.parse(raw.since) + durationDays * 86_400_000
+          : Number.POSITIVE_INFINITY;
+        const enabled = !!raw?.enabled && Date.now() < expiresAt;
+        return [key, { enabled, since: enabled ? raw?.since ?? null : null, durationDays }];
+      })
+    ),
     warmupEnabled: s.warmupEnabled ?? true,
     warmupDays: s.warmupDays ?? 45,
     warmupStartCap: s.warmupStartCap ?? 3,
@@ -175,6 +185,16 @@ const schema = z.object({
   maxNewChatsPerDay: z.number().int().min(1).max(500).optional(),
   recoveryMode: z.boolean().optional(),
   recoveryDurationDays: z.number().int().min(1).max(60).optional(),
+  recoveryByChannel: z
+    .record(
+      z.string(),
+      z.object({
+        enabled: z.boolean(),
+        since: z.string().datetime().nullable().optional(),
+        durationDays: z.number().int().min(1).max(60).optional()
+      })
+    )
+    .optional(),
   warmupEnabled: z.boolean().optional(),
   warmupDays: z.number().int().min(1).max(120).optional(),
   warmupStartCap: z.number().int().min(1).max(1000).optional(),
@@ -388,6 +408,37 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
       s.recoveryMode = false;
       s.recoverySince = null;
     }
+  }
+  if (parsed.data.recoveryByChannel !== undefined) {
+    const validKeys = new Set<string>([
+      "__principal__",
+      ...(Array.isArray(s.channels) ? s.channels : [])
+        .map((channel: any) => String(channel?.name ?? "").trim())
+        .filter(Boolean)
+    ]);
+    const unsafeKeys = new Set(["__proto__", "prototype", "constructor"]);
+    const nextRecovery: Record<string, any> = Object.create(null);
+    const currentRecovery = s.recoveryByChannel && typeof s.recoveryByChannel === "object"
+      ? s.recoveryByChannel
+      : {};
+    for (const [key, requested] of Object.entries(parsed.data.recoveryByChannel)) {
+      if (!validKeys.has(key) || unsafeKeys.has(key)) {
+        throw new ApiError(400, "invalid_recovery_channel", `Canal de recuperación no válido: ${key}`);
+      }
+      const previous = currentRecovery[key];
+      const enabled = !!requested.enabled;
+      const previousDuration = previous?.durationDays ?? 14;
+      const previousExpiresAt = previous?.since
+        ? Date.parse(previous.since) + previousDuration * 86_400_000
+        : Number.NEGATIVE_INFINITY;
+      const previousStillActive = !!previous?.enabled && Date.now() < previousExpiresAt;
+      nextRecovery[key] = {
+        enabled,
+        since: enabled ? (previousStillActive ? previous.since : new Date().toISOString()) : null,
+        durationDays: requested.durationDays ?? previous?.durationDays ?? 14
+      };
+    }
+    s.recoveryByChannel = nextRecovery;
   }
   if (parsed.data.rotateWebhookToken) {
     s.webhookToken = randomBytes(24).toString("hex");
