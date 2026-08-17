@@ -139,6 +139,52 @@ async function repairUnmatchedExactReferences(workspaceId: string) {
   }
 }
 
+async function repairSyntheticSepaDuplicates(workspaceId: string) {
+  const synthetic = await prisma.bankTransaction.findMany({
+    where: { workspaceId, status: "MATCHED", reference: { contains: "Remesa SEPA verificada", mode: "insensitive" } },
+    include: { invoice: { select: { id: true, status: true, totalCents: true, paidCents: true, paidAt: true } } }
+  });
+  for (const row of synthetic) {
+    const canonical = await prisma.bankTransaction.findFirst({
+      where: {
+        id: { not: row.id }, workspaceId, status: "MATCHED", amountCents: row.amountCents,
+        bookedAt: { gte: new Date(row.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(row.bookedAt.getTime() + 12 * 60 * 60 * 1000) },
+        matchedInvoiceId: { not: row.matchedInvoiceId }
+      },
+      select: { id: true }
+    });
+    if (!canonical) continue;
+    await prisma.$transaction(async (tx) => {
+      await tx.bankTransaction.update({
+        where: { id: row.id },
+        data: { status: "IGNORED", matchedInvoiceId: null, matchConfidence: null, matchedAt: null }
+      });
+      if (row.invoice?.status === "PAID" && row.invoice.paidCents === row.invoice.totalCents) {
+        await tx.invoice.update({ where: { id: row.invoice.id }, data: { status: "ISSUED", paidCents: 0, paidAt: null } });
+      }
+    });
+  }
+
+  const explicitDuplicates = await prisma.bankTransaction.findMany({
+    where: { workspaceId, status: "UNMATCHED", amountCents: { gt: 0 }, reference: { contains: "Factura FAC-", mode: "insensitive" } },
+    select: { id: true, amountCents: true, bookedAt: true, reference: true }
+  });
+  for (const row of explicitDuplicates) {
+    const number = row.reference?.match(/FAC[-\s]?\d+/i)?.[0].replace(/\s/g, "").toUpperCase();
+    if (!number) continue;
+    const invoice = await prisma.invoice.findFirst({ where: { workspaceId, number: { equals: number, mode: "insensitive" }, status: "PAID" }, select: { id: true } });
+    if (!invoice) continue;
+    const canonical = await prisma.bankTransaction.findFirst({
+      where: {
+        workspaceId, status: "MATCHED", matchedInvoiceId: invoice.id, amountCents: row.amountCents,
+        bookedAt: { gte: new Date(row.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(row.bookedAt.getTime() + 12 * 60 * 60 * 1000) }
+      },
+      select: { id: true }
+    });
+    if (canonical) await prisma.bankTransaction.update({ where: { id: row.id }, data: { status: "IGNORED" } });
+  }
+}
+
 async function reconcileUniqueSepaSummaries(workspaceId: string) {
   const summaries = await prisma.bankTransaction.findMany({
     where: {
@@ -223,6 +269,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
   await repairDuplicateSepaReceipts(workspaceId);
   await repairMisreferencedTransfers(workspaceId);
   await repairUnmatchedExactReferences(workspaceId);
+  await repairSyntheticSepaDuplicates(workspaceId);
   await reconcileUniqueSepaSummaries(workspaceId);
   if (!config.enabled) return { imported: 0, matched: 0, ignored: movements.length };
   let imported = 0;
@@ -361,6 +408,7 @@ export async function reconciliationDashboard(workspaceId: string) {
   await repairDuplicateSepaReceipts(workspaceId);
   await repairMisreferencedTransfers(workspaceId);
   await repairUnmatchedExactReferences(workspaceId);
+  await repairSyntheticSepaDuplicates(workspaceId);
   await reconcileUniqueSepaSummaries(workspaceId);
   const [items, matched, unmatched] = await Promise.all([
     prisma.bankTransaction.findMany({
