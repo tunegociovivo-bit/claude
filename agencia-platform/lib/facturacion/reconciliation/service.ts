@@ -112,7 +112,8 @@ async function repairMisreferencedTransfers(workspaceId: string) {
 }
 
 function sepaReferenceSuffix(reference: string | null): string | null {
-  const match = reference?.match(/(?:Remesa SEPA|Referencia:)\s*([A-Z0-9 ]+)/i)?.[1];
+  const match = reference?.match(/Referencia:\s*([A-Z0-9 ]+)/i)?.[1]
+    ?? reference?.match(/Remesa SEPA(?:\s+verificada)?\s*([A-Z0-9 ]+)/i)?.[1];
   const compact = match?.replace(/\s+/g, "").toUpperCase();
   return compact && compact.length >= 3 ? compact.slice(-3) : null;
 }
