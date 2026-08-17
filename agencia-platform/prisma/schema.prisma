@@ -4125,6 +4125,122 @@ model GmbAction {
   @@index([workspaceId, status])
 }
 
+// === GMB Hub — Fase 6b: Attribution/ROI + Review Acquisition ===
+
+// Campaña / UTM builder (por ficha). trackId alimenta el tracker público de clicks.
+model GmbCampaign {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  name        String
+  channel     String    @default("web") // web|social|email|qr|print|ads
+  utmSource   String    @default("")
+  utmMedium   String    @default("")
+  utmCampaign String    @default("")
+  utmTerm     String    @default("")
+  utmContent  String    @default("")
+  landingUrl  String    @default("")
+  trackId     String    @unique @default(cuid())
+  startDate   DateTime?
+  note        String?   @db.Text
+  active      Boolean   @default(true)
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Evento de atribución REAL (click/call/directions/request). Deduplicado por dedupKey. Sin PII cruda
+// (solo fingerprint hash). Nunca se inventan conversiones ni se atribuye sin evidencia.
+model GmbAttributionEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  campaignId  String?
+  type        String // click|call|directions|request
+  source      String   @default("")
+  medium      String   @default("")
+  campaign    String   @default("")
+  fingerprint String?
+  dedupKey    String
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, dedupKey])
+  @@index([workspaceId, clientId, type])
+  @@index([occurredAt])
+}
+
+// Objetivo por ficha y métrica (para comparación temporal y progreso).
+model GmbGoal {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  metric      String // calls|requests|clicks|directions
+  target      Int      @default(0)
+  period      String   @default("month")
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([clientId, metric])
+  @@index([workspaceId])
+}
+
+// Campaña de captación de reseñas (QR/link/multicanal). publicSlug alimenta la landing pública.
+// SIN review gating, SIN incentivos, SIN filtrado por sentimiento (por diseño).
+model GmbReviewCampaign {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  name        String
+  channel     String   @default("link") // qr|link|whatsapp|sms|email
+  publicSlug  String    @unique @default(cuid())
+  reviewUrl   String   @default("")
+  message     String   @default("") @db.Text
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Destinatario de una campaña de reseñas (consentimiento obligatorio, opt-out, estado real).
+model GmbReviewContact {
+  id          String    @id @default(cuid())
+  workspaceId String
+  campaignId  String
+  clientId    String
+  name        String    @default("")
+  phone       String    @default("")
+  email       String    @default("")
+  contactHash String // hash de phone/email para dedup + suppression (sin PII cruda en índices)
+  consent     Boolean   @default(false)
+  consentAt   DateTime?
+  status      String    @default("queued") // queued|sent|clicked|reviewed|opted_out|suppressed|error
+  optOutToken String    @unique @default(cuid())
+  lastSentAt  DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([campaignId, status])
+}
+
+// Lista de supresión (opt-out / rebotes / quejas). Bloquea el envío a ese contacto.
+model GmbSuppression {
+  id          String   @id @default(cuid())
+  workspaceId String
+  contactHash String
+  reason      String   @default("opt_out") // opt_out|bounce|complaint|manual
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, contactHash])
+  @@index([workspaceId])
+}
+
 // === GMB Hub — Fase 6: operación de agencia (alertas/SLA + informes white-label) ===
 
 // Alertas del portfolio (reseñas sin responder, citaciones rotas, caída de ranking, contenido

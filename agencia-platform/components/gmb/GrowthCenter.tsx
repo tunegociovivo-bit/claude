@@ -9,7 +9,7 @@
  * aprobación. El AI Council nunca finge llamadas: sin claves/consentimiento → "no conectado".
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Gauge, Sparkles, MapPin, Megaphone, MessageSquare, Globe, FileText, ListChecks, Check, X, ChevronRight, ExternalLink, Plug } from "lucide-react";
+import { Loader2, Gauge, Sparkles, MapPin, Megaphone, MessageSquare, Globe, FileText, ListChecks, Check, X, ChevronRight, ExternalLink, Plug, BarChart2, QrCode } from "lucide-react";
 import { GROWTH_DEMO } from "@/lib/gmb/growth-demo";
 
 type Ficha = { id: string; name: string; category?: string };
@@ -18,12 +18,12 @@ type Breakdown = { profile: number; reviews: number; content: number; citations:
 const BREAKDOWN_LABELS: Record<keyof Breakdown, string> = { profile: "Perfil", reviews: "Reseñas", content: "Contenido", citations: "Citaciones", ranking: "Ranking", web: "Web" };
 const CARD = "bg-white rounded-xl border p-4";
 
-type TabKey = "presencia" | "aicouncil" | "rank" | "contenido" | "reseñas" | "web" | "informes" | "citaciones" | "acciones" | "conexiones";
+type TabKey = "presencia" | "aicouncil" | "rank" | "contenido" | "reseñas" | "web" | "informes" | "citaciones" | "acciones" | "conexiones" | "attribution" | "captacion";
 const TABS: [TabKey, string, any][] = [
   ["presencia", "Presencia", Gauge], ["aicouncil", "AI Council", Sparkles], ["rank", "Rank & Competencia", MapPin],
   ["contenido", "Contenido", Megaphone], ["reseñas", "Reseñas IA", MessageSquare], ["web", "Web local", Globe],
   ["informes", "Informes", FileText], ["citaciones", "Citaciones", MapPin], ["acciones", "Acciones", ListChecks],
-  ["conexiones", "Conexiones", Plug]
+  ["conexiones", "Conexiones", Plug], ["attribution", "Attribution/ROI", BarChart2], ["captacion", "Captación reseñas", QrCode]
 ];
 
 const scoreColor = (n: number) => (n >= 75 ? "text-emerald-600" : n >= 50 ? "text-amber-600" : "text-rose-600");
@@ -125,6 +125,8 @@ export default function GrowthCenter() {
           {tab === "citaciones" && <CitationsPanel clientId={clientId} />}
           {tab === "acciones" && <ActionsPanel clientId={clientId} />}
           {tab === "conexiones" && <ConnectionsPanel demo={showDemo} />}
+          {tab === "attribution" && <AttributionPanel clientId={clientId} />}
+          {tab === "captacion" && <AcquisitionPanel clientId={clientId} />}
         </>
       )}
     </div>
@@ -750,6 +752,94 @@ function ConnectionsPanel({ demo }: { demo: boolean }) {
           ))}
         </ul>
       </div>
+    </div>
+  );
+}
+
+// ── Attribution / ROI ──────────────────────────────────────────────────────────────────────────
+const EVENT_LABEL: Record<string, string> = { click: "Clicks", call: "Llamadas", directions: "Cómo llegar", request: "Solicitudes" };
+function AttributionPanel({ clientId }: { clientId: string | null }) {
+  const isDemo = !clientId;
+  const [data, setData] = useState<any>(null);
+  const [form, setForm] = useState({ name: "", landingUrl: "", utmSource: "", utmMedium: "", utmCampaign: "" });
+  const [builtUrl, setBuiltUrl] = useState<string | null>(null);
+  const load = useCallback(() => { if (isDemo) return; fetch(`/api/v1/gmb/clients/${clientId}/attribution`).then((r) => r.json()).then((d) => setData(d.ok ? d : null)); }, [clientId, isDemo]);
+  useEffect(() => { load(); }, [load]);
+  async function createCampaign() {
+    if (!clientId) return;
+    const r = await fetch(`/api/v1/gmb/clients/${clientId}/campaigns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setBuiltUrl(d.campaign?.utmUrl ?? null); load(); } else alert(d?.error?.message ?? "Error");
+  }
+  const d = isDemo ? (GROWTH_DEMO as any).attribution : data;
+  if (!d) return <Spinner />;
+  const agg = d.aggregate;
+  return (
+    <div className="space-y-4">
+      {!d.hasData && !isDemo && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Aún no hay eventos de atribución. Usa el <b>enlace de tracking</b> de una campaña (UTM) para registrar clicks reales — nunca se inventan conversiones.</div>}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {(["click", "call", "directions", "request"] as const).map((t) => (
+          <div key={t} className={`${CARD} text-center py-3`}><div className="text-xl font-bold text-slate-800">{agg.current[t]}</div><div className="text-[11px] text-slate-400">{EVENT_LABEL[t]}</div>{agg.deltaPct[t] != null && <div className={`text-[10px] ${agg.deltaPct[t] > 0 ? "text-emerald-600" : agg.deltaPct[t] < 0 ? "text-rose-600" : "text-slate-400"}`}>{agg.deltaPct[t] > 0 ? "▲" : agg.deltaPct[t] < 0 ? "▼" : ""}{Math.abs(agg.deltaPct[t])}% vs mes ant.</div>}</div>
+        ))}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className={`${CARD}`}><div className="text-sm font-semibold text-slate-800 mb-1">Objetivos</div>{(d.goals ?? []).length === 0 ? <div className="text-xs text-slate-500">Sin objetivos definidos.</div> : (d.goals ?? []).map((g: any) => (<div key={g.metric} className="text-xs mb-1"><div className="flex justify-between"><span>{g.metric}</span><span>{g.actual}/{g.target}</span></div><div className="h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{ width: `${g.pct}%` }} /></div></div>))}</div>
+        <div className={`${CARD}`}><div className="text-sm font-semibold text-slate-800 mb-1">Por fuente / campaña</div><div className="text-xs text-slate-600">{(agg.bySource ?? []).map((s: any) => `${s.source} (${s.count})`).join(" · ") || "—"}</div><div className="text-[11px] text-slate-400 mt-1">Campañas: {(agg.byCampaign ?? []).map((c: any) => `${c.campaign} (${c.count})`).join(" · ") || "—"}</div></div>
+      </div>
+      <div className={`${CARD}`}>
+        <div className="text-sm font-semibold text-slate-800 mb-2">UTM builder</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {(["name", "landingUrl", "utmSource", "utmMedium", "utmCampaign"] as const).map((f) => (
+            <input key={f} disabled={isDemo} value={(form as any)[f]} onChange={(e) => setForm({ ...form, [f]: e.target.value })} placeholder={f} className="rounded-lg border px-2 py-1 text-xs disabled:opacity-60" />
+          ))}
+          <button onClick={createCampaign} disabled={isDemo} className="text-xs px-3 py-1 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">Crear campaña</button>
+        </div>
+        {builtUrl && <div className="mt-2 text-[11px] break-all"><span className="text-slate-500">URL con UTMs: </span><span className="font-mono">{builtUrl}</span></div>}
+      </div>
+      {(d.campaigns ?? []).length > 0 && <div className="text-xs text-slate-500">Campañas: {(d.campaigns ?? []).map((c: any) => c.name).join(" · ")}</div>}
+    </div>
+  );
+}
+
+// ── Captación de reseñas ────────────────────────────────────────────────────────────────────────
+function AcquisitionPanel({ clientId }: { clientId: string | null }) {
+  const isDemo = !clientId;
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [name, setName] = useState("");
+  const [channel, setChannel] = useState("link");
+  const load = useCallback(() => { if (isDemo) return; fetch(`/api/v1/gmb/clients/${clientId}/review-campaigns`).then((r) => r.json()).then((d) => setCampaigns(d.campaigns ?? [])); }, [clientId, isDemo]);
+  useEffect(() => { load(); }, [load]);
+  async function create() {
+    if (!clientId || !name.trim()) return;
+    const r = await fetch(`/api/v1/gmb/clients/${clientId}/review-campaigns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, channel }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setName(""); load(); } else alert(d?.error?.message ?? "Error (¿incentivo o review gating?)");
+  }
+  const list = isDemo ? (GROWTH_DEMO as any).acquisition.campaigns : campaigns;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">Compliance: la reseña va a Google para <b>todos</b> (sin filtrar por sentimiento), <b>sin incentivos</b> y <b>sin review gating</b>. Consentimiento obligatorio, opt-out y suppression list. Envíos solo con adapter (WhatsApp) conectado.</div>
+      <div className={`${CARD} flex flex-wrap items-end gap-2`}>
+        <div><label className="text-[11px] text-slate-500 block">Nombre</label><input disabled={isDemo} value={name} onChange={(e) => setName(e.target.value)} className="rounded-lg border px-2 py-1 text-sm disabled:opacity-60" /></div>
+        <div><label className="text-[11px] text-slate-500 block">Canal</label><select disabled={isDemo} value={channel} onChange={(e) => setChannel(e.target.value)} className="rounded-lg border px-2 py-1 text-sm disabled:opacity-60"><option value="link">Enlace</option><option value="qr">QR</option><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="sms">SMS</option></select></div>
+        <button onClick={create} disabled={isDemo} className="px-3 py-1.5 rounded-lg bg-brand-600 text-white text-sm hover:bg-brand-700 disabled:opacity-50">Crear campaña</button>
+      </div>
+      {list.length === 0 ? (
+        <div className={`${CARD} text-sm text-slate-500`}>Sin campañas de captación. Crea una para generar enlace/QR y métricas reales.</div>
+      ) : (
+        <ul className="space-y-2">
+          {list.map((c: any) => (
+            <li key={c.id} className={`${CARD} flex items-start justify-between gap-3`}>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-800">{c.name} <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{c.channel}</span></div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Contactos {c.metrics?.contacts ?? 0} · enviados {c.metrics?.sent ?? 0} · clicks {c.metrics?.clicked ?? 0}</div>
+                {c.publicUrl && c.publicUrl !== "#" && <a href={c.publicUrl} target="_blank" rel="noreferrer" className="text-[11px] text-brand-600 hover:underline inline-flex items-center gap-1 mt-0.5">Landing pública <ExternalLink className="h-3 w-3" /></a>}
+              </div>
+              {c.qrUrl && c.qrUrl !== "#" ? <img src={c.qrUrl} alt="QR" className="h-16 w-16 rounded border bg-white" /> : <div className="h-16 w-16 rounded border bg-slate-50 grid place-items-center text-[10px] text-slate-400">QR</div>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

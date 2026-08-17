@@ -89,6 +89,25 @@ export const GROWTH_DEMO = {
       { id: "ph3", url: "https://picsum.photos/seed/gmb1/200", caption: "Duplicada", status: "library", isDuplicate: true }
     ]
   },
+  attribution: {
+    month: "2026-08", hasData: true,
+    aggregate: {
+      current: { click: 128, call: 34, directions: 52, request: 11 },
+      previous: { click: 96, call: 40, directions: 44, request: 8 },
+      deltaPct: { click: 33, call: -15, directions: 18, request: 38 },
+      bySource: [{ source: "google", count: 140 }, { source: "instagram", count: 62 }, { source: "directo", count: 23 }],
+      byCampaign: [{ campaign: "verano-2026", count: 150 }, { campaign: "sin-campaña", count: 75 }],
+      total: 225
+    },
+    goals: [{ metric: "calls", target: 50, actual: 34, pct: 68 }, { metric: "requests", target: 20, actual: 11, pct: 55 }],
+    campaigns: [{ id: "cmp1", name: "Verano 2026", channel: "ads", startDate: "2026-08-01T00:00:00Z", active: true, note: "Campaña de temporada" }]
+  },
+  acquisition: {
+    campaigns: [
+      { id: "rc1", name: "Post-visita QR", channel: "qr", publicUrl: "#", qrUrl: "#", metrics: { contacts: 40, sent: 28, clicked: 12 } },
+      { id: "rc2", name: "WhatsApp seguimiento", channel: "whatsapp", publicUrl: "#", qrUrl: "#", metrics: { contacts: 60, sent: 55, clicked: 21 } }
+    ]
+  },
   connections: {
     summary: { connected: 2, total: 7 },
     connections: [
