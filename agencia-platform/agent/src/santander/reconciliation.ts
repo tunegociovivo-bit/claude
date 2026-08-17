@@ -221,8 +221,15 @@ export class SantanderReconciliationReader {
   private async ensureAuthenticated(context: any): Promise<boolean> {
     // Una pantalla de login/reconexión es la señal autoritativa. Puede coexistir
     // con pestañas internas cuya URL parece autenticada pero cuya sesión caducó.
-    let page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
-    if (page) return this.submitStoredLogin(page);
+    const loginPages = context.pages().filter((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
+    let page = loginPages.at(-1) ?? null;
+    if (page) {
+      // Los cierres por inactividad pueden dejar varias copias antiguas del
+      // login. Conservamos solo la más reciente para no rellenar un DOM obsoleto.
+      for (const stalePage of loginPages.slice(0, -1)) await stalePage.close().catch(() => {});
+      await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, { waitUntil: "domcontentloaded", timeout: 20000 });
+      return this.submitStoredLogin(page);
+    }
 
     const authenticated = context.pages().find((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin));
     if (authenticated) {
@@ -244,18 +251,28 @@ export class SantanderReconciliationReader {
       await reconnect.click();
       await page.waitForTimeout(500);
     }
-    const fields = page.locator('input[type="text"]');
-    const visible: any[] = [];
-    for (let index = 0; index < await fields.count(); index++) {
-      const field = fields.nth(index);
-      if (await field.isVisible().catch(() => false)) visible.push(field);
+    const fields = page.locator('input[type="text"], input:not([type])');
+    let visible: any[] = [];
+    let rememberedUser = false;
+    // El formulario de clave se monta de forma asíncrona. Esperar evita
+    // clasificar como desconocida una pantalla oficial todavía incompleta.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      visible = [];
+      for (let index = 0; index < await fields.count(); index++) {
+        const field = fields.nth(index);
+        if (await field.isVisible().catch(() => false)) visible.push(field);
+      }
+      rememberedUser = await page.getByText(/cambiar usuario/i).first().isVisible().catch(() => false);
+      if ((visible.length === 8 && rememberedUser) || visible.length === 9) break;
+      await page.waitForTimeout(500);
     }
-    const rememberedUser = await page.getByText(/cambiar usuario/i).first().isVisible().catch(() => false);
     const action = decideLoginAction({
       currentUrl: page.url(), allowedOrigin: this.opts.santanderOrigin, visibleKeyFields: visible.length, rememberedUser,
       hasStoredCredential: hasEncryptedCredential(this.opts.credentialFile), hasStoredUsername: hasEncryptedUsername(this.opts.credentialFile)
     });
-    if (action === "PAUSE") return false;
+    if (action === "PAUSE") {
+      throw new Error(`Formato de acceso Santander no reconocido (${visible.length} campos visibles; usuario recordado: ${rememberedUser ? "sí" : "no"})`);
+    }
     let key = "";
     let username = "";
     try {
