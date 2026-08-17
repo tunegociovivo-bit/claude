@@ -4125,6 +4125,38 @@ model GmbAction {
   @@index([workspaceId, status])
 }
 
+// === GMB Hub — Vinculación Google Business Profile (OAuth guiado, estilo Make) ===
+
+// Conexión Google DEDICADA a Business Profile (scope business.manage). Separada de GoogleAdsConnection
+// para NO mezclar scopes. refreshToken cifrado; el token de acceso se refresca en servidor.
+model GmbGoogleConnection {
+  id              String    @id @default(cuid())
+  workspaceId     String    @unique
+  refreshTokenEnc String    @db.Text
+  email           String    @default("")
+  scope           String    @default("")
+  hasBusinessScope Boolean  @default(false)
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  lastError       String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// Estado OAuth de un solo uso (anti-replay). Se consume en el callback y expira.
+model GmbOAuthState {
+  id          String   @id @default(cuid())
+  nonce       String   @unique
+  workspaceId String
+  userId      String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 // === GMB Hub — Fase 6b: Attribution/ROI + Review Acquisition ===
 
 // Campaña / UTM builder (por ficha). trackId alimenta el tracker público de clicks.

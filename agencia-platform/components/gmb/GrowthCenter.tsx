@@ -726,6 +726,78 @@ function ActionsPanel({ clientId }: { clientId: string | null }) {
   );
 }
 
+// ── Conexión guiada con Google (OAuth, estilo Make) ──────────────────────────────────────────────
+function GoogleConnectionCard({ demo }: { demo: boolean }) {
+  const [st, setSt] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    if (demo) { setSt({ demo: true }); return; }
+    fetch("/api/v1/gmb/google/status", { cache: "no-store" }).then((r) => r.json()).then(setSt).catch(() => setSt({ ok: false }));
+  }, [demo]);
+  useEffect(() => { load(); }, [load]);
+
+  async function disconnect() {
+    if (demo) return;
+    if (!confirm("¿Desconectar la cuenta de Google? Las fichas ya creadas se conservan, pero dejarán de sincronizar hasta que vuelvas a conectar.")) return;
+    setBusy(true);
+    try {
+      await fetch("/api/v1/gmb/google/disconnect", { method: "POST" });
+      load();
+    } finally { setBusy(false); }
+  }
+
+  const connected = !demo && st?.connection?.connected;
+  const noScope = connected && st?.connection?.hasBusinessScope === false;
+  const configured = demo ? true : st?.configured !== false;
+
+  return (
+    <div className={`${CARD} border-brand-200`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold">G</span>
+            Google Business Profile
+            {connected && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">conectado</span>}
+            {!connected && !demo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">sin conectar</span>}
+          </div>
+          {connected ? (
+            <div className="text-[12px] text-slate-500 mt-0.5">
+              {st.connection.email ? <>Cuenta: <b className="text-slate-700">{st.connection.email}</b>. </> : null}
+              {noScope ? "Falta el permiso para gestionar fichas — reconecta y acéptalo." : "Puedes elegir y sincronizar tus fichas."}
+            </div>
+          ) : (
+            <div className="text-[12px] text-slate-500 mt-0.5">
+              Conéctate con Google y elige tus fichas. Sin IDs ni claves; el consentimiento es de Google.
+            </div>
+          )}
+          {!configured && !demo && (
+            <div className="text-[11px] text-amber-700 mt-1">
+              {st?.setup?.isAdmin
+                ? "Falta configuración del servidor (credenciales OAuth). Revisa la guía en el asistente de conexión."
+                : "La conexión con Google aún no está disponible en tu espacio. Avisa a un administrador."}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          {connected ? (
+            <button onClick={disconnect} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50">
+              {busy ? "…" : "Desconectar"}
+            </button>
+          ) : (
+            <a
+              href="/api/integrations/gmb-google/connect"
+              className={`text-xs px-3 py-1.5 rounded-lg text-white ${demo || !configured ? "bg-slate-300 pointer-events-none" : "bg-brand-600 hover:bg-brand-700"}`}
+              aria-disabled={demo || !configured}
+            >
+              Conectar con Google
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Conexiones ──────────────────────────────────────────────────────────────────────────────────
 function ConnectionsPanel({ demo }: { demo: boolean }) {
   const [data, setData] = useState<any>(null);
@@ -736,6 +808,7 @@ function ConnectionsPanel({ demo }: { demo: boolean }) {
   return (
     <div className="space-y-4">
       {demo && <DemoBanner text="Estado de conexiones de ejemplo. Con tu cuenta verás el estado real (nunca se muestran claves)." />}
+      <GoogleConnectionCard demo={demo} />
       <div className="text-xs text-slate-500">Conectadas <b className="text-slate-700">{data.summary?.connected ?? 0}</b> de {data.summary?.total ?? 0}. Nunca se muestran claves, solo el estado.</div>
       <div className="grid gap-2 sm:grid-cols-2">
         {(data.connections ?? []).map((c: any) => (

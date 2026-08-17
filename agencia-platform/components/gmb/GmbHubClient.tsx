@@ -5,6 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import GrowthCenter from "@/components/gmb/GrowthCenter";
 import PortfolioView from "@/components/gmb/PortfolioView";
 import AlertsView from "@/components/gmb/AlertsView";
+import GbpConnectWizard from "@/components/gmb/GbpConnectWizard";
 import {
   Loader2,
   Plus,
@@ -73,6 +74,8 @@ export default function GmbHubClient() {
   const [showNew, setShowNew] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showConnect, setShowConnect] = useState(false);
+  const [connectBanner, setConnectBanner] = useState<string | null>(null);
   const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento">("fichas");
 
   async function load() {
@@ -86,6 +89,31 @@ export default function GmbHubClient() {
   }
   useEffect(() => {
     load();
+  }, []);
+
+  // Al volver del OAuth de Google (callback → /gmb-hub?gbp=…), retoma el asistente
+  // en el paso adecuado y muestra un mensaje humano. Luego limpia la URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const gbp = new URLSearchParams(window.location.search).get("gbp");
+    if (!gbp) return;
+    if (gbp === "connected" || gbp === "connected_no_scope") {
+      setShowConnect(true);
+    } else {
+      const msgs: Record<string, string> = {
+        denied: "Cancelaste la autorización de Google. Puedes intentarlo de nuevo cuando quieras.",
+        invalid: "El enlace de conexión no era válido. Vuelve a iniciar la conexión.",
+        invalid_session: "La sesión no coincidía. Inicia la conexión otra vez desde aquí.",
+        expired: "El enlace de conexión caducó. Vuelve a iniciar la conexión.",
+        no_refresh: "Google no devolvió un permiso permanente. Reintenta y acepta el acceso sin conexión.",
+        no_config: "La conexión con Google aún no está disponible. Avisa a un administrador.",
+        failed: "No se pudo completar la conexión con Google. Inténtalo de nuevo.",
+      };
+      setConnectBanner(msgs[gbp] ?? null);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("gbp");
+    window.history.replaceState({}, "", url.toString());
   }, []);
 
   const totalUnreplied = fichas.reduce((s, f) => s + (f.unreplied ?? 0), 0);
@@ -113,8 +141,15 @@ export default function GmbHubClient() {
               Ajustes
             </button>
             <button
-              onClick={() => setShowNew(true)}
+              onClick={() => setShowConnect(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            >
+              <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-white text-brand-700 text-[10px] font-bold">G</span>
+              Conectar con Google
+            </button>
+            <button
+              onClick={() => setShowNew(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white text-sm hover:bg-slate-50"
             >
               <Plus className="h-4 w-4" />
               Nueva ficha
@@ -122,6 +157,17 @@ export default function GmbHubClient() {
           </>
         }
       />
+
+      {connectBanner && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[13px] text-slate-600">
+          <span>{connectBanner}</span>
+          <button onClick={() => setConnectBanner(null)} className="text-slate-400 hover:text-slate-700 shrink-0" aria-label="Cerrar">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      <GbpConnectWizard open={showConnect} onClose={() => setShowConnect(false)} onLinked={load} />
 
       <div className="flex gap-1 mb-4 bg-slate-100 rounded-lg p-1 w-fit">
         {([
@@ -166,11 +212,24 @@ export default function GmbHubClient() {
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
         </div>
       ) : fichas.length === 0 ? (
-        <div className="bg-white rounded-xl border p-10 text-center text-sm text-slate-500">
-          No hay fichas todavía.{" "}
-          <button onClick={() => setShowNew(true)} className="text-brand-600 underline">
-            Crea la primera
+        <div className="bg-white rounded-xl border p-10 text-center">
+          <div className="text-sm text-slate-600 mb-4">
+            Aún no tienes fichas. Conéctate con Google y elige tus fichas de Business Profile —
+            sin introducir IDs ni claves.
+          </div>
+          <button
+            onClick={() => setShowConnect(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+          >
+            <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-white text-brand-700 text-[10px] font-bold">G</span>
+            Conectar con Google
           </button>
+          <div className="text-[12px] text-slate-400 mt-3">
+            ¿Prefieres crearla a mano?{" "}
+            <button onClick={() => setShowNew(true)} className="text-brand-600 underline">
+              Crear ficha manualmente
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
@@ -218,6 +277,10 @@ export default function GmbHubClient() {
       {showNew && (
         <NuevaFicha
           onClose={() => setShowNew(false)}
+          onConnectGoogle={() => {
+            setShowNew(false);
+            setShowConnect(true);
+          }}
           onCreated={() => {
             setShowNew(false);
             load();
@@ -1305,7 +1368,7 @@ function GmbSettings({ onClose }: { onClose: () => void }) {
   );
 }
 
-function NuevaFicha({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function NuevaFicha({ onClose, onCreated, onConnectGoogle }: { onClose: () => void; onCreated: () => void; onConnectGoogle?: () => void }) {
   const [form, setForm] = useState({
     name: "",
     category: "",
@@ -1404,6 +1467,21 @@ function NuevaFicha({ onClose, onCreated }: { onClose: () => void; onCreated: ()
           </button>
         </div>
         <div className="p-4 space-y-3">
+          {onConnectGoogle && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 flex items-center justify-between gap-3">
+              <div className="text-[12px] text-emerald-800">
+                Lo más rápido: conéctate con Google y elige tus fichas. Sin copiar IDs.
+              </div>
+              <button
+                type="button"
+                onClick={onConnectGoogle}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+              >
+                <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-white text-brand-700 text-[10px] font-bold">G</span>
+                Conectar con Google
+              </button>
+            </div>
+          )}
           <div className="rounded-lg border border-brand-200 bg-brand-50/60 p-3 space-y-2">
             <label className="block text-xs font-medium text-slate-700">
               Autorrellenar desde una URL de Google
