@@ -111,6 +111,12 @@ async function repairMisreferencedTransfers(workspaceId: string) {
   }
 }
 
+function sepaReferenceSuffix(reference: string | null): string | null {
+  const match = reference?.match(/(?:Remesa SEPA|Referencia:)\s*([A-Z0-9 ]+)/i)?.[1];
+  const compact = match?.replace(/\s+/g, "").toUpperCase();
+  return compact && compact.length >= 3 ? compact.slice(-3) : null;
+}
+
 async function repairUnmatchedExactReferences(workspaceId: string) {
   const rows = await prisma.bankTransaction.findMany({
     where: { workspaceId, status: "UNMATCHED", amountCents: { gt: 0 }, reference: { contains: "FAC-", mode: "insensitive" } },
@@ -141,18 +147,23 @@ async function repairUnmatchedExactReferences(workspaceId: string) {
 
 async function repairSyntheticSepaDuplicates(workspaceId: string) {
   const synthetic = await prisma.bankTransaction.findMany({
-    where: { workspaceId, status: "MATCHED", reference: { contains: "Remesa SEPA verificada", mode: "insensitive" } },
+    where: { workspaceId, status: "MATCHED", OR: [
+      { reference: { contains: "Remesa SEPA verificada", mode: "insensitive" } },
+      { reference: { contains: "Contabilizada", mode: "insensitive" } }
+    ] },
     include: { invoice: { select: { id: true, status: true, totalCents: true, paidCents: true, paidAt: true } } }
   });
   for (const row of synthetic) {
-    const canonical = await prisma.bankTransaction.findFirst({
+    const suffix = sepaReferenceSuffix(row.reference);
+    if (!suffix) continue;
+    const possibleCanonical = await prisma.bankTransaction.findMany({
       where: {
         id: { not: row.id }, workspaceId, status: "MATCHED", amountCents: row.amountCents,
-        bookedAt: { gte: new Date(row.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(row.bookedAt.getTime() + 12 * 60 * 60 * 1000) },
-        matchedInvoiceId: { not: row.matchedInvoiceId }
+        bookedAt: { gte: new Date(row.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(row.bookedAt.getTime() + 12 * 60 * 60 * 1000) }
       },
-      select: { id: true }
+      select: { id: true, reference: true }
     });
+    const canonical = possibleCanonical.find((item) => sepaReferenceSuffix(item.reference) === suffix);
     if (!canonical) continue;
     await prisma.$transaction(async (tx) => {
       await tx.bankTransaction.update({
@@ -196,9 +207,23 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
         { reference: { contains: "Remesa SEPA", mode: "insensitive" } }
       ]
     },
-    select: { id: true, amountCents: true, bookedAt: true }
+    select: { id: true, amountCents: true, bookedAt: true, reference: true }
   });
   for (const summary of summaries) {
+    const suffix = sepaReferenceSuffix(summary.reference);
+    if (suffix) {
+      const sameDayMatches = await prisma.bankTransaction.findMany({
+        where: {
+          workspaceId, status: "MATCHED", amountCents: summary.amountCents,
+          bookedAt: { gte: new Date(summary.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(summary.bookedAt.getTime() + 12 * 60 * 60 * 1000) }
+        },
+        select: { reference: true }
+      });
+      if (sameDayMatches.some((item) => sepaReferenceSuffix(item.reference) === suffix)) {
+        await prisma.bankTransaction.updateMany({ where: { id: summary.id, workspaceId, status: "UNMATCHED" }, data: { status: "IGNORED" } });
+        continue;
+      }
+    }
     const nearbyRequests = await prisma.sepaRemittanceRequest.findMany({
       where: {
         workspaceId,
