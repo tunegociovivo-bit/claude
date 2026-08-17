@@ -117,6 +117,10 @@ function sepaReferenceSuffix(reference: string | null): string | null {
   return compact && compact.length >= 3 ? compact.slice(-3) : null;
 }
 
+function madridDay(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
 async function repairUnmatchedExactReferences(workspaceId: string) {
   const rows = await prisma.bankTransaction.findMany({
     where: { workspaceId, status: "UNMATCHED", amountCents: { gt: 0 }, reference: { contains: "FAC-", mode: "insensitive" } },
@@ -159,11 +163,11 @@ async function repairSyntheticSepaDuplicates(workspaceId: string) {
     const possibleCanonical = await prisma.bankTransaction.findMany({
       where: {
         id: { not: row.id }, workspaceId, status: "MATCHED", amountCents: row.amountCents,
-        bookedAt: { gte: new Date(row.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(row.bookedAt.getTime() + 12 * 60 * 60 * 1000) }
+        bookedAt: { gte: new Date(row.bookedAt.getTime() - 36 * 60 * 60 * 1000), lte: new Date(row.bookedAt.getTime() + 36 * 60 * 60 * 1000) }
       },
-      select: { id: true, reference: true }
+      select: { id: true, reference: true, bookedAt: true }
     });
-    const canonical = possibleCanonical.find((item) => sepaReferenceSuffix(item.reference) === suffix);
+    const canonical = possibleCanonical.find((item) => sepaReferenceSuffix(item.reference) === suffix && madridDay(item.bookedAt) === madridDay(row.bookedAt));
     if (!canonical) continue;
     await prisma.$transaction(async (tx) => {
       await tx.bankTransaction.update({
@@ -215,11 +219,11 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
       const sameDayMatches = await prisma.bankTransaction.findMany({
         where: {
           workspaceId, status: "MATCHED", amountCents: summary.amountCents,
-          bookedAt: { gte: new Date(summary.bookedAt.getTime() - 12 * 60 * 60 * 1000), lte: new Date(summary.bookedAt.getTime() + 12 * 60 * 60 * 1000) }
+          bookedAt: { gte: new Date(summary.bookedAt.getTime() - 36 * 60 * 60 * 1000), lte: new Date(summary.bookedAt.getTime() + 36 * 60 * 60 * 1000) }
         },
-        select: { reference: true }
+        select: { reference: true, bookedAt: true }
       });
-      if (sameDayMatches.some((item) => sepaReferenceSuffix(item.reference) === suffix)) {
+      if (sameDayMatches.some((item) => sepaReferenceSuffix(item.reference) === suffix && madridDay(item.bookedAt) === madridDay(summary.bookedAt))) {
         await prisma.bankTransaction.updateMany({ where: { id: summary.id, workspaceId, status: "UNMATCHED" }, data: { status: "IGNORED" } });
         continue;
       }
