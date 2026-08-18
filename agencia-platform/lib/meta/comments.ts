@@ -57,7 +57,8 @@ async function pageTokens(workspaceId: string): Promise<AuthorizedMetaPages> {
   return { facebook, instagram, facebookAuthorIds, instagramUsernames };
 }
 
-export function isOwnMetaComment(comment: { platform?: string; from?: { id?: string | null; name?: string | null } }, pages: Pick<AuthorizedMetaPages, "facebookAuthorIds" | "instagramUsernames">) {
+export function isOwnMetaComment(comment: { platform?: string; from?: { id?: string | null; name?: string | null } }, pages: Pick<AuthorizedMetaPages, "facebookAuthorIds" | "instagramUsernames">, publicationOwnerId?: string | null) {
+  if (publicationOwnerId && comment.from?.id && String(comment.from.id) === publicationOwnerId) return true;
   if (comment.platform === "instagram") return Boolean(comment.from?.name && pages.instagramUsernames.has(comment.from.name.toLowerCase()));
   return Boolean(comment.from?.id && pages.facebookAuthorIds.has(String(comment.from.id)));
 }
@@ -90,6 +91,11 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec";
     const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{${creativeFields}}&limit=100`, undefined, 2000);
     const authorizedPages = await pageTokens(workspaceId);
+    const sentReplyRows = await prisma.metaAdComment.findMany({
+      where: { workspaceId, externalReplyId: { not: null } },
+      select: { externalReplyId: true }
+    });
+    const sentReplyIds = new Set(sentReplyRows.flatMap((row) => row.externalReplyId ? [row.externalReplyId] : []));
     await prisma.metaAdComment.updateMany({
       where: {
         workspaceId,
@@ -102,6 +108,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       data: { deletedAt: new Date(), status: "ignored_self" }
     });
     const discovered: any[] = [];
+    const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
     for (const ad of ads) {
       let creative = ad?.creative ?? {};
@@ -110,9 +117,9 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       }
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       const targets = [
-        (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
-        (creative.effective_instagram_story_id ?? creative.source_instagram_media_id) ? { id: String(creative.effective_instagram_story_id ?? creative.source_instagram_media_id), platform: "instagram", token: authorizedPages.instagram.get(String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "")) } : null
-      ].filter(Boolean) as Array<{ id: string; platform: "facebook" | "instagram"; token?: string }>;
+        (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), ownerId: String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0], platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
+        (creative.effective_instagram_story_id ?? creative.source_instagram_media_id) ? { id: String(creative.effective_instagram_story_id ?? creative.source_instagram_media_id), ownerId: String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? ""), platform: "instagram", token: authorizedPages.instagram.get(String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "")) } : null
+      ].filter(Boolean) as Array<{ id: string; ownerId?: string; platform: "facebook" | "instagram"; token?: string }>;
       if (targets.length === 0) adsWithoutPost++;
       for (const target of targets) {
         if (target.platform === "instagram") instagramTargets++; else facebookTargets++;
@@ -122,12 +129,21 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         for (const raw of comments) {
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
           comment.platform = target.platform;
-          if (isOwnMetaComment(comment, authorizedPages)) continue;
+          if (sentReplyIds.has(String(comment.id)) || isOwnMetaComment(comment, authorizedPages, target.ownerId)) {
+            ownExternalIds.add(String(comment.id));
+            continue;
+          }
           const createdAt = new Date(comment.created_time);
           if (range && (createdAt < range.from || createdAt > range.to)) continue;
           discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: ad.id, adName: ad.name });
         }
       }
+    }
+    if (ownExternalIds.size) {
+      await prisma.metaAdComment.updateMany({
+        where: { workspaceId, externalCommentId: { in: [...ownExternalIds] }, deletedAt: null },
+        data: { deletedAt: new Date(), status: "ignored_self" }
+      });
     }
     const unique = [...new Map(discovered.map((item) => [String(item.id), item])).values()];
     const existing = unique.length ? await prisma.metaAdComment.findMany({ where: { workspaceId, externalCommentId: { in: unique.map((item) => String(item.id)) } }, select: { externalCommentId: true } }) : [];

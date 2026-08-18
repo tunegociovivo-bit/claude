@@ -12,6 +12,10 @@ describe("isOwnMetaComment", () => {
     expect(isOwnMetaComment({ platform: "facebook", from: { id: "customer-1", name: "Cliente" } }, pages)).toBe(false);
   });
 
+  it("uses the publication owner even when the page list is incomplete", () => {
+    expect(isOwnMetaComment({ platform: "facebook", from: { id: "page-missing" } }, pages, "page-missing")).toBe(true);
+  });
+
   it("excludes comments published by the connected Instagram business account", () => {
     expect(isOwnMetaComment({ platform: "instagram", from: { name: "NEGOCIOVIVO" } }, pages)).toBe(true);
     expect(isOwnMetaComment({ platform: "instagram", from: { name: "cliente" } }, pages)).toBe(false);
