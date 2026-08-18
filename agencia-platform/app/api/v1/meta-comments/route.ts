@@ -22,7 +22,7 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
   if (parsed.data.action === "sync") return NextResponse.json(await syncMetaCampaignComments(api.workspaceId, parsed.data.campaignId, parsed.data.clientName));
   const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId } });
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
-  const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, parsed.data.message);
+  const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, parsed.data.message, comment.postId);
   await prisma.metaAdComment.update({ where: { id: comment.id }, data: { status: "replied", repliedAt: new Date(), externalReplyId: replyId, aiDraft: parsed.data.message } });
   return NextResponse.json({ ok: true, replyId });
 });

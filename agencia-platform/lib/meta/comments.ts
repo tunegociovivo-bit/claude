@@ -4,14 +4,21 @@ import { readWorkspaceMetaToken } from "@/lib/meta/connection";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
-async function graph(workspaceId: string, path: string, init?: RequestInit) {
-  const token = await readWorkspaceMetaToken(workspaceId);
+async function graph(workspaceId: string, path: string, init?: RequestInit, explicitToken?: string) {
+  const token = explicitToken ?? await readWorkspaceMetaToken(workspaceId);
   if (!token) throw new Error("No hay conexión Meta activa en el workspace.");
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(`${GRAPH}/${path}${separator}access_token=${encodeURIComponent(token)}`, { ...init, cache: "no-store" });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`Meta ${response.status}: ${json?.error?.message ?? "error desconocido"}`);
+  if (!response.ok) throw new Error(`Meta ${response.status} en ${path.split("?")[0]}: ${json?.error?.message ?? "error desconocido"}`);
   return json;
+}
+
+async function pageTokens(workspaceId: string): Promise<Map<string, string>> {
+  const userToken = await readWorkspaceMetaToken(workspaceId);
+  if (!userToken) return new Map();
+  const pages = await graph(workspaceId, "me/accounts?fields=id,access_token&limit=100", undefined, userToken);
+  return new Map((pages.data ?? []).filter((page: any) => page.id && page.access_token).map((page: any) => [String(page.id), String(page.access_token)]));
 }
 
 export async function syncMetaCampaignComments(workspaceId: string, campaignId: string, clientName: string) {
@@ -21,11 +28,13 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
   });
   try {
     const ads = await graph(workspaceId, `${campaignId}/ads?fields=id,name,creative{effective_object_story_id}&limit=100`);
+    const authorizedPages = await pageTokens(workspaceId);
     const discovered: any[] = [];
     for (const ad of ads.data ?? []) {
       const postId = ad?.creative?.effective_object_story_id;
       if (!postId) continue;
-      const comments = await graph(workspaceId, `${postId}/comments?fields=id,message,from{id,name},created_time&filter=stream&limit=100`);
+      const pageId = String(postId).split("_")[0];
+      const comments = await graph(workspaceId, `${postId}/comments?fields=id,message,from{id,name},created_time&filter=stream&limit=100`, undefined, authorizedPages.get(pageId));
       for (const comment of comments.data ?? []) discovered.push({ ...comment, postId, adId: ad.id, adName: ad.name });
     }
     let created = 0;
@@ -85,8 +94,10 @@ export async function syncAllActiveMetaCommentFeeds() {
   return { feeds: feeds.length, created, failed };
 }
 
-export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string) {
+export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string, postId?: string | null) {
   const body = new URLSearchParams({ message });
-  const result = await graph(workspaceId, `${externalCommentId}/comments`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  const pageId = postId ? postId.split("_")[0] : null;
+  const token = pageId ? (await pageTokens(workspaceId)).get(pageId) : undefined;
+  const result = await graph(workspaceId, `${externalCommentId}/comments`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
   return String(result.id ?? "");
 }
