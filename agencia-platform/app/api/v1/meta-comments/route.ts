@@ -35,9 +35,14 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     // displayed by Ads Manager. `effective_status` included paused campaigns,
     // while filtering on `configured_status` returned an empty catalogue.
     const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "status", limit: 500, refreshStatuses: true, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
-    const items = campaigns.filter((campaign: { configured_status?: string }) =>
-      campaign.configured_status === "ACTIVE"
-    );
+    const now = Date.now();
+    const items = campaigns.filter((campaign: { configured_status?: string; start_time?: string; stop_time?: string }) => {
+      const startsAt = campaign.start_time ? Date.parse(campaign.start_time) : null;
+      const stopsAt = campaign.stop_time ? Date.parse(campaign.stop_time) : null;
+      return campaign.configured_status === "ACTIVE"
+        && (!startsAt || Number.isNaN(startsAt) || startsAt <= now)
+        && (!stopsAt || Number.isNaN(stopsAt) || stopsAt >= now);
+    });
     return NextResponse.json({ items });
   }
   const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
