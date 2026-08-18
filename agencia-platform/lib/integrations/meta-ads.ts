@@ -17,6 +17,7 @@ import { loadStoredAdhocCredentials } from "@/lib/ai/nv-ia/adhoc-credentials";
 import { metaWriteGate, noteMetaUsage, noteMetaErrorBody } from "@/lib/integrations/meta-rate-guard";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
+const GRAPH_CAMPAIGN_STATUS = "https://graph.facebook.com/v23.0";
 
 /**
  * Elige la MEJOR MetaConnection del workspace: la más reciente que NO esté
@@ -326,7 +327,7 @@ export async function metaAdsListCampaigns(opts: {
     params.set("filtering", JSON.stringify([{ field: opts.statusField ?? "effective_status", operator: "IN", value: [opts.status] }]));
   }
   const data = await metaFetch<any>(
-    `${GRAPH}/${account}/campaigns?${params.toString()}`,
+    `${GRAPH_CAMPAIGN_STATUS}/${account}/campaigns?${params.toString()}`,
     cfg.accessToken
   );
   const campaigns = data.data ?? [];
@@ -336,7 +337,7 @@ export async function metaAdsListCampaigns(opts: {
   for (let offset = 0; offset < campaigns.length; offset += 50) {
     const ids = campaigns.slice(offset, offset + 50).map((campaign: any) => String(campaign.id));
     const result = await metaFetch<Record<string, any>>(
-      `${GRAPH}/?ids=${encodeURIComponent(ids.join(","))}&fields=id,status,configured_status,effective_status`,
+      `${GRAPH_CAMPAIGN_STATUS}/?ids=${encodeURIComponent(ids.join(","))}&fields=id,status,configured_status,effective_status`,
       cfg.accessToken
     );
     for (const [id, status] of Object.entries(result ?? {})) freshStatuses.set(id, status);
