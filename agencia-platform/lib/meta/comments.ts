@@ -32,11 +32,17 @@ async function graphAll(workspaceId: string, path: string, explicitToken?: strin
   return found.slice(0, maxItems);
 }
 
-async function pageTokens(workspaceId: string): Promise<Map<string, string>> {
+async function pageTokens(workspaceId: string): Promise<{ facebook: Map<string, string>; instagram: Map<string, string> }> {
   const userToken = await readWorkspaceMetaToken(workspaceId);
-  if (!userToken) return new Map();
-  const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token&limit=100", userToken, 1000);
-  return new Map(pages.filter((page: any) => page.id && page.access_token).map((page: any) => [String(page.id), String(page.access_token)]));
+  if (!userToken) return { facebook: new Map(), instagram: new Map() };
+  const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token,instagram_business_account{id}&limit=100", userToken, 1000);
+  const facebook = new Map<string, string>(); const instagram = new Map<string, string>();
+  for (const page of pages) {
+    if (!page.id || !page.access_token) continue;
+    facebook.set(String(page.id), String(page.access_token));
+    if (page.instagram_business_account?.id) instagram.set(String(page.instagram_business_account.id), String(page.access_token));
+  }
+  return { facebook, instagram };
 }
 
 type Range = { from: Date; to: Date };
@@ -64,19 +70,25 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
   });
   try {
-    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{effective_object_story_id}&limit=100`, undefined, 2000);
+    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{effective_object_story_id,effective_instagram_story_id,instagram_actor_id}&limit=100`, undefined, 2000);
     const authorizedPages = await pageTokens(workspaceId);
     const discovered: any[] = [];
     for (const ad of ads) {
-      const postId = ad?.creative?.effective_object_story_id;
-      if (!postId) continue;
-      const pageId = String(postId).split("_")[0];
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
-      const comments = await graphAll(workspaceId, `${postId}/comments?fields=id,message,from{id,name},created_time&filter=stream&limit=100${rangeQuery}`, authorizedPages.get(pageId), 5000);
-      for (const comment of comments) {
-        const createdAt = new Date(comment.created_time);
-        if (range && (createdAt < range.from || createdAt > range.to)) continue;
-        discovered.push({ ...comment, postId, adId: ad.id, adName: ad.name });
+      const targets = [
+        ad?.creative?.effective_object_story_id ? { id: String(ad.creative.effective_object_story_id), platform: "facebook", token: authorizedPages.facebook.get(String(ad.creative.effective_object_story_id).split("_")[0]) } : null,
+        ad?.creative?.effective_instagram_story_id ? { id: String(ad.creative.effective_instagram_story_id), platform: "instagram", token: authorizedPages.instagram.get(String(ad.creative.instagram_actor_id ?? "")) } : null
+      ].filter(Boolean) as Array<{ id: string; platform: "facebook" | "instagram"; token?: string }>;
+      for (const target of targets) {
+        const fields = target.platform === "instagram" ? "id,text,username,timestamp" : "id,message,from{id,name},created_time";
+        const filter = target.platform === "facebook" ? "&filter=stream" : "";
+        const comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
+        for (const raw of comments) {
+          const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
+          const createdAt = new Date(comment.created_time);
+          if (range && (createdAt < range.from || createdAt > range.to)) continue;
+          discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: ad.id, adName: ad.name });
+        }
       }
     }
     const unique = [...new Map(discovered.map((item) => [String(item.id), item])).values()];
@@ -89,7 +101,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     for (const item of processing) {
       const analysis = analyses.get(String(item.id)) ?? { id: String(item.id), sentiment: "neutral", reason: "Pendiente de revisión", draft: "Gracias por tu comentario. ¿Podemos ayudarte con alguna duda?" };
       const row = await prisma.metaAdComment.create({ data: {
-        workspaceId, feedId: feed.id, externalCommentId: String(item.id), postId: item.postId,
+        workspaceId, feedId: feed.id, externalCommentId: String(item.id), postId: item.postId, platform: item.platform ?? "facebook",
         adId: item.adId, adName: item.adName, authorName: item.from?.name ?? null, authorId: item.from?.id ?? null,
         message: item.message ?? "", sentiment: analysis.sentiment, sentimentReason: analysis.reason?.slice(0, 300),
         aiDraft: analysis.draft?.slice(0, 2000), commentCreatedAt: new Date(item.created_time)
@@ -122,10 +134,12 @@ export async function syncAllActiveMetaCommentFeeds() {
   return { feeds: feeds.length, created, failed };
 }
 
-export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string, postId?: string | null) {
+export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string, postId?: string | null, platform = "facebook") {
   const body = new URLSearchParams({ message });
   const pageId = postId ? postId.split("_")[0] : null;
-  const token = pageId ? (await pageTokens(workspaceId)).get(pageId) : undefined;
-  const result = await graph(workspaceId, `${externalCommentId}/comments`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
+  const tokens = await pageTokens(workspaceId);
+  const token = pageId && platform === "facebook" ? tokens.facebook.get(pageId) : undefined;
+  const edge = platform === "instagram" ? "replies" : "comments";
+  const result = await graph(workspaceId, `${externalCommentId}/${edge}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
   return String(result.id ?? "");
 }

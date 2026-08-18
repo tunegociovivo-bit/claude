@@ -3299,17 +3299,20 @@ model MetaConnection {
 }
 
 model MetaCommentFeed {
-  id          String          @id @default(cuid())
-  workspaceId String
-  clientName  String
-  campaignId  String
-  active      Boolean         @default(true)
-  lastSyncAt  DateTime?
-  lastError   String?         @db.Text
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  comments    MetaAdComment[]
+  id            String          @id @default(cuid())
+  workspaceId   String
+  clientName    String
+  campaignId    String
+  campaignName  String?
+  adAccountId   String?
+  adAccountName String?
+  active        Boolean         @default(true)
+  lastSyncAt    DateTime?
+  lastError     String?         @db.Text
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  comments      MetaAdComment[]
 
   @@unique([workspaceId, campaignId])
   @@index([workspaceId, active])
@@ -3321,6 +3324,7 @@ model MetaAdComment {
   feedId            String
   externalCommentId String
   postId            String?
+  platform          String          @default("facebook")
   adId              String?
   adName            String?
   authorName        String?
