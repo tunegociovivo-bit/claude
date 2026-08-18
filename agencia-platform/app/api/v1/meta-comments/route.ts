@@ -31,7 +31,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     if (!accountId || !/^act_\d+$/.test(accountId)) throw new ApiError(400, "invalid_account", "Cuenta publicitaria no válida");
     const token = await readWorkspaceMetaToken(api.workspaceId);
     if (!token) throw new ApiError(400, "meta_not_connected", "Meta no está conectado");
-    const items = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", limit: 500, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
+    const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", limit: 500, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
+    // Meta can return configured/paused campaigns even when filtering by
+    // effective_status. Apply the state check again before exposing bulk actions.
+    const items = campaigns.filter((campaign: { status?: string; effective_status?: string }) =>
+      campaign.status === "ACTIVE" && campaign.effective_status === "ACTIVE"
+    );
     return NextResponse.json({ items });
   }
   const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
