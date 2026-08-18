@@ -45,7 +45,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     });
     return NextResponse.json({ items });
   }
-  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
+  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, adAccountName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
   const feeds = await prisma.metaCommentFeed.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" } });
   return NextResponse.json({ items, feeds });
 });
