@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { complete, AIDisabledError } from "@/lib/ai/anthropic";
+import { buildReplyLearningContext } from "@/lib/leads/reply-learning";
 
 export const dynamic = "force-dynamic";
 
@@ -75,13 +76,22 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     .filter(Boolean)
     .join("\n");
 
+  const lastInbound = [...inboxMsgs].reverse().find((message) => message.direction === "in");
+  const learnedStyle = await buildReplyLearningContext({
+    workspaceId: api.workspaceId,
+    phone,
+    currentText: lastInbound?.body ?? thread,
+    category: lead?.category ?? null,
+    classification: lastInbound?.classification ?? null
+  });
+
   let suggestion: string;
   try {
     suggestion = await complete({
       workspaceId: api.workspaceId,
       model: "claude-haiku-4-5-20251001",
       system: SYSTEM,
-      user: `${ctx ? ctx + "\n\n" : ""}Conversación:\n${thread}\n\nRedacta la siguiente respuesta del COMERCIAL:`,
+      user: `${ctx ? ctx + "\n\n" : ""}Conversación:\n${thread}${learnedStyle}\n\nRedacta la siguiente respuesta del COMERCIAL:`,
       maxTokens: 400,
       feature: "leads.inbox_suggest"
     });

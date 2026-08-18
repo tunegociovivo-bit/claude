@@ -7,6 +7,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
+import { buildReplyLearningContext } from "./reply-learning";
 
 const SYSTEM = `Eres el comercial que atiende leads por WhatsApp de una agencia de marketing local
 (Negocio Vivo). Te paso una conversación con un negocio. Debes:
@@ -69,11 +70,20 @@ export async function analyzeConversation(workspaceId: string, phone: string): P
     .filter(Boolean)
     .join("\n");
 
+  const lastInbound = [...inboxMsgs].reverse().find((message) => message.direction === "in");
+  const learnedStyle = await buildReplyLearningContext({
+    workspaceId,
+    phone,
+    currentText: lastInbound?.body ?? thread,
+    category: leadInfo?.category ?? null,
+    classification: lastInbound?.classification ?? null
+  });
+
   const out = await completeJson<{ score: number; reason: string; reply: string; callNow?: boolean; callScript?: string }>({
     workspaceId,
     model: "claude-haiku-4-5-20251001",
     system: SYSTEM,
-    user: `${ctx ? ctx + "\n\n" : ""}Conversación:\n${thread}`,
+    user: `${ctx ? ctx + "\n\n" : ""}Conversación:\n${thread}${learnedStyle}`,
     schema: SCHEMA,
     maxTokens: 600
   });

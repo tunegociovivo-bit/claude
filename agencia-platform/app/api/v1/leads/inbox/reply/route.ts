@@ -83,6 +83,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       direction: "out",
       body: text,
       read: true,
+      meta: { source: "human_reply", userId: api.userId ?? null },
       externalMessageId,
       instanceName: lastIn.instanceName
     }

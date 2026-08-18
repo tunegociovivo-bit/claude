@@ -6249,6 +6249,11 @@ function InboxChat({
                     {m.kind === "campaign" && (
                       <div className="text-[10px] text-slate-400 mb-0.5">📣 campaña</div>
                     )}
+                    {m.direction === "out" && m.kind === "inbox" && (
+                      <div className="text-[10px] text-emerald-700 mb-0.5">
+                        📱 enviado desde {m.instanceName ? channelLabel(m.instanceName) : "Principal"}
+                      </div>
+                    )}
                     {m.body}
                     <div className="text-[10px] text-slate-400 text-right mt-1 flex items-center justify-end gap-1">
                       {new Date(m.at).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}

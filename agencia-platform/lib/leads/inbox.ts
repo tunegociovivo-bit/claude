@@ -247,7 +247,7 @@ export async function recordOutboundFromPhone(opts: {
       direction: "out",
       body: opts.text,
       read: true,
-      meta: opts.meta ?? undefined,
+      meta: { ...(opts.meta && typeof opts.meta === "object" ? opts.meta : {}), source: "phone_outbound" },
       externalMessageId: opts.externalMessageId ?? null,
       instanceName: opts.instanceName ?? null
     }
