@@ -152,6 +152,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const processing = pending.slice(0, 50);
     const analyses = await analyzeComments(workspaceId, clientName, processing);
     let created = 0;
+    const notificationJobs: Promise<void>[] = [];
     for (const item of processing) {
       const analysis = analyses.get(String(item.id)) ?? { id: String(item.id), sentiment: "neutral", reason: "Pendiente de revisión", draft: "Gracias por tu comentario. ¿Podemos ayudarte con alguna duda?" };
       const row = await prisma.metaAdComment.create({ data: {
@@ -161,21 +162,46 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         aiDraft: analysis.draft?.slice(0, 2000), commentCreatedAt: new Date(item.created_time)
       }});
       created++;
-      if (row.sentiment === "negative") await notifyNegative(workspaceId, row.id, clientName, row.authorName, row.message);
+      notificationJobs.push(notifyNewComment(workspaceId, row.id, feed.displayName || clientName, feed.campaignName, row.authorName, row.message, row.sentiment === "negative"));
     }
+    await Promise.allSettled(notificationJobs);
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: null } });
     return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost } };
   } catch (error: any) {
-    await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: String(error?.message ?? error).slice(0, 2000) } });
+    const errorMessage = String(error?.message ?? error).slice(0, 2000);
+    await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: errorMessage } });
+    if (feed.lastError !== errorMessage) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});
     throw error;
   }
 }
 
-async function notifyNegative(workspaceId: string, commentId: string, clientName: string, author: string | null, message: string) {
+export async function notifyMetaOperational(workspaceId: string, preference: "syncFailures" | "publishedReplies", title: string, detail: string) {
+  const recipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId, active: true, [preference]: true }, select: { email: true } });
+  if (!recipients.length) return;
+  const { sendEmail } = await import("@/lib/integrations/email");
+  const { buildMetaOperationalEmail } = await import("@/lib/meta/negative-comment-email");
+  const baseUrl = (process.env.NEXTAUTH_URL || "https://hub.negociovivo.app").replace(/\/$/, "");
+  const content = buildMetaOperationalEmail({ title, detail, url: `${baseUrl}/admin/meta-comments` });
+  const results = await Promise.allSettled(recipients.map(({ email }) => sendEmail({ to: email, ...content, workspaceId })));
+  results.forEach((result, index) => { if (result.status === "rejected") console.warn(`[meta-comments] No se pudo enviar aviso operativo a ${recipients[index].email}:`, result.reason); });
+}
+
+async function notifyNewComment(workspaceId: string, commentId: string, clientName: string, campaignName: string | null, author: string | null, message: string, negative: boolean) {
   const admins = await prisma.membership.findMany({ where: { workspaceId, role: "ADMIN" }, select: { userId: true } });
-  await prisma.notification.createMany({ data: admins.map(({ userId }) => ({ userId, type: "meta_negative_comment", body: `⚠️ Comentario negativo en campaña de ${clientName} (${author ?? "usuario"}): ${message.slice(0, 180)}`, link: `/admin/meta-comments?comment=${commentId}` })) });
-  const { sendPushToUser } = await import("@/lib/push/web-push");
-  await Promise.all(admins.map(({ userId }) => sendPushToUser(userId, { title: `Comentario negativo · ${clientName}`, body: `${author ?? "Usuario"}: ${message.slice(0, 160)}`, link: `/admin/meta-comments?comment=${commentId}`, tag: `meta-negative-${commentId}` }).catch(() => {})));
+  if (negative) {
+    await prisma.notification.createMany({ data: admins.map(({ userId }) => ({ userId, type: "meta_negative_comment", body: `⚠️ Comentario negativo en campaña de ${clientName} (${author ?? "usuario"}): ${message.slice(0, 180)}`, link: `/admin/meta-comments?comment=${commentId}` })) });
+    const { sendPushToUser } = await import("@/lib/push/web-push");
+    await Promise.all(admins.map(({ userId }) => sendPushToUser(userId, { title: `Comentario negativo · ${clientName}`, body: `${author ?? "Usuario"}: ${message.slice(0, 160)}`, link: `/admin/meta-comments?comment=${commentId}`, tag: `meta-negative-${commentId}` }).catch(() => {})));
+  }
+  const recipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId, active: true, OR: [{ allComments: true }, ...(negative ? [{ negativeComments: true }] : [])] }, select: { email: true } });
+  if (recipients.length) {
+    const { sendEmail } = await import("@/lib/integrations/email");
+    const { buildNegativeCommentEmail } = await import("@/lib/meta/negative-comment-email");
+    const baseUrl = (process.env.NEXTAUTH_URL || "https://hub.negociovivo.app").replace(/\/$/, "");
+    const content = buildNegativeCommentEmail({ clientName, campaignName, author, message, negative, url: `${baseUrl}/admin/meta-comments?comment=${encodeURIComponent(commentId)}` });
+    const results = await Promise.allSettled(recipients.map(({ email }) => sendEmail({ to: email, ...content, workspaceId })));
+    results.forEach((result, index) => { if (result.status === "rejected") console.warn(`[meta-comments] No se pudo enviar alerta a ${recipients[index].email}:`, result.reason); });
+  }
 }
 
 export async function syncAllActiveMetaCommentFeeds() {

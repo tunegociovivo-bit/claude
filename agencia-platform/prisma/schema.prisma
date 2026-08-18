@@ -192,80 +192,81 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships               Membership[]
-  clients                   Client[]
-  projects                  Project[]
-  tasks                     Task[]
-  documents                 Document[]
-  databases                 Database[]
-  tags                      Tag[]
-  files                     File[]
-  events                    CalendarEvent[]
-  apiKeys                   ApiKey[]
-  webhooks                  Webhook[]
-  auditLogs                 AuditLog[]
-  asanaImports              AsanaImport[]
-  comments                  Comment[]
-  reviewClients             ReviewClient[]
-  voiceBusinesses           VoiceBusiness[]
-  editorialPosts            EditorialPost[]
-  approvalLinks             ClientApprovalLink[]
-  deliverables              Deliverable[]
-  credentialGrants          CredentialAccessGrant[]
-  leadSearches              LeadSearch[]
-  leadQueryCache            LeadQueryCache[]
-  leads                     Lead[]
-  opportunitySignals        OpportunitySignal[]
-  metaCommentFeeds          MetaCommentFeed[]
-  metaAdComments            MetaAdComment[]
-  leadTemplates             LeadTemplate[]
-  leadSequences             LeadSequence[]
-  leadInboxMsgs             LeadInboxMessage[]
-  leadMessages              LeadMessage[]
-  leadExclusions            LeadExclusion[]
-  leadOptouts               LeadOptout[]
-  leadConversationMetas     LeadConversationMeta[]
-  leadBroadcasts            LeadBroadcast[]
-  leadBroadcastRecipients   LeadBroadcastRecipient[]
-  leadExecOutreach          LeadExecOutreach[]
-  externalCalendars         UserExternalCalendar[]
-  vacationDays              VacationDay[]
-  teamMessages              TeamMessage[]
-  googleCalendarConnections GoogleCalendarConnection[]
-  emailAccounts             EmailAccount[]
-  searchEmbeddings          SearchEmbedding[]
-  metaConnections           MetaConnection[]
-  sepaRemittanceRequests    SepaRemittanceRequest[]
-  bankAgents                BankAgent[]
-  remittanceJobs            RemittanceJob[]
-  bankReconciliationConfig  BankReconciliationConfig?
-  bankTransactions          BankTransaction[]
-  metaCampaigns             MetaCampaign[]
-  aiAgentRuns               AiAgentRun[]
-  aiDrafts                  AiDraft[]
-  aiOrchestrations          AiOrchestration[]
-  aiRunSteps                AiRunStep[]
-  aiApprovals               AiApproval[]
-  aiApprovalEvents          AiApprovalEvent[]
-  aiProviderBreakers        AiProviderBreaker[]
-  aiStrategyMemories        AiStrategyMemory[]
-  aiClientMemories          AiClientMemory[]
-  aiAgentLessons            AiAgentLesson[]
-  taskTemplates             TaskTemplate[]
-  aiWorkspaceMemory         AiWorkspaceMemory?
-  aiUserMemories            AiUserMemory[]
-  aiProposedTools           AiProposedTool[]
-  aiOwnerships              AiOwnership[]
-  aiClientWorkflows         AiClientWorkflow[]
-  googleAdsConnection       GoogleAdsConnection?
-  pricingServices           PricingService[]
-  deals                     Deal[]
-  liveMeetingSessions       LiveMeetingSession[]
-  invoices                  Invoice[]
-  invoiceIssuers            InvoiceIssuer[]
-  invoiceCounters           InvoiceCounter[]
-  expenses                  Expense[]
-  panelNotes                PanelNote[]
+  memberships                Membership[]
+  clients                    Client[]
+  projects                   Project[]
+  tasks                      Task[]
+  documents                  Document[]
+  databases                  Database[]
+  tags                       Tag[]
+  files                      File[]
+  events                     CalendarEvent[]
+  apiKeys                    ApiKey[]
+  webhooks                   Webhook[]
+  auditLogs                  AuditLog[]
+  asanaImports               AsanaImport[]
+  comments                   Comment[]
+  reviewClients              ReviewClient[]
+  voiceBusinesses            VoiceBusiness[]
+  editorialPosts             EditorialPost[]
+  approvalLinks              ClientApprovalLink[]
+  deliverables               Deliverable[]
+  credentialGrants           CredentialAccessGrant[]
+  leadSearches               LeadSearch[]
+  leadQueryCache             LeadQueryCache[]
+  leads                      Lead[]
+  opportunitySignals         OpportunitySignal[]
+  metaCommentFeeds           MetaCommentFeed[]
+  metaAdComments             MetaAdComment[]
+  metaCommentAlertRecipients MetaCommentAlertRecipient[]
+  leadTemplates              LeadTemplate[]
+  leadSequences              LeadSequence[]
+  leadInboxMsgs              LeadInboxMessage[]
+  leadMessages               LeadMessage[]
+  leadExclusions             LeadExclusion[]
+  leadOptouts                LeadOptout[]
+  leadConversationMetas      LeadConversationMeta[]
+  leadBroadcasts             LeadBroadcast[]
+  leadBroadcastRecipients    LeadBroadcastRecipient[]
+  leadExecOutreach           LeadExecOutreach[]
+  externalCalendars          UserExternalCalendar[]
+  vacationDays               VacationDay[]
+  teamMessages               TeamMessage[]
+  googleCalendarConnections  GoogleCalendarConnection[]
+  emailAccounts              EmailAccount[]
+  searchEmbeddings           SearchEmbedding[]
+  metaConnections            MetaConnection[]
+  sepaRemittanceRequests     SepaRemittanceRequest[]
+  bankAgents                 BankAgent[]
+  remittanceJobs             RemittanceJob[]
+  bankReconciliationConfig   BankReconciliationConfig?
+  bankTransactions           BankTransaction[]
+  metaCampaigns              MetaCampaign[]
+  aiAgentRuns                AiAgentRun[]
+  aiDrafts                   AiDraft[]
+  aiOrchestrations           AiOrchestration[]
+  aiRunSteps                 AiRunStep[]
+  aiApprovals                AiApproval[]
+  aiApprovalEvents           AiApprovalEvent[]
+  aiProviderBreakers         AiProviderBreaker[]
+  aiStrategyMemories         AiStrategyMemory[]
+  aiClientMemories           AiClientMemory[]
+  aiAgentLessons             AiAgentLesson[]
+  taskTemplates              TaskTemplate[]
+  aiWorkspaceMemory          AiWorkspaceMemory?
+  aiUserMemories             AiUserMemory[]
+  aiProposedTools            AiProposedTool[]
+  aiOwnerships               AiOwnership[]
+  aiClientWorkflows          AiClientWorkflow[]
+  googleAdsConnection        GoogleAdsConnection?
+  pricingServices            PricingService[]
+  deals                      Deal[]
+  liveMeetingSessions        LiveMeetingSession[]
+  invoices                   Invoice[]
+  invoiceIssuers             InvoiceIssuer[]
+  invoiceCounters            InvoiceCounter[]
+  expenses                   Expense[]
+  panelNotes                 PanelNote[]
 }
 
 model OpportunitySignal {
@@ -3348,6 +3349,23 @@ model MetaAdComment {
   @@unique([workspaceId, externalCommentId])
   @@index([workspaceId, sentiment, status])
   @@index([feedId, commentCreatedAt])
+}
+
+model MetaCommentAlertRecipient {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  email            String
+  active           Boolean   @default(true)
+  negativeComments Boolean   @default(true)
+  allComments      Boolean   @default(false)
+  syncFailures     Boolean   @default(false)
+  publishedReplies Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId, active])
 }
 
 enum MetaCampaignStatus {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Loader2, MessageSquare, Pencil, RefreshCw, Send, Trash2, UserX, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Loader2, Mail, MessageSquare, Pencil, Plus, RefreshCw, Send, Trash2, UserX, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
 
@@ -10,6 +10,7 @@ type Feed = { campaignId: string; campaignName: string | null; adAccountId: stri
 type AdAccount = { id: string; name: string; status: number; currency: string };
 type Campaign = { id: string; name: string; status: string; configured_status?: string; effective_status?: string; objective?: string };
 type Comment = { id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string; displayName: string | null; adAccountName: string | null } };
+type AlertRecipient = { id: string; email: string; active: boolean; negativeComments: boolean; allComments: boolean; syncFailures: boolean; publishedReplies: boolean };
 
 function canonicalClientName(name: string) {
   return name.trim().replace(/\s+(nueva|nuevo)$/i, "").replace(/\s+/g, " ");
@@ -26,6 +27,8 @@ function clientKeyOf(value: { clientName: string; adAccountName?: string | null 
 export default function MetaCommentsClient() {
   const [items, setItems] = useState<Comment[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [alertRecipients, setAlertRecipients] = useState<AlertRecipient[]>([]);
+  const [newAlertEmail, setNewAlertEmail] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState("all");
   const [clientFilter, setClientFilter] = useState("all");
@@ -47,7 +50,7 @@ export default function MetaCommentsClient() {
     const response = await fetch("/api/v1/meta-comments", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron cargar los comentarios");
-    setItems(data.items ?? []); setFeeds(data.feeds ?? []);
+    setItems(data.items ?? []); setFeeds(data.feeds ?? []); setAlertRecipients(data.alertRecipients ?? []);
     setDrafts((old) => Object.fromEntries((data.items ?? []).map((item: Comment) => [item.id, old[item.id] ?? item.aiDraft ?? ""])));
     return data;
   }, []);
@@ -105,6 +108,22 @@ export default function MetaCommentsClient() {
   }, [clientNameDraft, load]);
 
   useEffect(() => { load().catch((cause) => setError(String(cause.message ?? cause))); void loadAccounts(); }, [load, loadAccounts]);
+
+  useEffect(() => {
+    const targetId = new URLSearchParams(window.location.search).get("comment");
+    if (!targetId || items.length === 0) return;
+    setFilter("all"); setClientFilter("all");
+    window.setTimeout(() => document.getElementById(`meta-comment-${targetId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  }, [items]);
+
+  async function updateAlertRecipient(payload: Record<string, unknown>, busyKey: string) {
+    setBusy(busyKey); setError(null);
+    try {
+      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo guardar el destinatario");
+      setNewAlertEmail(""); await load();
+    } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
+  }
 
   async function toggleCampaign(campaign: Campaign) {
     const account = accounts.find((item) => item.id === selectedAccountId); if (!account) return;
@@ -195,6 +214,12 @@ export default function MetaCommentsClient() {
 
   return <div className="max-w-6xl mx-auto">
     <PageHeader title="Comentarios de anuncios Meta" description="Bandeja de comentarios, borradores con IA y alertas por reputación. Ninguna respuesta se publica sin confirmación." />
+    <section className="mb-5 rounded-xl border bg-white p-4">
+      <div className="mb-3 flex items-start gap-3"><div className="rounded-lg bg-rose-50 p-2 text-rose-700"><Mail className="h-5 w-5" /></div><div><div className="font-semibold text-slate-900">Alertas de Comentarios Meta por email</div><div className="text-xs text-slate-500">Añade destinatarios y elige individualmente qué avisos recibe cada uno. Los comentarios incluyen un enlace directo para revisarlos, responderlos o eliminarlos de Meta.</div></div></div>
+      <form onSubmit={(event) => { event.preventDefault(); const email = newAlertEmail.trim(); if (email) void updateAlertRecipient({ action: "add_alert_email", email }, "add-alert-email"); }} className="flex flex-wrap gap-2"><input type="email" required maxLength={254} value={newAlertEmail} onChange={(event) => setNewAlertEmail(event.target.value)} placeholder="info@negociovivo.com" aria-label="Nuevo correo para alertas" className="min-w-[260px] flex-1 rounded-lg border px-3 py-2 text-sm" /><button type="submit" disabled={!newAlertEmail.trim() || busy === "add-alert-email"} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy === "add-alert-email" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Añadir correo</button></form>
+      {alertRecipients.length === 0 ? <p className="mt-3 text-xs text-slate-500">Todavía no hay destinatarios. Las alertas dentro del Hub y las notificaciones push seguirán funcionando.</p> : <div className="mt-3 divide-y rounded-lg border">{alertRecipients.map((recipient) => <div key={recipient.id} className="p-3"><div className="flex items-center gap-3"><label className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium"><input type="checkbox" checked={recipient.active} onChange={(event) => void updateAlertRecipient({ action: "set_alert_email", recipientId: recipient.id, preference: "active", value: event.target.checked }, `alert:${recipient.id}`)} disabled={busy === `alert:${recipient.id}`} className="h-4 w-4" /><span className={recipient.active ? "text-slate-800" : "text-slate-400 line-through"}>{recipient.email}</span></label><button type="button" title="Eliminar destinatario" onClick={() => void updateAlertRecipient({ action: "remove_alert_email", recipientId: recipient.id }, `remove-alert:${recipient.id}`)} disabled={busy === `remove-alert:${recipient.id}`} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 disabled:opacity-50">{busy === `remove-alert:${recipient.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}</button></div><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 pl-6">{([ ["negativeComments", "Comentarios negativos"], ["allComments", "Todos los comentarios"], ["syncFailures", "Fallos de sincronización"], ["publishedReplies", "Respuestas publicadas"] ] as const).map(([preference, label]) => <label key={preference} className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={recipient[preference]} disabled={!recipient.active || busy === `alert:${recipient.id}:${preference}`} onChange={(event) => void updateAlertRecipient({ action: "set_alert_email", recipientId: recipient.id, preference, value: event.target.checked }, `alert:${recipient.id}:${preference}`)} className="h-3.5 w-3.5" /> {label}</label>)}</div></div>)}</div>}
+      <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">Por seguridad, el email no ejecuta borrados directamente: el botón abre el comentario en el Hub y exige sesión antes de responder o eliminar.</div>
+    </section>
     <div className="mb-5 rounded-xl border bg-white p-4">
       <div className="mb-3"><div className="font-semibold text-slate-900">1. Cuenta publicitaria</div><div className="text-xs text-slate-500">Se muestran todas las cuentas autorizadas en tu conexión de Meta.</div></div>
       <div className="flex flex-wrap gap-2"><select value={selectedAccountId} onChange={(event) => void loadCampaigns(event.target.value)} className="w-full max-w-xl rounded-lg border px-3 py-2 text-sm"><option value="">Selecciona una cuenta publicitaria…</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.id} · {account.currency}</option>)}</select><button onClick={() => setConnectionOpen(true)} className="rounded-lg border px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Gestionar conexión Meta</button></div>
@@ -226,7 +251,7 @@ export default function MetaCommentsClient() {
     </div>
     {(error || feed?.lastError) && <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><b>No se ha podido completar la sincronización:</b> {error ?? feed?.lastError}<div className="mt-1 text-xs">El token debe incluir pages_read_engagement y pages_manage_engagement y tener acceso a la página del anuncio.</div><button onClick={() => setConnectionOpen(true)} className="mt-3 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100">Reconectar Meta</button></div>}
     <div className="mb-4 flex flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} className="mr-2 rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select>{[["all", "Todos"], ["pending", "Pendientes"], ["negative", "Negativos"], ["replied", "Respondidos"]].map(([key, label]) => <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
-    {visible.length === 0 ? <div className="rounded-xl border bg-white p-10 text-center text-slate-500"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" /><div className="font-medium text-slate-700">No hay comentarios en este filtro</div><div className="mt-1 text-sm">Pulsa “Sincronizar ahora” para consultar Meta.</div></div> : <div className="space-y-4">{visible.map((item) => <article key={item.id} className={`rounded-xl border bg-white p-5 ${item.sentiment === "negative" ? "border-rose-300" : ""}`}>
+    {visible.length === 0 ? <div className="rounded-xl border bg-white p-10 text-center text-slate-500"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" /><div className="font-medium text-slate-700">No hay comentarios en este filtro</div><div className="mt-1 text-sm">Pulsa “Sincronizar ahora” para consultar Meta.</div></div> : <div className="space-y-4">{visible.map((item) => <article id={`meta-comment-${item.id}`} key={item.id} className={`scroll-mt-6 rounded-xl border bg-white p-5 ${item.sentiment === "negative" ? "border-rose-300" : ""}`}>
       <div className="mb-3 flex flex-wrap items-start gap-2"><div className="flex-1"><div className="font-semibold">{item.authorName ?? "Usuario de Meta"}</div><div className="text-xs text-slate-500">{clientNameOf(item.feed)} · {item.adName ?? "Anuncio"} · {new Date(item.commentCreatedAt).toLocaleString("es-ES")}</div></div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${item.sentiment === "negative" ? "bg-rose-100 text-rose-700" : item.sentiment === "positive" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{item.sentiment === "negative" && <AlertTriangle className="h-3 w-3" />}{item.sentiment === "negative" ? "Negativo" : item.sentiment === "positive" ? "Positivo" : "Neutral"}</span></div>
       <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{item.message}</div>
       {item.sentimentReason && <div className="mb-3 text-xs text-slate-500">Análisis IA: {item.sentimentReason}</div>}

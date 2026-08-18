@@ -81,7 +81,8 @@ const PLATFORM_GRAD: Record<string, string> = {
   chrome_extension: "linear-gradient(135deg,#2DD4BF,#0D9488)", // teal
   bubui_directorio: "linear-gradient(135deg,#F86FB0,#D1186A)", // rosa Bubui
   subvenciones: "linear-gradient(135deg,#818CF8,#4338CA)",     // índigo
-  gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)"           // verde-azul Google
+  gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)",          // verde-azul Google
+  meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)"
 };
 const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
 
@@ -95,8 +96,7 @@ const nav = [
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
   { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
   { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
-  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const },
-  { href: "/admin/meta-comments", label: "Comentarios Meta", icon: MessageSquare, feature: "inicio" as const }
+  { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
 ];
 
 type SidebarProject = {
@@ -164,6 +164,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
 
   function movePlatform(key: string, dir: -1 | 1) {
     const baseKeys = [
+      "meta_comments",
       ...(!me || me.features.includes("gmb") ? ["gmb_hub"] : []),
       ...platforms.map((p) => p.key)
     ];
@@ -494,7 +495,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
         {!isHidden("section:plataformas") && (() => {
           const showGmb = !me || me.features.includes("gmb");
           const gmbActive = pathname.startsWith("/gmb-hub");
-          return (platforms.length > 0 || showGmb || me?.role === "ADMIN") && (
+          return (
           <div className="pt-4 mt-2 border-t border-slate-800">
             <div className="flex items-center justify-between px-3 mb-1">
               <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
@@ -514,6 +515,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             <div className="space-y-0.5">
               {(() => {
                 const allItems = [
+                  { key: "meta_comments", label: "Comentarios Meta", href: "/admin/meta-comments", icon: MessageSquare },
                   ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
                   ...platforms.map((p) => ({
                     key: p.key,

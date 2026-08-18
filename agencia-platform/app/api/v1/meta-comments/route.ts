@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
-import { blockMetaCommentAuthor, deleteMetaComment, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
+import { blockMetaCommentAuthor, deleteMetaComment, notifyMetaOperational, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { readWorkspaceMetaToken } from "@/lib/meta/connection";
@@ -17,6 +17,9 @@ const schema = z.discriminatedUnion("action", [
   ,z.object({ action: z.literal("delete_comment"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("block_author"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("rename_client"), campaignIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500), displayName: z.string().trim().min(1).max(120) })
+  ,z.object({ action: z.literal("add_alert_email"), email: z.string().trim().email().max(254) })
+  ,z.object({ action: z.literal("set_alert_email"), recipientId: z.string().min(1), preference: z.enum(["active", "negativeComments", "allComments", "syncFailures", "publishedReplies"]), value: z.boolean() })
+  ,z.object({ action: z.literal("remove_alert_email"), recipientId: z.string().min(1) })
 ]);
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -48,7 +51,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   }
   const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
   const feeds = await prisma.metaCommentFeed.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" } });
-  return NextResponse.json({ items, feeds });
+  const alertRecipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, email: true, active: true, negativeComments: true, allComments: true, syncFailures: true, publishedReplies: true }, orderBy: { email: "asc" } });
+  return NextResponse.json({ items, feeds, alertRecipients });
 });
 
 export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { api }) => {
@@ -84,6 +88,29 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     await auditFromReq(req, api, { action: "meta_comments.client_rename", targetType: "META_COMMENT_CLIENT", targetId: parsed.data.campaignIds.join(","), meta: { displayName: parsed.data.displayName, campaigns: renamed.count } });
     return NextResponse.json({ ok: true, updated: renamed.count });
   }
+  if (parsed.data.action === "add_alert_email") {
+    const email = parsed.data.email.toLocaleLowerCase("es-ES");
+    const recipient = await prisma.metaCommentAlertRecipient.upsert({
+      where: { workspaceId_email: { workspaceId: api.workspaceId, email } },
+      create: { workspaceId: api.workspaceId, email },
+      update: { active: true },
+      select: { id: true, email: true, active: true, negativeComments: true, allComments: true, syncFailures: true, publishedReplies: true }
+    });
+    await auditFromReq(req, api, { action: "meta_comments.alert_email_add", targetType: "META_COMMENT_ALERT_RECIPIENT", targetId: recipient.id, meta: { email } });
+    return NextResponse.json({ ok: true, recipient });
+  }
+  if (parsed.data.action === "set_alert_email") {
+    const updated = await prisma.metaCommentAlertRecipient.updateMany({ where: { id: parsed.data.recipientId, workspaceId: api.workspaceId }, data: { [parsed.data.preference]: parsed.data.value } });
+    if (!updated.count) throw new ApiError(404, "not_found", "Destinatario no encontrado");
+    await auditFromReq(req, api, { action: "meta_comments.alert_email_toggle", targetType: "META_COMMENT_ALERT_RECIPIENT", targetId: parsed.data.recipientId, meta: { preference: parsed.data.preference, value: parsed.data.value } });
+    return NextResponse.json({ ok: true });
+  }
+  if (parsed.data.action === "remove_alert_email") {
+    const removed = await prisma.metaCommentAlertRecipient.deleteMany({ where: { id: parsed.data.recipientId, workspaceId: api.workspaceId } });
+    if (!removed.count) throw new ApiError(404, "not_found", "Destinatario no encontrado");
+    await auditFromReq(req, api, { action: "meta_comments.alert_email_remove", targetType: "META_COMMENT_ALERT_RECIPIENT", targetId: parsed.data.recipientId });
+    return NextResponse.json({ ok: true });
+  }
   if (parsed.data.action === "delete_comment" || parsed.data.action === "block_author") {
     const moderation = parsed.data;
     const comment = await prisma.metaAdComment.findFirst({ where: { id: moderation.commentId, workspaceId: api.workspaceId, deletedAt: null } });
@@ -104,5 +131,6 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
   const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, parsed.data.message, comment.postId, comment.platform);
   await prisma.metaAdComment.update({ where: { id: comment.id }, data: { status: "replied", repliedAt: new Date(), externalReplyId: replyId, aiDraft: parsed.data.message } });
+  await notifyMetaOperational(api.workspaceId, "publishedReplies", "✅ Respuesta publicada en Meta", `${comment.authorName ?? "Usuario de Meta"}: ${parsed.data.message.slice(0, 800)}`).catch(() => {});
   return NextResponse.json({ ok: true, replyId });
 });
