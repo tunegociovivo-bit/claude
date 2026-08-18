@@ -21,27 +21,31 @@ export async function saveMetaToken(opts: {
   workspaceId: string;
   accessToken: string;
   metaUserId?: string;
+  displayName?: string;
+  connectionId?: string;
   expiresAt?: Date | null;
 }): Promise<{ id: string }> {
   workspaceTokenCache.delete(opts.workspaceId);
   const enc = encryptSecret(opts.accessToken.trim());
   // upsert por (userId, workspaceId) — un user solo tiene una conexión
   // de Meta por workspace. Si quisiera cambiar de cuenta, sobrescribe.
-  const r = await prisma.metaConnection.upsert({
-    where: { userId_workspaceId: { userId: opts.userId, workspaceId: opts.workspaceId } },
-    update: {
+  const existing = opts.connectionId
+    ? await prisma.metaConnection.findFirst({ where: { id: opts.connectionId, workspaceId: opts.workspaceId } })
+    : opts.metaUserId
+      ? await prisma.metaConnection.findUnique({ where: { workspaceId_metaUserId: { workspaceId: opts.workspaceId, metaUserId: opts.metaUserId } } })
+      : null;
+  const tokenData = {
+      userId: opts.userId,
       accessTokenEnc: enc,
       metaUserId: opts.metaUserId ?? null,
+      displayName: opts.displayName ?? null,
       expiresAt: opts.expiresAt ?? null
-    },
-    create: {
+  };
+  const r = existing ? await prisma.metaConnection.update({ where: { id: existing.id }, data: tokenData }) : await prisma.metaConnection.create({ data: {
       userId: opts.userId,
       workspaceId: opts.workspaceId,
-      accessTokenEnc: enc,
-      metaUserId: opts.metaUserId ?? null,
-      expiresAt: opts.expiresAt ?? null
-    }
-  });
+      ...tokenData
+    } });
 
   // Limpieza: borra OTRAS conexiones Meta del workspace que estén CADUCADAS.
   // Sin esto, una OAuth vieja vencida podía "ganar" la selección y el runner
@@ -72,12 +76,28 @@ export async function readMetaToken(
   userId: string,
   workspaceId: string
 ): Promise<string | null> {
-  const conn = await prisma.metaConnection.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } }
-  });
+  const conn = await prisma.metaConnection.findFirst({ where: { userId, workspaceId }, orderBy: { updatedAt: "desc" } });
   if (!conn) return null;
   if (conn.expiresAt && conn.expiresAt < new Date()) return null;
   return decryptSecret(conn.accessTokenEnc);
+}
+
+export async function readMetaTokenByConnection(workspaceId: string, connectionId?: string | null): Promise<string | null> {
+  if (!connectionId) return readWorkspaceMetaToken(workspaceId);
+  const connection = await prisma.metaConnection.findFirst({ where: { id: connectionId, workspaceId } });
+  if (!connection || (connection.expiresAt && connection.expiresAt < new Date())) return null;
+  return decryptSecret(connection.accessTokenEnc);
+}
+
+export async function listWorkspaceMetaTokens(workspaceId: string): Promise<Array<{ id: string; metaUserId: string | null; displayName: string | null; token: string }>> {
+  const connections = await prisma.metaConnection.findMany({ where: { workspaceId }, orderBy: { updatedAt: "desc" } });
+  const now = new Date();
+  return connections.filter((item) => !item.expiresAt || item.expiresAt > now).flatMap((item) => {
+    try {
+      const token = decryptSecret(item.accessTokenEnc);
+      return token ? [{ id: item.id, metaUserId: item.metaUserId, displayName: item.displayName, token }] : [];
+    } catch { return []; }
+  });
 }
 
 /**
@@ -128,9 +148,9 @@ export async function readWorkspaceMetaToken(workspaceId: string): Promise<strin
   return null;
 }
 
-export async function deleteMetaConnection(userId: string, workspaceId: string): Promise<void> {
+export async function deleteMetaConnection(userId: string, workspaceId: string, connectionId?: string): Promise<void> {
   workspaceTokenCache.delete(workspaceId);
-  await prisma.metaConnection.deleteMany({ where: { userId, workspaceId } });
+  await prisma.metaConnection.deleteMany({ where: { userId, workspaceId, ...(connectionId ? { id: connectionId } : {}) } });
 }
 
 /**

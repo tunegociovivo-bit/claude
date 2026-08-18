@@ -92,6 +92,7 @@ export async function handleMetaLoginCallback(opts: {
     workspaceId: opts.workspaceId,
     accessToken: token,
     metaUserId: me.id,
+    displayName: me.name,
     expiresAt: new Date(Date.now() + expiresIn * 1000)
   });
   return { metaUserId: me.id, name: me.name };
@@ -119,6 +120,8 @@ export async function refreshMetaUserTokensIfNeeded(): Promise<{ refreshed: numb
         workspaceId: c.workspaceId,
         accessToken: token,
         metaUserId: c.metaUserId ?? undefined,
+        displayName: c.displayName ?? undefined,
+        connectionId: c.id,
         expiresAt: new Date(Date.now() + expiresIn * 1000)
       });
       refreshed++;

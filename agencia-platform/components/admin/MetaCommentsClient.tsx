@@ -7,7 +7,7 @@ import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal"
 
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
-type AdAccount = { id: string; name: string; status: number; currency: string };
+type AdAccount = { id: string; name: string; status: number; currency: string; connectionId: string; connectionName: string };
 type Campaign = { id: string; name: string; status: string; configured_status?: string; effective_status?: string; objective?: string };
 type Comment = { id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string; displayName: string | null; adAccountName: string | null } };
 type AlertRecipient = { id: string; email: string; active: boolean; negativeComments: boolean; allComments: boolean; syncFailures: boolean; publishedReplies: boolean };
@@ -68,9 +68,9 @@ export default function MetaCommentsClient() {
   const loadCampaigns = useCallback(async (accountId: string) => {
     setSelectedAccountId(accountId); setCampaigns([]); if (!accountId) return;
     setBusy("campaigns");
-    try { const response = await fetch(`/api/v1/meta-comments?catalog=campaigns&accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron cargar las campañas"); setCampaigns(data.items ?? []); }
+    try { const account = accounts.find((item) => item.id === accountId); const response = await fetch(`/api/v1/meta-comments?catalog=campaigns&accountId=${encodeURIComponent(accountId)}&connectionId=${encodeURIComponent(account?.connectionId ?? "")}`, { cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron cargar las campañas"); setCampaigns(data.items ?? []); }
     catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
-  }, []);
+  }, [accounts]);
 
   const syncFeed = useCallback(async (feed: Feed) => {
     setBusy(`sync:${feed.campaignId}`); setError(null);
@@ -130,7 +130,7 @@ export default function MetaCommentsClient() {
     const monitored = feeds.some((feed) => feed.campaignId === campaign.id && feed.active);
     setBusy(`toggle:${campaign.id}`); setError(null);
     try {
-      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(monitored ? { action: "unmonitor", campaignId: campaign.id } : { action: "monitor", campaignId: campaign.id, campaignName: campaign.name, accountId: account.id, accountName: account.name }) });
+      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(monitored ? { action: "unmonitor", campaignId: campaign.id } : { action: "monitor", campaignId: campaign.id, campaignName: campaign.name, accountId: account.id, accountName: account.name, connectionId: account.connectionId }) });
       const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo cambiar la monitorización"); await load();
       if (!monitored) setSelectedCampaignId(campaign.id);
     } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
@@ -140,7 +140,7 @@ export default function MetaCommentsClient() {
     const account = accounts.find((item) => item.id === selectedAccountId); if (!account || campaigns.length === 0) return;
     setBusy("select-all"); setError(null);
     try {
-      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "monitor_many", accountId: account.id, accountName: account.name, campaigns: campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name })) }) });
+      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "monitor_many", accountId: account.id, accountName: account.name, connectionId: account.connectionId, campaigns: campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name })) }) });
       const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron seleccionar todas las campañas"); await load();
       setImportResult(`${data.selected ?? campaigns.length} campañas activas seleccionadas para monitorización.`);
     } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
@@ -222,7 +222,7 @@ export default function MetaCommentsClient() {
     </section>
     <div className="mb-5 rounded-xl border bg-white p-4">
       <div className="mb-3"><div className="font-semibold text-slate-900">1. Cuenta publicitaria</div><div className="text-xs text-slate-500">Se muestran todas las cuentas autorizadas en tu conexión de Meta.</div></div>
-      <div className="flex flex-wrap gap-2"><select value={selectedAccountId} onChange={(event) => void loadCampaigns(event.target.value)} className="w-full max-w-xl rounded-lg border px-3 py-2 text-sm"><option value="">Selecciona una cuenta publicitaria…</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.id} · {account.currency}</option>)}</select><button onClick={() => setConnectionOpen(true)} className="rounded-lg border px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Gestionar conexión Meta</button></div>
+      <div className="flex flex-wrap gap-2"><select value={selectedAccountId} onChange={(event) => void loadCampaigns(event.target.value)} className="w-full max-w-xl rounded-lg border px-3 py-2 text-sm"><option value="">Selecciona una cuenta publicitaria…</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.connectionName} · {account.id} · {account.currency}</option>)}</select><button onClick={() => setConnectionOpen(true)} className="rounded-lg border px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Gestionar conexiones Meta</button></div>
       {busy === "accounts" && <span className="ml-3 text-xs text-slate-500">Cargando cuentas…</span>}
     </div>
     {selectedAccountId && <div className="mb-5 rounded-xl border bg-white p-4">
@@ -236,7 +236,7 @@ export default function MetaCommentsClient() {
         <div className={`flex flex-wrap items-center gap-3 bg-slate-50 px-4 py-3 ${expanded ? "border-b" : ""}`}>
           <button type="button" onClick={() => setExpandedClients((current) => ({ ...current, [group.key]: !expanded }))} aria-expanded={expanded} className="flex min-w-[220px] flex-1 items-center gap-3 text-left">
             <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} />
-            <span><span className="block font-semibold text-slate-900">{group.name}</span><span className="block text-xs text-slate-500">{group.feeds.length} {group.feeds.length === 1 ? "campaña monitorizada" : "campañas monitorizadas"}</span></span>
+            <span><span className="block font-semibold text-slate-900">{group.name}</span><span className="block text-xs text-slate-500">{group.feeds.length} {group.feeds.length === 1 ? "campaña monitorizada" : "campañas monitorizadas"} · {(() => { const dates = group.feeds.flatMap((feed) => feed.lastSyncAt ? [new Date(feed.lastSyncAt)] : []); return dates.length ? `Última sincronización ${new Date(Math.max(...dates.map((date) => date.getTime()))).toLocaleString("es-ES")}` : "Pendiente de primera sincronización"; })()}</span></span>
           </button>
           {editing ? <div className="flex items-center gap-1"><input aria-label={`Nuevo nombre para ${group.name}`} autoFocus value={clientNameDraft} onChange={(event) => setClientNameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameClient(group.key, group.feeds); if (event.key === "Escape") setEditingClient(null); }} maxLength={120} className="w-56 rounded-lg border bg-white px-3 py-2 text-sm" /><button title="Guardar nombre" onClick={() => void renameClient(group.key, group.feeds)} disabled={!clientNameDraft.trim() || busy === `rename-client:${group.key}`} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">{busy === `rename-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button><button title="Cancelar" onClick={() => setEditingClient(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button></div> : <button title="Cambiar nombre del cliente" onClick={() => { setEditingClient(group.key); setClientNameDraft(group.name); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-100"><Pencil className="h-4 w-4" /></button>}
           <button onClick={() => void syncClient(group.key, group.feeds)} disabled={busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === `sync-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sincronizar cliente</button>

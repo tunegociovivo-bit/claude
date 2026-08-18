@@ -26,18 +26,10 @@ export const dynamic = "force-dynamic";
 
 export const GET = withApi({}, async (_req, { api }) => {
   if (!api.userId) throw new ApiError(401, "no_user", "Sesión requerida");
-  const conn = await prisma.metaConnection.findUnique({
-    where: { userId_workspaceId: { userId: api.userId, workspaceId: api.workspaceId } }
-  });
+  const connections = await prisma.metaConnection.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, userId: true, metaUserId: true, displayName: true, expiresAt: true, createdAt: true }, orderBy: { updatedAt: "desc" } });
   // Conexión propia del usuario y vigente.
-  if (conn && !(conn.expiresAt && conn.expiresAt < new Date())) {
-    return NextResponse.json({
-      connected: true,
-      metaUserId: conn.metaUserId,
-      expiresAt: conn.expiresAt,
-      createdAt: conn.createdAt
-    });
-  }
+  const current = connections.filter((conn) => !(conn.expiresAt && conn.expiresAt < new Date()));
+  if (current.length) return NextResponse.json({ connected: true, connections: current.map((conn) => ({ ...conn, owned: conn.userId === api.userId })) });
   // Sin conexión propia (o caducada): si el workspace ya tiene un token
   // permanente guardado (System User que no caduca, o ad-hoc), seguimos
   // "conectados" — se crearán las campañas con ese token sin tener que
@@ -89,10 +81,12 @@ export const POST = withApi({ rate: "destructive" }, async (req, { api }) => {
 
 export const DELETE = withApi({ rate: "destructive" }, async (req, { api }) => {
   if (!api.userId) throw new ApiError(401, "no_user", "Sesión requerida");
-  await deleteMetaConnection(api.userId, api.workspaceId);
+  const connectionId = new URL(req.url).searchParams.get("connectionId") ?? undefined;
+  await deleteMetaConnection(api.userId, api.workspaceId, connectionId);
   auditFromReq(req, api, {
     action: "meta.connection_deleted",
-    targetType: "META_CONNECTION"
+    targetType: "META_CONNECTION",
+    targetId: connectionId
   });
   return NextResponse.json({ ok: true });
 });

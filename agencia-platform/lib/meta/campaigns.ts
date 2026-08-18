@@ -105,8 +105,9 @@ export async function createCampaign(opts: {
 
   // Conexión Meta del owner (si existe) — se enlaza para que Fase 2
   // sepa con qué token enviar a Meta API.
-  const conn = await prisma.metaConnection.findUnique({
-    where: { userId_workspaceId: { userId: ownerId, workspaceId: opts.workspaceId } }
+  const conn = await prisma.metaConnection.findFirst({
+    where: { userId: ownerId, workspaceId: opts.workspaceId },
+    orderBy: { updatedAt: "desc" }
   });
 
   // Cantidad total de anuncios (suma de todos los formatos en todos

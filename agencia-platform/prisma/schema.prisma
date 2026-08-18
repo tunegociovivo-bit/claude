@@ -3287,37 +3287,42 @@ model MetaConnection {
   accessTokenEnc String    @db.Text
   // Opcional: id de la cuenta de Meta del user (no del business).
   metaUserId     String?
+  displayName    String?
   expiresAt      DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaigns MetaCampaign[]
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns    MetaCampaign[]
+  commentFeeds MetaCommentFeed[]
 
-  @@unique([userId, workspaceId])
+  @@unique([workspaceId, metaUserId])
   @@index([workspaceId])
 }
 
 model MetaCommentFeed {
-  id            String          @id @default(cuid())
-  workspaceId   String
-  clientName    String
-  displayName   String?
-  campaignId    String
-  campaignName  String?
-  adAccountId   String?
-  adAccountName String?
-  active        Boolean         @default(true)
-  lastSyncAt    DateTime?
-  lastError     String?         @db.Text
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  comments      MetaAdComment[]
+  id               String          @id @default(cuid())
+  workspaceId      String
+  clientName       String
+  displayName      String?
+  campaignId       String
+  campaignName     String?
+  adAccountId      String?
+  adAccountName    String?
+  metaConnectionId String?
+  active           Boolean         @default(true)
+  lastSyncAt       DateTime?
+  lastError        String?         @db.Text
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  metaConnection   MetaConnection? @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
+  comments         MetaAdComment[]
 
   @@unique([workspaceId, campaignId])
   @@index([workspaceId, active])
+  @@index([metaConnectionId])
 }
 
 model MetaAdComment {

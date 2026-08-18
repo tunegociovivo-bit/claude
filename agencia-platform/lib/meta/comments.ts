@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
-import { readWorkspaceMetaToken } from "@/lib/meta/connection";
+import { readMetaTokenByConnection, readWorkspaceMetaToken } from "@/lib/meta/connection";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -39,8 +39,8 @@ type AuthorizedMetaPages = {
   instagramUsernames: Set<string>;
 };
 
-async function pageTokens(workspaceId: string): Promise<AuthorizedMetaPages> {
-  const userToken = await readWorkspaceMetaToken(workspaceId);
+async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
+  const userToken = await readMetaTokenByConnection(workspaceId, connectionId);
   if (!userToken) return { facebook: new Map(), instagram: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
   const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token,instagram_business_account{id,username}&limit=100", userToken, 1000);
   const facebook = new Map<string, string>(); const instagram = new Map<string, string>();
@@ -89,8 +89,10 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
   });
   try {
     const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec";
-    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{${creativeFields}}&limit=100`, undefined, 2000);
-    const authorizedPages = await pageTokens(workspaceId);
+    const connectionToken = await readMetaTokenByConnection(workspaceId, feed.metaConnectionId);
+    if (feed.metaConnectionId && !connectionToken) throw new Error("La conexión Meta asignada a esta campaña ha caducado o ya no existe. Reconéctala antes de sincronizar.");
+    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{${creativeFields}}&limit=100`, connectionToken ?? undefined, 2000);
+    const authorizedPages = await pageTokens(workspaceId, feed.metaConnectionId);
     const sentReplyRows = await prisma.metaAdComment.findMany({
       where: { workspaceId, externalReplyId: { not: null } },
       select: { externalReplyId: true }
@@ -113,7 +115,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     for (const ad of ads) {
       let creative = ad?.creative ?? {};
       if (creative.id && !creative.effective_object_story_id && !creative.effective_instagram_story_id) {
-        creative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`).catch(() => creative);
+        creative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => creative);
       }
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       const targets = [
@@ -214,28 +216,28 @@ export async function syncAllActiveMetaCommentFeeds() {
   return { feeds: feeds.length, created, failed };
 }
 
-export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string, postId?: string | null, platform = "facebook") {
+export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
   const body = new URLSearchParams({ message });
   const pageId = postId ? postId.split("_")[0] : null;
-  const tokens = await pageTokens(workspaceId);
+  const tokens = await pageTokens(workspaceId, connectionId);
   const token = pageId && platform === "facebook" ? tokens.facebook.get(pageId) : undefined;
   const edge = platform === "instagram" ? "replies" : "comments";
   const result = await graph(workspaceId, `${externalCommentId}/${edge}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
   return String(result.id ?? "");
 }
 
-export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook") {
-  const tokens = await pageTokens(workspaceId);
+export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
+  const tokens = await pageTokens(workspaceId, connectionId);
   const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
   const token = pageId ? tokens.facebook.get(pageId) : undefined;
   await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
 }
 
-export async function blockMetaCommentAuthor(workspaceId: string, authorId: string, postId?: string | null, platform = "facebook") {
+export async function blockMetaCommentAuthor(workspaceId: string, authorId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
   if (platform !== "facebook") throw new Error("Meta no permite bloquear autores de Instagram mediante esta conexión; elimina el comentario o modéralo desde Instagram.");
   const pageId = postId?.split("_")[0];
   if (!pageId) throw new Error("No se pudo identificar la página de Facebook del comentario.");
-  const token = (await pageTokens(workspaceId)).facebook.get(pageId);
+  const token = (await pageTokens(workspaceId, connectionId)).facebook.get(pageId);
   if (!token) throw new Error("La página de Facebook no está autorizada para bloquear usuarios.");
   const body = new URLSearchParams({ uid: authorId });
   await graph(workspaceId, `${pageId}/blocked`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);

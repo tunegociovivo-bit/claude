@@ -6,14 +6,14 @@ import { prisma } from "@/lib/db/prisma";
 import { blockMetaCommentAuthor, deleteMetaComment, notifyMetaOperational, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
-import { readWorkspaceMetaToken } from "@/lib/meta/connection";
+import { listWorkspaceMetaTokens, readMetaTokenByConnection } from "@/lib/meta/connection";
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("sync"), campaignId: z.string().regex(/^\d+$/), clientName: z.string().min(1).max(120), from: z.string().datetime().optional(), to: z.string().datetime().optional() }),
   z.object({ action: z.literal("reply"), commentId: z.string(), message: z.string().min(1).max(2000) })
-  ,z.object({ action: z.literal("monitor"), campaignId: z.string().regex(/^\d+$/), campaignName: z.string().min(1).max(240), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240) })
+  ,z.object({ action: z.literal("monitor"), campaignId: z.string().regex(/^\d+$/), campaignName: z.string().min(1).max(240), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240), connectionId: z.string().min(1) })
   ,z.object({ action: z.literal("unmonitor"), campaignId: z.string().regex(/^\d+$/) })
-  ,z.object({ action: z.literal("monitor_many"), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240), campaigns: z.array(z.object({ id: z.string().regex(/^\d+$/), name: z.string().min(1).max(240) })).min(1).max(500) })
+  ,z.object({ action: z.literal("monitor_many"), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240), connectionId: z.string().min(1), campaigns: z.array(z.object({ id: z.string().regex(/^\d+$/), name: z.string().min(1).max(240) })).min(1).max(500) })
   ,z.object({ action: z.literal("delete_comment"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("block_author"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("rename_client"), campaignIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500), displayName: z.string().trim().min(1).max(120) })
@@ -26,14 +26,17 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const url = new URL(req.url);
   const catalog = url.searchParams.get("catalog");
   if (catalog === "accounts") {
-    const token = await readWorkspaceMetaToken(api.workspaceId);
+    const connections = await listWorkspaceMetaTokens(api.workspaceId);
+    const token = connections[0]?.token ?? null;
     if (!token) throw new ApiError(400, "meta_not_connected", "Meta no está conectado");
-    return NextResponse.json({ items: await metaAdsListAdAccounts(api.workspaceId, { META_ADS_TOKEN: token }) });
+    const results = await Promise.allSettled(connections.map(async (connection) => (await metaAdsListAdAccounts(api.workspaceId, { META_ADS_TOKEN: connection.token })).map((account: any) => ({ ...account, connectionId: connection.id, connectionName: connection.displayName || connection.metaUserId || "Cuenta Meta" }))));
+    const combined = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+    return NextResponse.json({ items: [...new Map(combined.map((item: any) => [item.id, item])).values()], connections: connections.map(({ token: _token, ...connection }) => connection) });
   }
   if (catalog === "campaigns") {
     const accountId = url.searchParams.get("accountId");
     if (!accountId || !/^act_\d+$/.test(accountId)) throw new ApiError(400, "invalid_account", "Cuenta publicitaria no válida");
-    const token = await readWorkspaceMetaToken(api.workspaceId);
+    const token = await readMetaTokenByConnection(api.workspaceId, url.searchParams.get("connectionId"));
     if (!token) throw new ApiError(400, "meta_not_connected", "Meta no está conectado");
     // `status` is the filter accepted by the campaigns edge for the switch
     // displayed by Ads Manager. `effective_status` included paused campaigns,
@@ -70,7 +73,7 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     return NextResponse.json(await syncMetaCampaignComments(api.workspaceId, parsed.data.campaignId, parsed.data.clientName, range));
   }
   if (parsed.data.action === "monitor") {
-    const feed = await prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId } }, create: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId, clientName: parsed.data.accountName, campaignName: parsed.data.campaignName, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName }, update: { active: true, campaignName: parsed.data.campaignName, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName } });
+    const feed = await prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId } }, create: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId, clientName: parsed.data.accountName, campaignName: parsed.data.campaignName, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName, metaConnectionId: parsed.data.connectionId }, update: { active: true, campaignName: parsed.data.campaignName, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName, metaConnectionId: parsed.data.connectionId } });
     return NextResponse.json({ ok: true, feed });
   }
   if (parsed.data.action === "unmonitor") {
@@ -79,7 +82,7 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
   }
   if (parsed.data.action === "monitor_many") {
     const bulk = parsed.data;
-    await prisma.$transaction(bulk.campaigns.map((campaign) => prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: campaign.id } }, create: { workspaceId: api.workspaceId, campaignId: campaign.id, clientName: bulk.accountName, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName }, update: { active: true, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName } })));
+    await prisma.$transaction(bulk.campaigns.map((campaign) => prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: campaign.id } }, create: { workspaceId: api.workspaceId, campaignId: campaign.id, clientName: bulk.accountName, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName, metaConnectionId: bulk.connectionId }, update: { active: true, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName, metaConnectionId: bulk.connectionId } })));
     return NextResponse.json({ ok: true, selected: bulk.campaigns.length });
   }
   if (parsed.data.action === "rename_client") {
@@ -113,23 +116,23 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
   }
   if (parsed.data.action === "delete_comment" || parsed.data.action === "block_author") {
     const moderation = parsed.data;
-    const comment = await prisma.metaAdComment.findFirst({ where: { id: moderation.commentId, workspaceId: api.workspaceId, deletedAt: null } });
+    const comment = await prisma.metaAdComment.findFirst({ where: { id: moderation.commentId, workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { metaConnectionId: true } } } });
     if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
     if (moderation.action === "delete_comment") {
-      await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform);
+      await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
       await prisma.metaAdComment.update({ where: { id: comment.id }, data: { deletedAt: new Date(), status: "deleted" } });
       await auditFromReq(req, api, { action: "meta_comment.delete", targetType: "META_COMMENT", targetId: comment.id, meta: { externalCommentId: comment.externalCommentId, platform: comment.platform } });
       return NextResponse.json({ ok: true });
     }
     if (!comment.authorId) throw new ApiError(409, "author_unavailable", "Meta no ha proporcionado la identidad del autor; no se puede bloquear con seguridad");
-    await blockMetaCommentAuthor(api.workspaceId, comment.authorId, comment.postId, comment.platform);
+    await blockMetaCommentAuthor(api.workspaceId, comment.authorId, comment.postId, comment.platform, comment.feed.metaConnectionId);
     await prisma.metaAdComment.updateMany({ where: { workspaceId: api.workspaceId, authorId: comment.authorId }, data: { authorBlockedAt: new Date() } });
     await auditFromReq(req, api, { action: "meta_comment.author_block", targetType: "META_COMMENT_AUTHOR", targetId: comment.authorId, meta: { commentId: comment.id, platform: comment.platform } });
     return NextResponse.json({ ok: true });
   }
-  const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId } });
+  const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId }, include: { feed: { select: { metaConnectionId: true } } } });
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
-  const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, parsed.data.message, comment.postId, comment.platform);
+  const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, parsed.data.message, comment.postId, comment.platform, comment.feed.metaConnectionId);
   await prisma.metaAdComment.update({ where: { id: comment.id }, data: { status: "replied", repliedAt: new Date(), externalReplyId: replyId, aiDraft: parsed.data.message } });
   await notifyMetaOperational(api.workspaceId, "publishedReplies", "✅ Respuesta publicada en Meta", `${comment.authorName ?? "Usuario de Meta"}: ${parsed.data.message.slice(0, 800)}`).catch(() => {});
   return NextResponse.json({ ok: true, replyId });
