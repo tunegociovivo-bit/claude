@@ -14,6 +14,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/ai/crypto";
 
+const workspaceTokenCache = new Map<string, { token: string; until: number }>();
+
 export async function saveMetaToken(opts: {
   userId: string;
   workspaceId: string;
@@ -21,6 +23,7 @@ export async function saveMetaToken(opts: {
   metaUserId?: string;
   expiresAt?: Date | null;
 }): Promise<{ id: string }> {
+  workspaceTokenCache.delete(opts.workspaceId);
   const enc = encryptSecret(opts.accessToken.trim());
   // upsert por (userId, workspaceId) — un user solo tiene una conexión
   // de Meta por workspace. Si quisiera cambiar de cuenta, sobrescribe.
@@ -89,6 +92,9 @@ export async function readMetaToken(
  * token permanente ya guardado.
  */
 export async function readWorkspaceMetaToken(workspaceId: string): Promise<string | null> {
+  const cached = workspaceTokenCache.get(workspaceId);
+  if (cached && cached.until > Date.now()) return cached.token;
+  workspaceTokenCache.delete(workspaceId);
   const conns = await prisma.metaConnection.findMany({
     where: { workspaceId },
     // Una reautorización actualiza la fila existente, no su createdAt.
@@ -97,19 +103,25 @@ export async function readWorkspaceMetaToken(workspaceId: string): Promise<strin
     orderBy: { updatedAt: "desc" }
   });
   const now = new Date();
-  const valid = conns.find((c) => !c.expiresAt || c.expiresAt > now);
-  if (valid) {
+  const candidates = conns.filter((c) => !c.expiresAt || c.expiresAt > now);
+  for (const candidate of candidates) {
     try {
-      const t = decryptSecret(valid.accessTokenEnc);
-      if (t) return t;
+      const token = decryptSecret(candidate.accessTokenEnc);
+      if (token && (await pingMetaToken(token)).ok) {
+        workspaceTokenCache.set(workspaceId, { token, until: Date.now() + 5 * 60 * 1000 });
+        return token;
+      }
     } catch {
-      /* sigue al fallback ad-hoc */
+      /* prueba la siguiente conexión */
     }
   }
   try {
     const { loadStoredAdhocCredentials } = await import("@/lib/ai/nv-ia/adhoc-credentials");
     const adhoc = await loadStoredAdhocCredentials(workspaceId);
-    if (adhoc.META_ADS_TOKEN) return adhoc.META_ADS_TOKEN;
+    if (adhoc.META_ADS_TOKEN && (await pingMetaToken(adhoc.META_ADS_TOKEN)).ok) {
+      workspaceTokenCache.set(workspaceId, { token: adhoc.META_ADS_TOKEN, until: Date.now() + 5 * 60 * 1000 });
+      return adhoc.META_ADS_TOKEN;
+    }
   } catch {
     /* best-effort */
   }
@@ -117,6 +129,7 @@ export async function readWorkspaceMetaToken(workspaceId: string): Promise<strin
 }
 
 export async function deleteMetaConnection(userId: string, workspaceId: string): Promise<void> {
+  workspaceTokenCache.delete(workspaceId);
   await prisma.metaConnection.deleteMany({ where: { userId, workspaceId } });
 }
 
