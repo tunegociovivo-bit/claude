@@ -3336,6 +3336,8 @@ model MetaAdComment {
   status            String          @default("pending")
   repliedAt         DateTime?
   externalReplyId   String?
+  deletedAt         DateTime?
+  authorBlockedAt   DateTime?
   commentCreatedAt  DateTime
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt

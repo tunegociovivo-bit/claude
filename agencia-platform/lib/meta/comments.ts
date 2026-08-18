@@ -151,3 +151,20 @@ export async function replyToMetaComment(workspaceId: string, externalCommentId:
   const result = await graph(workspaceId, `${externalCommentId}/${edge}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
   return String(result.id ?? "");
 }
+
+export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook") {
+  const tokens = await pageTokens(workspaceId);
+  const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
+  const token = pageId ? tokens.facebook.get(pageId) : undefined;
+  await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
+}
+
+export async function blockMetaCommentAuthor(workspaceId: string, authorId: string, postId?: string | null, platform = "facebook") {
+  if (platform !== "facebook") throw new Error("Meta no permite bloquear autores de Instagram mediante esta conexión; elimina el comentario o modéralo desde Instagram.");
+  const pageId = postId?.split("_")[0];
+  if (!pageId) throw new Error("No se pudo identificar la página de Facebook del comentario.");
+  const token = (await pageTokens(workspaceId)).facebook.get(pageId);
+  if (!token) throw new Error("La página de Facebook no está autorizada para bloquear usuarios.");
+  const body = new URLSearchParams({ uid: authorId });
+  await graph(workspaceId, `${pageId}/blocked`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
+}
