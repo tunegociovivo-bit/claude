@@ -32,17 +32,34 @@ async function graphAll(workspaceId: string, path: string, explicitToken?: strin
   return found.slice(0, maxItems);
 }
 
-async function pageTokens(workspaceId: string): Promise<{ facebook: Map<string, string>; instagram: Map<string, string> }> {
+type AuthorizedMetaPages = {
+  facebook: Map<string, string>;
+  instagram: Map<string, string>;
+  facebookAuthorIds: Set<string>;
+  instagramUsernames: Set<string>;
+};
+
+async function pageTokens(workspaceId: string): Promise<AuthorizedMetaPages> {
   const userToken = await readWorkspaceMetaToken(workspaceId);
-  if (!userToken) return { facebook: new Map(), instagram: new Map() };
-  const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token,instagram_business_account{id}&limit=100", userToken, 1000);
+  if (!userToken) return { facebook: new Map(), instagram: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
+  const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token,instagram_business_account{id,username}&limit=100", userToken, 1000);
   const facebook = new Map<string, string>(); const instagram = new Map<string, string>();
+  const facebookAuthorIds = new Set<string>(); const instagramUsernames = new Set<string>();
   for (const page of pages) {
     if (!page.id || !page.access_token) continue;
     facebook.set(String(page.id), String(page.access_token));
-    if (page.instagram_business_account?.id) instagram.set(String(page.instagram_business_account.id), String(page.access_token));
+    facebookAuthorIds.add(String(page.id));
+    if (page.instagram_business_account?.id) {
+      instagram.set(String(page.instagram_business_account.id), String(page.access_token));
+      if (page.instagram_business_account.username) instagramUsernames.add(String(page.instagram_business_account.username).toLowerCase());
+    }
   }
-  return { facebook, instagram };
+  return { facebook, instagram, facebookAuthorIds, instagramUsernames };
+}
+
+export function isOwnMetaComment(comment: { platform?: string; from?: { id?: string | null; name?: string | null } }, pages: Pick<AuthorizedMetaPages, "facebookAuthorIds" | "instagramUsernames">) {
+  if (comment.platform === "instagram") return Boolean(comment.from?.name && pages.instagramUsernames.has(comment.from.name.toLowerCase()));
+  return Boolean(comment.from?.id && pages.facebookAuthorIds.has(String(comment.from.id)));
 }
 
 type Range = { from: Date; to: Date };
@@ -73,6 +90,17 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec";
     const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{${creativeFields}}&limit=100`, undefined, 2000);
     const authorizedPages = await pageTokens(workspaceId);
+    await prisma.metaAdComment.updateMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        OR: [
+          { platform: "facebook", authorId: { in: [...authorizedPages.facebookAuthorIds] } },
+          { platform: "instagram", authorName: { in: [...authorizedPages.instagramUsernames], mode: "insensitive" } }
+        ]
+      },
+      data: { deletedAt: new Date(), status: "ignored_self" }
+    });
     const discovered: any[] = [];
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
     for (const ad of ads) {
@@ -93,6 +121,8 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         const comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
         for (const raw of comments) {
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
+          comment.platform = target.platform;
+          if (isOwnMetaComment(comment, authorizedPages)) continue;
           const createdAt = new Date(comment.created_time);
           if (range && (createdAt < range.from || createdAt > range.to)) continue;
           discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: ad.id, adName: ad.name });
