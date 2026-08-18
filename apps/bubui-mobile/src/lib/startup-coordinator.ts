@@ -19,25 +19,26 @@ export type StartupResult<TSession extends StartupSession> = {
   timedOut: boolean;
 };
 
-const FALLBACK: StartupResult<never> = {
-  route: "Onboarding",
-  session: null,
-  pendingDeal: null,
-  timedOut: true
-};
-
 /** Resolve the first screen under one hard deadline. */
 export async function resolveStartupRoute<TSession extends StartupSession>(
   deps: StartupDependencies<TSession>
 ): Promise<StartupResult<TSession>> {
+  let knownSession: TSession | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const fallback = (timedOut: boolean): StartupResult<TSession> => ({
+    route: knownSession ? "Feed" : "Onboarding",
+    session: knownSession,
+    pendingDeal: null,
+    timedOut
+  });
   const deadline = new Promise<StartupResult<TSession>>((resolve) => {
-    timer = setTimeout(() => resolve(FALLBACK), deps.deadlineMs);
+    timer = setTimeout(() => resolve(fallback(true)), deps.deadlineMs);
   });
 
   const hydration = (async (): Promise<StartupResult<TSession>> => {
     try {
       const session = await deps.checkSession();
+      knownSession = session;
       await deps.waitForDealCapture();
       await deps.waitForReferralCapture();
       const pendingDeal = await deps.getPendingDeal();
@@ -48,7 +49,7 @@ export async function resolveStartupRoute<TSession extends StartupSession>(
         timedOut: false
       };
     } catch {
-      return { ...FALLBACK, timedOut: false };
+      return fallback(false);
     }
   })();
 

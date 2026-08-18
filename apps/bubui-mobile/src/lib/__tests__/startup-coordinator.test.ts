@@ -66,4 +66,43 @@ describe("resolveStartupRoute", () => {
 
     expect(result).toMatchObject({ route: "Onboarding", timedOut: false });
   });
+
+  it("preserves a recovered session when referral capture stalls", async () => {
+    vi.useFakeTimers();
+    const result = resolveStartupRoute({
+      checkSession: async () => ({ customerId: "customer-1" }),
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: () => new Promise(() => {}),
+      getPendingDeal: async () => null,
+      deadlineMs: 4_000
+    });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(result).resolves.toEqual({
+      route: "Feed",
+      session: { customerId: "customer-1" },
+      pendingDeal: null,
+      timedOut: true
+    });
+  });
+
+  it("preserves a recovered session when an auxiliary dependency rejects", async () => {
+    const result = await resolveStartupRoute({
+      checkSession: async () => ({ customerId: "customer-1" }),
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: async () => {
+        throw new Error("referrer unavailable");
+      },
+      getPendingDeal: async () => null,
+      deadlineMs: 4_000
+    });
+
+    expect(result).toEqual({
+      route: "Feed",
+      session: { customerId: "customer-1" },
+      pendingDeal: null,
+      timedOut: false
+    });
+  });
 });
