@@ -59,8 +59,9 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     return NextResponse.json({ ok: true });
   }
   if (parsed.data.action === "monitor_many") {
-    await prisma.$transaction(parsed.data.campaigns.map((campaign) => prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: campaign.id } }, create: { workspaceId: api.workspaceId, campaignId: campaign.id, clientName: parsed.data.accountName, campaignName: campaign.name, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName }, update: { active: true, campaignName: campaign.name, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName } })));
-    return NextResponse.json({ ok: true, selected: parsed.data.campaigns.length });
+    const bulk = parsed.data;
+    await prisma.$transaction(bulk.campaigns.map((campaign) => prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: campaign.id } }, create: { workspaceId: api.workspaceId, campaignId: campaign.id, clientName: bulk.accountName, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName }, update: { active: true, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName } })));
+    return NextResponse.json({ ok: true, selected: bulk.campaigns.length });
   }
   const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId } });
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
