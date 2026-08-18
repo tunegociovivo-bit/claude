@@ -42,7 +42,6 @@ export async function saveMetaToken(opts: {
       expiresAt: opts.expiresAt ?? null
   };
   const r = existing ? await prisma.metaConnection.update({ where: { id: existing.id }, data: tokenData }) : await prisma.metaConnection.create({ data: {
-      userId: opts.userId,
       workspaceId: opts.workspaceId,
       ...tokenData
     } });
