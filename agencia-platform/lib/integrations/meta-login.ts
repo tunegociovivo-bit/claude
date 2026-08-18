@@ -16,7 +16,7 @@ import { saveMetaToken } from "@/lib/meta/connection";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const DIALOG = "https://www.facebook.com/v21.0/dialog/oauth";
-const SCOPES = "ads_management,ads_read,business_management,leads_retrieval,pages_show_list";
+const SCOPES = "ads_management,ads_read,business_management,leads_retrieval,pages_show_list,pages_read_engagement,pages_manage_engagement";
 
 export function metaAppConfigured(): boolean {
   return !!(process.env.META_APP_ID && process.env.META_APP_SECRET);

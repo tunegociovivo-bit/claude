@@ -11,12 +11,14 @@ import { metaAppConfigured, buildMetaLoginUrl, metaLoginRedirectUri } from "@/li
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
+export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://hub.negociovivo.app").replace(/\/+$/, "");
+  const requestedReturn = new URL(req.url).searchParams.get("returnTo");
+  const returnPath = requestedReturn === "meta-comments" ? "/admin/meta-comments" : "/admin/meta-mcp";
   if (!metaAppConfigured()) {
     return NextResponse.redirect(
-      `${base}/admin/meta-mcp?error=${encodeURIComponent(
+      `${base}${returnPath}?error=${encodeURIComponent(
         "Falta META_APP_ID/META_APP_SECRET en Railway. Configura una App de Facebook con redirect URI " +
           metaLoginRedirectUri()
       )}`
@@ -27,7 +29,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
   const settings: any = ws?.settings ?? {};
   settings.integrations = settings.integrations ?? {};
-  settings.integrations.metaLogin = { state, at: Date.now() };
+  settings.integrations.metaLogin = { state, at: Date.now(), returnPath };
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   return NextResponse.redirect(buildMetaLoginUrl(state));
 });
