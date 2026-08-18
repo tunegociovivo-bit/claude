@@ -34,8 +34,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", limit: 500, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
     // Meta can return configured/paused campaigns even when filtering by
     // effective_status. Apply the state check again before exposing bulk actions.
-    const items = campaigns.filter((campaign: { status?: string; effective_status?: string }) =>
-      campaign.status === "ACTIVE" && campaign.effective_status === "ACTIVE"
+    const items = campaigns.filter((campaign: { configured_status?: string }) =>
+      campaign.configured_status === "ACTIVE"
     );
     return NextResponse.json({ items });
   }

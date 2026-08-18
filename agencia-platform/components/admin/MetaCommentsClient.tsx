@@ -8,7 +8,7 @@ import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal"
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; active: boolean; lastSyncAt: string | null; lastError: string | null };
 type AdAccount = { id: string; name: string; status: number; currency: string };
-type Campaign = { id: string; name: string; status: string; effective_status?: string; objective?: string };
+type Campaign = { id: string; name: string; status: string; configured_status?: string; effective_status?: string; objective?: string };
 type Comment = { id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string } };
 
 export default function MetaCommentsClient() {

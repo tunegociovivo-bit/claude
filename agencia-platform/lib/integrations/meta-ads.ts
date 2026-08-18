@@ -317,7 +317,7 @@ export async function metaAdsListCampaigns(opts: {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
   const account = cfg.adAccountId.startsWith("act_") ? cfg.adAccountId : `act_${cfg.adAccountId}`;
   const params = new URLSearchParams({
-    fields: "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type",
+    fields: "id,name,status,configured_status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type",
     limit: String(opts.limit ?? 50)
   });
   if (opts.status) {
