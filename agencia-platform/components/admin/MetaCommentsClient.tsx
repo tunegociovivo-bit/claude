@@ -118,7 +118,7 @@ export default function MetaCommentsClient() {
     <PageHeader title="Comentarios de anuncios Meta" description="Bandeja de comentarios, borradores con IA y alertas por reputación. Ninguna respuesta se publica sin confirmación." />
     <div className="mb-5 rounded-xl border bg-white p-4">
       <div className="mb-3"><div className="font-semibold text-slate-900">1. Cuenta publicitaria</div><div className="text-xs text-slate-500">Se muestran todas las cuentas autorizadas en tu conexión de Meta.</div></div>
-      <select value={selectedAccountId} onChange={(event) => void loadCampaigns(event.target.value)} className="w-full max-w-xl rounded-lg border px-3 py-2 text-sm"><option value="">Selecciona una cuenta publicitaria…</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.id} · {account.currency}</option>)}</select>
+      <div className="flex flex-wrap gap-2"><select value={selectedAccountId} onChange={(event) => void loadCampaigns(event.target.value)} className="w-full max-w-xl rounded-lg border px-3 py-2 text-sm"><option value="">Selecciona una cuenta publicitaria…</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.id} · {account.currency}</option>)}</select><button onClick={() => setConnectionOpen(true)} className="rounded-lg border px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Gestionar conexión Meta</button></div>
       {busy === "accounts" && <span className="ml-3 text-xs text-slate-500">Cargando cuentas…</span>}
     </div>
     {selectedAccountId && <div className="mb-5 rounded-xl border bg-white p-4">
