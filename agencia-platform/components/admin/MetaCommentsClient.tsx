@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, Loader2, Mail, MessageSquare, Pencil, Plus, RefreshCw, Send, Trash2, UserX, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
+import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
 
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
@@ -213,6 +214,7 @@ export default function MetaCommentsClient() {
   const feed = feeds.find((item) => item.campaignId === selectedCampaignId);
 
   return <div className="max-w-6xl mx-auto">
+    <MetaSuiteNav />
     <PageHeader title="Comentarios de anuncios Meta" description="Bandeja de comentarios, borradores con IA y alertas por reputación. Ninguna respuesta se publica sin confirmación." />
     <section className="mb-5 rounded-xl border bg-white p-4">
       <div className="mb-3 flex items-start gap-3"><div className="rounded-lg bg-rose-50 p-2 text-rose-700"><Mail className="h-5 w-5" /></div><div><div className="font-semibold text-slate-900">Alertas de Comentarios Meta por email</div><div className="text-xs text-slate-500">Añade destinatarios y elige individualmente qué avisos recibe cada uno. Los comentarios incluyen un enlace directo para revisarlos, responderlos o eliminarlos de Meta.</div></div></div>

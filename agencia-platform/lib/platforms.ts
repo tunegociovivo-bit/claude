@@ -93,8 +93,8 @@ export const PLATFORMS: PlatformDef[] = [
   },
   {
     key: "meta_campaigns",
-    label: "Campaña Redes IA",
-    description: "Crea y lanza campañas publicitarias en Meta (Facebook/Instagram) asistido por IA: segmentación, copys, imágenes y revisión automática.",
+    label: "Campañas Meta",
+    description: "Supervisa y crea campañas publicitarias en Meta con métricas, recomendaciones y generación asistida por IA.",
     href: "/campanas-meta",
     icon: Megaphone,
     available: true

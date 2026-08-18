@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import MetaGuardBadge from "@/components/admin/MetaGuardBadge";
 import MetaConnectionModal from "./MetaConnectionModal";
 import CampaignWizard from "./CampaignWizard";
+import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
 
 type CampaignRow = {
   id: string;
@@ -50,8 +51,9 @@ export default function CampanasMetaClient() {
 
   return (
     <div>
+      <MetaSuiteNav />
       <PageHeader
-        title="Campaña Redes IA"
+        title="Campañas Meta"
         description="Planifica, lanza y supervisa campañas de Meta (Facebook/Instagram) con ayuda de IA."
         actions={
           <>

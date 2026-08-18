@@ -82,7 +82,8 @@ const PLATFORM_GRAD: Record<string, string> = {
   bubui_directorio: "linear-gradient(135deg,#F86FB0,#D1186A)", // rosa Bubui
   subvenciones: "linear-gradient(135deg,#818CF8,#4338CA)",     // índigo
   gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)",          // verde-azul Google
-  meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)"
+  meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)",
+  meta_suite: "linear-gradient(135deg,#1877F2,#7C3AED)"
 };
 const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
 
@@ -164,7 +165,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
 
   function movePlatform(key: string, dir: -1 | 1) {
     const baseKeys = [
-      "meta_comments",
+      "meta_suite",
       ...(!me || me.features.includes("gmb") ? ["gmb_hub"] : []),
       ...platforms.map((p) => p.key)
     ];
@@ -515,9 +516,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             <div className="space-y-0.5">
               {(() => {
                 const allItems = [
-                  { key: "meta_comments", label: "Comentarios Meta", href: "/admin/meta-comments", icon: MessageSquare },
+                  { key: "meta_suite", label: "META", href: "/meta", icon: Megaphone },
                   ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
-                  ...platforms.map((p) => ({
+                  ...platforms.filter((p) => p.key !== "meta_campaigns").map((p) => ({
                     key: p.key,
                     label: p.label,
                     href: p.href,
