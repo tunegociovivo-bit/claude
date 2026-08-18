@@ -91,22 +91,23 @@ function AppInner() {
     const { colors, dark } = useThemeMeta();
 
   useEffect(() => {
-        (async () => {
-                initDealCapture(); // asegura que la captura del referrer ha arrancado
-                initReferralCapture();
-                const session = await CheckSession();
-                await waitForDealCapture(); // espera (acotada) al resultado del referrer
-                await waitForReferrerCapture();
-                const pending = await getPendingDeal();
-                if (session) {
-                        setInitial("Feed");
-                        if (pending) void claimPendingDeal(session.customerId); // el reto aparece en Feed
-                } else {
-                        // Sin sesión: Onboarding. Con reto pendiente, el onboarding
-                        // fuerza el registro y muestra el reto (nunca invitado).
-                        setInitial("Onboarding");
+        let mounted = true;
+        try { initDealCapture(); } catch {}
+        try { initReferralCapture(); } catch {}
+        void resolveStartupRoute({
+                checkSession: CheckSession,
+                waitForDealCapture,
+                waitForReferralCapture: waitForReferrerCapture,
+                getPendingDeal,
+                deadlineMs: 6500
+        }).then((result) => {
+                if (!mounted) return;
+                setInitial(result.route);
+                if (result.session && result.pendingDeal) {
+                        void claimPendingDeal(result.session.customerId);
                 }
-        })();
+        });
+        return () => { mounted = false; };
   }, []);
 
   // Al tocar una notificación push (o su imagen) se abre el enlace de la oferta.
