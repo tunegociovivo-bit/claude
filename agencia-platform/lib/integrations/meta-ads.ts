@@ -312,6 +312,7 @@ export async function metaAdsListCampaigns(opts: {
   workspaceId: string;
   status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   limit?: number;
+  refreshStatuses?: boolean;
   adhoc?: Record<string, string>;
 }) {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
@@ -327,7 +328,19 @@ export async function metaAdsListCampaigns(opts: {
     `${GRAPH}/${account}/campaigns?${params.toString()}`,
     cfg.accessToken
   );
-  return data.data ?? [];
+  const campaigns = data.data ?? [];
+  if (!opts.refreshStatuses || campaigns.length === 0) return campaigns;
+
+  const freshStatuses = new Map<string, any>();
+  for (let offset = 0; offset < campaigns.length; offset += 50) {
+    const ids = campaigns.slice(offset, offset + 50).map((campaign: any) => String(campaign.id));
+    const result = await metaFetch<Record<string, any>>(
+      `${GRAPH}/?ids=${encodeURIComponent(ids.join(","))}&fields=id,status,configured_status,effective_status`,
+      cfg.accessToken
+    );
+    for (const [id, status] of Object.entries(result ?? {})) freshStatuses.set(id, status);
+  }
+  return campaigns.map((campaign: any) => ({ ...campaign, ...(freshStatuses.get(String(campaign.id)) ?? {}) }));
 }
 
 export async function metaAdsGetCampaignInsights(opts: {

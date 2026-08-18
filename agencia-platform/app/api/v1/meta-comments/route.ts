@@ -34,7 +34,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     // Do not use Meta's effective_status filter here: it has returned paused
     // campaigns as active for this account. Read the catalogue and apply the
     // same configured state represented by the Ads Manager toggle.
-    const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, limit: 500, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
+    const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, limit: 500, refreshStatuses: true, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
     const items = campaigns.filter((campaign: { configured_status?: string }) =>
       campaign.configured_status === "ACTIVE"
     );
