@@ -91,7 +91,10 @@ export async function readMetaToken(
 export async function readWorkspaceMetaToken(workspaceId: string): Promise<string | null> {
   const conns = await prisma.metaConnection.findMany({
     where: { workspaceId },
-    orderBy: { createdAt: "desc" }
+    // Una reautorización actualiza la fila existente, no su createdAt.
+    // Priorizar updatedAt evita que otra conexión manual antigua del mismo
+    // workspace gane frente al OAuth que el admin acaba de renovar.
+    orderBy: { updatedAt: "desc" }
   });
   const now = new Date();
   const valid = conns.find((c) => !c.expiresAt || c.expiresAt > now);
