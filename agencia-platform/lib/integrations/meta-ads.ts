@@ -311,6 +311,7 @@ export async function metaAdsListAdAccounts(workspaceId: string, adhoc?: Record<
 export async function metaAdsListCampaigns(opts: {
   workspaceId: string;
   status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
+  statusField?: "effective_status" | "configured_status" | "status";
   limit?: number;
   refreshStatuses?: boolean;
   adhoc?: Record<string, string>;
@@ -322,7 +323,7 @@ export async function metaAdsListCampaigns(opts: {
     limit: String(opts.limit ?? 50)
   });
   if (opts.status) {
-    params.set("filtering", JSON.stringify([{ field: "effective_status", operator: "IN", value: [opts.status] }]));
+    params.set("filtering", JSON.stringify([{ field: opts.statusField ?? "effective_status", operator: "IN", value: [opts.status] }]));
   }
   const data = await metaFetch<any>(
     `${GRAPH}/${account}/campaigns?${params.toString()}`,

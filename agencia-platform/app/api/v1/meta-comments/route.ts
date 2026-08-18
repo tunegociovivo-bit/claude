@@ -31,10 +31,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     if (!accountId || !/^act_\d+$/.test(accountId)) throw new ApiError(400, "invalid_account", "Cuenta publicitaria no válida");
     const token = await readWorkspaceMetaToken(api.workspaceId);
     if (!token) throw new ApiError(400, "meta_not_connected", "Meta no está conectado");
-    // Do not use Meta's effective_status filter here: it has returned paused
-    // campaigns as active for this account. Read the catalogue and apply the
-    // same configured state represented by the Ads Manager toggle.
-    const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, limit: 500, refreshStatuses: true, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
+    // configured_status is the campaign switch displayed by Ads Manager.
+    // Filtering on effective_status returned paused campaigns for this account.
+    const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "configured_status", limit: 500, refreshStatuses: true, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
     const items = campaigns.filter((campaign: { configured_status?: string }) =>
       campaign.configured_status === "ACTIVE"
     );
