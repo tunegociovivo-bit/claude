@@ -96,16 +96,17 @@ export default function MetaCommentsClient() {
     try {
       const from = new Date(`${fromDate}T00:00:00.000Z`).toISOString();
       const to = new Date(`${toDate}T23:59:59.999Z`).toISOString();
-      let imported = 0; let discovered = 0; let remaining = 0; let rounds = 0;
+      let imported = 0; let discovered = 0; let remaining = 0; let rounds = 0; let diagnostics: any = null;
       const selectedFeed = feeds.find((feed) => feed.campaignId === selectedCampaignId);
       if (!selectedFeed) throw new Error("Selecciona primero una campaña monitorizada");
       do {
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync", campaignId: selectedFeed.campaignId, clientName: selectedFeed.clientName, from, to }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo importar el periodo");
-        imported += data.created ?? 0; discovered = data.discovered ?? discovered; remaining = data.remaining ?? 0; rounds++;
+        imported += data.created ?? 0; discovered = data.discovered ?? discovered; remaining = data.remaining ?? 0; diagnostics = data.diagnostics ?? diagnostics; rounds++;
       } while (remaining > 0 && rounds < 20);
-      setImportResult(`Importación terminada: ${imported} comentarios nuevos de ${discovered} encontrados en el periodo.`);
+      const detail = diagnostics ? ` Meta revisó ${diagnostics.ads} anuncios, ${diagnostics.facebookTargets} publicaciones de Facebook y ${diagnostics.instagramTargets} de Instagram; ${diagnostics.adsWithoutPost} anuncios no tenían publicación accesible.` : "";
+      setImportResult(`Importación terminada: ${imported} comentarios nuevos de ${discovered} encontrados en el periodo.${detail}`);
       await load();
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
     finally { setBusy(null); }

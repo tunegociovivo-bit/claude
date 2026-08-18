@@ -70,16 +70,23 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
   });
   try {
-    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{effective_object_story_id,effective_instagram_story_id,instagram_actor_id}&limit=100`, undefined, 2000);
+    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{id,effective_object_story_id,effective_instagram_story_id,instagram_actor_id,object_story_id}&limit=100`, undefined, 2000);
     const authorizedPages = await pageTokens(workspaceId);
     const discovered: any[] = [];
+    let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
     for (const ad of ads) {
+      let creative = ad?.creative ?? {};
+      if (creative.id && !creative.effective_object_story_id && !creative.effective_instagram_story_id) {
+        creative = await graph(workspaceId, `${creative.id}?fields=id,effective_object_story_id,effective_instagram_story_id,instagram_actor_id,object_story_id`).catch(() => creative);
+      }
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       const targets = [
-        ad?.creative?.effective_object_story_id ? { id: String(ad.creative.effective_object_story_id), platform: "facebook", token: authorizedPages.facebook.get(String(ad.creative.effective_object_story_id).split("_")[0]) } : null,
-        ad?.creative?.effective_instagram_story_id ? { id: String(ad.creative.effective_instagram_story_id), platform: "instagram", token: authorizedPages.instagram.get(String(ad.creative.instagram_actor_id ?? "")) } : null
+        (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
+        creative.effective_instagram_story_id ? { id: String(creative.effective_instagram_story_id), platform: "instagram", token: authorizedPages.instagram.get(String(creative.instagram_actor_id ?? "")) } : null
       ].filter(Boolean) as Array<{ id: string; platform: "facebook" | "instagram"; token?: string }>;
+      if (targets.length === 0) adsWithoutPost++;
       for (const target of targets) {
+        if (target.platform === "instagram") instagramTargets++; else facebookTargets++;
         const fields = target.platform === "instagram" ? "id,text,username,timestamp" : "id,message,from{id,name},created_time";
         const filter = target.platform === "facebook" ? "&filter=stream" : "";
         const comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
@@ -110,7 +117,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       if (row.sentiment === "negative") await notifyNegative(workspaceId, row.id, clientName, row.authorName, row.message);
     }
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: null } });
-    return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length) };
+    return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost } };
   } catch (error: any) {
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: String(error?.message ?? error).slice(0, 2000) } });
     throw error;
