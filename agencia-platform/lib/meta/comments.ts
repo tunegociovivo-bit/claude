@@ -70,19 +70,20 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
   });
   try {
-    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{id,effective_object_story_id,effective_instagram_story_id,instagram_actor_id,object_story_id}&limit=100`, undefined, 2000);
+    const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec";
+    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{${creativeFields}}&limit=100`, undefined, 2000);
     const authorizedPages = await pageTokens(workspaceId);
     const discovered: any[] = [];
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
     for (const ad of ads) {
       let creative = ad?.creative ?? {};
       if (creative.id && !creative.effective_object_story_id && !creative.effective_instagram_story_id) {
-        creative = await graph(workspaceId, `${creative.id}?fields=id,effective_object_story_id,effective_instagram_story_id,instagram_actor_id,object_story_id`).catch(() => creative);
+        creative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`).catch(() => creative);
       }
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       const targets = [
         (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
-        creative.effective_instagram_story_id ? { id: String(creative.effective_instagram_story_id), platform: "instagram", token: authorizedPages.instagram.get(String(creative.instagram_actor_id ?? "")) } : null
+        (creative.effective_instagram_story_id ?? creative.source_instagram_media_id) ? { id: String(creative.effective_instagram_story_id ?? creative.source_instagram_media_id), platform: "instagram", token: authorizedPages.instagram.get(String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "")) } : null
       ].filter(Boolean) as Array<{ id: string; platform: "facebook" | "instagram"; token?: string }>;
       if (targets.length === 0) adsWithoutPost++;
       for (const target of targets) {
