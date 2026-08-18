@@ -105,4 +105,32 @@ describe("resolveStartupRoute", () => {
       timedOut: false
     });
   });
+
+  it("does not let late hydration replace the route chosen at the deadline", async () => {
+    vi.useFakeTimers();
+    let finishReferral!: () => void;
+    const referral = new Promise<void>((resolve) => {
+      finishReferral = resolve;
+    });
+    const resultPromise = resolveStartupRoute({
+      checkSession: async () => ({ customerId: "customer-1" }),
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: () => referral,
+      getPendingDeal: async () => "late-deal",
+      deadlineMs: 4_000
+    });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    const resultAtDeadline = await resultPromise;
+    finishReferral();
+    await Promise.resolve();
+
+    expect(resultAtDeadline).toEqual({
+      route: "Feed",
+      session: { customerId: "customer-1" },
+      pendingDeal: null,
+      timedOut: true
+    });
+    await expect(resultPromise).resolves.toBe(resultAtDeadline);
+  });
 });
