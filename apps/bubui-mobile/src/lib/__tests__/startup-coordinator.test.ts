@@ -1,0 +1,69 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveStartupRoute } from "../startup-coordinator";
+
+describe("resolveStartupRoute", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("never leaves the app on the splash when session storage stalls", async () => {
+    vi.useFakeTimers();
+    const result = resolveStartupRoute({
+      checkSession: () => new Promise(() => {}),
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: async () => {},
+      getPendingDeal: async () => null,
+      deadlineMs: 4_000
+    });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(result).resolves.toMatchObject({ route: "Onboarding", timedOut: true });
+  });
+
+  it("never leaves the app on the splash when pending-deal storage stalls", async () => {
+    vi.useFakeTimers();
+    const result = resolveStartupRoute({
+      checkSession: async () => null,
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: async () => {},
+      getPendingDeal: () => new Promise(() => {}),
+      deadlineMs: 4_000
+    });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(result).resolves.toMatchObject({ route: "Onboarding", timedOut: true });
+  });
+
+  it("keeps a valid signed-in session on the Feed", async () => {
+    const result = await resolveStartupRoute({
+      checkSession: async () => ({ customerId: "customer-1" }),
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: async () => {},
+      getPendingDeal: async () => "deal-token",
+      deadlineMs: 4_000
+    });
+
+    expect(result).toEqual({
+      route: "Feed",
+      session: { customerId: "customer-1" },
+      pendingDeal: "deal-token",
+      timedOut: false
+    });
+  });
+
+  it("continues to onboarding when a startup dependency rejects", async () => {
+    const result = await resolveStartupRoute({
+      checkSession: async () => {
+        throw new Error("storage unavailable");
+      },
+      waitForDealCapture: async () => {},
+      waitForReferralCapture: async () => {},
+      getPendingDeal: async () => null,
+      deadlineMs: 4_000
+    });
+
+    expect(result).toMatchObject({ route: "Onboarding", timedOut: false });
+  });
+});
