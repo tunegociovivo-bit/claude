@@ -268,7 +268,7 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
     const now = new Date();
     const upd = await prisma.remittanceJob.updateMany({
       where: { id: jobId, workspaceId, claimedByAgentId: agentId, status: { in: ["CLAIMED", "RUNNING", "NEEDS_USER"] }, leaseUntil: { gt: now } },
-      data: { status: "PREPARED_PENDING_SIGNATURE", resultRef: (input.resultRef ?? "").slice(0, 120) || null, claimedByAgentId: null, leaseUntil: null }
+      data: { status: "PREPARED_PENDING_SIGNATURE", resultRef: (input.resultRef ?? "").slice(0, 120) || null, chargeDate: now, claimedByAgentId: null, leaseUntil: null }
     });
     if (upd.count === 0) throw new Error("No se pudo cerrar (lease caducado o ya cerrado)");
     await logJob(jobId, job.status, "PREPARED_PENDING_SIGNATURE", { agentId, note: "Preparada y verificada como pendiente de firma (sin firmar ni cobrar)" });

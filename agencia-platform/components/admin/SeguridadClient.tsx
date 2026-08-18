@@ -241,15 +241,15 @@ function DriveBackupSection() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
+  async function load(quiet = false) {
+    if (!quiet) setLoading(true);
     const r = await fetch("/api/v1/admin/drive-backup");
     if (r.ok) {
       const d = await r.json();
       setData(d);
       if (d.folderId) setFolder(d.folderId);
     }
-    setLoading(false);
+    if (!quiet) setLoading(false);
   }
   useEffect(() => {
     load();
@@ -259,6 +259,14 @@ function DriveBackupSection() {
     else if (status === "oauth_missing_server") setError("La configuración base de autenticación del Hub está incompleta en Railway. Revisa NEXTAUTH_URL y NEXTAUTH_SECRET.");
     else if (status) setError(`No se pudo conectar Google Drive (${status}).`);
   }, []);
+
+  const driveJob = data?.latestJob;
+  const driveJobActive = driveJob?.status === "PENDING" || driveJob?.status === "RUNNING";
+  useEffect(() => {
+    if (!driveJobActive) return;
+    const timer = window.setInterval(() => void load(true), 3000);
+    return () => window.clearInterval(timer);
+  }, [driveJobActive, driveJob?.id]);
 
   async function save() {
     setSaving(true);
@@ -300,21 +308,9 @@ function DriveBackupSection() {
       return;
     }
     if (action === "test") setMsg(`✓ Conexión OK · ${j.serviceAccountEmail} · ${j.fileCount} archivos en la carpeta`);
-    else if (action === "backup_now") {
-      const ok = (j.results ?? []).filter((r: any) => r.ok).length;
-      const failedItems = (j.results ?? []).filter((r: any) => !r.ok);
-      if (failedItems.length > 0) {
-        // Mostrar el error como error, con el mensaje real del primer fallo
-        const errors = failedItems
-          .map((r: any) => `${r.kind ?? "?"}: ${r.error ?? "(sin detalle)"}`)
-          .join(" · ");
-        setError(`Backup manual: ${ok} OK · ${failedItems.length} fallos — ${errors}`);
-        setMsg(null);
-      } else {
-        setMsg(`✓ Backup manual: ${ok} OK · 0 fallos`);
-      }
-    } else if (action === "cleanup") setMsg(`✓ Limpieza: borrados ${(j.deleted ?? []).length} archivos huérfanos`);
-    load();
+    else if (action === "backup_now") setMsg("Copia iniciada en segundo plano. Puedes cerrar esta pantalla; el proceso continuará.");
+    else if (action === "cleanup") setMsg(`✓ Limpieza: borrados ${(j.deleted ?? []).length} archivos huérfanos`);
+    load(true);
   }
 
   return (
@@ -439,17 +435,19 @@ function DriveBackupSection() {
             <>
               <button
                 onClick={() => act("test")}
-                disabled={busy !== null}
+                disabled={busy !== null || driveJobActive}
                 className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm disabled:opacity-50"
               >
                 {busy === "test" ? "Probando…" : "🔌 Test conexión"}
               </button>
               <button
                 onClick={() => act("backup_now")}
-                disabled={busy !== null}
+                disabled={busy !== null || driveJobActive}
                 className="px-3 py-2 rounded-lg border bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700 text-sm disabled:opacity-50"
               >
-                {busy === "backup_now" ? "Subiendo…" : "▶️ Backup manual ahora"}
+                {driveJobActive
+                  ? `Creando copia… ${driveJob.progressPct ?? 0}%`
+                  : busy === "backup_now" ? "Iniciando…" : "▶️ Backup manual ahora"}
               </button>
               <button
                 onClick={() => act("cleanup")}
@@ -461,6 +459,27 @@ function DriveBackupSection() {
             </>
           )}
         </div>
+
+        {driveJob && (
+          <div className={`rounded-lg border p-3 text-xs ${
+            driveJob.status === "COMPLETED"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : driveJob.status === "FAILED"
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : "border-blue-200 bg-blue-50 text-blue-800"
+          }`}>
+            <div className="flex items-center justify-between gap-3 font-medium">
+              <span>{driveJob.progressMsg ?? "Preparando copia completa…"}</span>
+              <span>{driveJob.progressPct ?? 0}%</span>
+            </div>
+            {driveJobActive && (
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-blue-100">
+                <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${driveJob.progressPct ?? 0}%` }} />
+              </div>
+            )}
+            {driveJob.status === "FAILED" && driveJob.errorMessage && <div className="mt-1">{driveJob.errorMessage}</div>}
+          </div>
+        )}
 
         {msg && <p className="text-xs text-emerald-700">{msg}</p>}
         {error && <p className="text-xs text-rose-600">{error}</p>}

@@ -40,6 +40,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     whatsappProvider: s.whatsappProvider === "evolution" ? "evolution" : "waha",
     wahaUrl: s.wahaUrl ?? evo.url ?? process.env.WAHA_URL ?? null,
     wahaConfigured: !!(s.wahaApiKey || evo.apiKeyEnc || process.env.WAHA_API_KEY),
+    wahaPanelUsernameConfigured: !!s.wahaPanelUsernameEnc,
+    wahaPanelPasswordConfigured: !!s.wahaPanelPasswordEnc,
     wahaSession: s.wahaSession ?? process.env.WAHA_SESSION ?? "default",
     evolutionUrl: s.evolutionUrl ?? evo.url ?? process.env.EVOLUTION_API_URL ?? null,
     evolutionConfigured: !!(s.evolutionApiKey || evo.apiKeyEnc || process.env.EVOLUTION_API_KEY),
@@ -75,6 +77,16 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     recoveryMode: !!s.recoveryMode,
     recoverySince: s.recoverySince ?? null,
     recoveryDurationDays: s.recoveryDurationDays ?? 14,
+    recoveryByChannel: Object.fromEntries(
+      Object.entries(s.recoveryByChannel ?? {}).map(([key, raw]: [string, any]) => {
+        const durationDays = raw?.durationDays ?? 14;
+        const expiresAt = raw?.since
+          ? Date.parse(raw.since) + durationDays * 86_400_000
+          : Number.POSITIVE_INFINITY;
+        const enabled = !!raw?.enabled && Date.now() < expiresAt;
+        return [key, { enabled, since: enabled ? raw?.since ?? null : null, durationDays }];
+      })
+    ),
     warmupEnabled: s.warmupEnabled ?? true,
     warmupDays: s.warmupDays ?? 45,
     warmupStartCap: s.warmupStartCap ?? 3,
@@ -125,6 +137,10 @@ const schema = z.object({
   wahaUrl: z.string().url().or(z.literal("")).nullable().optional(),
   wahaApiKey: z.string().nullable().optional(),
   clearWahaApiKey: z.boolean().optional(),
+  wahaPanelUsername: z.string().max(200).optional(),
+  wahaPanelPassword: z.string().max(400).optional(),
+  clearWahaPanelUsername: z.boolean().optional(),
+  clearWahaPanelPassword: z.boolean().optional(),
   wahaSession: z.string().optional(),
   evolutionUrl: z.string().url().or(z.literal("")).nullable().optional(),
   evolutionApiKey: z.string().nullable().optional(),
@@ -169,6 +185,16 @@ const schema = z.object({
   maxNewChatsPerDay: z.number().int().min(1).max(500).optional(),
   recoveryMode: z.boolean().optional(),
   recoveryDurationDays: z.number().int().min(1).max(60).optional(),
+  recoveryByChannel: z
+    .record(
+      z.string(),
+      z.object({
+        enabled: z.boolean(),
+        since: z.string().datetime().nullable().optional(),
+        durationDays: z.number().int().min(1).max(60).optional()
+      })
+    )
+    .optional(),
   warmupEnabled: z.boolean().optional(),
   warmupDays: z.number().int().min(1).max(120).optional(),
   warmupStartCap: z.number().int().min(1).max(1000).optional(),
@@ -242,6 +268,16 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     delete s.wahaApiKey;
   } else if (typeof parsed.data.wahaApiKey === "string" && parsed.data.wahaApiKey.trim()) {
     s.wahaApiKey = encryptSecret(parsed.data.wahaApiKey.trim());
+  }
+  if (parsed.data.clearWahaPanelUsername) {
+    delete s.wahaPanelUsernameEnc;
+  } else if (typeof parsed.data.wahaPanelUsername === "string" && parsed.data.wahaPanelUsername.trim()) {
+    s.wahaPanelUsernameEnc = encryptSecret(parsed.data.wahaPanelUsername.trim());
+  }
+  if (parsed.data.clearWahaPanelPassword) {
+    delete s.wahaPanelPasswordEnc;
+  } else if (typeof parsed.data.wahaPanelPassword === "string" && parsed.data.wahaPanelPassword.trim()) {
+    s.wahaPanelPasswordEnc = encryptSecret(parsed.data.wahaPanelPassword.trim());
   }
   if (parsed.data.evolutionUrl !== undefined) {
     s.evolutionUrl = parsed.data.evolutionUrl || null;
@@ -372,6 +408,37 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
       s.recoveryMode = false;
       s.recoverySince = null;
     }
+  }
+  if (parsed.data.recoveryByChannel !== undefined) {
+    const validKeys = new Set<string>([
+      "__principal__",
+      ...(Array.isArray(s.channels) ? s.channels : [])
+        .map((channel: any) => String(channel?.name ?? "").trim())
+        .filter(Boolean)
+    ]);
+    const unsafeKeys = new Set(["__proto__", "prototype", "constructor"]);
+    const nextRecovery: Record<string, any> = Object.create(null);
+    const currentRecovery = s.recoveryByChannel && typeof s.recoveryByChannel === "object"
+      ? s.recoveryByChannel
+      : {};
+    for (const [key, requested] of Object.entries(parsed.data.recoveryByChannel)) {
+      if (!validKeys.has(key) || unsafeKeys.has(key)) {
+        throw new ApiError(400, "invalid_recovery_channel", `Canal de recuperación no válido: ${key}`);
+      }
+      const previous = currentRecovery[key];
+      const enabled = !!requested.enabled;
+      const previousDuration = previous?.durationDays ?? 14;
+      const previousExpiresAt = previous?.since
+        ? Date.parse(previous.since) + previousDuration * 86_400_000
+        : Number.NEGATIVE_INFINITY;
+      const previousStillActive = !!previous?.enabled && Date.now() < previousExpiresAt;
+      nextRecovery[key] = {
+        enabled,
+        since: enabled ? (previousStillActive ? previous.since : new Date().toISOString()) : null,
+        durationDays: requested.durationDays ?? previous?.durationDays ?? 14
+      };
+    }
+    s.recoveryByChannel = nextRecovery;
   }
   if (parsed.data.rotateWebhookToken) {
     s.webhookToken = randomBytes(24).toString("hex");

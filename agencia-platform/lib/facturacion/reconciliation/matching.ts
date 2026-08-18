@@ -19,6 +19,7 @@ export type PaymentMatch = {
 };
 
 export type SepaJobCandidate = { invoiceId: string; amountCents: number; ibanMasked: string | null; chargeDate: Date | null };
+export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null };
 
 function localDay(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -31,6 +32,20 @@ export function matchSepaReceipt(payment: { amountCents: number; debtorIbanLast4
       && Boolean(job.chargeDate) && localDay(job.chargeDate!) === localDay(payment.bookedAt);
   });
   return matches.length === 1 ? { invoiceId: matches[0].invoiceId, confidence: "SEPA_RECEIPT" } : null;
+}
+
+export function matchUniqueSepaSummary(payment: { amountCents: number; bookedAt: Date }, requests: SepaRequestCandidate[]): PaymentMatch | null {
+  // Santander suele contabilizar el abono entre uno y tres días después de
+  // preparar/cargar la remesa. Nunca aceptamos solicitudes posteriores al
+  // cobro ni ampliamos la ventana más allá de cuatro días.
+  const earliestCharge = payment.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000;
+  const latestCharge = payment.bookedAt.getTime() + 12 * 60 * 60 * 1000;
+  const matches = requests.filter((request) => request.amountCents === payment.amountCents
+    && Boolean(request.chargeDate)
+    && request.chargeDate!.getTime() >= earliestCharge
+    && request.chargeDate!.getTime() <= latestCharge);
+  const invoiceIds = [...new Set(matches.map((request) => request.invoiceId))];
+  return invoiceIds.length === 1 ? { invoiceId: invoiceIds[0], confidence: "SEPA_RECEIPT" } : null;
 }
 
 function normalize(value: string): string {

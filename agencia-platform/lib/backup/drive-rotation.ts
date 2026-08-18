@@ -114,7 +114,22 @@ export function whichBackupsToday(when: Date = new Date()): BackupKind[] {
  *
  * NOTA: si en el futuro se quiere ZIP multifichero, instalar `archiver`.
  */
-async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffer; mimeType: string; mirroredFiles: number }> {
+export function isMissingStorageObjectError(error: unknown): boolean {
+  const candidate = error as { name?: string; code?: string; Code?: string; message?: string } | null;
+  const code = candidate?.name ?? candidate?.code ?? candidate?.Code ?? "";
+  const message = candidate?.message ?? "";
+  return code === "NoSuchKey" || code === "NotFound" || /specified key does not exist/i.test(message);
+}
+
+async function generateBackupArchive(
+  workspaceId: string,
+  onProgress?: (message: string, progressPct: number) => Promise<void> | void
+): Promise<{
+  body: Buffer;
+  mimeType: string;
+  mirroredFiles: number;
+  missingFiles: number;
+}> {
   const { gzipSync } = await import("zlib");
   const dump = await generateWorkspaceDump(workspaceId);
   if (dump.modelErrors && Object.keys(dump.modelErrors).length) {
@@ -124,53 +139,121 @@ async function generateBackupArchive(workspaceId: string): Promise<{ body: Buffe
     where: { workspaceId },
     select: { id: true, name: true, mimeType: true, sizeBytes: true, s3Key: true }
   });
-  const manifest: Array<Record<string, unknown>> = [];
-  for (const file of files) {
-    const body = await downloadBuffer(file.s3Key);
+  const existingDriveFiles = await listDriveFiles({ workspaceId, namePrefix: "hub-adjunto-" });
+  const existingByName = new Map(existingDriveFiles.map((file) => [file.name, file]));
+  const manifest: Array<Record<string, unknown>> = new Array(files.length);
+  const uploadsByName = new Map<string, ReturnType<typeof uploadDriveFile>>();
+  let missingFiles = 0;
+  let nextFileIndex = 0;
+  let processedFiles = 0;
+
+  async function mirrorFile(index: number): Promise<void> {
+    const file = files[index];
+    let body: Buffer;
+    try {
+      body = await downloadBuffer(file.s3Key);
+    } catch (error) {
+      if (!isMissingStorageObjectError(error)) throw error;
+      missingFiles += 1;
+      manifest[index] = {
+        ...file,
+        backupStatus: "source_missing",
+        error: "El objeto no existe en el almacenamiento de origen"
+      };
+      return;
+    }
     const sha256 = createHash("sha256").update(body).digest("hex");
     const md5 = createHash("md5").update(body).digest("hex");
     const hash = sha256.slice(0, 24);
     const safe = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
     const driveName = `hub-adjunto-${hash}-${safe}`;
-    const existing = (await listDriveFiles({ workspaceId, namePrefix: driveName })).find(
-      (f) => f.name === driveName && f.size === String(body.byteLength) && (!f.md5Checksum || f.md5Checksum === md5)
-    );
-    const remote = existing ?? await uploadDriveFile({
-      workspaceId,
-      fileName: driveName,
-      body,
-      mimeType: file.mimeType || "application/octet-stream"
-    });
-    manifest.push({ ...file, driveFileId: remote.id, driveName, sha256 });
+    const candidate = existingByName.get(driveName);
+    const existing = candidate && candidate.size === String(body.byteLength) && (!candidate.md5Checksum || candidate.md5Checksum === md5)
+      ? candidate
+      : undefined;
+    let upload = uploadsByName.get(driveName);
+    if (!existing && !upload) {
+      upload = uploadDriveFile({
+        workspaceId,
+        fileName: driveName,
+        body,
+        mimeType: file.mimeType || "application/octet-stream"
+      });
+      uploadsByName.set(driveName, upload);
+    }
+    const remote = existing ?? await upload!;
+    existingByName.set(driveName, remote);
+    manifest[index] = { ...file, backupStatus: "mirrored", driveFileId: remote.id, driveName, sha256 };
   }
-  const json = JSON.stringify({ format: "hub-complete-backup-v1", dump, attachments: manifest });
+
+  async function worker(): Promise<void> {
+    while (nextFileIndex < files.length) {
+      const index = nextFileIndex++;
+      await mirrorFile(index);
+      const processed = ++processedFiles;
+      await onProgress?.(
+        `Verificando adjuntos ${processed}/${files.length}`,
+        Math.min(90, 5 + Math.round((processed / Math.max(1, files.length)) * 85))
+      );
+    }
+  }
+
+  // Tres workers reducen drásticamente el tiempo sin cargar demasiados
+  // adjuntos grandes simultáneamente en memoria.
+  await Promise.all(Array.from({ length: Math.min(3, files.length) }, () => worker()));
+  const json = JSON.stringify({
+    format: "hub-complete-backup-v1",
+    dump,
+    attachments: manifest,
+    integrity: {
+      databaseComplete: true,
+      attachmentRecords: files.length,
+      attachmentsMirrored: files.length - missingFiles,
+      sourceObjectsMissing: missingFiles
+    }
+  });
   const gz = gzipSync(Buffer.from(json, "utf8"));
-  return { body: gz, mimeType: "application/gzip", mirroredFiles: manifest.length };
+  return {
+    body: gz,
+    mimeType: "application/gzip",
+    mirroredFiles: files.length - missingFiles,
+    missingFiles
+  };
 }
 
 export async function runDriveBackup(opts: {
   workspaceId: string;
   kinds?: BackupKind[];
   when?: Date;
+  onProgress?: (message: string, progressPct: number) => Promise<void> | void;
 }): Promise<{
   workspaceId: string;
   results: { kind: BackupKind; fileName: string; humanLabel: string; ok: boolean; error?: string }[];
 }> {
   const when = opts.when ?? new Date();
   const kinds = opts.kinds ?? whichBackupsToday(when);
-  const archive = await generateBackupArchive(opts.workspaceId);
+  await opts.onProgress?.("Preparando la base de datos y el manifiesto", 3);
+  const archive = await generateBackupArchive(opts.workspaceId, opts.onProgress);
 
   const results: any[] = [];
   for (const kind of kinds) {
     const { fileName, humanLabel } = backupFileNames(kind, when);
     try {
+      await opts.onProgress?.(`Subiendo snapshot ${humanLabel}`, 94);
       await uploadDriveFile({
         workspaceId: opts.workspaceId,
         fileName,
         body: archive.body,
         mimeType: archive.mimeType
       });
-      results.push({ kind, fileName, humanLabel, ok: true });
+      results.push({
+        kind,
+        fileName,
+        humanLabel,
+        ok: true,
+        mirroredFiles: archive.mirroredFiles,
+        missingFiles: archive.missingFiles
+      });
     } catch (e: any) {
       results.push({
         kind,
@@ -181,6 +264,7 @@ export async function runDriveBackup(opts: {
       });
     }
   }
+  await opts.onProgress?.("Snapshot guardado y verificado en Google Drive", 100);
   return { workspaceId: opts.workspaceId, results };
 }
 

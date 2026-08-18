@@ -147,7 +147,7 @@ type QueueRow = {
   channelCap?: number;
 };
 
-type Tab = "leads" | "opportunities" | "searches" | "queue" | "jobs-review" | "franchises" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
+type Tab = "leads" | "opportunities" | "searches" | "queue" | "jobs-review" | "franchises" | "trade-fairs" | "inbox" | "sequences" | "templates" | "exclusions" | "analytics" | "map" | "settings";
 
 /** ¿Este mensaje de la cola se ENVIÓ hoy? (día natural local del navegador —
  *  España ≈ Madrid). Para resaltar en verde los envíos del día. */
@@ -721,6 +721,7 @@ export default function LeadsClient() {
       {tab === "jobs-review" && <JobsReviewPanel />}
       {tab === "opportunities" && <OpportunityHunterPage />}
       {tab === "franchises" && <FranchisesView />}
+      {tab === "trade-fairs" && <TradeFairsView />}
       {tab === "inbox" && <InboxChat loading={loading} diagnostics={inboxDiag} initialPhone={deepLinkPhone} />}
       {tab === "sequences" && <SequencesView />}
       {tab === "templates" && <TemplatesTable loading={loading} items={templates} onChanged={load} />}
@@ -1042,6 +1043,7 @@ const LEADS_TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "queue",      label: "Cola envío",  icon: <Send className="h-3.5 w-3.5" /> },
   { key: "jobs-review", label: "📧 Empleos", icon: <Mail className="h-3.5 w-3.5" /> },
   { key: "franchises", label: "🏢 Franquicias", icon: <Building2 className="h-3.5 w-3.5" /> },
+  { key: "trade-fairs", label: "🎪 Expositores", icon: <Building2 className="h-3.5 w-3.5" /> },
   { key: "inbox",      label: "Inbox",       icon: <Inbox className="h-3.5 w-3.5" /> },
   { key: "sequences",  label: "Secuencias",  icon: <GitBranch className="h-3.5 w-3.5" /> },
   { key: "templates",  label: "Plantillas",  icon: <ListChecks className="h-3.5 w-3.5" /> },
@@ -3263,6 +3265,105 @@ function DecisionMakerKeys() {
         </div>
       </div>
     </details>
+  );
+}
+
+function TradeFairsView() {
+  const [form, setForm] = useState({ name: "", url: "", venue: "", startsAt: "", endsAt: "", maxExhibitors: 100, autoQueue: false });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [fairQuery, setFairQuery] = useState("");
+  const [finding, setFinding] = useState(false);
+  const [foundFairs, setFoundFairs] = useState<any[]>([]);
+  const [finderInfo, setFinderInfo] = useState("");
+
+  const load = useCallback(async () => {
+    const response = await fetch("/api/v1/leads/trade-fairs", { cache: "no-store" });
+    const json = await response.json().catch(() => ({}));
+    if (response.ok) setHistory(json.items ?? []);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function run() {
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const response = await fetch("/api/v1/leads/trade-fairs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error?.message ?? "No se pudo procesar el catálogo");
+      setResult(json); await load();
+    } catch (e: any) { setError(e?.message ?? String(e)); }
+    finally { setBusy(false); }
+  }
+
+  async function findFairs() {
+    setFinding(true); setError(""); setFinderInfo("");
+    try {
+      const response = await fetch("/api/v1/leads/trade-fairs/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: fairQuery, max: 100 }) });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error?.message ?? "No se pudieron buscar ferias");
+      setFoundFairs(json.fairs ?? []);
+      const scanned = (json.diagnostics ?? []).map((item: any) => `${item.organizer}: ${item.events}`).join(" · ");
+      setFinderInfo(`${json.fairs?.length ?? 0} próximas ferias encontradas${scanned ? ` · ${scanned}` : ""}`);
+    } catch (e: any) { setError(e?.message ?? String(e)); }
+    finally { setFinding(false); }
+  }
+
+  function chooseFair(fair: any) {
+    setForm((current) => ({ ...current, name: fair.name, url: fair.catalogUrl ?? fair.url, venue: fair.venue, startsAt: fair.startsAt, endsAt: fair.endsAt }));
+    document.getElementById("trade-fair-import-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const field = (key: keyof typeof form, value: string | number | boolean) => setForm((current) => ({ ...current, [key]: value }));
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-5">
+        <div className="text-base font-semibold text-sky-950">🔎 Buscador automático de próximas ferias</div>
+        <p className="mt-1 text-sm text-sky-900/80">Rastrea los calendarios de IFEMA Madrid, Fira Barcelona, Feria Valencia y Bilbao Exhibition Centre. La búsqueda no crea leads ni envía mensajes.</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm" value={fairQuery} onChange={(e) => setFairQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void findFairs(); }} placeholder="Filtrar por sector, feria, ciudad… (vacío = todas)" />
+          <button onClick={findFairs} disabled={finding} className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{finding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar ferias</button>
+        </div>
+        {finderInfo && <p className="mt-2 text-xs text-slate-600">{finderInfo}</p>}
+        {!!foundFairs.length && <div className="mt-4 max-h-[430px] overflow-auto rounded-lg border bg-white">
+          {foundFairs.map((fair) => <div key={`${fair.url}-${fair.startsAt}`} className="flex flex-wrap items-center justify-between gap-3 border-b p-3 last:border-0">
+            <div className="min-w-0"><div className="font-semibold text-slate-800">{fair.name}</div><div className="text-xs text-slate-500">{fair.startsAt} → {fair.endsAt} · {fair.venue} · {fair.organizer}</div><div className={`mt-0.5 text-xs ${fair.catalogUrl ? "text-emerald-700" : "text-amber-700"}`}>{fair.catalogUrl ? "Catálogo de expositores localizado" : "Evento localizado; catálogo no publicado todavía"}</div></div>
+            <div className="flex gap-2"><a href={fair.url} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Ver feria</a><button onClick={() => chooseFair(fair)} className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white">Usar en robot</button></div>
+          </div>)}
+        </div>}
+      </div>
+      <div id="trade-fair-import-form" className="scroll-mt-4 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5">
+        <div className="text-base font-semibold text-violet-950">🎪 Robot de expositores — amplificar el stand</div>
+        <p className="mt-1 max-w-4xl text-sm text-violet-900/80">
+          Importa el catálogo de una feria, extrae y enriquece los contactos de sus expositores y prepara un WhatsApp ofreciendo anuncios geolocalizados alrededor del recinto durante las fechas exactas del evento.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="text-xs font-medium text-slate-700">Nombre de la feria<input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.name} onChange={(e) => field("name", e.target.value)} placeholder="Genera 2026" /></label>
+          <label className="text-xs font-medium text-slate-700">Recinto y ciudad<input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.venue} onChange={(e) => field("venue", e.target.value)} placeholder="IFEMA Madrid" /></label>
+          <label className="text-xs font-medium text-slate-700 md:col-span-2">URL pública del catálogo de expositores<input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.url} onChange={(e) => field("url", e.target.value)} placeholder="https://…/catalogo-expositores" /></label>
+          <label className="text-xs font-medium text-slate-700">Primer día<input type="date" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.startsAt} onChange={(e) => field("startsAt", e.target.value)} /></label>
+          <label className="text-xs font-medium text-slate-700">Último día<input type="date" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.endsAt} onChange={(e) => field("endsAt", e.target.value)} /></label>
+          <label className="text-xs font-medium text-slate-700">Máximo de expositores<input type="number" min={1} max={300} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={form.maxExhibitors} onChange={(e) => field("maxExhibitors", Number(e.target.value))} /></label>
+          <label className="flex items-center gap-2 self-end rounded-lg border bg-white px-3 py-2 text-sm text-slate-700"><input type="checkbox" checked={form.autoQueue} onChange={(e) => field("autoQueue", e.target.checked)} />Encolar WhatsApp automáticamente</label>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button onClick={run} disabled={busy || !form.name || !form.url || !form.venue || !form.startsAt || !form.endsAt} className="inline-flex items-center gap-2 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Extraer expositores
+          </button>
+          <span className="text-xs text-slate-500">Por seguridad, el envío automático viene desactivado.</span>
+        </div>
+        {error && <p className="mt-3 text-sm text-rose-700">{error}</p>}
+        {result && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">✓ {result.discovered} fichas detectadas · {result.imported} leads nuevos · {result.skipped} duplicados · {result.queued} WhatsApp en cola.</p>}
+      </div>
+      <div className="rounded-xl border bg-white">
+        <div className="border-b px-4 py-3 text-sm font-semibold text-slate-800">Ferias procesadas</div>
+        {!history.length ? <p className="p-4 text-sm text-slate-500">Todavía no se ha procesado ninguna feria.</p> : history.map((item) => {
+          const cfg = item.sourceConfig ?? {};
+          return <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm last:border-0"><div><b>{item.keyword}</b><div className="text-xs text-slate-500">{item.location} · {cfg.startsAt} → {cfg.endsAt}</div></div><div className="text-right"><b>{item.totalResults}</b> leads<div className="text-xs text-slate-500">{item.leadsSkipped ?? 0} duplicados · {item.status}</div></div></div>;
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -7837,6 +7938,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   const [s, setS] = useState<any>(null);
   const [googleKey, setGoogleKey] = useState("");
   const [wahaKey, setWahaKey] = useState("");
+  const [wahaPanelUsername, setWahaPanelUsername] = useState("");
+  const [wahaPanelPassword, setWahaPanelPassword] = useState("");
   const [evoKey, setEvoKey] = useState("");
   const [metaAdsKey, setMetaAdsKey] = useState("");
   const [scrapflyKey, setScrapflyKey] = useState("");
@@ -7913,7 +8016,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
   }
   useEffect(() => {
     if (!open) return;
-    setGoogleKey(""); setWahaKey(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setElevenKey(""); setError(null); setSavedAt(null);
+    setGoogleKey(""); setWahaKey(""); setWahaPanelUsername(""); setWahaPanelPassword(""); setEvoKey(""); setMetaAdsKey(""); setScrapflyKey(""); setHunterKey(""); setApolloKey(""); setElevenKey(""); setError(null); setSavedAt(null);
     setS(null);
     loadSettings();
   }, [open]);
@@ -7989,6 +8092,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       maxPerHour: s.maxPerHour,
       minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient,
       maxNewChatsPerDay: s.maxNewChatsPerDay,
+      recoveryMode: !!s.recoveryMode,
+      recoveryByChannel: s.recoveryByChannel ?? {},
       recoveryDurationDays: s.recoveryDurationDays,
       warmupEnabled: s.warmupEnabled,
       warmupDays: s.warmupDays,
@@ -8014,6 +8119,8 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     const gk = googleKey.trim();
     if (gk && /^AIza[\w-]{20,}$/.test(gk)) body.googleApiKey = gk;
     if (wahaKey) body.wahaApiKey = wahaKey;
+    if (wahaPanelUsername.trim()) body.wahaPanelUsername = wahaPanelUsername.trim();
+    if (wahaPanelPassword.trim()) body.wahaPanelPassword = wahaPanelPassword.trim();
     if (evoKey) body.evolutionApiKey = evoKey;
     if (metaAdsKey) body.metaAdsToken = metaAdsKey;
     if (scrapflyKey) body.scrapflyApiKey = scrapflyKey;
@@ -8027,6 +8134,15 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       const j = await r.json().catch(() => ({}));
       setError(j?.error?.message ?? `Error ${r.status}`);
       return false;
+    }
+    if (wahaPanelUsername.trim() || wahaPanelPassword.trim()) {
+      setS((prev: any) => ({
+        ...prev,
+        wahaPanelUsernameConfigured: prev?.wahaPanelUsernameConfigured || !!wahaPanelUsername.trim(),
+        wahaPanelPasswordConfigured: prev?.wahaPanelPasswordConfigured || !!wahaPanelPassword.trim()
+      }));
+      setWahaPanelUsername("");
+      setWahaPanelPassword("");
     }
     setSavedAt(new Date());
     return true;
@@ -8431,6 +8547,28 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <>
                 <input value={s.wahaUrl ?? ""} onChange={(e) => setField("wahaUrl", e.target.value)} placeholder="https://waha.ejemplo.com" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
                 <input type="password" autoComplete="off" data-lpignore="true" data-1p-ignore value={wahaKey} onChange={(e) => setWahaKey(e.target.value)} placeholder={s.wahaConfigured ? "•••• (configurada)" : "API key WAHA"} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore
+                    value={wahaPanelUsername}
+                    onChange={(e) => setWahaPanelUsername(e.target.value)}
+                    placeholder={s.wahaPanelUsernameConfigured ? "Usuario del panel (configurado)" : "Usuario del panel WAHA"}
+                    className="px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore
+                    value={wahaPanelPassword}
+                    onChange={(e) => setWahaPanelPassword(e.target.value)}
+                    placeholder={s.wahaPanelPasswordConfigured ? "Contraseña del panel (configurada)" : "Contraseña del panel WAHA"}
+                    className="px-3 py-2 rounded-lg border bg-white text-sm font-mono"
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <input value={s.wahaSession ?? "default"} onChange={(e) => setField("wahaSession", e.target.value)} placeholder="Nombre sesión" className="px-3 py-2 rounded-lg border bg-white text-sm" />
                   <input value={s.whatsappCountryCode ?? "34"} onChange={(e) => setField("whatsappCountryCode", e.target.value)} placeholder="Código país (34)" className="px-3 py-2 rounded-lg border bg-white text-sm" />
@@ -9128,35 +9266,69 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               />
             </label>
           </div>
-          <div className={
-            "mt-3 p-3 rounded-lg border " +
-            (s.recoveryMode
-              ? "bg-rose-50 border-rose-300 text-rose-900"
-              : "bg-amber-50/40 border-amber-200 text-amber-900")
-          }>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!s.recoveryMode}
-                onChange={(e) => setField("recoveryMode", e.target.checked)}
-                className="mt-0.5 accent-rose-600"
-              />
-              <div className="flex-1 text-xs">
-                <strong className="block text-sm">🛡 Modo recuperación post-restricción WhatsApp</strong>
-                <p className="mt-1">
-                  Activa esto cuando Meta te haya restringido la cuenta. Aplica límites ultra-cautelosos
-                  durante {s.recoveryDurationDays ?? 14} días: máx <strong>15/día</strong>, <strong>3/hora</strong>,
-                  <strong> 8 nuevas convos/día</strong>, delay entre envíos <strong>5-15 min</strong>, cool-down
-                  por número <strong>10 días</strong>. Después se auto-desactiva.
-                </p>
-                {s.recoveryMode && s.recoverySince && (
-                  <p className="mt-1 font-mono text-[11px]">
-                    Activo desde: {new Date(s.recoverySince).toLocaleString("es-ES")} ·
-                    expira: {new Date(new Date(s.recoverySince).getTime() + (s.recoveryDurationDays ?? 14) * 86_400_000).toLocaleString("es-ES")}
-                  </p>
-                )}
-              </div>
-            </label>
+          <div className="mt-3 p-3 rounded-lg border bg-amber-50/40 border-amber-200 text-amber-900">
+            <strong className="block text-sm">🛡 Modo recuperación por teléfono</strong>
+            <p className="mt-1 text-xs">
+              Actívalo solo en el número restringido. Durante {s.recoveryDurationDays ?? 14} días ese teléfono queda en
+              15/día, 3/hora, 8 conversaciones nuevas/día, delay de 5-15 min y cool-down de 10 días. Los demás números
+              mantienen sus límites normales.
+            </p>
+            {s.recoveryMode && (
+              <label className="mt-2 flex items-center gap-2 rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800">
+                <input
+                  type="checkbox"
+                  checked={!!s.recoveryMode}
+                  onChange={(e) => setField("recoveryMode", e.target.checked)}
+                  className="accent-rose-600"
+                />
+                Modo global antiguo activo: desmárcalo para que dejen de verse afectados todos los teléfonos.
+              </label>
+            )}
+            <div className="mt-2 space-y-1.5">
+              {[
+                { key: "__principal__", label: `Principal (${s.wahaSession ?? "default"})`, phone: s.principalPhone },
+                ...(s.channels ?? []).map((channel: any) => ({
+                  key: channel.name,
+                  label: channel.label || channel.name,
+                  phone: channel.phone
+                }))
+              ].filter((channel: any) => channel.key).map((channel: any) => {
+                const state = s.recoveryByChannel?.[channel.key];
+                const active = !!state?.enabled;
+                const durationDays = state?.durationDays ?? 14;
+                const expiresAt = state?.since
+                  ? new Date(new Date(state.since).getTime() + durationDays * 86_400_000)
+                  : null;
+                return (
+                  <label
+                    key={channel.key}
+                    className={`flex items-center gap-2 rounded border px-2.5 py-2 text-xs cursor-pointer ${
+                      active ? "border-rose-300 bg-rose-50 text-rose-900" : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={(e) => setField("recoveryByChannel", {
+                        ...(s.recoveryByChannel ?? {}),
+                        [channel.key]: {
+                          enabled: e.target.checked,
+                          since: active ? state?.since ?? null : null,
+                          durationDays
+                        }
+                      })}
+                      className="accent-rose-600"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <b>{channel.label}</b>{channel.phone ? <span className="ml-1 font-mono text-slate-500">{channel.phone}</span> : null}
+                    </span>
+                    <span className={active ? "text-rose-700" : "text-slate-400"}>
+                      {active && expiresAt ? `hasta ${expiresAt.toLocaleDateString("es-ES")}` : active ? "recuperación activa" : "límites normales"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
           <div className="flex flex-wrap gap-3 mt-2 text-xs">
             <label className="flex items-center gap-1.5 cursor-pointer">

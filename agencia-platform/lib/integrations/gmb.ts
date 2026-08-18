@@ -32,28 +32,56 @@ const INFO_BASE = "https://mybusinessbusinessinformation.googleapis.com/v1";
 const V4_BASE = "https://mybusiness.googleapis.com/v4";
 const PERF_BASE = "https://businessprofileperformance.googleapis.com/v1";
 
+/**
+ * Refresca un access_token con las credenciales indicadas. Lanza "GMB_REVOKED"
+ * cuando Google responde 400/401 (refresh revocado o permisos caducados).
+ */
+async function refreshAccessToken(refreshToken: string, clientId: string, clientSecret: string): Promise<string> {
+  const body = new URLSearchParams({ refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret, grant_type: "refresh_token" });
+  const r = await fetch(TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  if (r.status === 400 || r.status === 401) throw new Error("GMB_REVOKED");
+  if (!r.ok) throw new Error(`Google OAuth refresh ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  return data.access_token as string;
+}
+
+/**
+ * Obtiene un access_token para GMB. PREFIERE la conexión OAuth guiada
+ * (GmbGoogleConnection, credenciales GOOGLE_CLIENT_ID/SECRET); si no existe,
+ * cae a la conexión legacy de Google Ads. Detecta permisos revocados/caducados
+ * y los marca en la conexión para que la UI lo muestre honestamente.
+ */
 async function getAccessToken(workspaceId: string): Promise<string> {
+  const gbp = await prisma.gmbGoogleConnection.findUnique({ where: { workspaceId } });
+  if (gbp && !gbp.revokedAt) {
+    const refreshToken = decryptSecret(gbp.refreshTokenEnc);
+    if (!refreshToken) throw new Error("refresh token Google inválido");
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) throw new Error("GOOGLE_CLIENT_ID/SECRET no en env");
+    try {
+      return await refreshAccessToken(refreshToken, clientId, clientSecret);
+    } catch (e: any) {
+      if (String(e?.message) === "GMB_REVOKED") {
+        await prisma.gmbGoogleConnection.updateMany({
+          where: { workspaceId },
+          data: { revokedAt: new Date(), lastError: "revoked_or_expired" },
+        }).catch(() => {});
+        throw new Error("La conexión de Google se revocó o caducó. Vuelve a conectar con Google.");
+      }
+      throw e;
+    }
+  }
+
+  // Fallback legacy: conexión de Google Ads (requiere scope business.manage).
   const conn = await prisma.googleAdsConnection.findUnique({ where: { workspaceId } });
-  if (!conn) throw new Error("Falta conexión Google. Necesaria para GMB.");
+  if (!conn) throw new Error("Falta conexión Google. Conecta con Google desde el Hub.");
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (!refreshToken) throw new Error("refresh token Google inválido");
   const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new Error("GOOGLE_ADS_CLIENT_ID/SECRET no en env");
-  const body = new URLSearchParams({
-    refresh_token: refreshToken,
-    client_id: clientId,
-    client_secret: clientSecret,
-    grant_type: "refresh_token"
-  });
-  const r = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body
-  });
-  if (!r.ok) throw new Error(`Google OAuth refresh ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const data = await r.json();
-  return data.access_token as string;
+  return refreshAccessToken(refreshToken, clientId, clientSecret);
 }
 
 async function gFetch(token: string, url: string, init: RequestInit = {}): Promise<any> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchIncomingPayment, shouldImportMovement } from "../matching";
+import { matchIncomingPayment, matchUniqueSepaSummary, shouldImportMovement } from "../matching";
 
 const cutoff = new Date("2026-08-09T22:00:00.000Z"); // 10/08/2026 00:00 Europe/Madrid
 
@@ -30,5 +30,28 @@ describe("conciliación bancaria desde la fecha de corte", () => {
 
   it("no concilia automáticamente cuando solo coincide el importe", () => {
     expect(matchIncomingPayment({ amountCents: 36300, reference: "Ingreso", counterpartyName: "Desconocido" }, invoices)).toBeNull();
+  });
+  it("matches a unique SEPA summary by date and amount", () => {
+    expect(matchUniqueSepaSummary(
+      { amountCents: 42350, bookedAt: new Date("2026-08-12T12:00:00Z") },
+      [{ invoiceId: "invoice-423", amountCents: 42350, chargeDate: new Date("2026-08-10T08:00:00Z") }]
+    )).toMatchObject({ invoiceId: "invoice-423", confidence: "SEPA_RECEIPT" });
+  });
+
+  it("leaves an ambiguous SEPA summary unmatched", () => {
+    expect(matchUniqueSepaSummary(
+      { amountCents: 18150, bookedAt: new Date("2026-08-12T12:00:00Z") },
+      [
+        { invoiceId: "invoice-a", amountCents: 18150, chargeDate: new Date("2026-08-12T07:00:00Z") },
+        { invoiceId: "invoice-b", amountCents: 18150, chargeDate: new Date("2026-08-12T09:00:00Z") }
+      ]
+    )).toBeNull();
+  });
+
+  it("rejects requests outside the safe settlement window", () => {
+    expect(matchUniqueSepaSummary(
+      { amountCents: 54450, bookedAt: new Date("2026-08-13T12:00:00Z") },
+      [{ invoiceId: "too-old", amountCents: 54450, chargeDate: new Date("2026-08-08T08:00:00Z") }]
+    )).toBeNull();
   });
 });

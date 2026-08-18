@@ -28,6 +28,8 @@ export interface ReconciliationConfig {
   dailyAt: string;
   timeZone: string;
   lastSyncAt: string | null;
+  retryAttempts: number;
+  lastFailureAt: string | null;
 }
 
 export class HubClient {
@@ -98,5 +100,11 @@ export class HubClient {
     const { status, json } = await this.post("/reconciliation/transactions", { movements });
     if (status !== 200) throw new Error(`reconciliation falló (${status})`);
     return { imported: Number(json.imported ?? 0), matched: Number(json.matched ?? 0) };
+  }
+
+  async reportReconciliationFailure(reason: string): Promise<{ attempts: number; notified: boolean }> {
+    const { status, json } = await this.post("/reconciliation/failure", { reason });
+    if (status !== 200) throw new Error(`reconciliation failure report falló (${status})`);
+    return { attempts: Number(json.attempts ?? 0), notified: Boolean(json.notified) };
   }
 }

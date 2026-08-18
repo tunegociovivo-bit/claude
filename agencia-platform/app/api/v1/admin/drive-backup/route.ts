@@ -45,6 +45,22 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     }
   }
 
+  const latestJob = await prisma.backgroundJob.findFirst({
+    where: { workspaceId: api.workspaceId, kind: "backup.google_drive" },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      progressPct: true,
+      progressMsg: true,
+      result: true,
+      errorMessage: true,
+      startedAt: true,
+      completedAt: true,
+      createdAt: true
+    }
+  });
+
   return NextResponse.json({
     configured: !!(gd.refreshTokenEncrypted || gd.serviceAccountJsonEncrypted) && !!gd.folderId,
     authMode: gd.refreshTokenEncrypted ? "oauth" : gd.serviceAccountJsonEncrypted ? "service_account" : null,
@@ -54,7 +70,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     folderId: gd.folderId ?? null,
     serviceAccountEmail,
     files,
-    listError
+    listError,
+    latestJob
   });
 });
 
@@ -126,8 +143,30 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     }
     if (parsed.data.action === "backup_now") {
       const kinds = parsed.data.kinds ?? ["daily"];
-      const r = await runDriveBackup({ workspaceId: api.workspaceId, kinds });
-      return NextResponse.json(r);
+      const active = await prisma.backgroundJob.findFirst({
+        where: {
+          workspaceId: api.workspaceId,
+          kind: "backup.google_drive",
+          status: { in: ["PENDING", "RUNNING"] }
+        },
+        orderBy: { createdAt: "desc" }
+      });
+      if (active) {
+        return NextResponse.json({ ok: true, jobId: active.id, status: active.status }, { status: 202 });
+      }
+      const job = await prisma.backgroundJob.create({
+        data: {
+          workspaceId: api.workspaceId,
+          userId: api.userId ?? null,
+          kind: "backup.google_drive",
+          status: "PENDING",
+          progressPct: 0,
+          progressMsg: "Copia en cola",
+          request: { kinds }
+        }
+      });
+      void runDriveBackupJob(job.id, api.workspaceId, kinds);
+      return NextResponse.json({ ok: true, jobId: job.id, status: job.status }, { status: 202 });
     }
     if (parsed.data.action === "cleanup") {
       const r = await cleanupOrphanBackups(api.workspaceId);
@@ -138,3 +177,52 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     throw new ApiError(500, "drive_error", e?.message ?? "Error en Drive");
   }
 });
+
+async function runDriveBackupJob(jobId: string, workspaceId: string, kinds: Array<"daily" | "weekly" | "monthly">) {
+  let lastProgressPct = -1;
+  let lastProgressAt = 0;
+  try {
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: { status: "RUNNING", startedAt: new Date(), progressPct: 1, progressMsg: "Iniciando copia completa" }
+    });
+    const result = await runDriveBackup({
+      workspaceId,
+      kinds,
+      onProgress: async (progressMsg, progressPct) => {
+        const now = Date.now();
+        if (progressPct < 100 && progressPct - lastProgressPct < 2 && now - lastProgressAt < 1000) return;
+        lastProgressPct = progressPct;
+        lastProgressAt = now;
+        await prisma.backgroundJob.update({
+          where: { id: jobId },
+          data: { progressPct, progressMsg }
+        });
+      }
+    });
+    const failed = result.results.filter((item) => !item.ok);
+    if (failed.length > 0) {
+      throw new Error(failed.map((item) => `${item.kind}: ${item.error ?? "falló"}`).join(" · "));
+    }
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        progressPct: 100,
+        progressMsg: "Copia completa guardada en Google Drive",
+        result: result as any
+      }
+    });
+  } catch (error: any) {
+    await prisma.backgroundJob.update({
+      where: { id: jobId },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+        progressMsg: "La copia de Google Drive ha fallado",
+        errorMessage: String(error?.message ?? error).slice(0, 2000)
+      }
+    }).catch(() => {});
+  }
+}

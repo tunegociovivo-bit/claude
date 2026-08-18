@@ -3689,6 +3689,11 @@ model GmbClient {
   emails       String   @default("") // emails de notificación, separados por coma
   mainKeyword  String   @default("")
   autoReply    String   @default("manual") // manual|auto
+  // Piloto automático (por ficha): qué puede hacer el sistema sin intervención.
+  //   suggest_only    → solo sugiere acciones
+  //   prepare_drafts  → prepara borradores (posts/respuestas/paquetes de alta)
+  //   execute_safe    → ejecuta SOLO acciones internas seguras; lo externo sensible sigue pidiendo aprobación
+  autopilotMode String  @default("suggest_only")
   connectionId String   @default("") // override de connection de Make
   frequency    Int      @default(15) // minutos
   scenarioId   String   @default("") // id del escenario de Make
@@ -3724,6 +3729,11 @@ model GmbReview {
   rating      Int       @default(0) // 1-5
   comment     String?   @db.Text
   reviewReply String?   @db.Text
+  // Borrador de respuesta (fase 3): se genera y guarda SIN publicar; la publicación externa es una
+  // acción aparte que exige aprobación. Reversible (se puede limpiar).
+  replyDraft     String?   @db.Text
+  replyDraftTone String?
+  replyDraftAt   DateTime?
   reviewTime  DateTime?
   updateTime  DateTime?
   createdAt   DateTime  @default(now())
@@ -3855,6 +3865,10 @@ model GmbPhoto {
   url         String   @db.Text
   type        String   @default("general") // general|logo|cover|interior|exterior|producto
   caption     String   @default("")
+  // Cola multimedia (fase 4): hash para deduplicar, estado y programación.
+  hash        String? // sha1/md5 de la imagen (dedupe)
+  status      String   @default("library") // library|queued|scheduled|published|failed
+  scheduledAt DateTime?
   createdAt   DateTime @default(now())
 
   @@index([workspaceId])
@@ -3898,7 +3912,11 @@ model GmbPost {
   cta         String    @default("")
   imageUrl    String?   @db.Text
   scheduledAt DateTime?
-  status      String    @default("draft") // draft|scheduled|published|failed
+  // draft|pending_approval|approved|scheduled|published|failed
+  status      String    @default("draft")
+  postType    String    @default("update") // update|offer|event
+  approvedById String?
+  approvedAt   DateTime?
   publishedAt DateTime?
   createdById String?
   createdAt   DateTime  @default(now())
@@ -3987,6 +4005,424 @@ model GmbSearchResult {
   @@unique([searchId, placeId])
   @@index([workspaceId])
   @@index([searchId])
+}
+
+// === GMB Hub — Centro de crecimiento SEO local (Presencia + Citaciones + Acciones + AI Council) ===
+
+// Snapshots del Local Presence Score (0–100) por ficha, para ver evolución.
+// breakdown = { profile, reviews, content, citations, ranking, web } (cada uno 0–100) + pesos.
+model GmbPresenceScore {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  total       Int      @default(0)
+  breakdown   Json
+  recordedAt  DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId, recordedAt])
+}
+
+// NAP canónico VERSIONADO por ficha (fuente de verdad para comparar citaciones).
+// Solo una versión activa por ficha; las anteriores se conservan para auditoría.
+model GmbNapProfile {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  version     Int      @default(1)
+  active      Boolean  @default(true)
+  name        String   @default("")
+  address     String   @default("")
+  phone       String   @default("")
+  website     String   @default("")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId, active])
+}
+
+// Inventario de CITACIONES por ficha y directorio (NAP en directorios locales).
+// napObserved = { name, address, phone, website }; diffs = { name, address, phone, website } (bool).
+model GmbCitation {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  clientId      String
+  directorySlug String
+  directoryName String    @default("")
+  country       String    @default("ES")
+  city          String    @default("")
+  sector        String    @default("")
+  authority     Int       @default(0) // relevancia/autoridad 0-100
+  url           String    @default("")
+  // not_found|pending|prepared|submitted|published|inconsistent|duplicate|error
+  status        String    @default("not_found")
+  napObserved   Json?
+  diffs         Json?
+  attempts      Int       @default(0)
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  events GmbCitationEvent[]
+
+  @@unique([clientId, directorySlug])
+  @@index([workspaceId])
+  @@index([clientId, status])
+}
+
+// Historial de transiciones de estado de una citación (auditoría, reintentos).
+model GmbCitationEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  citationId  String
+  fromStatus  String?
+  toStatus    String
+  note        String?  @db.Text
+  actorId     String?
+  createdAt   DateTime @default(now())
+
+  citation GmbCitation @relation(fields: [citationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([citationId])
+}
+
+// Cola CENTRAL de acciones (piloto automático + AI Council). Impacto/esfuerzo/confianza,
+// evidencia, dependencias, aprobación y auditoría. Las acciones EXTERNAS sensibles
+// (external=true) SIEMPRE requieren aprobación humana explícita.
+model GmbAction {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  clientId         String
+  module           String // presence|citations|reviews|content|rank|web
+  type             String // slug de la acción
+  title            String
+  description      String?  @db.Text
+  impact           Int      @default(0) // 0-100
+  effort           Int      @default(0) // 0-100 (menor = más fácil)
+  confidence       Int      @default(0) // 0-100
+  priority         Float    @default(0) // derivada impacto/esfuerzo/confianza
+  evidence         Json?
+  // suggested|prepared|needs_approval|approved|executing|done|dismissed|error
+  status           String   @default("suggested")
+  requiresApproval Boolean  @default(true)
+  external         Boolean  @default(false) // efecto externo sensible
+  dependsOn        String?
+  source           String   @default("rule") // rule|ai_council
+  result           Json?
+  lastError        String?
+  approvedById     String?
+  approvedAt       DateTime?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([clientId, status])
+  @@index([workspaceId, status])
+}
+
+// === GMB Hub — Vinculación Google Business Profile (OAuth guiado, estilo Make) ===
+
+// Conexión Google DEDICADA a Business Profile (scope business.manage). Separada de GoogleAdsConnection
+// para NO mezclar scopes. refreshToken cifrado; el token de acceso se refresca en servidor.
+model GmbGoogleConnection {
+  id              String    @id @default(cuid())
+  workspaceId     String    @unique
+  refreshTokenEnc String    @db.Text
+  email           String    @default("")
+  scope           String    @default("")
+  hasBusinessScope Boolean  @default(false)
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  lastError       String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// Estado OAuth de un solo uso (anti-replay). Se consume en el callback y expira.
+model GmbOAuthState {
+  id          String   @id @default(cuid())
+  nonce       String   @unique
+  workspaceId String
+  userId      String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// === GMB Hub — Fase 6b: Attribution/ROI + Review Acquisition ===
+
+// Campaña / UTM builder (por ficha). trackId alimenta el tracker público de clicks.
+model GmbCampaign {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  name        String
+  channel     String    @default("web") // web|social|email|qr|print|ads
+  utmSource   String    @default("")
+  utmMedium   String    @default("")
+  utmCampaign String    @default("")
+  utmTerm     String    @default("")
+  utmContent  String    @default("")
+  landingUrl  String    @default("")
+  trackId     String    @unique @default(cuid())
+  startDate   DateTime?
+  note        String?   @db.Text
+  active      Boolean   @default(true)
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Evento de atribución REAL (click/call/directions/request). Deduplicado por dedupKey. Sin PII cruda
+// (solo fingerprint hash). Nunca se inventan conversiones ni se atribuye sin evidencia.
+model GmbAttributionEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  campaignId  String?
+  type        String // click|call|directions|request
+  source      String   @default("")
+  medium      String   @default("")
+  campaign    String   @default("")
+  fingerprint String?
+  dedupKey    String
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, dedupKey])
+  @@index([workspaceId, clientId, type])
+  @@index([occurredAt])
+}
+
+// Objetivo por ficha y métrica (para comparación temporal y progreso).
+model GmbGoal {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  metric      String // calls|requests|clicks|directions
+  target      Int      @default(0)
+  period      String   @default("month")
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([clientId, metric])
+  @@index([workspaceId])
+}
+
+// Campaña de captación de reseñas (QR/link/multicanal). publicSlug alimenta la landing pública.
+// SIN review gating, SIN incentivos, SIN filtrado por sentimiento (por diseño).
+model GmbReviewCampaign {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  name        String
+  channel     String   @default("link") // qr|link|whatsapp|sms|email
+  publicSlug  String    @unique @default(cuid())
+  reviewUrl   String   @default("")
+  message     String   @default("") @db.Text
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Destinatario de una campaña de reseñas (consentimiento obligatorio, opt-out, estado real).
+model GmbReviewContact {
+  id          String    @id @default(cuid())
+  workspaceId String
+  campaignId  String
+  clientId    String
+  name        String    @default("")
+  phone       String    @default("")
+  email       String    @default("")
+  contactHash String // hash de phone/email para dedup + suppression (sin PII cruda en índices)
+  consent     Boolean   @default(false)
+  consentAt   DateTime?
+  status      String    @default("queued") // queued|sent|clicked|reviewed|opted_out|suppressed|error
+  optOutToken String    @unique @default(cuid())
+  lastSentAt  DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([campaignId, status])
+}
+
+// Lista de supresión (opt-out / rebotes / quejas). Bloquea el envío a ese contacto.
+model GmbSuppression {
+  id          String   @id @default(cuid())
+  workspaceId String
+  contactHash String
+  reason      String   @default("opt_out") // opt_out|bounce|complaint|manual
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, contactHash])
+  @@index([workspaceId])
+}
+
+// === GMB Hub — Fase 6: operación de agencia (alertas/SLA + informes white-label) ===
+
+// Alertas del portfolio (reseñas sin responder, citaciones rotas, caída de ranking, contenido
+// vencido, conexión caída…). Deduplicadas por dedupKey mientras están abiertas. Auditables.
+model GmbAlert {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  clientId     String?
+  type         String // unreplied_reviews|broken_citation|ranking_drop|content_stale|connection_down|negative_review
+  severity     String    @default("info") // info|warning|critical
+  title        String
+  body         String?   @db.Text
+  dedupKey     String // evita duplicar la misma alerta abierta
+  status       String    @default("open") // open|ack|resolved
+  assignedTo   String?
+  deepLink     String?
+  data         Json?
+  ackedById    String?
+  ackedAt      DateTime?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, dedupKey])
+  @@index([clientId])
+}
+
+// Reglas de alerta configurables (por ficha o por workspace). webhookUrl es adapter-gated: si hay
+// URL se notifica de verdad; si no, solo alerta interna. Nunca se simula un envío externo.
+model GmbAlertRule {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String? // null = aplica a todo el workspace
+  type        String
+  enabled     Boolean  @default(true)
+  severity    String   @default("warning")
+  threshold   Int? // días (content_stale) o cantidad (unreplied), según tipo
+  webhookUrl  String?
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Enlaces compartibles de informe white-label. Solo se guarda el HASH del token (nunca en claro),
+// con expiración y revocación. `includePII` por defecto false (sin datos personales).
+model GmbReportShare {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  tokenHash   String    @unique
+  month       String?
+  includePII  Boolean   @default(false)
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
+}
+
+// Política del PILOTO AUTOMÁTICO por ficha. Controla qué puede hacer el scheduler sin humano.
+// Las acciones EXTERNAS sensibles siempre requieren aprobación, sea cual sea el modo.
+model GmbAutopilotPolicy {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  clientId       String    @unique
+  mode           String    @default("suggest_only") // suggest_only|prepare_drafts|execute_safe
+  dailyLimit     Int       @default(3) // máx. acciones internas ejecutadas por día
+  quietStart     Int? // hora local 0-23 en que NO actúa (silencio)
+  quietEnd       Int?
+  minConfidence  Int       @default(70) // confianza mínima para auto-ejecutar
+  allowedModules Json? // lista de módulos permitidos (null = todos los internos)
+  killSwitch     Boolean   @default(false) // corte de emergencia: no ejecuta nada
+  lastRunAt      DateTime?
+  executedToday  Int       @default(0)
+  executedDate   String? // YYYY-MM-DD del contador diario
+  createdById    String?
+  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
+// Configuración del Rank Grid por ficha (centro, radio, tamaño, proveedor, frecuencia).
+model GmbRankConfig {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String   @unique
+  centerLat   Float?
+  centerLng   Float?
+  radiusKm    Float    @default(3)
+  gridSize    Int      @default(5) // celdas por lado (3-7)
+  provider    String   @default("google_maps")
+  frequency   String   @default("manual") // manual|weekly|monthly
+  createdById String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Job ASÍNCRONO de medición del Rank Grid (tenant-scoped, reintentos acotados, idempotente).
+model GmbRankJob {
+  id          String    @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  status      String    @default("queued") // queued|running|done|error|cancelled
+  provider    String    @default("google_maps")
+  gridSize    Int       @default(5)
+  radiusKm    Float     @default(3)
+  centerLat   Float?
+  centerLng   Float?
+  attempts    Int       @default(0)
+  lastError   String?
+  result      Json? // resumen (avgPosition/top3/coverage) — los puntos van a GmbPosition
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+}
+
+// Log de ejecuciones del AI Council (multimodelo). SIN secretos ni PII cruda:
+// models = [{provider, model, status, latencyMs, costUsd}]; consensus/discrepancies estructurados.
+model GmbAiRun {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  clientId      String?
+  purpose       String // opportunities|citation_reco|review_reply|content_ideas
+  models        Json
+  consensus     Json?
+  discrepancies Json?
+  promptVersion String   @default("v1")
+  costUsd       Float    @default(0)
+  latencyMs     Int      @default(0)
+  status        String   @default("done") // done|partial|no_providers|error
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([clientId])
 }
 
 // Base de conocimiento de Sonia: textos de aprendizaje + documentos de

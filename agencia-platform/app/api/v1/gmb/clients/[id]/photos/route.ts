@@ -8,6 +8,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { mediaHash, findDuplicateMedia } from "@/lib/gmb/media";
 
 export const dynamic = "force-dynamic";
 
@@ -18,27 +19,37 @@ async function ensureClient(id: string, workspaceId: string) {
 
 export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
   await ensureClient(params.id, api.workspaceId);
-  const photos = await prisma.gmbPhoto.findMany({ where: { clientId: params.id }, orderBy: { createdAt: "desc" } });
-  return NextResponse.json({ photos });
+  const photos = await prisma.gmbPhoto.findMany({ where: { workspaceId: api.workspaceId, clientId: params.id }, orderBy: { createdAt: "desc" } });
+  const dups = findDuplicateMedia(photos.map((p: any) => ({ id: p.id, url: p.url, hash: p.hash })));
+  const items = photos.map((p: any) => ({ ...p, isDuplicate: dups.has(p.id) }));
+  return NextResponse.json({ photos: items, duplicates: dups.size });
 });
 
 const createSchema = z.object({
   url: z.string().url().max(2000),
   type: z.string().max(40).optional(),
-  caption: z.string().max(300).optional()
+  caption: z.string().max(300).optional(),
+  scheduledAt: z.string().datetime().optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   await ensureClient(params.id, api.workspaceId);
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  const hash = mediaHash(parsed.data.url);
+  // Dedupe por hash dentro de la ficha: no se sube dos veces la misma imagen.
+  const existing = await prisma.gmbPhoto.findFirst({ where: { workspaceId: api.workspaceId, clientId: params.id, hash } });
+  if (existing) return NextResponse.json({ photo: existing, duplicate: true });
   const photo = await prisma.gmbPhoto.create({
     data: {
       workspaceId: api.workspaceId,
       clientId: params.id,
       url: parsed.data.url,
       type: parsed.data.type ?? "general",
-      caption: parsed.data.caption ?? ""
+      caption: parsed.data.caption ?? "",
+      hash,
+      status: parsed.data.scheduledAt ? "scheduled" : "library",
+      scheduledAt: parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : null
     }
   });
   return NextResponse.json({ photo });
