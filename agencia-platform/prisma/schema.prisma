@@ -3302,6 +3302,7 @@ model MetaCommentFeed {
   id            String          @id @default(cuid())
   workspaceId   String
   clientName    String
+  displayName   String?
   campaignId    String
   campaignName  String?
   adAccountId   String?

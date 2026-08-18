@@ -16,6 +16,7 @@ const schema = z.discriminatedUnion("action", [
   ,z.object({ action: z.literal("monitor_many"), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240), campaigns: z.array(z.object({ id: z.string().regex(/^\d+$/), name: z.string().min(1).max(240) })).min(1).max(500) })
   ,z.object({ action: z.literal("delete_comment"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("block_author"), commentId: z.string().min(1) })
+  ,z.object({ action: z.literal("rename_client"), campaignIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500), displayName: z.string().trim().min(1).max(120) })
 ]);
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -45,7 +46,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     });
     return NextResponse.json({ items });
   }
-  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, adAccountName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
+  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
   const feeds = await prisma.metaCommentFeed.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" } });
   return NextResponse.json({ items, feeds });
 });
@@ -76,6 +77,12 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     const bulk = parsed.data;
     await prisma.$transaction(bulk.campaigns.map((campaign) => prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: campaign.id } }, create: { workspaceId: api.workspaceId, campaignId: campaign.id, clientName: bulk.accountName, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName }, update: { active: true, campaignName: campaign.name, adAccountId: bulk.accountId, adAccountName: bulk.accountName } })));
     return NextResponse.json({ ok: true, selected: bulk.campaigns.length });
+  }
+  if (parsed.data.action === "rename_client") {
+    const renamed = await prisma.metaCommentFeed.updateMany({ where: { workspaceId: api.workspaceId, campaignId: { in: parsed.data.campaignIds } }, data: { displayName: parsed.data.displayName } });
+    if (renamed.count === 0) throw new ApiError(404, "not_found", "No se encontraron campañas de ese cliente");
+    await auditFromReq(req, api, { action: "meta_comments.client_rename", targetType: "META_COMMENT_CLIENT", targetId: parsed.data.campaignIds.join(","), meta: { displayName: parsed.data.displayName, campaigns: renamed.count } });
+    return NextResponse.json({ ok: true, updated: renamed.count });
   }
   if (parsed.data.action === "delete_comment" || parsed.data.action === "block_author") {
     const moderation = parsed.data;

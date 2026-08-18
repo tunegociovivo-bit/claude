@@ -1,26 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, MessageSquare, RefreshCw, Send, Trash2, UserX } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Loader2, MessageSquare, Pencil, RefreshCw, Send, Trash2, UserX, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
 
 const CAMPAIGN_ID = "120247270045340145";
-type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; active: boolean; lastSyncAt: string | null; lastError: string | null };
+type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
 type AdAccount = { id: string; name: string; status: number; currency: string };
 type Campaign = { id: string; name: string; status: string; configured_status?: string; effective_status?: string; objective?: string };
-type Comment = { id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string; adAccountName: string | null } };
+type Comment = { id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string; displayName: string | null; adAccountName: string | null } };
 
 function canonicalClientName(name: string) {
   return name.trim().replace(/\s+(nueva|nuevo)$/i, "").replace(/\s+/g, " ");
 }
 
-function clientNameOf(value: { clientName: string; adAccountName?: string | null }) {
-  return canonicalClientName(value.adAccountName || value.clientName);
+function clientNameOf(value: { clientName: string; displayName?: string | null; adAccountName?: string | null }) {
+  return value.displayName?.trim() || canonicalClientName(value.adAccountName || value.clientName);
 }
 
 function clientKeyOf(value: { clientName: string; adAccountName?: string | null }) {
-  return clientNameOf(value).toLocaleLowerCase("es-ES");
+  return canonicalClientName(value.adAccountName || value.clientName).toLocaleLowerCase("es-ES");
 }
 
 export default function MetaCommentsClient() {
@@ -29,6 +29,9 @@ export default function MetaCommentsClient() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState("all");
   const [clientFilter, setClientFilter] = useState("all");
+  const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
+  const [editingClient, setEditingClient] = useState<string | null>(null);
+  const [clientNameDraft, setClientNameDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionOpen, setConnectionOpen] = useState(false);
@@ -89,6 +92,17 @@ export default function MetaCommentsClient() {
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
     finally { setBusy(null); }
   }, [load]);
+
+  const renameClient = useCallback(async (clientKey: string, clientFeeds: Feed[]) => {
+    const displayName = clientNameDraft.trim(); if (!displayName) return;
+    setBusy(`rename-client:${clientKey}`); setError(null);
+    try {
+      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "rename_client", campaignIds: clientFeeds.map((feed) => feed.campaignId), displayName }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo guardar el nombre del cliente");
+      setEditingClient(null); await load();
+    } catch (cause: any) { setError(String(cause?.message ?? cause)); }
+    finally { setBusy(null); }
+  }, [clientNameDraft, load]);
 
   useEffect(() => { load().catch((cause) => setError(String(cause.message ?? cause))); void loadAccounts(); }, [load, loadAccounts]);
 
@@ -190,7 +204,21 @@ export default function MetaCommentsClient() {
       <div className="mb-3 flex flex-wrap items-center gap-3"><div className="flex-1"><div className="font-semibold text-slate-900">2. Campañas activas</div><div className="text-xs text-slate-500">Solo aparecen campañas cuyo estado efectivo en Meta es ACTIVO.</div></div><button onClick={() => void selectAllCampaigns()} disabled={busy === "select-all" || campaigns.length === 0 || campaigns.every((campaign) => feeds.some((feed) => feed.campaignId === campaign.id && feed.active))} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy === "select-all" && <Loader2 className="h-4 w-4 animate-spin" />} Seleccionar todas las activas</button></div>
       {busy === "campaigns" ? <div className="text-sm text-slate-500">Cargando campañas activas…</div> : campaigns.length === 0 ? <div className="text-sm text-slate-500">Esta cuenta no tiene campañas activas.</div> : <div className="divide-y rounded-lg border">{campaigns.map((campaign) => { const monitored = feeds.some((item) => item.campaignId === campaign.id && item.active); return <label key={campaign.id} className="flex cursor-pointer items-center gap-3 p-3 hover:bg-slate-50"><input type="checkbox" checked={monitored} onChange={() => void toggleCampaign(campaign)} disabled={busy === `toggle:${campaign.id}`} className="h-4 w-4" /><span className="flex-1"><span className="block text-sm font-medium text-slate-800">{campaign.name}</span><span className="text-xs text-slate-500">{campaign.id} · {campaign.objective ?? campaign.status}</span></span><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">Activa</span>{monitored && <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Monitorizada</span>}</label>; })}</div>}
     </div>}
-    {clientGroups.length > 0 && <div className="mb-5 space-y-3">{clientGroups.map((group) => <section key={group.key} className="overflow-hidden rounded-xl border bg-white"><div className="flex flex-wrap items-center gap-3 border-b bg-slate-50 px-4 py-3"><div className="min-w-[220px] flex-1"><div className="font-semibold text-slate-900">{group.name}</div><div className="text-xs text-slate-500">{group.feeds.length} {group.feeds.length === 1 ? "campaña monitorizada" : "campañas monitorizadas"}</div></div><button onClick={() => void syncClient(group.key, group.feeds)} disabled={busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === `sync-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sincronizar cliente</button></div><div className="divide-y">{group.feeds.map((item) => <div key={item.campaignId} className="flex flex-wrap items-center gap-3 px-4 py-3"><div className="min-w-[240px] flex-1"><div className="text-sm font-semibold">{item.campaignName ?? item.clientName}</div><div className="text-xs text-slate-500">{item.campaignId} · {item.lastSyncAt ? `Última sincronización ${new Date(item.lastSyncAt).toLocaleString("es-ES")}` : "Pendiente de primera sincronización"}</div></div><button onClick={() => void syncFeed(item)} disabled={busy === `sync:${item.campaignId}` || busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50">{busy === `sync:${item.campaignId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Sincronizar campaña</button></div>)}</div></section>)}</div>}
+    {clientGroups.length > 0 && <div className="mb-5 space-y-3">{clientGroups.map((group) => {
+      const expanded = Boolean(expandedClients[group.key]);
+      const editing = editingClient === group.key;
+      return <section key={group.key} className="overflow-hidden rounded-xl border bg-white">
+        <div className={`flex flex-wrap items-center gap-3 bg-slate-50 px-4 py-3 ${expanded ? "border-b" : ""}`}>
+          <button type="button" onClick={() => setExpandedClients((current) => ({ ...current, [group.key]: !expanded }))} aria-expanded={expanded} className="flex min-w-[220px] flex-1 items-center gap-3 text-left">
+            <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <span><span className="block font-semibold text-slate-900">{group.name}</span><span className="block text-xs text-slate-500">{group.feeds.length} {group.feeds.length === 1 ? "campaña monitorizada" : "campañas monitorizadas"}</span></span>
+          </button>
+          {editing ? <div className="flex items-center gap-1"><input aria-label={`Nuevo nombre para ${group.name}`} autoFocus value={clientNameDraft} onChange={(event) => setClientNameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameClient(group.key, group.feeds); if (event.key === "Escape") setEditingClient(null); }} maxLength={120} className="w-56 rounded-lg border bg-white px-3 py-2 text-sm" /><button title="Guardar nombre" onClick={() => void renameClient(group.key, group.feeds)} disabled={!clientNameDraft.trim() || busy === `rename-client:${group.key}`} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">{busy === `rename-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button><button title="Cancelar" onClick={() => setEditingClient(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button></div> : <button title="Cambiar nombre del cliente" onClick={() => { setEditingClient(group.key); setClientNameDraft(group.name); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-100"><Pencil className="h-4 w-4" /></button>}
+          <button onClick={() => void syncClient(group.key, group.feeds)} disabled={busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === `sync-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sincronizar cliente</button>
+        </div>
+        {expanded && <div className="divide-y">{group.feeds.map((item) => <div key={item.campaignId} className="flex flex-wrap items-center gap-3 px-4 py-3"><div className="min-w-[240px] flex-1"><div className="text-sm font-semibold">{item.campaignName ?? item.clientName}</div><div className="text-xs text-slate-500">{item.campaignId} · {item.lastSyncAt ? `Última sincronización ${new Date(item.lastSyncAt).toLocaleString("es-ES")}` : "Pendiente de primera sincronización"}</div></div><button onClick={() => void syncFeed(item)} disabled={busy === `sync:${item.campaignId}` || busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50">{busy === `sync:${item.campaignId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Sincronizar campaña</button></div>)}</div>}
+      </section>;
+    })}</div>}
     <div className="mb-5 rounded-xl border bg-white p-4">
       <div className="mb-3"><div className="font-semibold text-slate-900">Importar comentarios antiguos</div><div className="text-xs text-slate-500">Selecciona un periodo y se recorrerán todas las páginas de resultados de Meta sin duplicar comentarios ya guardados.</div></div>
       <div className="flex flex-wrap items-end gap-3"><label className="text-xs font-medium text-slate-700">Campaña<select value={selectedCampaignId} onChange={(event) => setSelectedCampaignId(event.target.value)} className="mt-1 block max-w-xs rounded-lg border px-3 py-2 text-sm">{feeds.filter((item) => item.active).map((item) => <option key={item.campaignId} value={item.campaignId}>{item.campaignName ?? item.clientName}</option>)}</select></label><label className="text-xs font-medium text-slate-700">Desde<input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label><label className="text-xs font-medium text-slate-700">Hasta<input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label><button onClick={importPeriod} disabled={busy === "import" || !selectedCampaignId || !fromDate || !toDate || fromDate > toDate} className="inline-flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 disabled:opacity-50">{busy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Importar periodo</button></div>
