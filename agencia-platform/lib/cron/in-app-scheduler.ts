@@ -38,6 +38,13 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] meta token refresh:", (e as Error).message);
     }
     try {
+      const { syncAllActiveMetaCommentFeeds } = await import("@/lib/meta/comments");
+      const result = await syncAllActiveMetaCommentFeeds();
+      if (result.created > 0) console.log(`[in-app-cron] comentarios Meta nuevos: ${result.created}`);
+    } catch (e) {
+      console.warn("[in-app-cron] meta comments:", (e as Error).message);
+    }
+    try {
       // Bubui: auto-expira mesas colgadas (>12h o pasado su expiresAt) para que
       // no queden "activas" para siempre tras un error de verificación.
       const { expireStaleTables } = await import("@/lib/bubui/table");

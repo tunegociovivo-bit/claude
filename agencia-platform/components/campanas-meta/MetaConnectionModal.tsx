@@ -118,7 +118,8 @@ export default function MetaConnectionModal({
               <code className="text-[10px]">ads_management</code>,{" "}
               <code className="text-[10px]">leads_retrieval</code>,{" "}
               <code className="text-[10px]">pages_manage_ads</code>,{" "}
-              <code className="text-[10px]">pages_read_engagement</code>.
+              <code className="text-[10px]">pages_read_engagement</code> y{" "}
+              <code className="text-[10px]">pages_manage_engagement</code> (para responder comentarios).
             </li>
             <li>Pulsa "Generate Access Token", confirma los permisos y copia el token.</li>
             <li>Pégalo aquí abajo.</li>

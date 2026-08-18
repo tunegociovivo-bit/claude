@@ -216,6 +216,8 @@ model Workspace {
   leadQueryCache            LeadQueryCache[]
   leads                     Lead[]
   opportunitySignals        OpportunitySignal[]
+  metaCommentFeeds          MetaCommentFeed[]
+  metaAdComments            MetaAdComment[]
   leadTemplates             LeadTemplate[]
   leadSequences             LeadSequence[]
   leadInboxMsgs             LeadInboxMessage[]
@@ -267,39 +269,39 @@ model Workspace {
 }
 
 model OpportunitySignal {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   workspaceId       String
   fingerprint       String
   type              String
   companyName       String
   companyTaxId      String?
   title             String
-  summary           String   @db.Text
-  sourceUrl         String   @db.Text
+  summary           String    @db.Text
+  sourceUrl         String    @db.Text
   sourceName        String
-  sourceAuthority   String   @default("unknown")
+  sourceAuthority   String    @default("unknown")
   occurredAt        DateTime?
-  discoveredAt      DateTime @default(now())
+  discoveredAt      DateTime  @default(now())
   amount            Float?
-  currency          String   @default("EUR")
+  currency          String    @default("EUR")
   location          String?
-  evidenceCount     Int      @default(1)
+  evidenceCount     Int       @default(1)
   evidence          Json?
   decisionMakerName String?
   decisionMakerRole String?
   email             String?
   phone             String?
   website           String?
-  score             Int      @default(0)
-  tier              String   @default("watch")
+  score             Int       @default(0)
+  tier              String    @default("watch")
   scoreReasons      Json?
-  status            String   @default("new") // new|reviewing|qualified|converted|dismissed
-  recommendedOffer  String?  @db.Text
-  nextBestAction    String?  @db.Text
+  status            String    @default("new") // new|reviewing|qualified|converted|dismissed
+  recommendedOffer  String?   @db.Text
+  nextBestAction    String?   @db.Text
   leadId            String?
   metadata          Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2260,20 +2262,20 @@ model AuditLog {
 // (flag AI_RUN_ORCHESTRATOR); shadow/dry-run. `state`/`phase` son String (no
 // enum) siguiendo el patrón del repo. `version` = concurrencia optimista.
 model AiOrchestration {
-  id           String    @id @default(cuid())
-  workspaceId  String
-  taskId       String
-  runId        String? // AiAgentRun.id asociado (si lo hay)
-  createdById  String? // quién lanzó la orquestación/simulación (auditoría)
-  state        String    @default("queued") // máquina de estados (state-machine.ts)
-  version      Int       @default(0) // optimistic concurrency
-  mode         String    @default("shadow") // shadow | live
-  strategy     String? // estrategia actual (strategy.ts)
-  plan         Json? // DAG de subtareas (dag.ts)
-  limits       Json? // BudgetLimits
-  usage        Json? // BudgetUsage acumulado
-  fingerprints Json? // huellas de intentos (loop detector)
-  decision     Json? // último DecisionPacket (si escaló)
+  id             String    @id @default(cuid())
+  workspaceId    String
+  taskId         String
+  runId          String? // AiAgentRun.id asociado (si lo hay)
+  createdById    String? // quién lanzó la orquestación/simulación (auditoría)
+  state          String    @default("queued") // máquina de estados (state-machine.ts)
+  version        Int       @default(0) // optimistic concurrency
+  mode           String    @default("shadow") // shadow | live
+  strategy       String? // estrategia actual (strategy.ts)
+  plan           Json? // DAG de subtareas (dag.ts)
+  limits         Json? // BudgetLimits
+  usage          Json? // BudgetUsage acumulado
+  fingerprints   Json? // huellas de intentos (loop detector)
+  decision       Json? // último DecisionPacket (si escaló)
   lastError      String?   @db.Text
   nextRunAt      DateTime? // cuándo salir de waiting_backoff (poller)
   leaseOwner     String? // worker que tiene el lease (recuperación tras reinicio)
@@ -2336,7 +2338,7 @@ model AiApproval {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   events    AiApprovalEvent[]
 
   @@index([workspaceId, action, expiresAt])
@@ -2353,8 +2355,8 @@ model AiApprovalEvent {
   snapshot    Json? // estado de la aprobación en el momento (sin secretos)
   createdAt   DateTime @default(now())
 
-  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  approval  AiApproval  @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  approval  AiApproval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, approvalId, createdAt])
 }
@@ -3296,6 +3298,51 @@ model MetaConnection {
   @@index([workspaceId])
 }
 
+model MetaCommentFeed {
+  id          String          @id @default(cuid())
+  workspaceId String
+  clientName  String
+  campaignId  String
+  active      Boolean         @default(true)
+  lastSyncAt  DateTime?
+  lastError   String?         @db.Text
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  comments    MetaAdComment[]
+
+  @@unique([workspaceId, campaignId])
+  @@index([workspaceId, active])
+}
+
+model MetaAdComment {
+  id                String          @id @default(cuid())
+  workspaceId       String
+  feedId            String
+  externalCommentId String
+  postId            String?
+  adId              String?
+  adName            String?
+  authorName        String?
+  authorId          String?
+  message           String          @db.Text
+  sentiment         String          @default("neutral")
+  sentimentReason   String?
+  aiDraft           String?         @db.Text
+  status            String          @default("pending")
+  repliedAt         DateTime?
+  externalReplyId   String?
+  commentCreatedAt  DateTime
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  feed              MetaCommentFeed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, externalCommentId])
+  @@index([workspaceId, sentiment, status])
+  @@index([feedId, commentCreatedAt])
+}
+
 enum MetaCampaignStatus {
   DRAFT // creada en Hub pero todavía no enviada a Meta
   PENDING_REVIEW // user pidió generar copys/imágenes, pendiente de su aprobación
@@ -3677,38 +3724,38 @@ model TaskTemplate {
 // ============================================================================
 
 model GmbClient {
-  id           String   @id @default(cuid())
-  workspaceId  String
-  name         String
-  category     String   @default("")
-  description  String?  @db.Text
-  tone         String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
-  customTone   String?  @db.Text
-  accountId    String   @default("") // GMB "accounts/XXX"
-  locationId   String   @default("") // GMB "accounts/XXX/locations/YYY"
-  emails       String   @default("") // emails de notificación, separados por coma
-  mainKeyword  String   @default("")
-  autoReply    String   @default("manual") // manual|auto
+  id            String   @id @default(cuid())
+  workspaceId   String
+  name          String
+  category      String   @default("")
+  description   String?  @db.Text
+  tone          String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
+  customTone    String?  @db.Text
+  accountId     String   @default("") // GMB "accounts/XXX"
+  locationId    String   @default("") // GMB "accounts/XXX/locations/YYY"
+  emails        String   @default("") // emails de notificación, separados por coma
+  mainKeyword   String   @default("")
+  autoReply     String   @default("manual") // manual|auto
   // Piloto automático (por ficha): qué puede hacer el sistema sin intervención.
   //   suggest_only    → solo sugiere acciones
   //   prepare_drafts  → prepara borradores (posts/respuestas/paquetes de alta)
   //   execute_safe    → ejecuta SOLO acciones internas seguras; lo externo sensible sigue pidiendo aprobación
-  autopilotMode String  @default("suggest_only")
-  connectionId String   @default("") // override de connection de Make
-  frequency    Int      @default(15) // minutos
-  scenarioId   String   @default("") // id del escenario de Make
-  status       String   @default("active") // active|paused
+  autopilotMode String   @default("suggest_only")
+  connectionId  String   @default("") // override de connection de Make
+  frequency     Int      @default(15) // minutos
+  scenarioId    String   @default("") // id del escenario de Make
+  status        String   @default("active") // active|paused
   // Campos geo/SEO (el plugin los usa pero no estaban en el CREATE original)
-  placeId      String   @default("")
-  latitude     Float?
-  longitude    Float?
-  rating       Float    @default(0)
-  reviewCount  Int      @default(0)
-  phone        String   @default("")
-  website      String   @default("")
-  address      String   @default("")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  placeId       String   @default("")
+  latitude      Float?
+  longitude     Float?
+  rating        Float    @default(0)
+  reviewCount   Int      @default(0)
+  phone         String   @default("")
+  website       String   @default("")
+  address       String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   reviews       GmbReview[]
   activities    GmbActivity[]
@@ -3720,23 +3767,23 @@ model GmbClient {
 }
 
 model GmbReview {
-  id          String    @id @default(cuid())
-  workspaceId String
-  clientId    String
-  reviewId    String // id de Google (o generado rev_+hash)
-  authorName  String    @default("")
-  authorPhoto String    @default("")
-  rating      Int       @default(0) // 1-5
-  comment     String?   @db.Text
-  reviewReply String?   @db.Text
+  id             String    @id @default(cuid())
+  workspaceId    String
+  clientId       String
+  reviewId       String // id de Google (o generado rev_+hash)
+  authorName     String    @default("")
+  authorPhoto    String    @default("")
+  rating         Int       @default(0) // 1-5
+  comment        String?   @db.Text
+  reviewReply    String?   @db.Text
   // Borrador de respuesta (fase 3): se genera y guarda SIN publicar; la publicación externa es una
   // acción aparte que exige aprobación. Reversible (se puede limpiar).
   replyDraft     String?   @db.Text
   replyDraftTone String?
   replyDraftAt   DateTime?
-  reviewTime  DateTime?
-  updateTime  DateTime?
-  createdAt   DateTime  @default(now())
+  reviewTime     DateTime?
+  updateTime     DateTime?
+  createdAt      DateTime  @default(now())
 
   client GmbClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -3859,17 +3906,17 @@ model VoiceCall {
 
 // Fotos de la ficha (galería por cliente)
 model GmbPhoto {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   clientId    String
-  url         String   @db.Text
-  type        String   @default("general") // general|logo|cover|interior|exterior|producto
-  caption     String   @default("")
+  url         String    @db.Text
+  type        String    @default("general") // general|logo|cover|interior|exterior|producto
+  caption     String    @default("")
   // Cola multimedia (fase 4): hash para deduplicar, estado y programación.
   hash        String? // sha1/md5 de la imagen (dedupe)
-  status      String   @default("library") // library|queued|scheduled|published|failed
+  status      String    @default("library") // library|queued|scheduled|published|failed
   scheduledAt DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([workspaceId])
   @@index([clientId])
@@ -3904,23 +3951,23 @@ model GmbReplyTemplate {
 
 // Publicaciones de Google Business Profile (programadas / borradores)
 model GmbPost {
-  id          String    @id @default(cuid())
-  workspaceId String
-  clientId    String
-  title       String    @default("")
-  content     String    @db.Text
-  cta         String    @default("")
-  imageUrl    String?   @db.Text
-  scheduledAt DateTime?
+  id           String    @id @default(cuid())
+  workspaceId  String
+  clientId     String
+  title        String    @default("")
+  content      String    @db.Text
+  cta          String    @default("")
+  imageUrl     String?   @db.Text
+  scheduledAt  DateTime?
   // draft|pending_approval|approved|scheduled|published|failed
-  status      String    @default("draft")
-  postType    String    @default("update") // update|offer|event
+  status       String    @default("draft")
+  postType     String    @default("update") // update|offer|event
   approvedById String?
   approvedAt   DateTime?
-  publishedAt DateTime?
-  createdById String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  publishedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([clientId])
@@ -4094,31 +4141,31 @@ model GmbCitationEvent {
 // evidencia, dependencias, aprobación y auditoría. Las acciones EXTERNAS sensibles
 // (external=true) SIEMPRE requieren aprobación humana explícita.
 model GmbAction {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   workspaceId      String
   clientId         String
   module           String // presence|citations|reviews|content|rank|web
   type             String // slug de la acción
   title            String
-  description      String?  @db.Text
-  impact           Int      @default(0) // 0-100
-  effort           Int      @default(0) // 0-100 (menor = más fácil)
-  confidence       Int      @default(0) // 0-100
-  priority         Float    @default(0) // derivada impacto/esfuerzo/confianza
+  description      String?   @db.Text
+  impact           Int       @default(0) // 0-100
+  effort           Int       @default(0) // 0-100 (menor = más fácil)
+  confidence       Int       @default(0) // 0-100
+  priority         Float     @default(0) // derivada impacto/esfuerzo/confianza
   evidence         Json?
   // suggested|prepared|needs_approval|approved|executing|done|dismissed|error
-  status           String   @default("suggested")
-  requiresApproval Boolean  @default(true)
-  external         Boolean  @default(false) // efecto externo sensible
+  status           String    @default("suggested")
+  requiresApproval Boolean   @default(true)
+  external         Boolean   @default(false) // efecto externo sensible
   dependsOn        String?
-  source           String   @default("rule") // rule|ai_council
+  source           String    @default("rule") // rule|ai_council
   result           Json?
   lastError        String?
   approvedById     String?
   approvedAt       DateTime?
   createdById      String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([clientId, status])
@@ -4130,29 +4177,29 @@ model GmbAction {
 // Conexión Google DEDICADA a Business Profile (scope business.manage). Separada de GoogleAdsConnection
 // para NO mezclar scopes. refreshToken cifrado; el token de acceso se refresca en servidor.
 model GmbGoogleConnection {
-  id              String    @id @default(cuid())
-  workspaceId     String    @unique
-  refreshTokenEnc String    @db.Text
-  email           String    @default("")
-  scope           String    @default("")
-  hasBusinessScope Boolean  @default(false)
-  expiresAt       DateTime?
-  revokedAt       DateTime?
-  lastError       String?
-  createdById     String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  workspaceId      String    @unique
+  refreshTokenEnc  String    @db.Text
+  email            String    @default("")
+  scope            String    @default("")
+  hasBusinessScope Boolean   @default(false)
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  lastError        String?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 // Estado OAuth de un solo uso (anti-replay). Se consume en el callback y expira.
 model GmbOAuthState {
-  id          String   @id @default(cuid())
-  nonce       String   @unique
+  id          String    @id @default(cuid())
+  nonce       String    @unique
   workspaceId String
   userId      String
   expiresAt   DateTime
   usedAt      DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([expiresAt])
 }
@@ -4228,7 +4275,7 @@ model GmbReviewCampaign {
   clientId    String
   name        String
   channel     String   @default("link") // qr|link|whatsapp|sms|email
-  publicSlug  String    @unique @default(cuid())
+  publicSlug  String   @unique @default(cuid())
   reviewUrl   String   @default("")
   message     String   @default("") @db.Text
   active      Boolean  @default(true)
