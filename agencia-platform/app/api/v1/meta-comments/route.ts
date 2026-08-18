@@ -12,6 +12,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reply"), commentId: z.string(), message: z.string().min(1).max(2000) })
   ,z.object({ action: z.literal("monitor"), campaignId: z.string().regex(/^\d+$/), campaignName: z.string().min(1).max(240), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240) })
   ,z.object({ action: z.literal("unmonitor"), campaignId: z.string().regex(/^\d+$/) })
+  ,z.object({ action: z.literal("monitor_many"), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240), campaigns: z.array(z.object({ id: z.string().regex(/^\d+$/), name: z.string().min(1).max(240) })).min(1).max(500) })
 ]);
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -56,6 +57,10 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
   if (parsed.data.action === "unmonitor") {
     await prisma.metaCommentFeed.updateMany({ where: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId }, data: { active: false } });
     return NextResponse.json({ ok: true });
+  }
+  if (parsed.data.action === "monitor_many") {
+    await prisma.$transaction(parsed.data.campaigns.map((campaign) => prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: campaign.id } }, create: { workspaceId: api.workspaceId, campaignId: campaign.id, clientName: parsed.data.accountName, campaignName: campaign.name, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName }, update: { active: true, campaignName: campaign.name, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName } })));
+    return NextResponse.json({ ok: true, selected: parsed.data.campaigns.length });
   }
   const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId } });
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");

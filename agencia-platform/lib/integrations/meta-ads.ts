@@ -317,11 +317,11 @@ export async function metaAdsListCampaigns(opts: {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
   const account = cfg.adAccountId.startsWith("act_") ? cfg.adAccountId : `act_${cfg.adAccountId}`;
   const params = new URLSearchParams({
-    fields: "id,name,status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type",
+    fields: "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,buying_type",
     limit: String(opts.limit ?? 50)
   });
   if (opts.status) {
-    params.set("effective_status", JSON.stringify([opts.status]));
+    params.set("filtering", JSON.stringify([{ field: "effective_status", operator: "IN", value: [opts.status] }]));
   }
   const data = await metaFetch<any>(
     `${GRAPH}/${account}/campaigns?${params.toString()}`,

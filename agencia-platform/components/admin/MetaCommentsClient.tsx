@@ -8,7 +8,7 @@ import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal"
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; active: boolean; lastSyncAt: string | null; lastError: string | null };
 type AdAccount = { id: string; name: string; status: number; currency: string };
-type Campaign = { id: string; name: string; status: string; objective?: string };
+type Campaign = { id: string; name: string; status: string; effective_status?: string; objective?: string };
 type Comment = { id: string; authorName: string | null; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string } };
 
 export default function MetaCommentsClient() {
@@ -77,6 +77,16 @@ export default function MetaCommentsClient() {
     } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
   }
 
+  async function selectAllCampaigns() {
+    const account = accounts.find((item) => item.id === selectedAccountId); if (!account || campaigns.length === 0) return;
+    setBusy("select-all"); setError(null);
+    try {
+      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "monitor_many", accountId: account.id, accountName: account.name, campaigns: campaigns.map((campaign) => ({ id: campaign.id, name: campaign.name })) }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron seleccionar todas las campañas"); await load();
+      setImportResult(`${data.selected ?? campaigns.length} campañas activas seleccionadas para monitorización.`);
+    } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
+  }
+
   async function reply(item: Comment) {
     const message = drafts[item.id]?.trim();
     if (!message || !confirm(`¿Publicar esta respuesta en Meta como respuesta a ${item.authorName ?? "este usuario"}?`)) return;
@@ -123,8 +133,8 @@ export default function MetaCommentsClient() {
       {busy === "accounts" && <span className="ml-3 text-xs text-slate-500">Cargando cuentas…</span>}
     </div>
     {selectedAccountId && <div className="mb-5 rounded-xl border bg-white p-4">
-      <div className="mb-3"><div className="font-semibold text-slate-900">2. Campañas activas</div><div className="text-xs text-slate-500">Activa las campañas cuyos comentarios quieres registrar y responder desde el Hub.</div></div>
-      {busy === "campaigns" ? <div className="text-sm text-slate-500">Cargando campañas activas…</div> : campaigns.length === 0 ? <div className="text-sm text-slate-500">Esta cuenta no tiene campañas activas.</div> : <div className="divide-y rounded-lg border">{campaigns.map((campaign) => { const monitored = feeds.some((item) => item.campaignId === campaign.id && item.active); return <label key={campaign.id} className="flex cursor-pointer items-center gap-3 p-3 hover:bg-slate-50"><input type="checkbox" checked={monitored} onChange={() => void toggleCampaign(campaign)} disabled={busy === `toggle:${campaign.id}`} className="h-4 w-4" /><span className="flex-1"><span className="block text-sm font-medium text-slate-800">{campaign.name}</span><span className="text-xs text-slate-500">{campaign.id} · {campaign.objective ?? campaign.status}</span></span>{monitored && <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Monitorizada</span>}</label>; })}</div>}
+      <div className="mb-3 flex flex-wrap items-center gap-3"><div className="flex-1"><div className="font-semibold text-slate-900">2. Campañas activas</div><div className="text-xs text-slate-500">Solo aparecen campañas cuyo estado efectivo en Meta es ACTIVO.</div></div><button onClick={() => void selectAllCampaigns()} disabled={busy === "select-all" || campaigns.length === 0 || campaigns.every((campaign) => feeds.some((feed) => feed.campaignId === campaign.id && feed.active))} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy === "select-all" && <Loader2 className="h-4 w-4 animate-spin" />} Seleccionar todas las activas</button></div>
+      {busy === "campaigns" ? <div className="text-sm text-slate-500">Cargando campañas activas…</div> : campaigns.length === 0 ? <div className="text-sm text-slate-500">Esta cuenta no tiene campañas activas.</div> : <div className="divide-y rounded-lg border">{campaigns.map((campaign) => { const monitored = feeds.some((item) => item.campaignId === campaign.id && item.active); return <label key={campaign.id} className="flex cursor-pointer items-center gap-3 p-3 hover:bg-slate-50"><input type="checkbox" checked={monitored} onChange={() => void toggleCampaign(campaign)} disabled={busy === `toggle:${campaign.id}`} className="h-4 w-4" /><span className="flex-1"><span className="block text-sm font-medium text-slate-800">{campaign.name}</span><span className="text-xs text-slate-500">{campaign.id} · {campaign.objective ?? campaign.status}</span></span><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">Activa</span>{monitored && <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Monitorizada</span>}</label>; })}</div>}
     </div>}
     {feeds.filter((item) => item.active).length > 0 && <div className="mb-5 space-y-2">{feeds.filter((item) => item.active).map((item) => <div key={item.campaignId} className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4"><div className="min-w-[240px] flex-1"><div className="font-semibold">{item.campaignName ?? item.clientName}</div><div className="text-xs text-slate-500">{item.adAccountName ? `${item.adAccountName} · ` : ""}{item.campaignId} · {item.lastSyncAt ? `Última sincronización ${new Date(item.lastSyncAt).toLocaleString("es-ES")}` : "Pendiente de primera sincronización"}</div></div><button onClick={() => void syncFeed(item)} disabled={busy === `sync:${item.campaignId}`} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === `sync:${item.campaignId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sincronizar</button></div>)}</div>}
     <div className="mb-5 rounded-xl border bg-white p-4">
