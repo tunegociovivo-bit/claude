@@ -10,6 +10,12 @@
 import { Linking } from "react-native";
 import { API_BASE } from "./api";
 
+export function retoTokenFromPath(pathOrUrl: string | null | undefined): string | null {
+  if (!pathOrUrl) return null;
+  const m = /\/reto\/([a-f0-9]{12,40})/i.exec(pathOrUrl);
+  return m ? m[1].toLowerCase() : null;
+}
+
 /** Normaliza el enlace de la oferta a una URL abrible. */
 export function resolveLink(link: unknown): string | null {
   if (typeof link !== "string" || !link.trim()) return null;

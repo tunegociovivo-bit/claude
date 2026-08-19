@@ -19,7 +19,14 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingRef";
-const IR_DONE = "bubui.installReferrerChecked";
+const capturedListeners = new Set<(ref: string) => void>();
+export function onReferralCaptured(fn: (ref: string) => void): () => void {
+  capturedListeners.add(fn);
+  return () => capturedListeners.delete(fn);
+}
+function notifyReferralCaptured(ref: string): void {
+  capturedListeners.forEach((fn) => { try { fn(ref); } catch {} });
+}
 
 // Readiness del referrer: el alta espera (acotado) a que la captura termine
 // antes de concluir que no hay código — evita la carrera captura/registro
@@ -77,6 +84,7 @@ async function captureFromUrl(url: string | null): Promise<void> {
   await storePendingRef(code); // deep link = intención directa, prevalece
   signalReferrerDone(); // ya hay código: el alta no necesita esperar más
   // Con sesión ya iniciada, vincula al momento (mismo patrón que los retos).
+  notifyReferralCaptured(code);
   try {
     const s = await CheckSession();
     if (s) await applyPendingRef(s.customerId);
@@ -116,7 +124,6 @@ export async function applyPendingRef(customerId: string): Promise<void> {
  *  puntual perdía el referrer para siempre). */
 async function captureInstallReferrerOnce(): Promise<void> {
   try {
-    if (await AsyncStorage.getItem(IR_DONE)) { signalReferrerDone(); return; }
     let mod: any = null;
     try {
       // Carga perezosa: si el módulo nativo no está, no rompe nada (y no
@@ -130,11 +137,11 @@ async function captureInstallReferrerOnce(): Promise<void> {
     if (!PIR?.getInstallReferrerInfo) { signalReferrerDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
       if (err) { signalReferrerDone(); return; } // transitorio → reintento en el próximo arranque
-      void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
       const code = parseRefFromString(info?.installReferrer);
       if (!code) { signalReferrerDone(); return; }
       void (async () => {
         await storeIfEmpty(code);
+        notifyReferralCaptured(code);
         signalReferrerDone(); // código ya persistido → el alta puede leerlo
         // Referrer tardío con sesión ya iniciada (o carrera con el alta):
         // aplica al momento en vez de esperar a la próxima carga del Feed.
@@ -152,8 +159,17 @@ let inited = false;
 export function initReferralCapture(): void {
   if (inited) return;
   inited = true;
-  Linking.getInitialURL().then(captureFromUrl).catch(() => {});
   Linking.addEventListener("url", (e) => { void captureFromUrl(e.url); });
-  if (Platform.OS === "android") void captureInstallReferrerOnce();
-  else signalReferrerDone(); // sin Install Referrer fuera de Android
+  void Linking.getInitialURL()
+    .then(async (url) => {
+      await captureFromUrl(url);
+      if (!parseRefFromString(url)) {
+        if (Platform.OS === "android") await captureInstallReferrerOnce();
+        else signalReferrerDone();
+      }
+    })
+    .catch(() => {
+      if (Platform.OS === "android") void captureInstallReferrerOnce();
+      else signalReferrerDone();
+    });
 }

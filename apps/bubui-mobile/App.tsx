@@ -22,6 +22,7 @@ import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { useAppFonts, applyPoppinsToTextDefaults } from "./src/lib/fonts";
 import { fontsReadyForUi } from "./src/lib/startup-gate";
 import { resolveStartupRoute } from "./src/lib/startup-coordinator";
+import { retoTokenFromPath } from "./src/lib/links";
 import { ThemeProvider, useThemeMeta } from "./src/lib/theme";
 // Registra la task de geofencing en background (debe importarse pronto).
 import "./src/lib/geofence";
@@ -70,6 +71,8 @@ const linking = {
     // para que tanto los QR de bubui.app como los de hub abran la pantalla Scan.
     getStateFromPath: (path: string, options: Parameters<typeof getStateFromPath>[1]) => {
           const normalized = path.replace(/^\/?bubui\//, "/");
+          if (retoTokenFromPath(normalized)) return undefined;
+          if (/^\/?r\/[A-Za-z0-9]{4,10}/.test(normalized)) return undefined;
           return getStateFromPath(normalized, options);
     }
 };

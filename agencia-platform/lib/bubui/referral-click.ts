@@ -18,13 +18,13 @@ export function hashIpFromHeaders(headers: Headers): string | null {
  * se perdió). Ventana corta + misma IP = riesgo de falso positivo mínimo, y
  * el premio (cupón de bienvenida) no es sensible.
  */
-export async function findRecentReferralClick(headers: Headers): Promise<string | null> {
+export async function findRecentReferralClick(headers: Headers): Promise<{ code: string; offerId: string | null } | null> {
   const ipHash = hashIpFromHeaders(headers);
   if (!ipHash) return null;
   const click = await prisma.bubuiReferralClick.findFirst({
     where: { ipHash, createdAt: { gt: new Date(Date.now() - 48 * 3600_000) } },
     orderBy: { createdAt: "desc" },
-    select: { code: true }
+    select: { code: true, offerId: true }
   });
-  return click?.code ?? null;
+  return click ? { code: click.code, offerId: click.offerId ?? null } : null;
 }
