@@ -13,6 +13,11 @@ export const dynamic = "force-dynamic";
 export const GET = withApi({}, async (req, { api }) => {
   const url = new URL(req.url); const accountId = url.searchParams.get("accountId"); const connectionId = url.searchParams.get("connectionId");
   if (!accountId || !/^act_\d+$/.test(accountId) || !connectionId) throw new ApiError(400, "invalid_account", "Selecciona una cuenta publicitaria");
+  const since = url.searchParams.get("since"); const until = url.searchParams.get("until");
+  if (!since || !until || !/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new ApiError(400, "invalid_period", "Indica un periodo de fechas válido");
+  const sinceTime = Date.parse(`${since}T12:00:00Z`); const untilTime = Date.parse(`${until}T12:00:00Z`);
+  const periodDays = Math.round((untilTime - sinceTime) / 86_400_000) + 1;
+  if (!Number.isFinite(periodDays) || periodDays < 1 || periodDays > 90) throw new ApiError(400, "invalid_period", "El periodo debe tener entre 1 y 90 días");
   const token = await readMetaTokenByConnection(api.workspaceId, connectionId);
   if (!token) throw new ApiError(400, "meta_not_connected", "La conexión Meta ya no está disponible");
   const adhoc = { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId };
@@ -30,20 +35,22 @@ export const GET = withApi({}, async (req, { api }) => {
   });
   const enriched = await Promise.all(campaigns.slice(0, 12).map(async (campaign: any) => {
     const [adsets, totals] = await Promise.all([
-      metaAdsListAdsets({ workspaceId: api.workspaceId, campaignId: String(campaign.id), adhoc }).catch(() => []),
-      metaAdsGetCampaignInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), datePreset: "last_30d", adhoc }).catch(() => null)
+      metaAdsListAdsets({ workspaceId: api.workspaceId, campaignId: String(campaign.id), adhoc }),
+      metaAdsGetCampaignInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), since, until, adhoc })
     ]);
     const resultActionTypes = metaResultActionCandidates(adsets, campaign.objective);
-    const daily = await metaAdsGetCampaignDailyInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), days: 90, resultActionTypes, adhoc }).catch(() => []);
+    const trendSinceDate = new Date(untilTime); trendSinceDate.setUTCDate(trendSinceDate.getUTCDate() - 89);
+    const trendSince = trendSinceDate.toISOString().slice(0, 10);
+    const daily = await metaAdsGetCampaignDailyInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), since: trendSince, until, resultActionTypes, adhoc });
     const leads = metaResultValue(totals?.actions, resultActionTypes); const spend = Number(totals?.spend ?? 0);
     return { id: String(campaign.id), name: String(campaign.name), objective: campaign.objective, leads, spend, cpl: leads > 0 ? spend / leads : null, ctr: Number(totals?.ctr ?? 0), impressions: Number(totals?.impressions ?? 0), daily };
   }));
-  const buckets = buildFortnightBuckets(enriched.flatMap((campaign) => campaign.daily));
+  const buckets = buildFortnightBuckets(enriched.flatMap((campaign) => campaign.daily), new Date(`${until}T12:00:00Z`));
   const current = buckets.at(-1); const previous = buckets.at(-2);
   const leadChangePct = previous?.leads ? ((current?.leads ?? 0) - previous.leads) / previous.leads * 100 : null;
   const spend = enriched.reduce((sum, item) => sum + item.spend, 0); const leads = enriched.reduce((sum, item) => sum + item.leads, 0);
   const recommendations = buildMonitoringRecommendations(enriched, leadChangePct);
-  return NextResponse.json({ campaigns: enriched.map(({ daily: _daily, ...item }) => item).sort((a, b) => b.leads - a.leads), buckets, summary: { activeCampaigns: enriched.length, leads, spend, cpl: leads > 0 ? spend / leads : null, leadChangePct }, recommendations, generatedAt: new Date().toISOString() });
+  return NextResponse.json({ campaigns: enriched.map(({ daily: _daily, ...item }) => item).sort((a, b) => b.leads - a.leads), buckets, summary: { activeCampaigns: enriched.length, leads, spend, cpl: leads > 0 ? spend / leads : null, leadChangePct }, recommendations, period: { since, until, days: periodDays }, verified: true, generatedAt: new Date().toISOString() });
 });
 
 const metric = z.number().finite();

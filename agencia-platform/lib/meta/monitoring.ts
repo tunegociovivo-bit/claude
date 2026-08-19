@@ -45,8 +45,8 @@ export function buildMonitoringRecommendations(campaigns: MonitoringCampaign[], 
   const spend = campaigns.reduce((sum, item) => sum + item.spend, 0);
   const leads = campaigns.reduce((sum, item) => sum + item.leads, 0);
   const recommendations: Array<{ severity: "high" | "medium" | "low"; title: string; detail: string }> = [];
-  if (leadChangePct !== null && leadChangePct <= -20) recommendations.push({ severity: "high", title: "Caída relevante de leads", detail: `Los leads han bajado un ${Math.abs(leadChangePct).toFixed(0)}% frente al bloque anterior. Revisa anuncios, frecuencia, formulario y segmentación antes de aumentar presupuesto.` });
-  if (spend > 0 && leads === 0) recommendations.push({ severity: "high", title: "Gasto sin leads", detail: `Se han invertido ${spend.toFixed(2)} € en 30 días sin leads atribuidos. Comprueba el evento de conversión y pausa cualquier escalado hasta validarlo.` });
+  if (leadChangePct !== null && leadChangePct <= -20) recommendations.push({ severity: "high", title: "Caída relevante de resultados", detail: `Los resultados principales han bajado un ${Math.abs(leadChangePct).toFixed(0)}% frente al bloque anterior. Revisa medición, entrega y configuración antes de aumentar presupuesto.` });
+  if (spend > 0 && leads === 0) recommendations.push({ severity: "high", title: "Gasto sin resultados", detail: `Hay inversión sin resultados principales atribuidos en el periodo seleccionado. Comprueba el evento de conversión antes de escalar.` });
   const weak = campaigns.filter((item) => item.impressions >= 1000 && item.ctr < 0.8);
   if (weak.length) recommendations.push({ severity: "medium", title: "Creatividades con CTR bajo", detail: `${weak.length} campaña(s) tienen más de 1.000 impresiones y CTR inferior al 0,8%. Conviene probar nuevos hooks, formatos y primeros segundos.` });
   if (!recommendations.length) recommendations.push({ severity: "low", title: "Rendimiento estable", detail: "No se detectan anomalías críticas con los datos disponibles. Mantén las pruebas controladas y revisa el CPL por campaña." });

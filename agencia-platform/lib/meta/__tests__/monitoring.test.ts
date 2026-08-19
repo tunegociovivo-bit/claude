@@ -14,11 +14,11 @@ describe("Meta monitoring", () => {
 
   it("detects a material lead decline", () => {
     const recommendations = buildMonitoringRecommendations([], -25);
-    expect(recommendations.some((item) => item.title === "Caída relevante de leads" && item.severity === "high")).toBe(true);
+    expect(recommendations.some((item) => item.title === "Caída relevante de resultados" && item.severity === "high")).toBe(true);
   });
 
   it("detects spend without attributed leads", () => {
     const recommendations = buildMonitoringRecommendations([{ id: "1", name: "Test", leads: 0, spend: 200, ctr: 1, impressions: 500 }], null);
-    expect(recommendations.some((item) => item.title === "Gasto sin leads")).toBe(true);
+    expect(recommendations.some((item) => item.title === "Gasto sin resultados")).toBe(true);
   });
 });

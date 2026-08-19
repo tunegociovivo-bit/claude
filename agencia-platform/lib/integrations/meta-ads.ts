@@ -385,16 +385,16 @@ export async function metaAdsGetCampaignDailyInsights(opts: {
   workspaceId: string;
   campaignId: string;
   days?: number;
+  since?: string;
+  until?: string;
   resultActionTypes?: string[];
   adhoc?: Record<string, string>;
 }): Promise<Array<{ date: string; spend: number; leads: number }>> {
   const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const days = Math.min(Math.max(opts.days ?? 14, 2), 90);
-  const params = new URLSearchParams({
-    fields: "spend,actions,date_start",
-    time_increment: "1",
-    date_preset: days <= 7 ? "last_7d" : days <= 14 ? "last_14d" : days <= 30 ? "last_30d" : "last_90d"
-  });
+  const params = new URLSearchParams({ fields: "spend,actions,date_start", time_increment: "1" });
+  if (opts.since && opts.until) params.set("time_range", JSON.stringify({ since: opts.since, until: opts.until }));
+  else params.set("date_preset", days <= 7 ? "last_7d" : days <= 14 ? "last_14d" : days <= 30 ? "last_30d" : "last_90d");
   const data = await metaFetch<any>(
     `${GRAPH}/${opts.campaignId}/insights?${params.toString()}`,
     accessToken
