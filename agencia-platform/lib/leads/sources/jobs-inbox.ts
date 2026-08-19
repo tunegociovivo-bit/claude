@@ -16,6 +16,8 @@ import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { completeJson } from "@/lib/ai/anthropic";
 import type { RawOffer } from "./jobs";
+import { describeJobsInboxFailure } from "./jobs-inbox-status";
+import { fetchUnreadGoogleMessages, googleJobsInboxConnected, markGoogleMessageRead, testGoogleJobsInbox } from "./jobs-gmail";
 
 const IMAP_TIMEOUTS = { connectionTimeout: 12000, greetingTimeout: 12000, socketTimeout: 30000 };
 
@@ -67,6 +69,14 @@ export async function testJobsInbox(
   workspaceId: string,
   override?: { host?: string; port?: number; user?: string; pass?: string }
 ): Promise<{ ok: boolean; error?: string; unseen?: number; jobUnseen?: number }> {
+  if (!override?.pass && await googleJobsInboxConnected(workspaceId)) {
+    try {
+      const result = await testGoogleJobsInbox(workspaceId);
+      return result.ok ? { ok: true, unseen: result.unseen, jobUnseen: result.unseen } : { ok: false, error: "Vuelve a conectar la cuenta de Google." };
+    } catch (error: any) {
+      return { ok: false, error: describeJobsInboxFailure(error).message };
+    }
+  }
   let cfg = await getJobsInboxConfig(workspaceId);
   if (override?.user && override?.pass) {
     cfg = {
@@ -91,8 +101,8 @@ export async function testJobsInbox(
   try {
     await withTimeout(client.connect(), 15000, "IMAP");
   } catch (e: any) {
-    const detail = e?.authenticationFailed ? " (autenticación rechazada — activa IMAP y usa una contraseña de aplicación, no la del correo)" : "";
-    return { ok: false, error: `IMAP: ${String(e?.message ?? e).slice(0, 180)}${detail}` };
+    const failure = describeJobsInboxFailure(e);
+    return { ok: false, error: failure.message, errorCode: failure.code } as any;
   }
   try {
     const lock = await client.getMailboxLock("INBOX");
@@ -191,6 +201,27 @@ async function extractOffers(workspaceId: string, email: { from: string; subject
  * ofertas encontradas + cuántos emails se procesaron.
  */
 export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers: RawOffer[]; emails: number; error?: string }> {
+  if (await googleJobsInboxConnected(workspaceId)) {
+    const offers: RawOffer[] = [];
+    let emails = 0;
+    try {
+      const messages = await fetchUnreadGoogleMessages(workspaceId) ?? [];
+      const { simpleParser } = await import("mailparser");
+      for (const message of messages.slice(0, 30)) {
+        const parsed = await simpleParser(message.raw);
+        const from = parsed.from?.text ?? "";
+        const fromAddress = parsed.from?.value.map((value) => value.address ?? "").join(",") ?? "";
+        if (!isJobAlertSender(fromAddress)) continue;
+        const text = (parsed.text || parsed.html || "").toString();
+        offers.push(...await extractOffers(workspaceId, { from, subject: parsed.subject ?? "", text }));
+        emails++;
+        await markGoogleMessageRead(workspaceId, message.id);
+      }
+      return { offers, emails };
+    } catch (error: any) {
+      return { offers, emails, error: describeJobsInboxFailure(error).message };
+    }
+  }
   const cfg = await getJobsInboxConfig(workspaceId);
   if (!cfg) return { offers: [], emails: 0, error: "Buzón de alertas no configurado (Ajustes → Bandeja de alertas)." };
 
@@ -209,8 +240,7 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
   try {
     await withTimeout(client.connect(), 15000, "IMAP");
   } catch (e: any) {
-    const detail = e?.authenticationFailed ? " (autenticación rechazada — usa una contraseña de aplicación)" : "";
-    return { offers, emails, error: `IMAP: ${String(e?.message ?? e).slice(0, 180)}${detail}` };
+    return { offers, emails, error: describeJobsInboxFailure(e).message };
   }
 
   try {

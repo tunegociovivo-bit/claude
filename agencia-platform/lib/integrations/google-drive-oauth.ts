@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 
 const BACKUP_SCOPE = "https://www.googleapis.com/auth/drive.file openid email profile";
 const LEAD_DOCUMENTS_SCOPE = "https://www.googleapis.com/auth/drive.readonly openid email profile";
-export type DriveOAuthPurpose = "backup" | "lead_documents";
+const JOBS_INBOX_SCOPE = "https://www.googleapis.com/auth/gmail.modify openid email profile";
+export type DriveOAuthPurpose = "backup" | "lead_documents" | "jobs_inbox";
 
 export function driveOAuthConfigurationIssue(): "server" | "google_credentials" | null {
   if (!process.env.NEXTAUTH_URL?.trim() || !process.env.NEXTAUTH_SECRET?.trim()) return "server";
@@ -43,7 +44,7 @@ export function driveAuthorizeUrl(state: string, purpose: DriveOAuthPurpose = "b
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: driveRedirectUri(),
     response_type: "code",
-    scope: purpose === "lead_documents" ? LEAD_DOCUMENTS_SCOPE : BACKUP_SCOPE,
+    scope: purpose === "lead_documents" ? LEAD_DOCUMENTS_SCOPE : purpose === "jobs_inbox" ? JOBS_INBOX_SCOPE : BACKUP_SCOPE,
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",

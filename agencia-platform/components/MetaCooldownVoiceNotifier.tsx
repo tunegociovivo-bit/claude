@@ -10,6 +10,7 @@
 import { useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { playSoniaBlob, speakSonia } from "@/lib/voice/sonia-audio";
+import { buildMetaGuardAnnouncement } from "@/lib/integrations/meta-guard-message";
 
 const LS_KEY = "meta-cooldown-voiced-until";
 const POLL_MS = 60_000;
@@ -23,7 +24,7 @@ export default function MetaCooldownVoiceNotifier() {
     if (status !== "authenticated" || !isAdmin) return;
     let stop = false;
 
-    async function announce(minutes: number) {
+    async function announce(minutes: number, reason?: string | null) {
       // 1) Voz de Sonia (ElevenLabs) vía endpoint — por la cola GLOBAL.
       try {
         const r = await fetch("/api/v1/meta/guard-speak", { cache: "no-store" });
@@ -37,7 +38,7 @@ export default function MetaCooldownVoiceNotifier() {
       }
       // 2) Fallback: voz del navegador (también por la cola global).
       void speakSonia(
-        `Atención. Meta está limitando la cuenta de anuncios. He pausado las publicaciones. Espera unos ${minutes} minutos antes de publicar en Meta.`
+        buildMetaGuardAnnouncement({ minutes, reason })
       );
     }
 
@@ -52,7 +53,7 @@ export default function MetaCooldownVoiceNotifier() {
         const already = Number(localStorage.getItem(LS_KEY) || "0");
         if (Number(s.cooldownUntil) === already) return; // ya avisado de este enfriamiento
         localStorage.setItem(LS_KEY, String(s.cooldownUntil));
-        await announce(Math.max(1, Math.ceil((s.cooldownMsLeft ?? 0) / 60000)));
+        await announce(Math.max(1, Math.ceil((s.cooldownMsLeft ?? 0) / 60000)), s.cooldownReason);
       } catch {
         // silencio
       } finally {

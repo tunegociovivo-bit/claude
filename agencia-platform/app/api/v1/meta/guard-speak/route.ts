@@ -15,6 +15,7 @@ import { withApi } from "@/lib/api/handler";
 import { callerIsAdmin } from "@/lib/api/permissions";
 import { getMetaGuardState } from "@/lib/integrations/meta-rate-guard";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
+import { buildMetaGuardAnnouncement } from "@/lib/integrations/meta-guard-message";
 
 export const dynamic = "force-dynamic";
 
@@ -45,11 +46,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   }
 
   const min = Math.max(1, Math.ceil(state.cooldownMsLeft / 60000));
-  const greet = firstName ? `${firstName}, ` : "";
-  const text =
-    `${greet}atención. Meta está limitando la cuenta de anuncios, así que he pausado las ` +
-    `publicaciones para protegerla. No publiques nada en Meta hasta que pase el aviso, ` +
-    `en unos ${min} minutos. Te aviso cuando vuelva a ser seguro.`;
+  const text = buildMetaGuardAnnouncement({ minutes: min, reason: state.cooldownReason, firstName });
 
   try {
     const buf = await elevenlabsSynthesize({ workspaceId: api.workspaceId, text });

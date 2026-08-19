@@ -109,6 +109,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     jobsInboxPort: s.jobsInboxPort ?? 993,
     jobsInboxUser: s.jobsInboxUser ?? "",
     jobsInboxConfigured: !!s.jobsInboxPassEnc,
+    jobsGoogleConnected: !!(ws?.settings as any)?.integrations?.googleJobsInbox?.refreshTokenEncrypted,
+    jobsGoogleEmail: (ws?.settings as any)?.integrations?.googleJobsInbox?.accountEmail ?? null,
     jobsInboxLastRun: s.jobsInboxLastRun ?? null,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,

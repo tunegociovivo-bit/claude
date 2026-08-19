@@ -3178,13 +3178,25 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
   return (
     <details className="mt-2 rounded-md border border-slate-200 bg-white/70">
       <summary className="cursor-pointer select-none px-2.5 py-1.5 text-xs font-semibold text-slate-700">
-        📥 Bandeja de alertas (sin scraping){cfg?.jobsInboxConfigured ? " · configurada" : " · sin configurar"}
+        📥 Bandeja de alertas (sin scraping){(cfg?.jobsInboxConfigured || cfg?.jobsGoogleConnected) ? " · configurada" : " · sin configurar"}
       </summary>
       <div className="px-2.5 pb-2.5 space-y-2">
+        <div className="rounded-md border border-indigo-200 bg-indigo-50 p-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div className="text-xs font-semibold text-indigo-900">Conexión segura con Google</div>
+              <div className="text-[11px] text-indigo-700">
+                {cfg?.jobsGoogleConnected ? `Conectado: ${cfg.jobsGoogleEmail}` : "Conecta el buzón sin guardar contraseñas IMAP."}
+              </div>
+            </div>
+            <a href="/api/integrations/google-drive/connect?purpose=jobs_inbox" className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700">
+              {cfg?.jobsGoogleConnected ? "Reconectar Google" : "Conectar con Google"}
+            </a>
+          </div>
+        </div>
         <p className="text-[11px] text-slate-500">
-          Crea un buzón (p.ej. un Gmail), configura ahí las <strong>alertas de empleo</strong> de LinkedIn/InfoJobs
-          con tu zona y "marketing/IA", y pega aquí sus datos IMAP. El sistema leerá esas alertas y creará los leads
-          <strong> sin gastar créditos de scraping</strong>. En Gmail: activa IMAP y usa una <strong>contraseña de aplicación</strong>.
+          Conecta el Gmail donde llegan las <strong>alertas de empleo</strong> de LinkedIn/InfoJobs. El sistema leerá esas alertas y creará los leads
+          <strong> sin gastar créditos de scraping</strong>. La configuración IMAP inferior queda disponible solo como alternativa.
         </p>
         <div className="grid grid-cols-2 gap-2">
           <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Correo del buzón (usuario IMAP)" className="col-span-2 px-2 py-1 rounded border border-slate-300 text-sm" />
@@ -3203,7 +3215,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
           <button onClick={() => void testConn()} disabled={testing} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" title="Verifica que el buzón conecta (separa un fallo de credenciales de uno de extracción)">
             {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔌"} Probar conexión
           </button>
-          <button onClick={() => void ingestNow()} disabled={ingesting || !cfg?.jobsInboxConfigured} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50" title={cfg?.jobsInboxConfigured ? "Lee ahora las alertas nuevas del buzón" : "Guarda primero los datos del buzón"}>
+          <button onClick={() => void ingestNow()} disabled={ingesting || (!cfg?.jobsInboxConfigured && !cfg?.jobsGoogleConnected)} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50" title={(cfg?.jobsInboxConfigured || cfg?.jobsGoogleConnected) ? "Lee ahora las alertas nuevas del buzón" : "Conecta primero el buzón con Google"}>
             {ingesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📥"} Revisar alertas ahora
           </button>
           {cfg?.jobsInboxLastRun && <span className="text-[11px] text-slate-400">Última: {new Date(cfg.jobsInboxLastRun).toLocaleString("es-ES")}</span>}

@@ -7,12 +7,14 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
-  const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const base = process.env.NEXTAUTH_URL?.trim() || req.nextUrl.origin;
   let leadPurpose = false;
-  const done = (value: string) => NextResponse.redirect(leadPurpose ? `${base}/meta?leadDrive=${value}` : `${base}/admin/seguridad?drive=${value}`);
+  let jobsPurpose = false;
+  const done = (value: string) => NextResponse.redirect(jobsPurpose ? `${base}/admin/leads?tab=jobs-review&jobsInbox=${value}` : leadPurpose ? `${base}/meta?leadDrive=${value}` : `${base}/admin/seguridad?drive=${value}`);
   const url = new URL(req.url);
   const state = verifyDriveState(url.searchParams.get("state") ?? "");
   leadPurpose = state?.purpose === "lead_documents";
+  jobsPurpose = state?.purpose === "jobs_inbox";
   if (url.searchParams.get("error")) return done("denied");
   const code = url.searchParams.get("code");
   if (!code || !state || Date.now() - state.ts > 10 * 60_000) return done("invalid");
@@ -29,7 +31,13 @@ export async function GET(req: NextRequest) {
     const ws = await prisma.workspace.findUnique({ where: { id: state.workspaceId } });
     const settings: any = ws?.settings ?? {};
     settings.integrations ??= {};
-    if (leadPurpose) {
+    if (jobsPurpose) {
+      settings.integrations.googleJobsInbox = { refreshTokenEncrypted: encryptSecret(tokens.refresh_token), accountEmail, connectedAt: new Date().toISOString() };
+      settings.leads ??= {};
+      settings.leads.jobsInboxUser = accountEmail;
+      settings.leads.jobsInboxEnabled = true;
+      delete settings.leads.jobsInboxLastError;
+    } else if (leadPurpose) {
       if (accountEmail.toLowerCase() !== "tunegociovivo@gmail.com") return done("wrong_account");
       settings.integrations.googleLeadDocuments = { refreshTokenEncrypted: encryptSecret(tokens.refresh_token), accountEmail, connectedAt: new Date().toISOString() };
     } else {
