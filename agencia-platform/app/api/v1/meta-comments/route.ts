@@ -42,7 +42,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     // `status` is the filter accepted by the campaigns edge for the switch
     // displayed by Ads Manager. `effective_status` included paused campaigns,
     // while filtering on `configured_status` returned an empty catalogue.
-      const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 500, refreshStatuses: true, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
+      const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 500, adhoc: { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId } });
     const now = Date.now();
     const items = campaigns.filter((campaign: { configured_status?: string; start_time?: string; stop_time?: string }) => {
       const startsAt = campaign.start_time ? Date.parse(campaign.start_time) : null;

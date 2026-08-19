@@ -48,7 +48,7 @@ export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAcc
   const until = new Date().toISOString().slice(0, 10);
   let campaigns: CampaignRef[] = [];
   try {
-    const listed = await metaAdsListCampaigns({ workspaceId: opts.workspaceId, status: "ACTIVE", statusField: "effective_status", refreshStatuses: true, limit: 100, adhoc });
+    const listed = await metaAdsListCampaigns({ workspaceId: opts.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 100, adhoc });
     campaigns = listed.filter((campaign: any) => String(campaign.configured_status ?? "").toUpperCase() === "ACTIVE").map((campaign: any) => ({ id: String(campaign.id), name: String(campaign.name) }));
     const validIds = new Set(campaigns.map((campaign) => campaign.id));
     const staleIds = (previousState.campaigns ?? []).map((campaign) => campaign.id).filter((id) => !validIds.has(id));

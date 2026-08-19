@@ -314,7 +314,6 @@ export async function metaAdsListCampaigns(opts: {
   status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   statusField?: "effective_status" | "configured_status" | "status";
   limit?: number;
-  refreshStatuses?: boolean;
   adhoc?: Record<string, string>;
 }) {
   const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
@@ -331,30 +330,10 @@ export async function metaAdsListCampaigns(opts: {
     cfg.accessToken
   );
   const campaigns = data.data ?? [];
-  if (!opts.refreshStatuses || campaigns.length === 0) return campaigns;
-
-  const freshStatuses = new Map<string, any>();
-  // Meta retiró el parámetro raíz `ids` en Graph v26. Consultamos cada
-  // campaña por su nodo y limitamos la concurrencia para conservar el
-  // estado en tiempo real sin disparar ráfagas contra la Marketing API.
-  for (let offset = 0; offset < campaigns.length; offset += 10) {
-    const chunk = campaigns.slice(offset, offset + 10);
-    const statuses = await Promise.all(
-      chunk.map(async (campaign: any) => {
-        const id = String(campaign.id);
-        const status = await metaFetch<any>(
-          `${GRAPH_CAMPAIGN_STATUS}/${encodeURIComponent(id)}?fields=id,status,configured_status,effective_status`,
-          cfg.accessToken
-        );
-        return [id, status] as const;
-      })
-    );
-    for (const [id, status] of statuses) freshStatuses.set(id, status);
-  }
-  const refreshed = campaigns.map((campaign: any) => ({ ...campaign, ...(freshStatuses.get(String(campaign.id)) ?? {}) }));
-  if (!opts.status) return refreshed;
-  const field = opts.statusField ?? "effective_status";
-  return refreshed.filter((campaign: any) => String(campaign[field] ?? "").toUpperCase() === opts.status);
+  // The account campaigns edge already returns current status fields. A
+  // second request per campaign exhausts Meta's request budget on accounts
+  // with a long campaign history (error 17).
+  return campaigns;
 }
 
 export async function metaAdsGetCampaignInsights(opts: {

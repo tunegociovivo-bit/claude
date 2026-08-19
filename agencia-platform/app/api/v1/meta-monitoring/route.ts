@@ -21,7 +21,7 @@ export const GET = withApi({}, async (req, { api }) => {
   const token = await readMetaTokenByConnection(api.workspaceId, connectionId);
   if (!token) throw new ApiError(400, "meta_not_connected", "La conexión Meta ya no está disponible");
   const adhoc = { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId };
-  const listedCampaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 50, refreshStatuses: true, adhoc });
+  const listedCampaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 50, adhoc });
   // Meta's `effective_status` can remain ACTIVE when a campaign has been
   // switched off in Ads Manager. The campaign toggle is represented by
   // `configured_status`; use it as the final source of truth for the count.
