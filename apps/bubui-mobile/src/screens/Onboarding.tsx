@@ -194,7 +194,7 @@ export function Onboarding() {
       // antes de concluir que no hay código — cierra la carrera captura/alta.
       await waitForReferrerCapture();
       const pendingRef = await getPendingRef();
-      const ref = pendingRef?.split("|", 1)[0] ?? undefined;
+      const [ref, offerId] = pendingRef?.split("|", 2) ?? [];
       const r = await api.verifyOtp({
         phone: phone.trim(),
         code: code.trim(),
@@ -203,7 +203,8 @@ export function Onboarding() {
         birthDate: birthDate.trim(),
         gender,
         postalCode: postalCode.trim(),
-        ref
+        ref,
+        refOfferId: offerId
       });
       await saveSession({
         customerId: r.customerId,

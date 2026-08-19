@@ -10,7 +10,7 @@ describe("challenge registration regressions", () => {
     const route = read("app/api/bubui/customer/verify-otp/route.ts");
     const byPhone = route.slice(route.indexOf("if (byPhone)"), route.indexOf("// 2)"));
     expect(byPhone).toMatch(/await ensureReferralCode\(updated\.id\)/);
-    expect(byPhone).toMatch(/await linkReferral\(updated\.id, d\.ref, req\.headers\)/);
+    expect(byPhone).toMatch(/await linkReferral\(updated\.id, d\.ref, d\.refOfferId, req\.headers\)/);
   });
 
   it("sends the concrete offer id to the IP fallback endpoint", () => {
@@ -22,5 +22,13 @@ describe("challenge registration regressions", () => {
     const schema = read("prisma/schema.prisma");
     const model = schema.slice(schema.indexOf("model BubuiReferralClick"), schema.indexOf("model BubuiCustomDeal"));
     expect(model).toMatch(/offerId\s+String\?/);
+  });
+
+  it("passes the concrete offer id through OTP registration", () => {
+    const onboarding = read("../apps/bubui-mobile/src/screens/Onboarding.tsx");
+    const route = read("app/api/bubui/customer/verify-otp/route.ts");
+    expect(onboarding).toMatch(/refOfferId:\s*offerId/);
+    expect(route).toMatch(/refOfferId:\s*z\.string/);
+    expect(route).toMatch(/linkReferral\(updated\.id, d\.ref, d\.refOfferId, req\.headers\)/);
   });
 });

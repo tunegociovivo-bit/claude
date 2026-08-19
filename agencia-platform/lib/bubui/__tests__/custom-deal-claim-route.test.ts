@@ -21,7 +21,7 @@ vi.mock("@/lib/bubui/referral", () => ({
   countVerifiedReferrals: vi.fn(),
   countQualifiedReferrals: vi.fn()
 }));
-vi.mock("@/lib/bubui/business-push", () => ({ alertBusiness: vi.fn() }));
+vi.mock("@/lib/bubui/business-push", () => ({ alertBusiness: vi.fn(async () => undefined) }));
 vi.mock("@/lib/bubui/deal-trace", () => ({ recordDealTrace: H.recordDealTrace }));
 
 import { POST } from "../../../app/api/bubui/custom-deal/[token]/claim/route";

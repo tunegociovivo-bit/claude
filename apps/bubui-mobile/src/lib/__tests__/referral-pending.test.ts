@@ -131,6 +131,18 @@ describe("restored backup and late challenge referral", () => {
     expect(seen).toEqual(["ABC123|offer12345678"]);
     off();
   });
+
+  it("does not replay the same Play referrer after it was processed", async () => {
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
+    const m = await freshModule();
+    m.initReferralCapture();
+    await m.waitForReferrerCapture();
+    await m.clearPendingRef();
+    const m2 = await freshModule();
+    m2.initReferralCapture();
+    await flush();
+    expect(await m2.getPendingRef()).toBeNull();
+  });
 });
 
 describe("applyPendingRef — el pendiente solo se descarta con resultado TERMINAL", () => {

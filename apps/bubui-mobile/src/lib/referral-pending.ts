@@ -19,6 +19,7 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingRef";
+const IR_RECEIPT_KEY = "bubui.installReferrerReceipt";
 const capturedListeners = new Set<(ref: string) => void>();
 export function onReferralCaptured(fn: (ref: string) => void): () => void {
   capturedListeners.add(fn);
@@ -137,9 +138,13 @@ async function captureInstallReferrerOnce(): Promise<void> {
     if (!PIR?.getInstallReferrerInfo) { signalReferrerDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
       if (err) { signalReferrerDone(); return; } // transitorio → reintento en el próximo arranque
-      const code = parseRefFromString(info?.installReferrer);
-      if (!code) { signalReferrerDone(); return; }
       void (async () => {
+        const raw = typeof info?.installReferrer === "string" ? info.installReferrer : "";
+        const previous = await AsyncStorage.getItem(IR_RECEIPT_KEY).catch(() => null);
+        if (raw && previous === raw) { signalReferrerDone(); return; }
+        const code = parseRefFromString(raw);
+        if (!code) { signalReferrerDone(); return; }
+        await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
         await storeIfEmpty(code);
         notifyReferralCaptured(code);
         signalReferrerDone(); // código ya persistido → el alta puede leerlo

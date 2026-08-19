@@ -21,8 +21,10 @@ export function hashIpFromHeaders(headers: Headers): string | null {
 export async function findRecentReferralClick(headers: Headers): Promise<{ code: string; offerId: string | null } | null> {
   const ipHash = hashIpFromHeaders(headers);
   if (!ipHash) return null;
+  const uaRaw = headers.get("user-agent") ?? "";
+  const ua = /android/i.test(uaRaw) ? "android" : /iphone|ipad|ipod/i.test(uaRaw) ? "ios" : "other";
   const click = await prisma.bubuiReferralClick.findFirst({
-    where: { ipHash, createdAt: { gt: new Date(Date.now() - 48 * 3600_000) } },
+    where: { ipHash, ua, createdAt: { gt: new Date(Date.now() - 15 * 60_000) } },
     orderBy: { createdAt: "desc" },
     select: { code: true, offerId: true }
   });
