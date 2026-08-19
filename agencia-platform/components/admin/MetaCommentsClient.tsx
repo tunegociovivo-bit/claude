@@ -7,7 +7,7 @@ import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal"
 import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
 
 const CAMPAIGN_ID = "120247270045340145";
-type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
+type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; aiContext: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
 type AdAccount = { id: string; name: string; status: number; currency: string; connectionId: string; connectionName: string };
 type Campaign = { id: string; name: string; status: string; configured_status?: string; effective_status?: string; objective?: string };
 type Comment = { id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string; displayName: string | null; adAccountName: string | null } };
@@ -36,6 +36,7 @@ export default function MetaCommentsClient() {
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
   const [editingClient, setEditingClient] = useState<string | null>(null);
   const [clientNameDraft, setClientNameDraft] = useState("");
+  const [clientContexts, setClientContexts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionOpen, setConnectionOpen] = useState(false);
@@ -52,6 +53,7 @@ export default function MetaCommentsClient() {
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron cargar los comentarios");
     setItems(data.items ?? []); setFeeds(data.feeds ?? []); setAlertRecipients(data.alertRecipients ?? []);
+    setClientContexts((current) => ({ ...Object.fromEntries((data.feeds ?? []).map((feed: Feed) => [clientKeyOf(feed), feed.aiContext ?? ""])), ...current }));
     setDrafts((old) => Object.fromEntries((data.items ?? []).map((item: Comment) => [item.id, old[item.id] ?? item.aiDraft ?? ""])));
     return data;
   }, []);
@@ -107,6 +109,16 @@ export default function MetaCommentsClient() {
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
     finally { setBusy(null); }
   }, [clientNameDraft, load]);
+
+  const saveClientContext = useCallback(async (clientKey: string, clientFeeds: Feed[]) => {
+    setBusy(`context-client:${clientKey}`); setError(null);
+    try {
+      const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_client_ai_context", campaignIds: clientFeeds.map((feed) => feed.campaignId), aiContext: (clientContexts[clientKey] ?? "").trim() }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo guardar la información de la empresa");
+      await load();
+    } catch (cause: any) { setError(String(cause?.message ?? cause)); }
+    finally { setBusy(null); }
+  }, [clientContexts, load]);
 
   useEffect(() => { load().catch((cause) => setError(String(cause.message ?? cause))); void loadAccounts(); }, [load, loadAccounts]);
 
@@ -243,7 +255,7 @@ export default function MetaCommentsClient() {
           {editing ? <div className="flex items-center gap-1"><input aria-label={`Nuevo nombre para ${group.name}`} autoFocus value={clientNameDraft} onChange={(event) => setClientNameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameClient(group.key, group.feeds); if (event.key === "Escape") setEditingClient(null); }} maxLength={120} className="w-56 rounded-lg border bg-white px-3 py-2 text-sm" /><button title="Guardar nombre" onClick={() => void renameClient(group.key, group.feeds)} disabled={!clientNameDraft.trim() || busy === `rename-client:${group.key}`} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">{busy === `rename-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button><button title="Cancelar" onClick={() => setEditingClient(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button></div> : <button title="Cambiar nombre del cliente" onClick={() => { setEditingClient(group.key); setClientNameDraft(group.name); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-100"><Pencil className="h-4 w-4" /></button>}
           <button onClick={() => void syncClient(group.key, group.feeds)} disabled={busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === `sync-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sincronizar cliente</button>
         </div>
-        {expanded && <div className="divide-y">{group.feeds.map((item) => <div key={item.campaignId} className="flex flex-wrap items-center gap-3 px-4 py-3"><div className="min-w-[240px] flex-1"><div className="text-sm font-semibold">{item.campaignName ?? item.clientName}</div><div className="text-xs text-slate-500">{item.campaignId} · {item.lastSyncAt ? `Última sincronización ${new Date(item.lastSyncAt).toLocaleString("es-ES")}` : "Pendiente de primera sincronización"}</div></div><button onClick={() => void syncFeed(item)} disabled={busy === `sync:${item.campaignId}` || busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50">{busy === `sync:${item.campaignId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Sincronizar campaña</button></div>)}</div>}
+        {expanded && <div><div className="border-b bg-blue-50/40 p-4"><label className="text-sm font-semibold text-slate-800" htmlFor={`client-context-${group.key}`}>Información de la empresa para la IA</label><p className="mt-1 text-xs text-slate-500">Añade servicios, horarios, teléfonos, direcciones, precios, requisitos y el tono deseado. La IA usará esta información en los nuevos borradores y no inventará datos que no estén aquí.</p><textarea id={`client-context-${group.key}`} value={clientContexts[group.key] ?? group.feeds[0]?.aiContext ?? ""} onChange={(event) => setClientContexts((current) => ({ ...current, [group.key]: event.target.value }))} maxLength={5000} rows={5} placeholder="Ejemplo: Somos una academia de artes escénicas en Málaga. Admitimos alumnos desde los 16 años..." className="mt-3 w-full rounded-lg border bg-white p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200" /><div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-slate-400">{(clientContexts[group.key] ?? group.feeds[0]?.aiContext ?? "").length}/5000 caracteres</span><button type="button" onClick={() => void saveClientContext(group.key, group.feeds)} disabled={busy === `context-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy === `context-client:${group.key}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Guardar información para la IA</button></div></div><div className="divide-y">{group.feeds.map((item) => <div key={item.campaignId} className="flex flex-wrap items-center gap-3 px-4 py-3"><div className="min-w-[240px] flex-1"><div className="text-sm font-semibold">{item.campaignName ?? item.clientName}</div><div className="text-xs text-slate-500">{item.campaignId} · {item.lastSyncAt ? `Última sincronización ${new Date(item.lastSyncAt).toLocaleString("es-ES")}` : "Pendiente de primera sincronización"}</div></div><button onClick={() => void syncFeed(item)} disabled={busy === `sync:${item.campaignId}` || busy === `sync-client:${group.key}`} className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50">{busy === `sync:${item.campaignId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Sincronizar campaña</button></div>)}</div></div>}
       </section>;
     })}</div>}
     <div className="mb-5 rounded-xl border bg-white p-4">

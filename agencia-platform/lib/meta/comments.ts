@@ -88,14 +88,23 @@ export function findOwnMetaReply(
 type Range = { from: Date; to: Date };
 type Analysis = { id: string; sentiment: string; reason: string; draft: string };
 
-async function analyzeComments(workspaceId: string, clientName: string, comments: any[]) {
+export function buildMetaCommentAnalysisPrompt(clientName: string, comments: Array<{ id: string; message?: string | null }>, aiContext?: string | null) {
+  const context = aiContext?.trim().slice(0, 5000);
+  return [
+    `Cliente: ${clientName}`,
+    context ? `Información verificada de la empresa (úsala para personalizar; si un dato no aparece aquí, no lo inventes):\n${context}` : null,
+    `Comentarios:\n${comments.map((item) => `${item.id}: ${item.message ?? ""}`).join("\n")}`
+  ].filter(Boolean).join("\n\n");
+}
+
+async function analyzeComments(workspaceId: string, clientName: string, comments: any[], aiContext?: string | null) {
   const analyses = new Map<string, Analysis>();
   for (let offset = 0; offset < comments.length; offset += 15) {
     const batch = comments.slice(offset, offset + 15);
     const result = await completeJson<{ items: Analysis[] }>({
       workspaceId, model: "claude-haiku-4-5-20251001",
       system: "Clasifica cada comentario de anuncio como positive, neutral o negative y redacta una respuesta breve en español de España. Para negativos: empatía, no discutir y ofrecer resolver por privado. No inventes datos. Devuelve todos los ids recibidos en JSON.",
-      user: `Cliente: ${clientName}\nComentarios:\n${batch.map((item) => `${item.id}: ${item.message}`).join("\n")}`,
+      user: buildMetaCommentAnalysisPrompt(clientName, batch, aiContext),
       schema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, sentiment: { type: "string", enum: ["positive", "neutral", "negative"] }, reason: { type: "string" }, draft: { type: "string" } }, required: ["id", "sentiment", "reason", "draft"] } } }, required: ["items"] },
       maxTokens: 2500
     });
@@ -191,7 +200,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const existingIds = new Set(existing.map((item) => item.externalCommentId));
     const pending = unique.filter((item) => !existingIds.has(String(item.id)));
     const processing = pending.slice(0, 50);
-    const analyses = await analyzeComments(workspaceId, clientName, processing);
+    const analyses = await analyzeComments(workspaceId, clientName, processing, feed.aiContext);
     let created = 0;
     const notificationJobs: Promise<void>[] = [];
     for (const item of processing) {

@@ -17,6 +17,7 @@ const schema = z.discriminatedUnion("action", [
   ,z.object({ action: z.literal("delete_comment"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("block_author"), commentId: z.string().min(1) })
   ,z.object({ action: z.literal("rename_client"), campaignIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500), displayName: z.string().trim().min(1).max(120) })
+  ,z.object({ action: z.literal("set_client_ai_context"), campaignIds: z.array(z.string().regex(/^\d+$/)).min(1).max(500), aiContext: z.string().trim().max(5000) })
   ,z.object({ action: z.literal("add_alert_email"), email: z.string().trim().email().max(254) })
   ,z.object({ action: z.literal("set_alert_email"), recipientId: z.string().min(1), preference: z.enum(["active", "negativeComments", "allComments", "syncFailures", "publishedReplies"]), value: z.boolean() })
   ,z.object({ action: z.literal("remove_alert_email"), recipientId: z.string().min(1) })
@@ -90,6 +91,15 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     if (renamed.count === 0) throw new ApiError(404, "not_found", "No se encontraron campañas de ese cliente");
     await auditFromReq(req, api, { action: "meta_comments.client_rename", targetType: "META_COMMENT_CLIENT", targetId: parsed.data.campaignIds.join(","), meta: { displayName: parsed.data.displayName, campaigns: renamed.count } });
     return NextResponse.json({ ok: true, updated: renamed.count });
+  }
+  if (parsed.data.action === "set_client_ai_context") {
+    const updated = await prisma.metaCommentFeed.updateMany({
+      where: { workspaceId: api.workspaceId, campaignId: { in: parsed.data.campaignIds } },
+      data: { aiContext: parsed.data.aiContext || null }
+    });
+    if (updated.count === 0) throw new ApiError(404, "not_found", "No se encontraron campañas de ese cliente");
+    await auditFromReq(req, api, { action: "meta_comments.client_ai_context_update", targetType: "META_COMMENT_CLIENT", targetId: parsed.data.campaignIds.join(","), meta: { campaigns: updated.count, configured: Boolean(parsed.data.aiContext) } });
+    return NextResponse.json({ ok: true, updated: updated.count });
   }
   if (parsed.data.action === "add_alert_email") {
     const email = parsed.data.email.toLocaleLowerCase("es-ES");

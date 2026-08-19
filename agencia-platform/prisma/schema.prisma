@@ -3317,6 +3317,7 @@ model MetaCommentFeed {
   active           Boolean         @default(true)
   lastSyncAt       DateTime?
   lastError        String?         @db.Text
+  aiContext        String?         @db.Text
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
