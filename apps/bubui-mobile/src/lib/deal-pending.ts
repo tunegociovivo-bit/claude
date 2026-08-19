@@ -26,6 +26,7 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingDeal";
+const SOURCE_KEY = "bubui.pendingDealSource";
 const IR_RECEIPT_KEY = "bubui.installReferrerDealReceipt";
 const capturedListeners = new Set<(token: string) => void>();
 export function onDealCaptured(fn: (token: string) => void): () => void {
@@ -77,6 +78,7 @@ async function storeIfEmpty(token: string): Promise<void> {
 async function captureFromUrl(url: string | null): Promise<void> {
   const token = parseDealFromString(url);
   if (!token) return;
+  await AsyncStorage.setItem(SOURCE_KEY, "deeplink").catch(() => {});
   await storePendingDeal(token); // deep link = intención directa, prevalece
   signalDealCaptureDone(); // ya hay token: el alta no necesita esperar más
   notifyDealCaptured(token);
@@ -114,7 +116,12 @@ async function captureInstallReferrerOnce(): Promise<void> {
         if (!token) { signalDealCaptureDone(); return; }
         // Un referrer de instalaciÃ³n nuevo y distinto sustituye cualquier
         // reto pendiente antiguo; el recibo se escribe despuÃ©s del token.
-        await storePendingDeal(token);
+        const source = await AsyncStorage.getItem(SOURCE_KEY).catch(() => null);
+        if (source !== "deeplink") {
+          await AsyncStorage.setItem(KEY, token).catch(() => {});
+          if ((await getPendingDeal()) !== token) { signalDealCaptureDone(); return; }
+          await AsyncStorage.setItem(SOURCE_KEY, "install-referrer").catch(() => {});
+        }
         await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
         signalDealCaptureDone(); // token persistido → el alta puede leerlo
         notifyDealCaptured(token);
