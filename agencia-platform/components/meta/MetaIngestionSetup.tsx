@@ -1,0 +1,10 @@
+"use client";
+import { useState } from "react";
+import { Check, Copy, PlugZap } from "lucide-react";
+
+export default function MetaIngestionSetup({ accountId }: { accountId: string }) {
+  const [url, setUrl] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null); const [copied, setCopied] = useState(false);
+  async function reveal() { const response = await fetch(`/api/v1/admin/meta-attribution-ingest?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" }); const data = await response.json(); if (!response.ok) { setMessage(data?.error?.message ?? "No se pudo preparar la ingesta"); return; } setUrl(data.url); setMessage(null); }
+  async function copy() { if (!url) return; await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+  return <details className="mb-5 rounded-xl border border-blue-200 bg-blue-50"><summary className="cursor-pointer p-4 font-semibold text-blue-900"><span className="inline-flex items-center gap-2"><PlugZap className="h-4 w-4" /> Conectar entrada automática de leads</span></summary><div className="border-t border-blue-200 p-4 text-sm"><p className="mb-3 text-slate-600">Guarda primero los objetivos de la cuenta. Después conecta esta URL como webhook POST en Meta, Make o el CRM. Cada lead se registrará de forma idempotente usando su ID externo.</p>{!url ? <button onClick={() => void reveal()} className="rounded bg-blue-700 px-3 py-2 font-semibold text-white">Generar/ver URL segura</button> : <div className="flex gap-2"><input readOnly value={url} className="min-w-0 flex-1 rounded border bg-white px-3 py-2 font-mono text-xs" /><button onClick={() => void copy()} className="inline-flex items-center gap-1 rounded bg-slate-900 px-3 py-2 font-semibold text-white">{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? "Copiada" : "Copiar"}</button></div>}{message && <p className="mt-2 text-amber-800">{message}</p>}<p className="mt-3 text-xs text-slate-500">Credencial sensible: sólo administradores pueden verla. Si se comparte, debe regenerarse.</p></div></details>;
+}

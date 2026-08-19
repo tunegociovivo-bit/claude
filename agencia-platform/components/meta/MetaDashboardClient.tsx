@@ -9,6 +9,7 @@ import MetaAttributionPanel from "@/components/meta/MetaAttributionPanel";
 import MetaDirectorPanel from "@/components/meta/MetaDirectorPanel";
 import MetaIntelligencePanel from "@/components/meta/MetaIntelligencePanel";
 import MetaCreativeLab from "@/components/meta/MetaCreativeLab";
+import MetaIngestionSetup from "@/components/meta/MetaIngestionSetup";
 
 type Account = { id: string; name: string; currency: string; connectionId: string; connectionName: string };
 type Campaign = { id: string; name: string; objective?: string | null; leads: number; spend: number; cpl: number | null; ctr: number; impressions: number };
@@ -101,6 +102,7 @@ export default function MetaDashboardClient() {
       </div>
 
       {account && <MetaAttributionPanel accountId={account.id} accountName={account.name} connectionId={account.connectionId} campaigns={data.campaigns} spend={data.summary.spend} />}
+      {account && <MetaIngestionSetup accountId={account.id} />}
       {account && <MetaDirectorPanel accountId={account.id} monitoring={data.summary} campaigns={data.campaigns} />}
       {account && <MetaIntelligencePanel accountId={account.id} accountName={account.name} monitoring={data.summary} />}
       {account && <MetaCreativeLab accountId={account.id} campaigns={data.campaigns} monitoring={data.summary} />}
