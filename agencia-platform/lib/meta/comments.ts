@@ -63,6 +63,28 @@ export function isOwnMetaComment(comment: { platform?: string; from?: { id?: str
   return Boolean(comment.from?.id && pages.facebookAuthorIds.has(String(comment.from.id)));
 }
 
+type MetaReply = { id: string; createdAt: Date };
+
+export function findOwnMetaReply(
+  rawComment: any,
+  platform: "facebook" | "instagram",
+  pages: Pick<AuthorizedMetaPages, "facebookAuthorIds" | "instagramUsernames">,
+  publicationOwnerId?: string | null
+): MetaReply | null {
+  const rawReplies = platform === "instagram" ? rawComment?.replies?.data : rawComment?.comments?.data;
+  if (!Array.isArray(rawReplies)) return null;
+  const ownReplies = rawReplies.flatMap((raw: any) => {
+    const reply = platform === "instagram"
+      ? { ...raw, platform, from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp }
+      : { ...raw, platform };
+    const createdAt = new Date(reply.created_time);
+    return reply.id && Number.isFinite(createdAt.getTime()) && isOwnMetaComment(reply, pages, publicationOwnerId)
+      ? [{ id: String(reply.id), createdAt }]
+      : [];
+  });
+  return ownReplies.sort((left: MetaReply, right: MetaReply) => left.createdAt.getTime() - right.createdAt.getTime())[0] ?? null;
+}
+
 type Range = { from: Date; to: Date };
 type Analysis = { id: string; sentiment: string; reason: string; draft: string };
 
@@ -110,6 +132,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       data: { deletedAt: new Date(), status: "ignored_self" }
     });
     const discovered: any[] = [];
+    const repliesByCommentId = new Map<string, MetaReply>();
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
     for (const ad of ads) {
@@ -125,7 +148,9 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       if (targets.length === 0) adsWithoutPost++;
       for (const target of targets) {
         if (target.platform === "instagram") instagramTargets++; else facebookTargets++;
-        const fields = target.platform === "instagram" ? "id,text,username,timestamp" : "id,message,from{id,name},created_time";
+        const fields = target.platform === "instagram"
+          ? "id,text,username,timestamp,replies.limit(100){id,text,username,timestamp}"
+          : "id,message,from{id,name},created_time,comments.limit(100){id,message,from{id,name},created_time}";
         const filter = target.platform === "facebook" ? "&filter=stream" : "";
         const comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
         for (const raw of comments) {
@@ -135,6 +160,8 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
             ownExternalIds.add(String(comment.id));
             continue;
           }
+          const ownReply = findOwnMetaReply(raw, target.platform, authorizedPages, target.ownerId);
+          if (ownReply) repliesByCommentId.set(String(comment.id), ownReply);
           const createdAt = new Date(comment.created_time);
           if (range && (createdAt < range.from || createdAt > range.to)) continue;
           discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: ad.id, adName: ad.name });
@@ -148,6 +175,12 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       });
     }
     const unique = [...new Map(discovered.map((item) => [String(item.id), item])).values()];
+    if (repliesByCommentId.size) {
+      await prisma.$transaction([...repliesByCommentId].map(([externalCommentId, reply]) => prisma.metaAdComment.updateMany({
+        where: { workspaceId, externalCommentId, deletedAt: null },
+        data: { status: "replied", repliedAt: reply.createdAt, externalReplyId: reply.id }
+      })));
+    }
     const existing = unique.length ? await prisma.metaAdComment.findMany({ where: { workspaceId, externalCommentId: { in: unique.map((item) => String(item.id)) } }, select: { externalCommentId: true } }) : [];
     const existingIds = new Set(existing.map((item) => item.externalCommentId));
     const pending = unique.filter((item) => !existingIds.has(String(item.id)));
@@ -161,7 +194,12 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         workspaceId, feedId: feed.id, externalCommentId: String(item.id), postId: item.postId, platform: item.platform ?? "facebook",
         adId: item.adId, adName: item.adName, authorName: item.from?.name ?? null, authorId: item.from?.id ?? null,
         message: item.message ?? "", sentiment: analysis.sentiment, sentimentReason: analysis.reason?.slice(0, 300),
-        aiDraft: analysis.draft?.slice(0, 2000), commentCreatedAt: new Date(item.created_time)
+        aiDraft: analysis.draft?.slice(0, 2000), commentCreatedAt: new Date(item.created_time),
+        ...(repliesByCommentId.get(String(item.id)) ? {
+          status: "replied",
+          repliedAt: repliesByCommentId.get(String(item.id))!.createdAt,
+          externalReplyId: repliesByCommentId.get(String(item.id))!.id
+        } : {})
       }});
       created++;
       notificationJobs.push(notifyNewComment(workspaceId, row.id, feed.displayName || clientName, feed.campaignName, row.authorName, row.message, row.sentiment === "negative"));
