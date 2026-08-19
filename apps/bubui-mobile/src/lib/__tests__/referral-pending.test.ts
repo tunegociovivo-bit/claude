@@ -65,7 +65,7 @@ describe("Install Referrer", () => {
     m.initReferralCapture();
     await m.waitForReferrerCapture(); // debe resolver por señal, no por timeout
     expect(await m.getPendingRef()).toBe("ABC123");
-    expect(H.store.get("bubui.installReferrerChecked")).toBe("1");
+    expect(H.store.get("bubui.installReferrerChecked")).toBeUndefined();
   });
 
   it("referrer DESPUÉS del registro (tardío): con sesión ya iniciada se aplica al momento", async () => {
@@ -105,6 +105,31 @@ describe("deep link (app ya instalada)", () => {
     m.initReferralCapture();
     await flush();
     expect(H.api.applyReferral).toHaveBeenCalledWith("cust-2", "XYZ789");
+  });
+});
+
+describe("restored backup and late challenge referral", () => {
+  it("reads a new contextual referrer even if Android restored the old checked flag", async () => {
+    H.store.set("bubui.installReferrerChecked", "1");
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
+    const m = await freshModule();
+    m.initReferralCapture();
+    await m.waitForReferrerCapture();
+    expect(await m.getPendingRef()).toBe("ABC123|offer12345678");
+  });
+
+  it("notifies onboarding when a contextual referral arrives after the initial wait", async () => {
+    let fire: any = null;
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => { fire = cb; });
+    const m = await freshModule();
+    const seen: string[] = [];
+    const off = m.onReferralCaptured((ref: string) => seen.push(ref));
+    m.initReferralCapture();
+    await flush();
+    fire({ installReferrer: "challenge_ABC123_offer12345678" }, null);
+    await flush();
+    expect(seen).toEqual(["ABC123|offer12345678"]);
+    off();
   });
 });
 
