@@ -49,6 +49,15 @@ describe("tryMetaTokenCandidates", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it("rotates on Meta code 10 application permission errors", async () => {
+    const request = vi.fn(async (token: string) => {
+      if (token === "limited-app") throw new Error('Meta Ads 400: {"error":{"message":"(#10) Application does not have permission for this action","code":10}}');
+      return token;
+    });
+    await expect(tryMetaTokenCandidates(["limited-app", "full-app"], request)).resolves.toBe("full-app");
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("does not hide a non-credential error by rotating tokens", async () => {
     const request = vi.fn(async () => {
       throw new Error("Meta Ads 429: rate limit");

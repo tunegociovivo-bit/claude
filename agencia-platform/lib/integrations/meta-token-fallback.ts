@@ -1,5 +1,5 @@
 const TOKEN_ACCESS_ERROR =
-  /unsupported get request|missing permissions?|has not grant(?:ed)? (?:ads_management|ads_read)|does not exist|invalid oauth|oauth(?:access)?token|error validating access token|session has expired|\"code\"\s*:\s*190/i;
+  /unsupported get request|missing permissions?|has not grant(?:ed)? (?:ads_management|ads_read)|application does not have permission for this action|does not exist|invalid oauth|oauth(?:access)?token|error validating access token|session has expired|\"code\"\s*:\s*(?:10|190)/i;
 
 /** Rotate only when the credential cannot access the requested Meta object. */
 export async function tryMetaTokenCandidates<T>(
