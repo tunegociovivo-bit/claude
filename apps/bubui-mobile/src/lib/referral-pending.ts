@@ -19,6 +19,7 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingRef";
+const SOURCE_KEY = "bubui.pendingRefSource";
 const IR_RECEIPT_KEY = "bubui.installReferrerReceipt";
 const capturedListeners = new Set<(ref: string) => void>();
 export function onReferralCaptured(fn: (ref: string) => void): () => void {
@@ -82,6 +83,7 @@ async function storeIfEmpty(code: string): Promise<void> {
 async function captureFromUrl(url: string | null): Promise<void> {
   const code = parseRefFromString(url);
   if (!code) return;
+  await AsyncStorage.setItem(SOURCE_KEY, "deeplink").catch(() => {});
   await storePendingRef(code); // deep link = intención directa, prevalece
   signalReferrerDone(); // ya hay código: el alta no necesita esperar más
   // Con sesión ya iniciada, vincula al momento (mismo patrón que los retos).
@@ -146,7 +148,12 @@ async function captureInstallReferrerOnce(): Promise<void> {
         if (!code) { signalReferrerDone(); return; }
         // Un referrer de instalaciÃ³n nuevo y distinto sustituye cualquier
         // pendiente antiguo; solo lo marcamos consumido tras persistirlo.
-        await storePendingRef(code);
+        const source = await AsyncStorage.getItem(SOURCE_KEY).catch(() => null);
+        if (source !== "deeplink") {
+          await AsyncStorage.setItem(KEY, code).catch(() => {});
+          if ((await getPendingRef()) !== code) { signalReferrerDone(); return; }
+          await AsyncStorage.setItem(SOURCE_KEY, "install-referrer").catch(() => {});
+        }
         await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
         notifyReferralCaptured(code);
         signalReferrerDone(); // código ya persistido → el alta puede leerlo

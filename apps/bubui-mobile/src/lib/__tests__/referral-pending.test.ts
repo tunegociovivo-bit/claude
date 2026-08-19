@@ -152,6 +152,16 @@ describe("restored backup and late challenge referral", () => {
     await m.waitForReferrerCapture();
     expect(await m.getPendingRef()).toBe("ABC123|offer12345678");
   });
+
+  it("keeps a recent deep-link intent over an historical Play referrer", async () => {
+    H.store.set("bubui.pendingRef", "LIVE99|liveoffer123");
+    H.store.set("bubui.pendingRefSource", "deeplink");
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
+    const m = await freshModule();
+    m.initReferralCapture();
+    await m.waitForReferrerCapture();
+    expect(await m.getPendingRef()).toBe("LIVE99|liveoffer123");
+  });
 });
 
 describe("applyPendingRef — el pendiente solo se descarta con resultado TERMINAL", () => {

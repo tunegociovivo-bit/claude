@@ -242,4 +242,14 @@ describe("late Install Referrer and restored Android backup", () => {
     await m.waitForDealCapture();
     expect(await m.getPendingDeal()).toBe(NEW_TOKEN);
   });
+
+  it("keeps a recent deep-link challenge over an historical Play referrer", async () => {
+    H.store.set("bubui.pendingDeal", NEW_TOKEN);
+    H.store.set("bubui.pendingDealSource", "deeplink");
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${TOKEN}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    expect(await m.getPendingDeal()).toBe(NEW_TOKEN);
+  });
 });
