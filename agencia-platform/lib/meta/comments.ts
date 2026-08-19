@@ -150,13 +150,19 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         if (target.platform === "instagram") instagramTargets++; else facebookTargets++;
         const fields = target.platform === "instagram"
           ? "id,text,username,timestamp,replies.limit(100){id,text,username,timestamp}"
-          : "id,message,from{id,name},created_time,comments.limit(100){id,message,from{id,name},created_time}";
+          : "id,message,from{id,name},created_time,parent{id},comments.limit(100){id,message,from{id,name},created_time}";
         const filter = target.platform === "facebook" ? "&filter=stream" : "";
         const comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
         for (const raw of comments) {
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
           comment.platform = target.platform;
           if (sentReplyIds.has(String(comment.id)) || isOwnMetaComment(comment, authorizedPages, target.ownerId)) {
+            if (raw.parent?.id && isOwnMetaComment(comment, authorizedPages, target.ownerId)) {
+              const replyCreatedAt = new Date(comment.created_time);
+              if (Number.isFinite(replyCreatedAt.getTime())) {
+                repliesByCommentId.set(String(raw.parent.id), { id: String(comment.id), createdAt: replyCreatedAt });
+              }
+            }
             ownExternalIds.add(String(comment.id));
             continue;
           }
