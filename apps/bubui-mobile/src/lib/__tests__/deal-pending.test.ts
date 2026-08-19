@@ -184,3 +184,41 @@ describe("observabilidad", () => {
     expect(stages).toContain("app_claim_ok");
   });
 });
+
+describe("late Install Referrer and restored Android backup", () => {
+  const NEW_TOKEN = "aaac414dd4505807";
+
+  it("notifies onboarding when the referrer arrives after its initial wait", async () => {
+    let fire: any = null;
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => { fire = cb; });
+    const m = await freshModule();
+    const seen: string[] = [];
+    const off = m.onDealCaptured((token: string) => seen.push(token));
+    m.initDealCapture();
+    await flush();
+    expect(seen).toEqual([]);
+    fire({ installReferrer: `reto_${NEW_TOKEN}` }, null);
+    await flush();
+    expect(seen).toEqual([NEW_TOKEN]);
+    off();
+  });
+
+  it("does not let a restored checked flag suppress a new challenge", async () => {
+    H.store.set("bubui.installReferrerDealChecked", "1");
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW_TOKEN}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    expect(await m.getPendingDeal()).toBe(NEW_TOKEN);
+  });
+
+  it("never persists the obsolete checked flag", async () => {
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW_TOKEN}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await flush();
+    expect(H.store.get("bubui.installReferrerDealChecked")).toBeUndefined();
+  });
+});
