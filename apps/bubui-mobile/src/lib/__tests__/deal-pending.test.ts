@@ -233,4 +233,13 @@ describe("late Install Referrer and restored Android backup", () => {
     await flush();
     expect(await m2.getPendingDeal()).toBeNull();
   });
+
+  it("a new Play referrer replaces an obsolete pending challenge", async () => {
+    H.store.set("bubui.pendingDeal", TOKEN);
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW_TOKEN}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    expect(await m.getPendingDeal()).toBe(NEW_TOKEN);
+  });
 });

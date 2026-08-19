@@ -112,8 +112,10 @@ async function captureInstallReferrerOnce(): Promise<void> {
         if (raw && previous === raw) { signalDealCaptureDone(); return; }
         const token = parseDealFromString(raw);
         if (!token) { signalDealCaptureDone(); return; }
+        // Un referrer de instalaciÃ³n nuevo y distinto sustituye cualquier
+        // reto pendiente antiguo; el recibo se escribe despuÃ©s del token.
+        await storePendingDeal(token);
         await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
-        await storeIfEmpty(token);
         signalDealCaptureDone(); // token persistido → el alta puede leerlo
         notifyDealCaptured(token);
         void api.traceDeal(token, "app_capture_install_referrer");

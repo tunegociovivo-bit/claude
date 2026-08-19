@@ -144,8 +144,10 @@ async function captureInstallReferrerOnce(): Promise<void> {
         if (raw && previous === raw) { signalReferrerDone(); return; }
         const code = parseRefFromString(raw);
         if (!code) { signalReferrerDone(); return; }
+        // Un referrer de instalaciÃ³n nuevo y distinto sustituye cualquier
+        // pendiente antiguo; solo lo marcamos consumido tras persistirlo.
+        await storePendingRef(code);
         await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
-        await storeIfEmpty(code);
         notifyReferralCaptured(code);
         signalReferrerDone(); // código ya persistido → el alta puede leerlo
         // Referrer tardío con sesión ya iniciada (o carrera con el alta):
