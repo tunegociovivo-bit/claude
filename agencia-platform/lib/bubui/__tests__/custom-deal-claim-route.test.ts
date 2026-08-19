@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const H = vi.hoisted(() => ({
   prisma: {
-    bubuiCustomDeal: { findUnique: vi.fn(), update: vi.fn() },
+    $transaction: vi.fn(),
+    bubuiCustomDeal: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     bubuiCustomer: { updateMany: vi.fn(), findUnique: vi.fn() },
     bubuiOffer: { create: vi.fn() }
   },
@@ -30,6 +31,7 @@ const TOKEN = "60df921bb7bdeb5d";
 beforeEach(() => {
   vi.clearAllMocks();
   H.authOk.mockResolvedValue(true);
+  H.prisma.$transaction.mockImplementation(async (fn: any) => fn(H.prisma));
   H.prisma.bubuiCustomDeal.findUnique.mockResolvedValue({
     id: "deal-1",
     token: TOKEN,
@@ -60,6 +62,31 @@ describe("POST claim de un /reto reenviado", () => {
     expect(H.ensureReferralCode).toHaveBeenCalledWith("owner-1");
     expect(H.applyReferral).toHaveBeenCalledWith("friend-1", "OWNER1", "offer-challenge-123");
     expect(body).toMatchObject({ ok: true, joinedAsFriend: true, referralCode: "OWNER1" });
+    expect(H.prisma.bubuiCustomDeal.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("reclamación inicial atómica", () => {
+  it("reserva el reto condicionalmente dentro de la misma transacción que crea la oferta", async () => {
+    H.prisma.bubuiCustomDeal.findUnique.mockResolvedValue({
+      id: "deal-1", token: TOKEN, businessId: "biz-1", claimedByCustomerId: null, offerId: null,
+      expiresAt: new Date(Date.now() + 60_000), clientDiscountPct: 30, friendsRequired: 5,
+      friendDiscountPct: 15, title: null, requiresPurchase: false
+    });
+    H.prisma.bubuiOffer.create.mockResolvedValue({ id: "offer-new" });
+    H.prisma.bubuiCustomDeal.updateMany.mockResolvedValue({ count: 1 });
+    const req = new Request(`https://bubui.app/api/bubui/custom-deal/${TOKEN}/claim`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: "owner-1" })
+    });
+
+    const res = await POST(req, { params: { token: TOKEN } });
+
+    expect(res.status).toBe(200);
+    expect(H.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(H.prisma.bubuiCustomDeal.updateMany).toHaveBeenCalledWith({
+      where: { id: "deal-1", claimedByCustomerId: null },
+      data: { claimedByCustomerId: "owner-1", claimedAt: expect.any(Date), offerId: "offer-new" }
+    });
     expect(H.prisma.bubuiCustomDeal.update).not.toHaveBeenCalled();
   });
 });
