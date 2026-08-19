@@ -83,6 +83,8 @@ async function storeIfEmpty(code: string): Promise<void> {
 async function captureFromUrl(url: string | null): Promise<void> {
   const code = parseRefFromString(url);
   if (!code) return;
+  await AsyncStorage.setItem(KEY, code).catch(() => {});
+  if ((await getPendingRef()) !== code) return;
   await AsyncStorage.setItem(SOURCE_KEY, "deeplink").catch(() => {});
   await storePendingRef(code); // deep link = intención directa, prevalece
   signalReferrerDone(); // ya hay código: el alta no necesita esperar más
@@ -149,6 +151,11 @@ async function captureInstallReferrerOnce(): Promise<void> {
         // Un referrer de instalaciÃ³n nuevo y distinto sustituye cualquier
         // pendiente antiguo; solo lo marcamos consumido tras persistirlo.
         const source = await AsyncStorage.getItem(SOURCE_KEY).catch(() => null);
+        if (source === "deeplink") {
+          await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
+          signalReferrerDone();
+          return;
+        }
         if (source !== "deeplink") {
           await AsyncStorage.setItem(KEY, code).catch(() => {});
           if ((await getPendingRef()) !== code) { signalReferrerDone(); return; }
