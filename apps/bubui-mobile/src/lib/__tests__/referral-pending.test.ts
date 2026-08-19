@@ -143,6 +143,15 @@ describe("restored backup and late challenge referral", () => {
     await flush();
     expect(await m2.getPendingRef()).toBeNull();
   });
+
+  it("a new Play referrer replaces an obsolete pending referral", async () => {
+    H.store.set("bubui.pendingRef", "OLD999|oldoffer123");
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
+    const m = await freshModule();
+    m.initReferralCapture();
+    await m.waitForReferrerCapture();
+    expect(await m.getPendingRef()).toBe("ABC123|offer12345678");
+  });
 });
 
 describe("applyPendingRef — el pendiente solo se descarta con resultado TERMINAL", () => {
