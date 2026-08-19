@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Bot, Loader2, Megaphone, MessageSquare, RefreshCw, Sparkles, Target } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -50,6 +50,7 @@ export default function MetaDashboardClient() {
   const initialPeriod = useMemo(defaultPeriod, []);
   const [since, setSince] = useState(initialPeriod.since);
   const [until, setUntil] = useState(initialPeriod.until);
+  const monitoringRequest = useRef(0);
   const account = useMemo(() => accounts.find((item) => `${item.connectionId}:${item.id}` === selected), [accounts, selected]);
 
   const loadAccounts = useCallback(async () => {
@@ -66,15 +67,16 @@ export default function MetaDashboardClient() {
   }, []);
 
   const loadMonitoring = useCallback(async (chosen: Account) => {
+    const requestId = ++monitoringRequest.current;
     setLoading(true); setError(null); setAi([]);
     try {
       const params = new URLSearchParams({ accountId: chosen.id, connectionId: chosen.connectionId, since, until });
       const response = await fetch(`/api/v1/meta-monitoring?${params}`, { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body?.error?.message ?? "No se pudo analizar la cuenta");
-      setData(body);
-    } catch (cause: any) { setError(String(cause?.message ?? cause)); setData(null); }
-    finally { setLoading(false); }
+      if (requestId === monitoringRequest.current) setData(body);
+    } catch (cause: any) { if (requestId === monitoringRequest.current) { setError(String(cause?.message ?? cause)); setData(null); } }
+    finally { if (requestId === monitoringRequest.current) setLoading(false); }
   }, [since, until]);
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
