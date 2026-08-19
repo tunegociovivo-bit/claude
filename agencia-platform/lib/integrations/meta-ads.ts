@@ -385,6 +385,7 @@ export async function metaAdsGetCampaignDailyInsights(opts: {
   workspaceId: string;
   campaignId: string;
   days?: number;
+  resultActionTypes?: string[];
   adhoc?: Record<string, string>;
 }): Promise<Array<{ date: string; spend: number; leads: number }>> {
   const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
@@ -400,9 +401,10 @@ export async function metaAdsGetCampaignDailyInsights(opts: {
   );
   return (data.data ?? []).map((row: any) => {
     const leads = Array.isArray(row.actions)
-      ? row.actions
-          .filter((a: any) => /lead/i.test(String(a.action_type ?? "")))
-          .reduce((s: number, a: any) => s + Number(a.value ?? 0), 0)
+      ? (opts.resultActionTypes ?? ["lead"])
+          .map((type) => row.actions.find((a: any) => String(a.action_type ?? "").toLowerCase() === type.toLowerCase()))
+          .filter(Boolean)
+          .map((action: any) => Number(action.value ?? 0))[0] ?? 0
       : 0;
     return { date: String(row.date_start ?? ""), spend: Number(row.spend ?? 0), leads };
   });

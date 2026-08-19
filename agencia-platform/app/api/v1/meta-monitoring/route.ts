@@ -3,15 +3,12 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { readMetaTokenByConnection } from "@/lib/meta/connection";
-import { metaAdsGetCampaignDailyInsights, metaAdsGetCampaignInsights, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
+import { metaAdsGetCampaignDailyInsights, metaAdsGetCampaignInsights, metaAdsListAdsets, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { completeJson } from "@/lib/ai/anthropic";
 import { buildFortnightBuckets, buildMonitoringRecommendations } from "@/lib/meta/monitoring";
+import { metaResultActionCandidates, metaResultValue } from "@/lib/meta/results";
 
 export const dynamic = "force-dynamic";
-
-function leadCount(actions: any) {
-  return Array.isArray(actions) ? actions.filter((action: any) => /lead/i.test(String(action.action_type ?? ""))).reduce((sum: number, action: any) => sum + Number(action.value ?? 0), 0) : 0;
-}
 
 export const GET = withApi({}, async (req, { api }) => {
   const url = new URL(req.url); const accountId = url.searchParams.get("accountId"); const connectionId = url.searchParams.get("connectionId");
@@ -32,11 +29,13 @@ export const GET = withApi({}, async (req, { api }) => {
       && (!stopsAt || Number.isNaN(stopsAt) || stopsAt >= now);
   });
   const enriched = await Promise.all(campaigns.slice(0, 12).map(async (campaign: any) => {
-    const [daily, totals] = await Promise.all([
-      metaAdsGetCampaignDailyInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), days: 90, adhoc }).catch(() => []),
+    const [adsets, totals] = await Promise.all([
+      metaAdsListAdsets({ workspaceId: api.workspaceId, campaignId: String(campaign.id), adhoc }).catch(() => []),
       metaAdsGetCampaignInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), datePreset: "last_30d", adhoc }).catch(() => null)
     ]);
-    const leads = leadCount(totals?.actions); const spend = Number(totals?.spend ?? 0);
+    const resultActionTypes = metaResultActionCandidates(adsets, campaign.objective);
+    const daily = await metaAdsGetCampaignDailyInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), days: 90, resultActionTypes, adhoc }).catch(() => []);
+    const leads = metaResultValue(totals?.actions, resultActionTypes); const spend = Number(totals?.spend ?? 0);
     return { id: String(campaign.id), name: String(campaign.name), objective: campaign.objective, leads, spend, cpl: leads > 0 ? spend / leads : null, ctr: Number(totals?.ctr ?? 0), impressions: Number(totals?.impressions ?? 0), daily };
   }));
   const buckets = buildFortnightBuckets(enriched.flatMap((campaign) => campaign.daily));
