@@ -342,7 +342,10 @@ export async function metaAdsListCampaigns(opts: {
     );
     for (const [id, status] of Object.entries(result ?? {})) freshStatuses.set(id, status);
   }
-  return campaigns.map((campaign: any) => ({ ...campaign, ...(freshStatuses.get(String(campaign.id)) ?? {}) }));
+  const refreshed = campaigns.map((campaign: any) => ({ ...campaign, ...(freshStatuses.get(String(campaign.id)) ?? {}) }));
+  if (!opts.status) return refreshed;
+  const field = opts.statusField ?? "effective_status";
+  return refreshed.filter((campaign: any) => String(campaign[field] ?? "").toUpperCase() === opts.status);
 }
 
 export async function metaAdsGetCampaignInsights(opts: {
