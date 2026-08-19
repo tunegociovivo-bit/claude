@@ -19,7 +19,18 @@ export const GET = withApi({}, async (req, { api }) => {
   const token = await readMetaTokenByConnection(api.workspaceId, connectionId);
   if (!token) throw new ApiError(400, "meta_not_connected", "La conexión Meta ya no está disponible");
   const adhoc = { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: accountId };
-  const campaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 50, refreshStatuses: true, adhoc });
+  const listedCampaigns = await metaAdsListCampaigns({ workspaceId: api.workspaceId, status: "ACTIVE", statusField: "effective_status", limit: 50, refreshStatuses: true, adhoc });
+  // Meta's `effective_status` can remain ACTIVE when a campaign has been
+  // switched off in Ads Manager. The campaign toggle is represented by
+  // `configured_status`; use it as the final source of truth for the count.
+  const now = Date.now();
+  const campaigns = listedCampaigns.filter((campaign: any) => {
+    const startsAt = campaign.start_time ? Date.parse(campaign.start_time) : null;
+    const stopsAt = campaign.stop_time ? Date.parse(campaign.stop_time) : null;
+    return String(campaign.configured_status ?? "").toUpperCase() === "ACTIVE"
+      && (!startsAt || Number.isNaN(startsAt) || startsAt <= now)
+      && (!stopsAt || Number.isNaN(stopsAt) || stopsAt >= now);
+  });
   const enriched = await Promise.all(campaigns.slice(0, 12).map(async (campaign: any) => {
     const [daily, totals] = await Promise.all([
       metaAdsGetCampaignDailyInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), days: 90, adhoc }).catch(() => []),
