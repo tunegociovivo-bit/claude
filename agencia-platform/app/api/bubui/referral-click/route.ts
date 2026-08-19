@@ -16,7 +16,10 @@ import { hashIpFromHeaders } from "@/lib/bubui/referral-click";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({ code: z.string().trim().min(4).max(12) });
+const schema = z.object({
+  code: z.string().trim().min(4).max(12),
+  offerId: z.string().min(8).max(64).optional()
+});
 
 export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
@@ -24,6 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   }
   const code = parsed.data.code.toUpperCase();
+  const offerId = parsed.data.offerId ?? null;
   const ipHash = hashIpFromHeaders(req.headers);
   if (!ipHash) return NextResponse.json({ ok: true }); // sin IP no hay match posible
   const uaRaw = req.headers.get("user-agent") ?? "";
@@ -31,11 +35,11 @@ export async function POST(req: Request) {
 
   const hourAgo = new Date(Date.now() - 3600_000);
   const dup = await prisma.bubuiReferralClick.findFirst({
-    where: { code, ipHash, createdAt: { gt: hourAgo } },
+    where: { code, offerId, ipHash, createdAt: { gt: hourAgo } },
     select: { id: true }
   });
   if (!dup) {
-    await prisma.bubuiReferralClick.create({ data: { code, ipHash, ua } }).catch(() => {});
+    await prisma.bubuiReferralClick.create({ data: { code, offerId, ipHash, ua } }).catch(() => {});
   }
   return NextResponse.json({ ok: true });
 }

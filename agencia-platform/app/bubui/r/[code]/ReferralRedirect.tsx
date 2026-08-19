@@ -55,7 +55,7 @@ export default function ReferralRedirect({ code, offerId }: { code: string; offe
     fetch("/api/bubui/referral-click", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code })
+      body: JSON.stringify({ code, offerId })
     }).catch(() => {});
 
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -65,7 +65,7 @@ export default function ReferralRedirect({ code, offerId }: { code: string; offe
     setOs(isAndroid ? "android" : "ios");
     tryOpenApp(); // con la app instalada, entra directo
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code]);
+  }, [code, offerId]);
 
   if (!triedApp) return null; // abriendo la app / esperando el intento
 

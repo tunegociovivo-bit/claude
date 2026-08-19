@@ -26,7 +26,14 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingDeal";
-const IR_DONE = "bubui.installReferrerDealChecked";
+const capturedListeners = new Set<(token: string) => void>();
+export function onDealCaptured(fn: (token: string) => void): () => void {
+  capturedListeners.add(fn);
+  return () => capturedListeners.delete(fn);
+}
+function notifyDealCaptured(token: string): void {
+  capturedListeners.forEach((fn) => { try { fn(token); } catch {} });
+}
 
 // Readiness de la captura del reto: el alta espera (acotado) a que termine.
 let irSignal: (() => void) | null = null;
@@ -71,6 +78,7 @@ async function captureFromUrl(url: string | null): Promise<void> {
   if (!token) return;
   await storePendingDeal(token); // deep link = intención directa, prevalece
   signalDealCaptureDone(); // ya hay token: el alta no necesita esperar más
+  notifyDealCaptured(token);
   void api.traceDeal(token, "app_capture_deeplink");
   // Reclamo INMEDIATO si ya hay sesión (evita esperar al siguiente arranque).
   try {
@@ -86,7 +94,6 @@ async function captureFromUrl(url: string | null): Promise<void> {
  */
 async function captureInstallReferrerOnce(): Promise<void> {
   try {
-    if (await AsyncStorage.getItem(IR_DONE)) { signalDealCaptureDone(); return; }
     let mod: any = null;
     try {
       mod = pirLoader();
@@ -98,12 +105,12 @@ async function captureInstallReferrerOnce(): Promise<void> {
     if (!PIR?.getInstallReferrerInfo) { signalDealCaptureDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
       if (err) { signalDealCaptureDone(); return; } // transitorio → reintento próximo arranque
-      void AsyncStorage.setItem(IR_DONE, "1").catch(() => {});
       const token = parseDealFromString(info?.installReferrer);
       if (!token) { signalDealCaptureDone(); return; }
       void (async () => {
         await storeIfEmpty(token);
         signalDealCaptureDone(); // token persistido → el alta puede leerlo
+        notifyDealCaptured(token);
         void api.traceDeal(token, "app_capture_install_referrer");
         // Referrer tardío con sesión ya iniciada: aplica al momento.
         try {
@@ -122,10 +129,19 @@ let inited = false;
 export function initDealCapture(): void {
   if (inited) return;
   inited = true;
-  Linking.getInitialURL().then(captureFromUrl).catch(() => {});
   Linking.addEventListener("url", (e) => { void captureFromUrl(e.url); });
-  if (Platform.OS === "android") void captureInstallReferrerOnce();
-  else signalDealCaptureDone(); // sin Install Referrer fuera de Android
+  void Linking.getInitialURL()
+    .then(async (url) => {
+      await captureFromUrl(url);
+      if (!parseDealFromString(url)) {
+        if (Platform.OS === "android") await captureInstallReferrerOnce();
+        else signalDealCaptureDone();
+      }
+    })
+    .catch(() => {
+      if (Platform.OS === "android") void captureInstallReferrerOnce();
+      else signalDealCaptureDone();
+    });
 }
 
 /**

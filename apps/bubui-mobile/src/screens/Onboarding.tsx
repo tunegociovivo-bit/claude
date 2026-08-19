@@ -9,8 +9,8 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
-import { getPendingRef, applyPendingRef, waitForReferrerCapture } from "../lib/referral-pending";
-import { claimPendingDeal, getPendingDeal, waitForDealCapture } from "../lib/deal-pending";
+import { getPendingRef, applyPendingRef, waitForReferrerCapture, onReferralCaptured } from "../lib/referral-pending";
+import { claimPendingDeal, getPendingDeal, waitForDealCapture, onDealCaptured } from "../lib/deal-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { Video, ResizeMode } from "expo-av";
@@ -51,12 +51,10 @@ export function Onboarding() {
   const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
   useEffect(() => {
     let alive = true;
-    (async () => {
-      // Espera (acotada) a que la captura del token termine antes de decidir.
-      await waitForDealCapture();
-      const token = await getPendingDeal();
-      if (!token || !alive) return;
-      // Vamos directos al registro (nunca invitado con un reto pendiente).
+    let appliedToken: string | null = null;
+    async function applyDeal(token: string) {
+      if (!alive || appliedToken === token) return;
+      appliedToken = token;
       setStep(INTRO_STEP_COUNT + 1);
       setOtpStep("form");
       try {
@@ -65,17 +63,23 @@ export function Onboarding() {
         void api.traceDeal(token, "app_onboarding_shown");
         setPendingDeal({ token, businessName: d.businessName, clientDiscountPct: d.clientDiscountPct, title: d.title, friendsRequired: d.friendsRequired });
       } catch {
-        // Aunque no podamos cargar el detalle, mantenemos el registro forzado.
         if (alive) setPendingDeal({ token, businessName: "el negocio", clientDiscountPct: 0, title: null, friendsRequired: 0 });
       }
+    }
+    void (async () => {
+      await waitForDealCapture();
+      const token = await getPendingDeal();
+      if (token) await applyDeal(token);
     })();
-    return () => { alive = false; };
+    const off = onDealCaptured((token) => { void applyDeal(token); });
+    return () => { alive = false; off(); };
   }, []);
   useEffect(() => {
     let alive = true;
-    (async () => {
-      await waitForReferrerCapture();
-      const pending = await getPendingRef();
+    let appliedRef: string | null = null;
+    async function applyInvite(pending: string) {
+      if (!alive || appliedRef === pending) return;
+      appliedRef = pending;
       const [refCode, offerId] = (pending ?? "").split("|", 2);
       if (!refCode || !offerId) return;
       setStep(INTRO_STEP_COUNT + 1);
@@ -86,8 +90,14 @@ export function Onboarding() {
       } catch {
         if (alive) setPendingInvite({ code: refCode, offerId, businessName: "el negocio", friendDiscountPct: 0, friendTitle: null });
       }
+    }
+    void (async () => {
+      await waitForReferrerCapture();
+      const pending = await getPendingRef();
+      if (pending) await applyInvite(pending);
     })();
-    return () => { alive = false; };
+    const off = onReferralCaptured((pending) => { void applyInvite(pending); });
+    return () => { alive = false; off(); };
   }, []);
   // Animación de "latido" para llamar la atención sobre el CTA "Empezar ahora".
   const ctaPulse = useRef(new Animated.Value(1)).current;
@@ -195,17 +205,6 @@ export function Onboarding() {
         postalCode: postalCode.trim(),
         ref
       });
-      // OJO: NO limpiamos el ref pendiente aquí — la vinculación de
-      // verify-otp puede fallar silenciosamente en el servidor. El Feed
-      // reintenta con applyPendingRef (idempotente) y limpia al confirmar.
-      void applyPendingRef(r.customerId);
-      // Reto: espera (acotada) a que la captura del token termine ANTES de
-      // reclamar, para cerrar la carrera captura/alta (antes se reclamaba sin
-      // esperar y en instalación diferida el token aún no estaba guardado).
-      await waitForDealCapture();
-      await claimPendingDeal(r.customerId);
-      try { await Location.requestForegroundPermissionsAsync(); } catch {}
-      try { await Notifications.requestPermissionsAsync(); } catch {}
       await saveSession({
         customerId: r.customerId,
         name: r.name,
@@ -214,6 +213,17 @@ export function Onboarding() {
         totalPurchases: r.totalPurchases ?? 0,
         token: r.token
       });
+      // OJO: NO limpiamos el ref pendiente aquí — la vinculación de
+      // verify-otp puede fallar silenciosamente en el servidor. El Feed
+      // reintenta con applyPendingRef (idempotente) y limpia al confirmar.
+      await applyPendingRef(r.customerId);
+      // Reto: espera (acotada) a que la captura del token termine ANTES de
+      // reclamar, para cerrar la carrera captura/alta (antes se reclamaba sin
+      // esperar y en instalación diferida el token aún no estaba guardado).
+      await waitForDealCapture();
+      await claimPendingDeal(r.customerId);
+      try { await Location.requestForegroundPermissionsAsync(); } catch {}
+      try { await Notifications.requestPermissionsAsync(); } catch {}
       sfx.success();
       nav.reset({ index: 0, routes: [{ name: "Feed" }] });
     } catch (e: any) {

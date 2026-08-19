@@ -5299,6 +5299,7 @@ model BubuiSocialFollow {
 model BubuiReferralClick {
   id        String   @id @default(cuid())
   code      String
+  offerId   String?
   ipHash    String // sha256 de la IP — no guardamos la IP en claro
   ua        String? // plataforma coarse (android/ios/other) para afinar el match
   createdAt DateTime @default(now())

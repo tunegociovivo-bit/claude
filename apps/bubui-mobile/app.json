@@ -64,6 +64,26 @@
               "scheme": "https",
               "host": "www.bubui.app",
               "pathPrefix": "/scan"
+            },
+            {
+              "scheme": "https",
+              "host": "bubui.app",
+              "pathPrefix": "/reto"
+            },
+            {
+              "scheme": "https",
+              "host": "www.bubui.app",
+              "pathPrefix": "/reto"
+            },
+            {
+              "scheme": "https",
+              "host": "bubui.app",
+              "pathPrefix": "/bubui/r"
+            },
+            {
+              "scheme": "https",
+              "host": "www.bubui.app",
+              "pathPrefix": "/bubui/r"
             }
           ],
           "category": [
@@ -135,7 +155,8 @@
       "./plugins/withReleaseSigning",
       "./plugins/withFmtConstevalFix",
       "./plugins/withOptionalGoogleServices",
-      "./plugins/withIosNotificationServiceExtension"
+      "./plugins/withIosNotificationServiceExtension",
+      "./plugins/withDisableAndroidBackup"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",

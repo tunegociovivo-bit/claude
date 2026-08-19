@@ -53,16 +53,19 @@ async function sessionFrom(c: { id: string; name: string | null; totalSaved: num
  */
 async function linkReferral(customerId: string, ref: string | undefined, headers: Headers): Promise<void> {
   let code = ref ?? null;
+  let offerId: string | undefined;
   let via = "app";
   if (!code) {
-    code = await findRecentReferralClick(headers).catch(() => null);
+    const click = await findRecentReferralClick(headers).catch(() => null);
+    code = click?.code ?? null;
+    offerId = click?.offerId ?? undefined;
     via = "ip-fallback";
   }
   if (!code) {
     console.log(`[verify-otp] referral customer=${customerId} via=${via} code=NONE`);
     return;
   }
-  const result = await applyReferral(customerId, code).catch((e) => {
+  const result = await applyReferral(customerId, code, offerId).catch((e) => {
     console.error("[verify-otp] applyReferral falló:", e?.message);
     return null;
   });
@@ -107,6 +110,8 @@ export async function POST(req: Request) {
   if (byPhone) {
     try {
       const updated = await prisma.bubuiCustomer.update({ where: { id: byPhone.id }, data: { phoneVerified: true, ...profile } });
+      await ensureReferralCode(updated.id);
+      await linkReferral(updated.id, d.ref, req.headers);
       return sessionFrom(updated, true);
     } catch (e: any) {
       if (e?.code === "P2002") {
