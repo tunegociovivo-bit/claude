@@ -43,10 +43,30 @@ export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAcc
   const sinceDate = latest ? new Date(latest.occurredAt.getTime() - 7 * 86_400_000) : new Date(Date.now() - 90 * 86_400_000);
   const since = sinceDate.toISOString().slice(0, 10);
   const until = new Date().toISOString().slice(0, 10);
-  let campaigns = opts.campaigns?.filter((campaign) => campaign.id && campaign.name) ?? previousState.campaigns ?? [];
-  if (!campaigns.length) {
+  let campaigns: CampaignRef[] = [];
+  try {
     const listed = await metaAdsListCampaigns({ workspaceId: opts.workspaceId, status: "ACTIVE", statusField: "effective_status", refreshStatuses: true, limit: 100, adhoc });
     campaigns = listed.filter((campaign: any) => String(campaign.configured_status ?? "").toUpperCase() === "ACTIVE").map((campaign: any) => ({ id: String(campaign.id), name: String(campaign.name) }));
+    const validIds = new Set(campaigns.map((campaign) => campaign.id));
+    const staleIds = (previousState.campaigns ?? []).map((campaign) => campaign.id).filter((id) => !validIds.has(id));
+    if (staleIds.length && previousState.lastAt) {
+      const bugWindowStart = new Date(new Date(previousState.lastAt).getTime() - 15 * 60_000);
+      await prisma.metaLeadAttribution.deleteMany({
+        where: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, source: "meta", status: "new", campaignId: { in: staleIds }, createdAt: { gte: bugWindowStart } }
+      });
+    }
+    // Nunca confiamos en IDs de campaña enviados por el navegador. La lista
+    // validada contra la cuenta evita mezclar leads al cambiar de cliente.
+    const requested = new Set((opts.campaigns ?? []).map((campaign) => campaign.id));
+    if (requested.size) campaigns = campaigns.filter((campaign) => requested.has(campaign.id));
+  } catch (error: any) {
+    const message = String(error?.message ?? error);
+    if (/request limit reached|demasiadas llamadas|code.?17|2446079/i.test(message)) {
+      const nextAt = new Date(Date.now() + 60 * 60_000).toISOString();
+      await saveSyncState(opts.workspaceId, opts.adAccountId, profile?.alertRules, { ...previousState, nextAt, lastError: "Meta ha limitado temporalmente las consultas; reintento automático programado." });
+      return { imported: 0, updated: 0, campaigns: 0, since, until, deferred: true, nextAt, reason: "Meta ha limitado temporalmente las consultas; reintento automático programado." };
+    }
+    throw error;
   }
   let imported = 0; let updated = 0;
   try {

@@ -80,7 +80,7 @@ export default function MetaDashboardClient() {
   }, [since, until]);
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
-  useEffect(() => { if (account) void loadMonitoring(account); }, [account, loadMonitoring]);
+  useEffect(() => { setData(null); if (account) void loadMonitoring(account); }, [account, loadMonitoring]);
 
   async function analyzeWithAi() {
     if (!account || !data) return;
