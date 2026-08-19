@@ -5,6 +5,10 @@ import Link from "next/link";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Bot, Loader2, Megaphone, MessageSquare, RefreshCw, Sparkles, Target } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
+import MetaAttributionPanel from "@/components/meta/MetaAttributionPanel";
+import MetaDirectorPanel from "@/components/meta/MetaDirectorPanel";
+import MetaIntelligencePanel from "@/components/meta/MetaIntelligencePanel";
+import MetaCreativeLab from "@/components/meta/MetaCreativeLab";
 
 type Account = { id: string; name: string; currency: string; connectionId: string; connectionName: string };
 type Campaign = { id: string; name: string; objective?: string | null; leads: number; spend: number; cpl: number | null; ctr: number; impressions: number };
@@ -95,6 +99,11 @@ export default function MetaDashboardClient() {
         {[{ label: "Campañas activas", value: number(data.summary.activeCampaigns), icon: Megaphone }, { label: "Leads · 30 días", value: number(data.summary.leads), icon: Target }, { label: "Inversión · 30 días", value: euro(data.summary.spend), icon: null }, { label: "CPL medio", value: euro(data.summary.cpl), icon: null }].map((card) => <div key={card.label} className="rounded-xl border bg-white p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{card.icon && <card.icon className="h-4 w-4" />}{card.label}</div><div className="mt-2 text-2xl font-bold text-slate-900">{card.value}</div></div>)}
         <div className={`rounded-xl border p-4 ${trend !== null && trend < 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cambio últimos 15 días</div><div className="mt-2 flex items-center gap-1 text-2xl font-bold">{trend === null ? "Sin comparación" : <>{trend >= 0 ? <ArrowUpRight className="h-6 w-6 text-emerald-600" /> : <ArrowDownRight className="h-6 w-6 text-red-600" />}{Math.abs(trend).toFixed(0)}%</>}</div></div>
       </div>
+
+      {account && <MetaAttributionPanel accountId={account.id} accountName={account.name} connectionId={account.connectionId} campaigns={data.campaigns} spend={data.summary.spend} />}
+      {account && <MetaDirectorPanel accountId={account.id} monitoring={data.summary} campaigns={data.campaigns} />}
+      {account && <MetaIntelligencePanel accountId={account.id} accountName={account.name} monitoring={data.summary} />}
+      {account && <MetaCreativeLab accountId={account.id} campaigns={data.campaigns} monitoring={data.summary} />}
 
       <div className="mb-5 grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <section className="rounded-xl border bg-white p-5"><div className="mb-2"><h2 className="text-lg font-bold">Evolución de leads</h2><p className="text-sm text-slate-500">Últimos 90 días agrupados en periodos reales de 15 días. Pasa el cursor para ver inversión y CPL.</p></div><LeadsChart buckets={data.buckets} /></section>

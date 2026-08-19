@@ -1,0 +1,41 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/db/prisma";
+import { withApi } from "@/lib/api/handler";
+import { ApiError } from "@/lib/api/auth";
+import { attributionMetrics, META_LEAD_STAGES, stageDates } from "@/lib/meta/attribution";
+import type { Prisma } from "@prisma/client";
+
+export const dynamic = "force-dynamic";
+
+const account = z.string().regex(/^act_\d+$/);
+const profileSchema = z.object({ action: z.literal("profile"), adAccountId: account, displayName: z.string().trim().min(1).max(200), clientId: z.string().max(100).nullish(), metaConnectionId: z.string().max(100).nullish(), monthlyBudgetCents: z.number().int().min(0).max(100_000_000).default(0), targetLeads: z.number().int().min(0).max(1_000_000).nullish(), targetCplCents: z.number().int().min(0).max(100_000_000).nullish(), targetQualifiedCplCents: z.number().int().min(0).max(100_000_000).nullish(), salesValueCents: z.number().int().min(0).max(1_000_000_000).nullish(), businessBrief: z.string().max(20_000).nullish(), creativeMemory: z.record(z.string(), z.unknown()).optional(), audienceMemory: z.record(z.string(), z.unknown()).optional() });
+const leadSchema = z.object({ action: z.literal("lead"), adAccountId: account, externalLeadId: z.string().trim().min(1).max(200), campaignId: z.string().max(100).nullish(), campaignName: z.string().max(300).nullish(), adsetId: z.string().max(100).nullish(), adsetName: z.string().max(300).nullish(), adId: z.string().max(100).nullish(), adName: z.string().max(300).nullish(), formId: z.string().max(100).nullish(), contactName: z.string().max(300).nullish(), email: z.string().email().max(320).nullish(), phone: z.string().max(50).nullish(), status: z.enum(META_LEAD_STAGES).default("new"), revenueCents: z.number().int().min(0).max(1_000_000_000).default(0), qualityScore: z.number().int().min(0).max(100).nullish(), occurredAt: z.coerce.date().optional(), metadata: z.record(z.string(), z.unknown()).optional() });
+
+export const GET = withApi({}, async (req, { api }) => {
+  const url = new URL(req.url); const adAccountId = url.searchParams.get("accountId");
+  if (!adAccountId || !account.safeParse(adAccountId).success) throw new ApiError(400, "invalid_account", "Cuenta publicitaria no válida");
+  const [profile, items] = await Promise.all([
+    prisma.metaClientProfile.findUnique({ where: { workspaceId_adAccountId: { workspaceId: api.workspaceId, adAccountId } } }),
+    prisma.metaLeadAttribution.findMany({ where: { workspaceId: api.workspaceId, adAccountId }, orderBy: { occurredAt: "desc" }, take: 500 })
+  ]);
+  const safeProfile = profile ? (({ webhookToken: _secret, ...rest }) => rest)(profile) : null;
+  return NextResponse.json({ profile: safeProfile, items, metrics: attributionMetrics(items) });
+});
+
+export const POST = withApi({}, async (req, { api }) => {
+  const body = await req.json().catch(() => null); const parsed = z.discriminatedUnion("action", [profileSchema, leadSchema]).safeParse(body);
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  if (parsed.data.action === "profile") {
+    const { action: _action, creativeMemory, audienceMemory, ...rest } = parsed.data;
+    const data = { ...rest, ...(creativeMemory ? { creativeMemory: creativeMemory as Prisma.InputJsonValue } : {}), ...(audienceMemory ? { audienceMemory: audienceMemory as Prisma.InputJsonValue } : {}) };
+    const profile = await prisma.metaClientProfile.upsert({ where: { workspaceId_adAccountId: { workspaceId: api.workspaceId, adAccountId: data.adAccountId } }, create: { workspaceId: api.workspaceId, ...data }, update: data });
+    const safeProfile = (({ webhookToken: _secret, ...rest }) => rest)(profile);
+    return NextResponse.json({ profile: safeProfile });
+  }
+  const { action: _action, occurredAt, status, metadata, ...data } = parsed.data;
+  const leadData = { ...data, ...(metadata ? { metadata: metadata as Prisma.InputJsonValue } : {}) };
+  const timestamp = new Date();
+  const item = await prisma.metaLeadAttribution.upsert({ where: { workspaceId_adAccountId_externalLeadId: { workspaceId: api.workspaceId, adAccountId: data.adAccountId, externalLeadId: data.externalLeadId } }, create: { workspaceId: api.workspaceId, ...leadData, status, occurredAt: occurredAt ?? timestamp, ...stageDates(status, timestamp) }, update: { ...leadData, status, ...(occurredAt ? { occurredAt } : {}), ...stageDates(status, timestamp) } });
+  return NextResponse.json({ item });
+});

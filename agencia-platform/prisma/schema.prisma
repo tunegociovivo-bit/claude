@@ -242,6 +242,9 @@ model Workspace {
   bankReconciliationConfig   BankReconciliationConfig?
   bankTransactions           BankTransaction[]
   metaCampaigns              MetaCampaign[]
+  metaClientProfiles         MetaClientProfile[]
+  metaLeadAttributions       MetaLeadAttribution[]
+  metaOptimizationProposals  MetaOptimizationProposal[]
   aiAgentRuns                AiAgentRun[]
   aiDrafts                   AiDraft[]
   aiOrchestrations           AiOrchestration[]
@@ -3609,6 +3612,97 @@ model MetaCampaignReview {
   campaign MetaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@index([campaignId, generatedAt])
+}
+
+// Configuración comercial y memoria de performance por cliente/cuenta Meta.
+model MetaClientProfile {
+  id                      String    @id @default(cuid())
+  workspaceId             String
+  clientId                String?
+  metaConnectionId        String?
+  adAccountId             String
+  webhookToken            String    @unique @default(cuid())
+  displayName             String
+  monthlyBudgetCents      Int       @default(0)
+  targetLeads             Int?
+  targetCplCents          Int?
+  targetQualifiedCplCents Int?
+  salesValueCents         Int?
+  businessBrief           String?   @db.Text
+  audienceMemory          Json?
+  creativeMemory          Json?
+  commercialStages        Json?
+  alertRules              Json?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  workspace               Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, adAccountId])
+  @@index([workspaceId, clientId])
+}
+
+// Un lead de una campaña de un cliente y su evolución hasta venta.
+model MetaLeadAttribution {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  adAccountId    String
+  externalLeadId String
+  campaignId     String?
+  campaignName   String?
+  adsetId        String?
+  adsetName      String?
+  adId           String?
+  adName         String?
+  formId         String?
+  source         String    @default("meta")
+  status         String    @default("new") // new|contacted|qualified|appointment|proposal|won|lost|invalid
+  contactName    String?
+  email          String?
+  phone          String?
+  qualifiedAt    DateTime?
+  appointmentAt  DateTime?
+  proposalAt     DateTime?
+  wonAt          DateTime?
+  lostAt         DateTime?
+  revenueCents   Int       @default(0)
+  qualityScore   Int?
+  lossReason     String?
+  metadata       Json?
+  occurredAt     DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, adAccountId, externalLeadId])
+  @@index([workspaceId, adAccountId, status])
+  @@index([workspaceId, campaignId, occurredAt])
+}
+
+// Recomendaciones del Director IA. Nunca se aplican sin aprobación explícita.
+model MetaOptimizationProposal {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  adAccountId     String
+  campaignId      String?
+  kind            String
+  priority        String    @default("medium")
+  title           String
+  rationale       String    @db.Text
+  proposedAction  Json
+  expectedImpact  Json?
+  evidence        Json?
+  confidence      Float     @default(0)
+  status          String    @default("pending") // pending|approved|rejected|executed|failed|expired
+  approvedById    String?
+  approvedAt      DateTime?
+  executedAt      DateTime?
+  executionResult Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, adAccountId, status])
+  @@index([workspaceId, priority, createdAt])
 }
 
 // ====================================================================

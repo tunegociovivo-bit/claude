@@ -630,6 +630,16 @@ export async function generateAllContent(opts: {
   // Const intermedia para que TS no pierda el narrowing dentro de los
   // closures async del worker.
   const campaign = campaignOrNull;
+  const campaignClient = campaign.clientId ? await prisma.client.findFirst({ where: { id: campaign.clientId, workspaceId: opts.workspaceId }, select: { name: true } }) : null;
+  const performanceProfile = campaign.clientId
+    ? await prisma.metaClientProfile.findFirst({ where: { workspaceId: opts.workspaceId, OR: [{ clientId: campaign.clientId }, ...(campaignClient?.name ? [{ displayName: { equals: campaignClient.name, mode: "insensitive" as const } }] : [])] } })
+    : null;
+  const learnedBrief = [
+    campaign.description ?? "",
+    performanceProfile?.businessBrief ? `\nMEMORIA COMERCIAL APROBADA DEL CLIENTE:\n${performanceProfile.businessBrief}` : "",
+    performanceProfile?.creativeMemory ? `\nAPRENDIZAJES CREATIVOS HISTÓRICOS:\n${JSON.stringify(performanceProfile.creativeMemory)}` : "",
+    performanceProfile?.audienceMemory ? `\nAPRENDIZAJES DE AUDIENCIAS:\n${JSON.stringify(performanceProfile.audienceMemory)}` : ""
+  ].filter(Boolean).join("\n").slice(0, 30000);
 
   const report: GenerateContentReport = {
     segmentationExpanded: false,
@@ -643,7 +653,7 @@ export async function generateAllContent(opts: {
   try {
     const seg = await expandSegmentation({
       workspaceId: opts.workspaceId,
-      briefing: campaign.description ?? "",
+      briefing: learnedBrief,
       segmentationRaw: campaign.segmentationRaw,
       locationsIncluded: campaign.locationsIncluded,
       locationsExcluded: campaign.locationsExcluded
@@ -680,7 +690,7 @@ export async function generateAllContent(opts: {
         const copy = await generateCopyForAd({
           workspaceId: opts.workspaceId,
           campaignName: campaign.name,
-          briefing: campaign.description ?? "",
+          briefing: learnedBrief,
           objective: campaign.objective,
           fanpageName: campaign.fanpageName,
           segmentation: campaign.segmentationRaw,
