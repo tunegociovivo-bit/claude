@@ -95,6 +95,7 @@ export default function MetaDashboardClient() {
   }
 
   const trend = data?.summary.leadChangePct ?? null;
+  const periodLabel = data ? `${new Date(`${data.period.since}T12:00:00Z`).toLocaleDateString("es-ES")}–${new Date(`${data.period.until}T12:00:00Z`).toLocaleDateString("es-ES")}` : "";
   return <div className="p-4 sm:p-6">
     <MetaSuiteNav />
     <PageHeader title="META" description="Supervisión, recomendaciones y creación de campañas de Meta desde un único centro." actions={<div className="flex gap-2"><Link href="/admin/meta-comments" className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" /> Comentarios</Link><Link href="/campanas-meta" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"><Sparkles className="h-4 w-4" /> Crear campaña con IA</Link></div>} />
@@ -109,9 +110,10 @@ export default function MetaDashboardClient() {
 
     {!loading && data && <>
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {[{ label: "Campañas activas", value: number(data.summary.activeCampaigns), icon: Megaphone }, { label: `Resultados activos · ${data.period.days} días`, value: number(data.summary.leads), icon: Target }, { label: `Inversión total cuenta · ${data.period.days} días`, value: money(data.summary.spend, account?.currency), icon: null }, { label: "Coste/resultado activo", value: money(data.summary.cpl, account?.currency), icon: null }].map((card) => <div key={card.label} className="rounded-xl border bg-white p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{card.icon && <card.icon className="h-4 w-4" />}{card.label}</div><div className="mt-2 text-2xl font-bold text-slate-900">{card.value}</div></div>)}
+        {[{ label: "Campañas activas", value: number(data.summary.activeCampaigns), icon: Megaphone }, { label: `Resultados activos · ${periodLabel}`, value: number(data.summary.leads), icon: Target }, { label: `Inversión campañas activas · ${periodLabel}`, value: money(data.summary.activeSpend, account?.currency), icon: null }, { label: "Coste/resultado activo", value: money(data.summary.cpl, account?.currency), icon: null }].map((card) => <div key={card.label} className="rounded-xl border bg-white p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{card.icon && <card.icon className="h-4 w-4" />}{card.label}</div><div className="mt-2 text-2xl font-bold text-slate-900">{card.value}</div></div>)}
         <div className={`rounded-xl border p-4 ${trend !== null && trend < 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cambio últimos 15 días</div><div className="mt-2 flex items-center gap-1 text-2xl font-bold">{trend === null ? "Sin comparación" : <>{trend >= 0 ? <ArrowUpRight className="h-6 w-6 text-emerald-600" /> : <ArrowDownRight className="h-6 w-6 text-red-600" />}{Math.abs(trend).toFixed(0)}%</>}</div></div>
       </div>
+      <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950"><b>Conciliación del periodo {periodLabel}:</b> la suma de las campañas activas es {money(data.summary.activeSpend, account?.currency)}. La inversión total de la cuenta, incluyendo campañas ahora pausadas, es {money(data.summary.spend, account?.currency)}. Compara estas cifras en Meta usando exactamente las mismas fechas.</div>
 
       {account && <MetaAttributionPanel accountId={account.id} accountName={account.name} connectionId={account.connectionId} campaigns={data.campaigns} spend={data.summary.spend} />}
       {account && <MetaIngestionSetup accountId={account.id} />}
