@@ -31,7 +31,10 @@ export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAcc
     select: { alertRules: true }
   });
   const previousState = readSyncState(profile?.alertRules);
-  if (!opts.force && previousState.nextAt && new Date(previousState.nextAt).getTime() > Date.now()) {
+  const requestedIds = (opts.campaigns ?? []).map((campaign) => campaign.id).sort().join(",");
+  const rememberedIds = (previousState.campaigns ?? []).map((campaign) => campaign.id).sort().join(",");
+  const campaignsChanged = Boolean(requestedIds && requestedIds !== rememberedIds);
+  if (!opts.force && !campaignsChanged && previousState.nextAt && new Date(previousState.nextAt).getTime() > Date.now()) {
     return { imported: 0, updated: 0, campaigns: previousState.campaigns?.length ?? 0, deferred: true, nextAt: previousState.nextAt, reason: previousState.lastError ?? "Sincronización programada" };
   }
   const token = await readMetaTokenByConnection(opts.workspaceId, opts.connectionId);
