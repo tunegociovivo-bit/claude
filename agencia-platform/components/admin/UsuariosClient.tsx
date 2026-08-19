@@ -444,6 +444,7 @@ export default function UsuariosClient() {
 
       <UserFormModal
         open={createOpen}
+        workspaceMembers={members}
         onClose={() => setCreateOpen(false)}
         onSaved={() => {
           setCreateOpen(false);
@@ -452,6 +453,7 @@ export default function UsuariosClient() {
       />
       <UserFormModal
         open={!!editing}
+        workspaceMembers={members}
         onClose={() => setEditing(null)}
         member={editing ?? undefined}
         onSaved={() => {
@@ -523,11 +525,13 @@ function UserFormModal({
   open,
   onClose,
   member,
+  workspaceMembers,
   onSaved
 }: {
   open: boolean;
   onClose: () => void;
   member?: Member;
+  workspaceMembers: Member[];
   onSaved: () => void;
 }) {
   const isEdit = !!member;
@@ -556,6 +560,12 @@ function UserFormModal({
   >([]);
   const [allowedProjectIds, setAllowedProjectIds] = useState<Set<string>>(new Set());
   const [projectFilter, setProjectFilter] = useState("");
+  const [platformsLoading, setPlatformsLoading] = useState(false);
+  const [platformCatalog, setPlatformCatalog] = useState<
+    { key: string; label: string; description: string; available: boolean; defaultEnabled?: boolean }[]
+  >([]);
+  const [platformConfig, setPlatformConfig] = useState<Record<string, { enabled: boolean; memberIds: string[]; restricted?: boolean; customLabel?: string }>>({});
+  const [allowedPlatformKeys, setAllowedPlatformKeys] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -597,9 +607,36 @@ function UserFormModal({
     setProjects([]);
     setAllowedProjectIds(new Set());
     setProjectFilter("");
+    setPlatformCatalog([]);
+    setPlatformConfig({});
+    setAllowedPlatformKeys(new Set());
     // Cargar acceso a proyectos solo en edición (en creación, el user
     // aún no existe en BD).
     if (member && open) {
+      setPlatformsLoading(true);
+      fetch("/api/v1/admin/platforms", { cache: "no-store" })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`Error ${r.status}`);
+          return r.json();
+        })
+        .then((data) => {
+          const catalog = data.catalog ?? [];
+          const config = data.config ?? {};
+          setPlatformCatalog(catalog);
+          setPlatformConfig(config);
+          const initial = new Set<string>();
+          for (const platform of catalog) {
+            const cfg = config[platform.key];
+            const enabled = cfg ? !!cfg.enabled : !!platform.defaultEnabled;
+            if (!enabled || !platform.available) continue;
+            const isPublic = !cfg?.restricted && (!cfg?.memberIds || cfg.memberIds.length === 0);
+            if (isPublic || cfg?.memberIds?.includes(member.id)) initial.add(platform.key);
+          }
+          setAllowedPlatformKeys(initial);
+        })
+        .catch((e) => console.warn("platform-access load failed", e))
+        .finally(() => setPlatformsLoading(false));
+
       setProjectsLoading(true);
       fetch(`/api/v1/users/${member.id}/project-access`, { cache: "no-store" })
         .then(async (r) => {
@@ -724,6 +761,34 @@ function UserFormModal({
         return setError(e?.message ?? "Error guardando acceso a proyectos");
       }
     }
+    if (isEdit && member && role !== "ADMIN") {
+      try {
+        for (const platform of platformCatalog) {
+          const cfg = platformConfig[platform.key];
+          const enabled = cfg ? !!cfg.enabled : !!platform.defaultEnabled;
+          if (!enabled || !platform.available) continue;
+          const memberIds = new Set<string>(cfg?.memberIds ?? []);
+          const isPublic = !cfg?.restricted && memberIds.size === 0;
+          const shouldHaveAccess = allowedPlatformKeys.has(platform.key);
+          if (isPublic && shouldHaveAccess) continue;
+          if (isPublic) {
+            for (const other of workspaceMembers) {
+              if (other.id !== member.id && other.role !== "ADMIN") memberIds.add(other.id);
+            }
+          } else if (shouldHaveAccess) memberIds.add(member.id);
+          else memberIds.delete(member.id);
+          const pr = await fetch("/api/v1/admin/platforms", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: platform.key, memberIds: [...memberIds], restricted: true })
+          });
+          if (!pr.ok) throw new Error(`Error guardando plataforma ${platform.label} (${pr.status})`);
+        }
+      } catch (e: any) {
+        setSaving(false);
+        return setError(e?.message ?? "Error guardando acceso a plataformas");
+      }
+    }
     setSaving(false);
     onSaved();
   }
@@ -739,6 +804,15 @@ function UserFormModal({
   function selectAllProjects(value: boolean) {
     if (value) setAllowedProjectIds(new Set(projects.map((p) => p.id)));
     else setAllowedProjectIds(new Set());
+  }
+
+  function togglePlatform(key: string) {
+    setAllowedPlatformKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   return (
@@ -1004,6 +1078,82 @@ function UserFormModal({
               </p>
             )}
           </div>
+        )}
+
+        {isEdit && role !== "ADMIN" && (
+          <div className="border rounded-lg p-3 bg-sky-50/40 border-sky-200">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <div className="text-xs font-semibold text-slate-700">Acceso a plataformas</div>
+                <div className="text-[11px] text-slate-500">
+                  Elige las plataformas que aparecerán en el menú de este trabajador. Los administradores siempre tienen acceso a todas.
+                </div>
+              </div>
+              <div className="inline-flex rounded-md border bg-white text-[11px] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setAllowedPlatformKeys(new Set(platformCatalog.filter((p) => {
+                    const cfg = platformConfig[p.key];
+                    return p.available && (cfg ? !!cfg.enabled : !!p.defaultEnabled);
+                  }).map((p) => p.key)))}
+                  className="px-2 py-1 rounded-l-md text-slate-600 hover:bg-slate-50"
+                >
+                  Todas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllowedPlatformKeys(new Set())}
+                  className="px-2 py-1 rounded-r-md border-l text-slate-600 hover:bg-slate-50"
+                >
+                  Ninguna
+                </button>
+              </div>
+            </div>
+            {platformsLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando plataformas…
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {platformCatalog.filter((p) => {
+                  const cfg = platformConfig[p.key];
+                  return p.available && (cfg ? !!cfg.enabled : !!p.defaultEnabled);
+                }).map((p) => {
+                  const checked = allowedPlatformKeys.has(p.key);
+                  const cfg = platformConfig[p.key];
+                  return (
+                    <label
+                      key={p.key}
+                      className={`flex items-start gap-2 px-2 py-1.5 rounded border bg-white text-xs cursor-pointer ${checked ? "border-sky-300" : "border-slate-200"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePlatform(p.key)}
+                        className="accent-sky-600 mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-slate-800 truncate">{cfg?.customLabel?.trim() || p.label}</span>
+                        <span className="block text-[10px] text-slate-500 leading-tight line-clamp-2">{p.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+                {platformCatalog.filter((p) => {
+                  const cfg = platformConfig[p.key];
+                  return p.available && (cfg ? !!cfg.enabled : !!p.defaultEnabled);
+                }).length === 0 && (
+                  <p className="text-[11px] text-slate-500 italic">No hay plataformas activadas en el workspace.</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {role === "ADMIN" && isEdit && (
+          <p className="text-[11px] text-sky-700 bg-sky-50 border border-sky-200 rounded-lg p-2">
+            Plataformas: los administradores tienen acceso automático a todas las plataformas activas.
+          </p>
         )}
 
         {/* Acceso por proyecto: solo en edición + no-admin. ADMIN ven todo

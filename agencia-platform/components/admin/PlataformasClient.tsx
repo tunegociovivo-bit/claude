@@ -14,7 +14,7 @@ type PlatformCatalogItem = {
   pendingMessage?: string;
 };
 
-type PlatformConfig = { enabled: boolean; memberIds: string[]; customLabel?: string; customDescription?: string };
+type PlatformConfig = { enabled: boolean; memberIds: string[]; restricted?: boolean; customLabel?: string; customDescription?: string };
 
 type WorkspaceUser = { id: string; name: string | null; email: string };
 
@@ -65,12 +65,12 @@ export default function PlataformasClient() {
     }
   }
 
-  async function updateMembers(key: string, memberIds: string[]) {
+  async function updateMembers(key: string, memberIds: string[], restricted = true) {
     setSavingKey(key);
     const r = await fetch("/api/v1/admin/platforms", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, memberIds })
+      body: JSON.stringify({ key, memberIds, restricted })
     });
     setSavingKey(null);
     if (r.ok) {
@@ -109,6 +109,7 @@ export default function PlataformasClient() {
           {catalog.map((p) => {
             const c = config[p.key] ?? { enabled: false, memberIds: [] };
             const memberCount = c.memberIds?.length ?? 0;
+            const isPrivate = !!c.restricted || memberCount > 0;
             const effectiveLabel = c.customLabel?.trim() || p.label;
             const effectiveDescription = c.customDescription?.trim() || (p.available ? p.description : p.pendingMessage ?? p.description);
             return (
@@ -129,16 +130,16 @@ export default function PlataformasClient() {
                         Pendiente migrar
                       </span>
                     )}
-                    {p.available && c.enabled && memberCount === 0 && (
+                    {p.available && c.enabled && !isPrivate && (
                       <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-semibold inline-flex items-center gap-1">
                         <Globe2 className="h-2.5 w-2.5" />
                         Todo el equipo
                       </span>
                     )}
-                    {p.available && c.enabled && memberCount > 0 && (
+                    {p.available && c.enabled && isPrivate && (
                       <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 font-semibold inline-flex items-center gap-1">
                         <Lock className="h-2.5 w-2.5" />
-                        {memberCount} {memberCount === 1 ? "trabajador" : "trabajadores"}
+                        {memberCount === 0 ? "Sin trabajadores" : `${memberCount} ${memberCount === 1 ? "trabajador" : "trabajadores"}`}
                       </span>
                     )}
                   </div>
@@ -195,8 +196,8 @@ export default function PlataformasClient() {
           allUsers={users}
           currentMemberIds={config[managing.key]?.memberIds ?? []}
           onClose={() => setManaging(null)}
-          onSave={async (ids) => {
-            await updateMembers(managing.key, ids);
+          onSave={async (ids, restricted) => {
+            await updateMembers(managing.key, ids, restricted);
             setManaging(null);
           }}
         />
@@ -343,7 +344,7 @@ function PlatformMembersModal({
   allUsers: WorkspaceUser[];
   currentMemberIds: string[];
   onClose: () => void;
-  onSave: (memberIds: string[]) => Promise<void>;
+  onSave: (memberIds: string[], restricted: boolean) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(currentMemberIds));
   const [saving, setSaving] = useState(false);
@@ -359,7 +360,7 @@ function PlatformMembersModal({
 
   async function save() {
     setSaving(true);
-    await onSave(Array.from(selected));
+    await onSave(Array.from(selected), true);
     setSaving(false);
   }
 
@@ -373,7 +374,11 @@ function PlatformMembersModal({
         <>
           <button
             type="button"
-            onClick={() => setSelected(new Set())}
+            onClick={async () => {
+              setSaving(true);
+              await onSave([], false);
+              setSaving(false);
+            }}
             className="mr-auto px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
           >
             Hacer pública (todo el workspace)

@@ -129,6 +129,9 @@ export const PLATFORMS: PlatformDef[] = [
 export type PlatformConfig = {
   enabled: boolean;
   memberIds: string[]; // userIds del workspace con acceso. Vacío = todos del workspace.
+  /** Permite representar una lista privada vacía (nadie) sin confundirla con
+   * la compatibilidad histórica de memberIds=[] (todo el workspace). */
+  restricted?: boolean;
   /** Override del label que aparece en sidebar y admin. Si vacío, se usa PlatformDef.label */
   customLabel?: string;
   /** Override de la descripción */
@@ -174,8 +177,8 @@ export function platformsVisibleTo(
       const enabled = c ? !!c.enabled : !!p.defaultEnabled;
       if (!enabled) return false;
       if (isAdmin) return true;
-      if (!c.memberIds || c.memberIds.length === 0) return true;
-      return c.memberIds.includes(userId);
+      if (!c?.restricted && (!c?.memberIds || c.memberIds.length === 0)) return true;
+      return !!c?.memberIds?.includes(userId);
     })
     .map((p) => ({
       ...p,

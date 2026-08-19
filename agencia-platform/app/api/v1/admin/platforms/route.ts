@@ -9,6 +9,7 @@ const updateSchema = z.object({
   key: z.string().min(1),
   enabled: z.boolean().optional(),
   memberIds: z.array(z.string()).optional(),
+  restricted: z.boolean().optional(),
   customLabel: z.string().max(60).nullable().optional(),
   customDescription: z.string().max(300).nullable().optional()
 });
@@ -37,6 +38,18 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  if (!PLATFORMS.some((platform) => platform.key === parsed.data.key)) {
+    throw new ApiError(400, "unknown_platform", "Plataforma no válida");
+  }
+  if (parsed.data.memberIds) {
+    const validMembers = await prisma.membership.findMany({
+      where: { workspaceId: api.workspaceId, userId: { in: parsed.data.memberIds } },
+      select: { userId: true }
+    });
+    if (validMembers.length !== new Set(parsed.data.memberIds).size) {
+      throw new ApiError(400, "invalid_platform_members", "Hay usuarios que no pertenecen al workspace");
+    }
+  }
 
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
   const settings: any = (ws?.settings as any) ?? {};
@@ -44,6 +57,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const current = settings.platforms[parsed.data.key] ?? { enabled: false, memberIds: [] };
   if (parsed.data.enabled !== undefined) current.enabled = parsed.data.enabled;
   if (parsed.data.memberIds !== undefined) current.memberIds = parsed.data.memberIds;
+  if (parsed.data.restricted !== undefined) current.restricted = parsed.data.restricted;
   if (parsed.data.customLabel !== undefined) {
     if (parsed.data.customLabel === null || parsed.data.customLabel.trim() === "") {
       delete current.customLabel;
