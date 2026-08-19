@@ -37,6 +37,18 @@ describe("tryMetaTokenCandidates", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it("rotates when Meta says the ad account owner did not grant Ads permissions", async () => {
+    const request = vi.fn(async (token: string) => {
+      if (token === "wrong-owner") {
+        throw new Error("Meta Ads 403: (#200) Ad account owner has NOT grant ads_management or ads_read permission");
+      }
+      return token;
+    });
+
+    await expect(tryMetaTokenCandidates(["wrong-owner", "authorized-owner"], request)).resolves.toBe("authorized-owner");
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("does not hide a non-credential error by rotating tokens", async () => {
     const request = vi.fn(async () => {
       throw new Error("Meta Ads 429: rate limit");

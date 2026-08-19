@@ -364,9 +364,10 @@ export async function metaAdsListCampaigns(opts: {
   if (opts.status) {
     params.set("filtering", JSON.stringify([{ field: opts.statusField ?? "effective_status", operator: "IN", value: [opts.status] }]));
   }
-  const data = await metaFetch<any>(
+  const data = await metaFetchWithWorkspaceTokens<any>(
     `${GRAPH_CAMPAIGN_STATUS}/${account}/campaigns?${params.toString()}`,
-    cfg.accessToken
+    opts.workspaceId,
+    opts.adhoc
   );
   const campaigns = data.data ?? [];
   // The account campaigns edge already returns current status fields. A
@@ -416,7 +417,7 @@ export async function metaAdsGetAccountInsights(opts: {
     level: "account",
     time_range: JSON.stringify({ since: opts.since, until: opts.until })
   });
-  const data = await metaFetch<any>(`${GRAPH}/${account}/insights?${params.toString()}`, cfg.accessToken);
+  const data = await metaFetchWithWorkspaceTokens<any>(`${GRAPH}/${account}/insights?${params.toString()}`, opts.workspaceId, opts.adhoc);
   return (data.data ?? [])[0] ?? { spend: "0", impressions: "0", clicks: "0", reach: "0" };
 }
 
