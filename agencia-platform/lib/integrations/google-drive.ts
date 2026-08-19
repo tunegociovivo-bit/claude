@@ -112,7 +112,7 @@ async function getAccessToken(sa: ServiceAccountKey): Promise<string> {
   return data.access_token as string;
 }
 
-async function refreshUserAccessToken(refreshToken: string): Promise<string> {
+export async function refreshUserAccessToken(refreshToken: string): Promise<string> {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new Error("Google OAuth no configurado en el servidor");

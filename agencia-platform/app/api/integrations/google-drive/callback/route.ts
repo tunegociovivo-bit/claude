@@ -8,11 +8,13 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  const done = (value: string) => NextResponse.redirect(`${base}/admin/seguridad?drive=${value}`);
+  let leadPurpose = false;
+  const done = (value: string) => NextResponse.redirect(leadPurpose ? `${base}/meta?leadDrive=${value}` : `${base}/admin/seguridad?drive=${value}`);
   const url = new URL(req.url);
+  const state = verifyDriveState(url.searchParams.get("state") ?? "");
+  leadPurpose = state?.purpose === "lead_documents";
   if (url.searchParams.get("error")) return done("denied");
   const code = url.searchParams.get("code");
-  const state = verifyDriveState(url.searchParams.get("state") ?? "");
   if (!code || !state || Date.now() - state.ts > 10 * 60_000) return done("invalid");
   const session = await getServerSession(authOptions);
   const sessionUserId = (session?.user as any)?.id as string | undefined;
@@ -23,12 +25,18 @@ export async function GET(req: NextRequest) {
   try {
     const tokens = await exchangeDriveCode(code);
     if (!tokens.refresh_token) return done("no_refresh");
-    const [folderId, accountEmail] = await Promise.all([ensureBackupFolder(tokens.access_token), googleAccountEmail(tokens.access_token)]);
+    const accountEmail = await googleAccountEmail(tokens.access_token);
     const ws = await prisma.workspace.findUnique({ where: { id: state.workspaceId } });
     const settings: any = ws?.settings ?? {};
     settings.integrations ??= {};
-    settings.integrations.googleDrive = { ...(settings.integrations.googleDrive ?? {}), refreshTokenEncrypted: encryptSecret(tokens.refresh_token), accountEmail, folderId };
-    delete settings.integrations.googleDrive.serviceAccountJsonEncrypted;
+    if (leadPurpose) {
+      if (accountEmail.toLowerCase() !== "tunegociovivo@gmail.com") return done("wrong_account");
+      settings.integrations.googleLeadDocuments = { refreshTokenEncrypted: encryptSecret(tokens.refresh_token), accountEmail, connectedAt: new Date().toISOString() };
+    } else {
+      const folderId = await ensureBackupFolder(tokens.access_token);
+      settings.integrations.googleDrive = { ...(settings.integrations.googleDrive ?? {}), refreshTokenEncrypted: encryptSecret(tokens.refresh_token), accountEmail, folderId };
+      delete settings.integrations.googleDrive.serviceAccountJsonEncrypted;
+    }
     await prisma.workspace.update({ where: { id: state.workspaceId }, data: { settings } });
     return done("connected");
   } catch (e) {

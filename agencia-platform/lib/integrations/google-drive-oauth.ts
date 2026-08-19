@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 
-const SCOPE = "https://www.googleapis.com/auth/drive.file openid email profile";
+const BACKUP_SCOPE = "https://www.googleapis.com/auth/drive.file openid email profile";
+const LEAD_DOCUMENTS_SCOPE = "https://www.googleapis.com/auth/drive.readonly openid email profile";
+export type DriveOAuthPurpose = "backup" | "lead_documents";
 
 export function driveOAuthConfigurationIssue(): "server" | "google_credentials" | null {
   if (!process.env.NEXTAUTH_URL?.trim() || !process.env.NEXTAUTH_SECRET?.trim()) return "server";
@@ -21,13 +23,13 @@ export function driveRedirectUri(): string {
   return `${(process.env.NEXTAUTH_URL ?? "").replace(/\/$/, "")}/api/integrations/google-drive/callback`;
 }
 
-export function signDriveState(payload: { userId: string; workspaceId: string; ts: number }): string {
+export function signDriveState(payload: { userId: string; workspaceId: string; ts: number; purpose?: DriveOAuthPurpose }): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto.createHmac("sha256", stateSecret()).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
 
-export function verifyDriveState(state: string): { userId: string; workspaceId: string; ts: number } | null {
+export function verifyDriveState(state: string): { userId: string; workspaceId: string; ts: number; purpose?: DriveOAuthPurpose } | null {
   const [body, sig] = state.split(".");
   if (!body || !sig) return null;
   const expected = crypto.createHmac("sha256", stateSecret()).update(body).digest("base64url");
@@ -35,13 +37,13 @@ export function verifyDriveState(state: string): { userId: string; workspaceId: 
   try { return JSON.parse(Buffer.from(body, "base64url").toString("utf8")); } catch { return null; }
 }
 
-export function driveAuthorizeUrl(state: string): string {
+export function driveAuthorizeUrl(state: string, purpose: DriveOAuthPurpose = "backup"): string {
   if (!process.env.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID no configurado");
   return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: driveRedirectUri(),
     response_type: "code",
-    scope: SCOPE,
+    scope: purpose === "lead_documents" ? LEAD_DOCUMENTS_SCOPE : BACKUP_SCOPE,
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",

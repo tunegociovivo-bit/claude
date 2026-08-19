@@ -20,12 +20,14 @@ const deleteLeadSourceSchema = z.object({ action: z.literal("delete_lead_source"
 export const GET = withApi({}, async (req, { api }) => {
   const url = new URL(req.url); const adAccountId = url.searchParams.get("accountId");
   if (!adAccountId || !account.safeParse(adAccountId).success) throw new ApiError(400, "invalid_account", "Cuenta publicitaria no válida");
-  const [profile, items] = await Promise.all([
+  const [profile, items, workspace] = await Promise.all([
     prisma.metaClientProfile.findUnique({ where: { workspaceId_adAccountId: { workspaceId: api.workspaceId, adAccountId } } }),
-    prisma.metaLeadAttribution.findMany({ where: { workspaceId: api.workspaceId, adAccountId }, orderBy: { occurredAt: "desc" }, take: 500 })
+    prisma.metaLeadAttribution.findMany({ where: { workspaceId: api.workspaceId, adAccountId }, orderBy: { occurredAt: "desc" }, take: 500 }),
+    prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } })
   ]);
   const safeProfile = profile ? (({ webhookToken: _secret, ...rest }) => rest)(profile) : null;
-  return NextResponse.json({ profile: safeProfile, items, metrics: attributionMetrics(items) });
+  const leadDrive = (workspace?.settings as any)?.integrations?.googleLeadDocuments;
+  return NextResponse.json({ profile: safeProfile, items, metrics: attributionMetrics(items), leadDocumentConnection: leadDrive?.accountEmail ? { connected: true, accountEmail: leadDrive.accountEmail } : { connected: false, accountEmail: null } });
 });
 
 export const POST = withApi({}, async (req, { api }) => {

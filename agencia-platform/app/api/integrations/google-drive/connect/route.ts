@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${base}/admin/seguridad?drive=oauth_missing_${issue}`);
   }
   try {
-    return NextResponse.redirect(driveAuthorizeUrl(signDriveState({ userId, workspaceId, ts: Date.now() })));
+    const purpose = req.nextUrl.searchParams.get("purpose") === "lead_documents" ? "lead_documents" : "backup";
+    return NextResponse.redirect(driveAuthorizeUrl(signDriveState({ userId, workspaceId, ts: Date.now(), purpose }), purpose));
   } catch (error) {
     console.error("[drive oauth connect]", error);
     return NextResponse.redirect(`${base}/admin/seguridad?drive=failed`);

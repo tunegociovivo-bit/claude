@@ -5,6 +5,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { parseFile, tabularToObjects } from "@/lib/import/parse";
+import { decryptSecret } from "@/lib/ai/crypto";
+import { refreshUserAccessToken } from "@/lib/integrations/google-drive";
 
 export type UrlLeadSource = {
   id: string;
@@ -24,7 +26,7 @@ export type UrlLeadSource = {
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const PRIVATE_V4 = [/^10\./, /^127\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^0\./];
-const DOCUMENT_HOSTS = ["docs.google.com", "drive.google.com", "googleusercontent.com", "dropbox.com", "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com"];
+const DOCUMENT_HOSTS = ["docs.google.com", "drive.google.com", "googleapis.com", "googleusercontent.com", "dropbox.com", "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com"];
 
 function isDocumentHost(host: string) {
   return DOCUMENT_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
@@ -58,21 +60,45 @@ export function normalizeLeadSourceUrl(raw: string): string {
   return url.toString();
 }
 
-async function fetchPublicDocument(rawUrl: string) {
+function googleFile(rawUrl: string): { id: string; kind: "sheet" | "doc" } | null {
+  const url = new URL(rawUrl);
+  const sheet = url.pathname.match(/^\/spreadsheets\/d\/([^/]+)/);
+  if (url.hostname === "docs.google.com" && sheet) return { id: sheet[1], kind: "sheet" };
+  const doc = url.pathname.match(/^\/document\/d\/([^/]+)/);
+  if (url.hostname === "docs.google.com" && doc) return { id: doc[1], kind: "doc" };
+  return null;
+}
+
+async function leadDocumentsAccessToken(workspaceId: string): Promise<string | null> {
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const config = (workspace?.settings as any)?.integrations?.googleLeadDocuments;
+  if (!config?.refreshTokenEncrypted) return null;
+  const refreshToken = decryptSecret(config.refreshTokenEncrypted);
+  return refreshToken ? refreshUserAccessToken(refreshToken) : null;
+}
+
+async function fetchPublicDocument(rawUrl: string, workspaceId: string) {
+  const privateGoogleFile = googleFile(rawUrl);
+  const accessToken = privateGoogleFile ? await leadDocumentsAccessToken(workspaceId) : null;
   let current = new URL(normalizeLeadSourceUrl(rawUrl));
+  if (privateGoogleFile && accessToken) {
+    const mimeType = privateGoogleFile.kind === "sheet" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/plain";
+    current = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(privateGoogleFile.id)}/export`);
+    current.searchParams.set("mimeType", mimeType);
+  }
   for (let redirects = 0; redirects <= 5; redirects++) {
     await assertPublicHttps(current);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25_000);
     try {
-      const response = await fetch(current, { redirect: "manual", signal: controller.signal, headers: { "User-Agent": "NegocioVivo-Hub/1.0" } });
+      const response = await fetch(current, { redirect: "manual", signal: controller.signal, headers: { "User-Agent": "NegocioVivo-Hub/1.0", ...(accessToken && current.hostname === "www.googleapis.com" ? { Authorization: `Bearer ${accessToken}` } : {}) } });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         if (!location) throw new Error("La fuente redirige sin indicar destino.");
         current = new URL(location, current);
         continue;
       }
-      if (!response.ok) throw new Error(`El documento respondió HTTP ${response.status}. Comprueba que sea accesible mediante el enlace.`);
+      if (!response.ok) throw new Error(`El documento respondió HTTP ${response.status}. ${privateGoogleFile && !accessToken ? "Conecta tunegociovivo@gmail.com para acceder a documentos privados." : "Comprueba que la cuenta conectada tenga acceso de lectura."}`);
       const announced = Number(response.headers.get("content-length") ?? 0);
       if (announced > MAX_BYTES) throw new Error("El documento supera el límite de 10 MB.");
       const reader = response.body?.getReader();
@@ -145,7 +171,7 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
   if (!source.enabled && !opts.force) return { skipped: true, imported: 0 };
   if (!opts.force && source.nextSyncAt && Date.parse(source.nextSyncAt) > Date.now()) return { skipped: true, imported: 0 };
   try {
-    const downloaded = await fetchPublicDocument(source.url);
+    const downloaded = await fetchPublicDocument(source.url, opts.workspaceId);
     const parsed = await parseFile(downloaded.buffer, filenameFor(downloaded.finalUrl, downloaded.mime), downloaded.mime);
     const rows: unknown[] = parsed.kind === "tabular" ? tabularToObjects(parsed.data) : parsed.text.split(/\n{2,}/).map((text) => ({ text })).filter((item) => item.text.trim());
     const seen = new Set(source.seenHashes ?? []);
