@@ -375,6 +375,24 @@ export async function metaAdsGetCampaignInsights(opts: {
   return (data.data ?? [])[0] ?? null;
 }
 
+/** Account-level totals for reconciliation with Ads Manager, including campaigns paused today. */
+export async function metaAdsGetAccountInsights(opts: {
+  workspaceId: string;
+  since: string;
+  until: string;
+  adhoc?: Record<string, string>;
+}) {
+  const cfg = await getMetaAdsConfig(opts.workspaceId, opts.adhoc);
+  const account = cfg.adAccountId.startsWith("act_") ? cfg.adAccountId : `act_${cfg.adAccountId}`;
+  const params = new URLSearchParams({
+    fields: "spend,impressions,clicks,reach",
+    level: "account",
+    time_range: JSON.stringify({ since: opts.since, until: opts.until })
+  });
+  const data = await metaFetch<any>(`${GRAPH}/${account}/insights?${params.toString()}`, cfg.accessToken);
+  return (data.data ?? [])[0] ?? { spend: "0", impressions: "0", clicks: "0", reach: "0" };
+}
+
 /**
  * Insights DIARIOS de una campaña (time_increment=1) en los últimos N días.
  * Devuelve un array con { date, spend, leads } por día — para detectar

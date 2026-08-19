@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { readMetaTokenByConnection } from "@/lib/meta/connection";
-import { metaAdsGetCampaignDailyInsights, metaAdsGetCampaignInsights, metaAdsListAdsets, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
+import { metaAdsGetAccountInsights, metaAdsGetCampaignDailyInsights, metaAdsGetCampaignInsights, metaAdsListAdsets, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { completeJson } from "@/lib/ai/anthropic";
 import { buildFortnightBuckets, buildMonitoringRecommendations } from "@/lib/meta/monitoring";
 import { metaResultActionCandidates, metaResultValue } from "@/lib/meta/results";
@@ -33,7 +33,9 @@ export const GET = withApi({}, async (req, { api }) => {
       && (!startsAt || Number.isNaN(startsAt) || startsAt <= now)
       && (!stopsAt || Number.isNaN(stopsAt) || stopsAt >= now);
   });
-  const enriched = await Promise.all(campaigns.slice(0, 12).map(async (campaign: any) => {
+  const [accountTotals, enriched] = await Promise.all([
+    metaAdsGetAccountInsights({ workspaceId: api.workspaceId, since, until, adhoc }),
+    Promise.all(campaigns.slice(0, 12).map(async (campaign: any) => {
     const [adsets, totals] = await Promise.all([
       metaAdsListAdsets({ workspaceId: api.workspaceId, campaignId: String(campaign.id), adhoc }),
       metaAdsGetCampaignInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), since, until, adhoc })
@@ -44,13 +46,15 @@ export const GET = withApi({}, async (req, { api }) => {
     const daily = await metaAdsGetCampaignDailyInsights({ workspaceId: api.workspaceId, campaignId: String(campaign.id), since: trendSince, until, resultActionTypes, adhoc });
     const leads = metaResultValue(totals?.actions, resultActionTypes); const spend = Number(totals?.spend ?? 0);
     return { id: String(campaign.id), name: String(campaign.name), objective: campaign.objective, leads, spend, cpl: leads > 0 ? spend / leads : null, ctr: Number(totals?.ctr ?? 0), impressions: Number(totals?.impressions ?? 0), daily };
-  }));
+    }))
+  ]);
   const buckets = buildFortnightBuckets(enriched.flatMap((campaign) => campaign.daily), new Date(`${until}T12:00:00Z`));
   const current = buckets.at(-1); const previous = buckets.at(-2);
   const leadChangePct = previous?.leads ? ((current?.leads ?? 0) - previous.leads) / previous.leads * 100 : null;
-  const spend = enriched.reduce((sum, item) => sum + item.spend, 0); const leads = enriched.reduce((sum, item) => sum + item.leads, 0);
+  const activeSpend = enriched.reduce((sum, item) => sum + item.spend, 0); const leads = enriched.reduce((sum, item) => sum + item.leads, 0);
+  const spend = Number(accountTotals?.spend ?? 0);
   const recommendations = buildMonitoringRecommendations(enriched, leadChangePct);
-  return NextResponse.json({ campaigns: enriched.map(({ daily: _daily, ...item }) => item).sort((a, b) => b.leads - a.leads), buckets, summary: { activeCampaigns: enriched.length, leads, spend, cpl: leads > 0 ? spend / leads : null, leadChangePct }, recommendations, period: { since, until, days: periodDays }, verified: true, generatedAt: new Date().toISOString() });
+  return NextResponse.json({ campaigns: enriched.map(({ daily: _daily, ...item }) => item).sort((a, b) => b.leads - a.leads), buckets, summary: { activeCampaigns: enriched.length, leads, spend, activeSpend, cpl: leads > 0 ? activeSpend / leads : null, leadChangePct }, recommendations, period: { since, until, days: periodDays }, verified: true, generatedAt: new Date().toISOString() });
 });
 
 const metric = z.number().finite();

@@ -16,7 +16,7 @@ type Campaign = { id: string; name: string; objective?: string | null; leads: nu
 type Bucket = { label: string; leads: number; spend: number; cpl: number | null };
 type Recommendation = { severity: "high" | "medium" | "low"; title: string; detail: string };
 type AiRecommendation = { priority: string; title: string; rationale: string; action: string; confidence: number };
-type Monitoring = { campaigns: Campaign[]; buckets: Bucket[]; summary: { activeCampaigns: number; leads: number; spend: number; cpl: number | null; leadChangePct: number | null }; recommendations: Recommendation[]; period: { since: string; until: string; days: number }; verified: boolean; generatedAt: string };
+type Monitoring = { campaigns: Campaign[]; buckets: Bucket[]; summary: { activeCampaigns: number; leads: number; spend: number; activeSpend: number; cpl: number | null; leadChangePct: number | null }; recommendations: Recommendation[]; period: { since: string; until: string; days: number }; verified: boolean; generatedAt: string };
 
 const money = (value: number | null, currency = "EUR") => value === null ? "—" : new Intl.NumberFormat("es-ES", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
 const number = (value: number) => new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 }).format(value);
@@ -109,7 +109,7 @@ export default function MetaDashboardClient() {
 
     {!loading && data && <>
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {[{ label: "Campañas activas", value: number(data.summary.activeCampaigns), icon: Megaphone }, { label: `Resultados · ${data.period.days} días`, value: number(data.summary.leads), icon: Target }, { label: `Inversión · ${data.period.days} días`, value: money(data.summary.spend, account?.currency), icon: null }, { label: "Coste por resultado", value: money(data.summary.cpl, account?.currency), icon: null }].map((card) => <div key={card.label} className="rounded-xl border bg-white p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{card.icon && <card.icon className="h-4 w-4" />}{card.label}</div><div className="mt-2 text-2xl font-bold text-slate-900">{card.value}</div></div>)}
+        {[{ label: "Campañas activas", value: number(data.summary.activeCampaigns), icon: Megaphone }, { label: `Resultados activos · ${data.period.days} días`, value: number(data.summary.leads), icon: Target }, { label: `Inversión total cuenta · ${data.period.days} días`, value: money(data.summary.spend, account?.currency), icon: null }, { label: "Coste/resultado activo", value: money(data.summary.cpl, account?.currency), icon: null }].map((card) => <div key={card.label} className="rounded-xl border bg-white p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{card.icon && <card.icon className="h-4 w-4" />}{card.label}</div><div className="mt-2 text-2xl font-bold text-slate-900">{card.value}</div></div>)}
         <div className={`rounded-xl border p-4 ${trend !== null && trend < 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cambio últimos 15 días</div><div className="mt-2 flex items-center gap-1 text-2xl font-bold">{trend === null ? "Sin comparación" : <>{trend >= 0 ? <ArrowUpRight className="h-6 w-6 text-emerald-600" /> : <ArrowDownRight className="h-6 w-6 text-red-600" />}{Math.abs(trend).toFixed(0)}%</>}</div></div>
       </div>
 
