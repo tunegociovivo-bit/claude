@@ -22,7 +22,7 @@ export type PlatformKey =
   | "nv_leads"
   | "redactor_ia"
   | "asana_import"
-  | "meta_campaigns"
+  | "meta_suite"
   | "chrome_extension"
   | "bubui_directorio"
   | "subvenciones";
@@ -92,12 +92,13 @@ export const PLATFORMS: PlatformDef[] = [
     available: true
   },
   {
-    key: "meta_campaigns",
-    label: "Campañas Meta",
-    description: "Supervisa y crea campañas publicitarias en Meta con métricas, recomendaciones y generación asistida por IA.",
-    href: "/campanas-meta",
+    key: "meta_suite",
+    label: "META",
+    description: "Resumen, campañas publicitarias y gestión de comentarios de Meta desde una única sección.",
+    href: "/meta",
     icon: Megaphone,
-    available: true
+    available: true,
+    defaultEnabled: true
   },
   {
     key: "chrome_extension",

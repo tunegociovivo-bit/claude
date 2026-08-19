@@ -726,7 +726,13 @@ function UserFormModal({
       if (role === "ADMIN") payload.adminGrants = null;
       else {
         const sections = [...grantSections];
-        const cards = [...grantCards];
+        const effectiveGrantCards = new Set(grantCards);
+        // La plataforma META incluye Comentarios Meta, que vive bajo /admin.
+        // Sincronizamos esa tarjeta para que el permiso de plataforma abra la
+        // suite completa y no solo el resumen/campañas.
+        if (allowedPlatformKeys.has("meta_suite")) effectiveGrantCards.add("/admin/meta-comments");
+        else effectiveGrantCards.delete("/admin/meta-comments");
+        const cards = [...effectiveGrantCards];
         payload.adminGrants = sections.length || cards.length ? { sections, cards } : null;
       }
     }

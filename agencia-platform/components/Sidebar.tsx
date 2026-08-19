@@ -61,7 +61,7 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
   asana_import: Download,
   nv_dashboard: FileText,
   nv_leads: MessageSquare,
-  meta_campaigns: Megaphone,
+  meta_suite: Megaphone,
   chrome_extension: Puzzle,
   bubui_directorio: Store,
   subvenciones: Landmark,
@@ -77,13 +77,12 @@ const PLATFORM_GRAD: Record<string, string> = {
   asana_import: "linear-gradient(135deg,#FB923C,#EA580C)",     // naranja
   nv_dashboard: "linear-gradient(135deg,#38BDF8,#2563EB)",     // azul
   nv_leads: "linear-gradient(135deg,#34D399,#059669)",         // esmeralda
-  meta_campaigns: "linear-gradient(135deg,#60A5FA,#4F46E5)",   // azul-índigo (Meta)
+  meta_suite: "linear-gradient(135deg,#1877F2,#7C3AED)",
   chrome_extension: "linear-gradient(135deg,#2DD4BF,#0D9488)", // teal
   bubui_directorio: "linear-gradient(135deg,#F86FB0,#D1186A)", // rosa Bubui
   subvenciones: "linear-gradient(135deg,#818CF8,#4338CA)",     // índigo
   gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)",          // verde-azul Google
-  meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)",
-  meta_suite: "linear-gradient(135deg,#1877F2,#7C3AED)"
+  meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)"
 };
 const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
 
@@ -165,7 +164,6 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
 
   function movePlatform(key: string, dir: -1 | 1) {
     const baseKeys = [
-      "meta_suite",
       ...(!me || me.features.includes("gmb") ? ["gmb_hub"] : []),
       ...platforms.map((p) => p.key)
     ];
@@ -516,9 +514,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             <div className="space-y-0.5">
               {(() => {
                 const allItems = [
-                  { key: "meta_suite", label: "META", href: "/meta", icon: Megaphone },
                   ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
-                  ...platforms.filter((p) => p.key !== "meta_campaigns").map((p) => ({
+                  ...platforms.map((p) => ({
                     key: p.key,
                     label: p.label,
                     href: p.href,
