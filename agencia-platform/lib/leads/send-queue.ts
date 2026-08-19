@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { madridDayRange } from "@/lib/leads/madrid-day";
 import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, sendImage, sendVoice, getWahaConfig, getSession, checkNumberExists } from "./waha";
@@ -854,6 +855,7 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
   queue: {
     queued: number;
     dueNow: number;
+    scheduledToday: number;
     future: number;
     sending: number;
     failed: number;
@@ -881,9 +883,11 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     })
   ]);
 
-  const [queuedTotal, dueNow, sendingCount, failedCount, blockedLinkCount, nextMsg] = await Promise.all([
+  const todayRange = madridDayRange(now);
+  const [queuedTotal, dueNow, scheduledToday, sendingCount, failedCount, blockedLinkCount, nextMsg] = await Promise.all([
     prisma.leadMessage.count({ where: { workspaceId, status: "queued" } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "queued", scheduledAt: { lte: now } } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "queued", scheduledAt: { gte: todayRange.from, lt: todayRange.to } } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "sending" } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "failed" } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "blocked_link" } }),
@@ -1099,6 +1103,7 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     queue: {
       queued: queuedTotal,
       dueNow,
+      scheduledToday,
       future,
       sending: sendingCount,
       failed: failedCount,

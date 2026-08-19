@@ -3065,12 +3065,13 @@ function QueueLiveStatus() {
           ↻ Actualizar
         </button>
       </div>
-      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {[
-          ["Enviados hoy", `${d.counters?.sentToday ?? 0} / ${d.settings?.dailyLimitEffective ?? "?"}`],
-          ["Último envío", ago],
+          ["Enviados hoy", `${d.counters?.sentToday ?? 0} mensajes`],
+          ["Programados para hoy", `${d.queue?.scheduledToday ?? 0} mensajes`],
+          ["Límite máximo diario", `${d.settings?.dailyLimitEffective ?? "?"} mensajes`],
           ["Próximo envío", nextSend],
-          ["En cola (vencidos)", `${d.queue?.queued ?? 0} (${d.queue?.dueNow ?? 0} listos)`],
+          ["Pendientes en cola", `${d.queue?.queued ?? 0} (${d.queue?.dueNow ?? 0} listos ahora)`],
           ["Números conectados", `${connected} / ${totalSess}`]
         ].map(([k, v], i) => (
           <div key={i} className="rounded border border-white/70 bg-white/70 px-2 py-1">
@@ -4768,11 +4769,13 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
             {[
               ["Ahora", diag.now + (diag.insideWindow ? " · en ventana ✅" : " · fuera de ventana ⛔")],
               ["Ventana", `${diag.settings.window}${diag.settings.sendOnWeekends ? "" : " (L-V)"}`],
-              ["Enviados hoy", `${diag.counters.sentToday} / ${diag.settings.dailyLimitEffective}`],
+              ["Enviados hoy", `${diag.counters.sentToday} mensajes`],
+              ["Programados hoy", `${diag.queue.scheduledToday ?? 0} mensajes`],
+              ["Límite diario", `${diag.settings.dailyLimitEffective} mensajes`],
               ["Última hora", `${diag.counters.sentLastHour} / ${diag.settings.maxPerHour}`],
               ["Cool-down", `${diag.settings.cooldownDays} días`],
               ["Chats nuevos/día", `${diag.counters.newChatsToday} / ${diag.settings.maxNewChatsPerDay}`],
-              ["En cola (vencidos)", `${diag.queue.queued} (${diag.queue.dueNow} listos)`],
+              ["Pendientes en cola", `${diag.queue.queued} (${diag.queue.dueNow} listos ahora)`],
               ["Último envío", diag.counters.lastSentAt ?? "—"]
             ].map(([k, v], i) => (
               <div key={i} className="rounded border border-sky-100 bg-white px-2 py-1">
