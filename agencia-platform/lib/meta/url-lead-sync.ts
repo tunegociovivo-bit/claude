@@ -89,7 +89,7 @@ async function fetchPublicDocument(rawUrl: string, workspaceId: string) {
   for (let redirects = 0; redirects <= 5; redirects++) {
     await assertPublicHttps(current);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25_000);
+    const timeout = setTimeout(() => controller.abort(), accessToken ? 90_000 : 25_000);
     try {
       const response = await fetch(current, { redirect: "manual", signal: controller.signal, headers: { "User-Agent": "NegocioVivo-Hub/1.0", ...(accessToken && current.hostname === "www.googleapis.com" ? { Authorization: `Bearer ${accessToken}` } : {}) } });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
