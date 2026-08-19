@@ -60,13 +60,37 @@ export function normalizeLeadSourceUrl(raw: string): string {
   return url.toString();
 }
 
-function googleFile(rawUrl: string): { id: string; kind: "sheet" | "doc" } | null {
+function googleFile(rawUrl: string): { id: string; kind: "sheet" | "doc"; gid?: string } | null {
   const url = new URL(rawUrl);
   const sheet = url.pathname.match(/^\/spreadsheets\/d\/([^/]+)/);
-  if (url.hostname === "docs.google.com" && sheet) return { id: sheet[1], kind: "sheet" };
+  if (url.hostname === "docs.google.com" && sheet) return { id: sheet[1], kind: "sheet", gid: url.hash.match(/gid=(\d+)/)?.[1] ?? url.searchParams.get("gid") ?? undefined };
   const doc = url.pathname.match(/^\/document\/d\/([^/]+)/);
   if (url.hostname === "docs.google.com" && doc) return { id: doc[1], kind: "doc" };
   return null;
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+async function fetchPrivateSheet(file: { id: string; gid?: string }, accessToken: string, rawUrl: string) {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const metaResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}?fields=sheets.properties`, { headers, signal: AbortSignal.timeout(30_000) });
+  if (!metaResponse.ok) throw new Error(`Google Sheets respondió HTTP ${metaResponse.status}. Comprueba que tunegociovivo@gmail.com tenga acceso al documento.`);
+  const meta = await metaResponse.json();
+  const sheets = Array.isArray(meta.sheets) ? meta.sheets : [];
+  const selected = sheets.find((item: any) => String(item?.properties?.sheetId) === String(file.gid)) ?? sheets[0];
+  const title = selected?.properties?.title;
+  if (!title) throw new Error("Google Sheets no devolvió ninguna pestaña legible.");
+  const range = `'${String(title).replace(/'/g, "''")}'`;
+  const valuesResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}/values/${encodeURIComponent(range)}?majorDimension=ROWS`, { headers, signal: AbortSignal.timeout(90_000) });
+  if (!valuesResponse.ok) throw new Error(`Google Sheets respondió HTTP ${valuesResponse.status}. Comprueba que tunegociovivo@gmail.com tenga acceso de lectura.`);
+  const data = await valuesResponse.json();
+  const values: unknown[][] = Array.isArray(data.values) ? data.values : [];
+  const buffer = Buffer.from(values.map((row) => row.map(csvCell).join(",")).join("\n"), "utf8");
+  if (buffer.byteLength > MAX_BYTES) throw new Error("La pestaña seleccionada supera el límite de 10 MB.");
+  return { buffer, mime: "text/csv", finalUrl: new URL(rawUrl) };
 }
 
 async function leadDocumentsAccessToken(workspaceId: string): Promise<string | null> {
@@ -80,6 +104,7 @@ async function leadDocumentsAccessToken(workspaceId: string): Promise<string | n
 async function fetchPublicDocument(rawUrl: string, workspaceId: string) {
   const privateGoogleFile = googleFile(rawUrl);
   const accessToken = privateGoogleFile ? await leadDocumentsAccessToken(workspaceId) : null;
+  if (privateGoogleFile?.kind === "sheet" && accessToken) return fetchPrivateSheet(privateGoogleFile, accessToken, rawUrl);
   let current = new URL(normalizeLeadSourceUrl(rawUrl));
   if (privateGoogleFile && accessToken) {
     const mimeType = privateGoogleFile.kind === "sheet" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/plain";
