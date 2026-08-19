@@ -137,7 +137,8 @@ export const api = {
     postalCode?: string;
     firstBusinessId?: string;
     /** Código de referido (de quien invitó), para vincular el alta. */
-    ref?: string;
+      ref?: string;
+      refOfferId?: string;
   }) =>
     call("/api/bubui/customer/verify-otp", {
       method: "POST",

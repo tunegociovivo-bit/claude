@@ -26,6 +26,7 @@ import { CheckSession } from "./session";
  */
 
 const KEY = "bubui.pendingDeal";
+const IR_RECEIPT_KEY = "bubui.installReferrerDealReceipt";
 const capturedListeners = new Set<(token: string) => void>();
 export function onDealCaptured(fn: (token: string) => void): () => void {
   capturedListeners.add(fn);
@@ -105,9 +106,13 @@ async function captureInstallReferrerOnce(): Promise<void> {
     if (!PIR?.getInstallReferrerInfo) { signalDealCaptureDone(); return; }
     PIR.getInstallReferrerInfo((info: any, err: any) => {
       if (err) { signalDealCaptureDone(); return; } // transitorio → reintento próximo arranque
-      const token = parseDealFromString(info?.installReferrer);
-      if (!token) { signalDealCaptureDone(); return; }
       void (async () => {
+        const raw = typeof info?.installReferrer === "string" ? info.installReferrer : "";
+        const previous = await AsyncStorage.getItem(IR_RECEIPT_KEY).catch(() => null);
+        if (raw && previous === raw) { signalDealCaptureDone(); return; }
+        const token = parseDealFromString(raw);
+        if (!token) { signalDealCaptureDone(); return; }
+        await AsyncStorage.setItem(IR_RECEIPT_KEY, raw).catch(() => {});
         await storeIfEmpty(token);
         signalDealCaptureDone(); // token persistido → el alta puede leerlo
         notifyDealCaptured(token);

@@ -80,7 +80,8 @@ export async function POST(req: Request, { params }: { params: { token: string }
   const baseline = deal.requiresPurchase
     ? await countQualifiedReferrals(customerId, deal.businessId)
     : await countVerifiedReferrals(customerId);
-  const offer = await prisma.bubuiOffer.create({
+  const offer = await prisma.$transaction(async (tx) => {
+  const created = await tx.bubuiOffer.create({
     data: {
       customerId,
       businessId: deal.businessId,
@@ -98,13 +99,16 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
   // Vincula el negocio de origen del cliente (para financiar los cupones de los
   // amigos) si aún no tenía, y marca el reto como reclamado.
-  await prisma.bubuiCustomer.updateMany({
+  await tx.bubuiCustomer.updateMany({
     where: { id: customerId, firstBusinessId: null },
     data: { firstBusinessId: deal.businessId }
   });
-  await prisma.bubuiCustomDeal.update({
-    where: { id: deal.id },
-    data: { claimedByCustomerId: customerId, claimedAt: new Date(), offerId: offer.id }
+  const reserved = await tx.bubuiCustomDeal.updateMany({
+    where: { id: deal.id, claimedByCustomerId: null },
+    data: { claimedByCustomerId: customerId, claimedAt: new Date(), offerId: created.id }
+  });
+  if (reserved.count !== 1) throw Object.assign(new Error("claim race"), { code: "claim_race" });
+  return created;
   });
 
   // Aviso al DUEÑO: un cliente acaba de ACEPTAR el reto (panel + push).

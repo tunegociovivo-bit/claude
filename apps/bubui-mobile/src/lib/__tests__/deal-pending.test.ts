@@ -221,4 +221,16 @@ describe("late Install Referrer and restored Android backup", () => {
     await flush();
     expect(H.store.get("bubui.installReferrerDealChecked")).toBeUndefined();
   });
+
+  it("does not recreate a claimed challenge from the same Play referrer on restart", async () => {
+    H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: `reto_${NEW_TOKEN}` }, null));
+    const m = await freshModule();
+    m.initDealCapture();
+    await m.waitForDealCapture();
+    await m.clearPendingDeal();
+    const m2 = await freshModule();
+    m2.initDealCapture();
+    await flush();
+    expect(await m2.getPendingDeal()).toBeNull();
+  });
 });

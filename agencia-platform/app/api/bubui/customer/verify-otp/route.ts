@@ -32,7 +32,8 @@ const schema = z.object({
   gender: z.enum(["female", "male", "other", "prefer_not"]).optional().or(z.literal("")),
   postalCode: z.string().regex(/^\d{5}$/, "Código postal inválido").optional().or(z.literal("")),
   firstBusinessId: z.string().optional(),
-  ref: z.string().max(12).optional()
+  ref: z.string().max(12).optional(),
+  refOfferId: z.string().min(8).max(64).optional()
 });
 
 async function sessionFrom(c: { id: string; name: string | null; totalSaved: number; totalPurchases: number }, reused: boolean, status = 200) {
@@ -51,9 +52,9 @@ async function sessionFrom(c: { id: string; name: string | null; totalSaved: num
  * (clic reciente en /bubui/r/<code> desde la misma IP). Con log para poder
  * diagnosticar en Railway qué camino se usó.
  */
-async function linkReferral(customerId: string, ref: string | undefined, headers: Headers): Promise<void> {
+async function linkReferral(customerId: string, ref: string | undefined, explicitOfferId: string | undefined, headers: Headers): Promise<void> {
   let code = ref ?? null;
-  let offerId: string | undefined;
+  let offerId = explicitOfferId;
   let via = "app";
   if (!code) {
     const click = await findRecentReferralClick(headers).catch(() => null);
@@ -111,7 +112,7 @@ export async function POST(req: Request) {
     try {
       const updated = await prisma.bubuiCustomer.update({ where: { id: byPhone.id }, data: { phoneVerified: true, ...profile } });
       await ensureReferralCode(updated.id);
-      await linkReferral(updated.id, d.ref, req.headers);
+      await linkReferral(updated.id, d.ref, d.refOfferId, req.headers);
       return sessionFrom(updated, true);
     } catch (e: any) {
       if (e?.code === "P2002") {
@@ -129,7 +130,7 @@ export async function POST(req: Request) {
     }
     const merged = await prisma.bubuiCustomer.update({ where: { id: byEmail.id }, data: { phone, phoneVerified: true, ...profile } });
     await ensureReferralCode(merged.id);
-    await linkReferral(merged.id, d.ref, req.headers);
+    await linkReferral(merged.id, d.ref, d.refOfferId, req.headers);
     return sessionFrom(merged, true);
   }
 
@@ -139,7 +140,7 @@ export async function POST(req: Request) {
       data: { phone, phoneVerified: true, ...profile, firstBusinessId: d.firstBusinessId ?? null }
     });
     await ensureReferralCode(created.id);
-    await linkReferral(created.id, d.ref, req.headers);
+    await linkReferral(created.id, d.ref, d.refOfferId, req.headers);
     return sessionFrom(created, false, 201);
   } catch (e: any) {
     if (e?.code === "P2002") {
