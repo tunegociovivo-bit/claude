@@ -113,6 +113,8 @@ describe("restored backup and late challenge referral", () => {
     H.store.set("bubui.installReferrerChecked", "1");
     H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
     const m = await freshModule();
+    const seen = vi.fn();
+    m.onReferralCaptured(seen);
     m.initReferralCapture();
     await m.waitForReferrerCapture();
     expect(await m.getPendingRef()).toBe("ABC123|offer12345678");
@@ -135,6 +137,8 @@ describe("restored backup and late challenge referral", () => {
   it("does not replay the same Play referrer after it was processed", async () => {
     H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
     const m = await freshModule();
+    const seen = vi.fn();
+    m.onReferralCaptured(seen);
     m.initReferralCapture();
     await m.waitForReferrerCapture();
     await m.clearPendingRef();
@@ -158,9 +162,12 @@ describe("restored backup and late challenge referral", () => {
     H.store.set("bubui.pendingRefSource", "deeplink");
     H.pir.getInstallReferrerInfo.mockImplementation((cb: any) => cb({ installReferrer: "challenge_ABC123_offer12345678" }, null));
     const m = await freshModule();
+    const seen = vi.fn();
+    m.onReferralCaptured(seen);
     m.initReferralCapture();
     await m.waitForReferrerCapture();
     expect(await m.getPendingRef()).toBe("LIVE99|liveoffer123");
+    expect(seen).not.toHaveBeenCalled();
   });
 });
 
