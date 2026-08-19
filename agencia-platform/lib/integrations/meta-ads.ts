@@ -15,6 +15,8 @@ import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { loadStoredAdhocCredentials } from "@/lib/ai/nv-ia/adhoc-credentials";
 import { metaWriteGate, noteMetaUsage, noteMetaErrorBody } from "@/lib/integrations/meta-rate-guard";
+import { listWorkspaceMetaTokens } from "@/lib/meta/connection";
+import { tryMetaTokenCandidates } from "@/lib/integrations/meta-token-fallback";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 const GRAPH_CAMPAIGN_STATUS = "https://graph.facebook.com/v23.0";
@@ -185,6 +187,19 @@ async function resolveMetaToken(workspaceId: string, adhoc?: Record<string, stri
   throw new Error("No hay token de Meta configurado — pega tu Access Token en /campanas-meta (Conexión Meta)");
 }
 
+async function getMetaTokenCandidates(
+  workspaceId: string,
+  adhoc?: Record<string, string>
+): Promise<string[]> {
+  const stored: Record<string, string> = await loadStoredAdhocCredentials(workspaceId).catch(() => ({}));
+  const connections = await listWorkspaceMetaTokens(workspaceId);
+  return [...new Set([
+    adhoc?.META_ADS_TOKEN,
+    ...connections.map((connection) => connection.token),
+    stored.META_ADS_TOKEN
+  ].map((token) => token?.trim()).filter(Boolean))] as string[];
+}
+
 /**
  * Resuelve una cuenta publicitaria por nombre (fuzzy) o por id (act_xxx /
  * xxx). Devuelve el id en formato "act_xxx" o null si no encuentra una.
@@ -277,36 +292,60 @@ async function metaFetch<T = any>(url: string, accessToken: string): Promise<T> 
   throw new Error(lastErr || "metaFetch: agotados los reintentos");
 }
 
+async function metaFetchWithWorkspaceTokens<T = any>(
+  url: string,
+  workspaceId: string,
+  adhoc?: Record<string, string>
+): Promise<T> {
+  const candidates = await getMetaTokenCandidates(workspaceId, adhoc);
+  return tryMetaTokenCandidates(candidates, (token) => metaFetch<T>(url, token));
+}
+
+async function resolveMetaTokenForObject(
+  workspaceId: string,
+  objectId: string,
+  adhoc?: Record<string, string>
+): Promise<string> {
+  const candidates = await getMetaTokenCandidates(workspaceId, adhoc);
+  return tryMetaTokenCandidates(candidates, async (token) => {
+    await metaFetch(`${GRAPH}/${objectId}?fields=id`, token);
+    return token;
+  });
+}
+
 export async function metaAdsListAdAccounts(workspaceId: string, adhoc?: Record<string, string>) {
-  let token: string | null = adhoc?.META_ADS_TOKEN ?? null;
-  if (!token) {
-    const conn = await pickMetaConnection(workspaceId);
-    if (!conn) throw new Error("MetaConnection no configurada");
-    token = decryptSecret(conn.accessTokenEnc);
-    if (!token) throw new Error("token inválido");
-  }
+  const tokens = await getMetaTokenCandidates(workspaceId, adhoc);
+  if (tokens.length === 0) throw new Error("MetaConnection no configurada");
   // Paginamos TODAS las cuentas (Graph devuelve 25 por página por defecto;
   // sin paginar, cuentas como EUROSISTEMAS quedaban fuera y "no se veían").
-  const out: Array<{ id: string; name: string; status: any; currency: any; timezone: any }> = [];
-  let after = "";
-  for (let i = 0; i < 20; i++) {
-    const url =
-      `${GRAPH}/me/adaccounts?fields=id,name,account_status,currency,timezone_name&limit=200` +
-      (after ? `&after=${encodeURIComponent(after)}` : "");
-    const data = await metaFetch<any>(url, token);
-    for (const a of data.data ?? []) {
-      out.push({
-        id: a.id, // formato "act_xxx"
-        name: a.name,
-        status: a.account_status,
-        currency: a.currency,
-        timezone: a.timezone_name
-      });
+  const byId = new Map<string, { id: string; name: string; status: any; currency: any; timezone: any }>();
+  let lastError: unknown;
+  for (const token of tokens) {
+    let after = "";
+    try {
+      for (let i = 0; i < 20; i++) {
+        const url =
+          `${GRAPH}/me/adaccounts?fields=id,name,account_status,currency,timezone_name&limit=200` +
+          (after ? `&after=${encodeURIComponent(after)}` : "");
+        const data = await metaFetch<any>(url, token);
+        for (const a of data.data ?? []) {
+          byId.set(a.id, {
+            id: a.id, // formato "act_xxx"
+            name: a.name,
+            status: a.account_status,
+            currency: a.currency,
+            timezone: a.timezone_name
+          });
+        }
+        after = data.paging?.cursors?.after ?? "";
+        if (!after || !(data.data?.length)) break;
+      }
+    } catch (error) {
+      lastError = error;
     }
-    after = data.paging?.cursors?.after ?? "";
-    if (!after || !(data.data?.length)) break;
   }
-  return out;
+  if (byId.size === 0 && lastError) throw lastError;
+  return [...byId.values()];
 }
 
 export async function metaAdsListCampaigns(opts: {
@@ -345,7 +384,6 @@ export async function metaAdsGetCampaignInsights(opts: {
   until?: string;
   adhoc?: Record<string, string>;
 }) {
-  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const fields =
     "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values,date_start,date_stop";
   const params = new URLSearchParams({ fields });
@@ -354,9 +392,10 @@ export async function metaAdsGetCampaignInsights(opts: {
   } else {
     params.set("date_preset", opts.datePreset ?? "last_30d");
   }
-  const data = await metaFetch<any>(
+  const data = await metaFetchWithWorkspaceTokens<any>(
     `${GRAPH}/${opts.campaignId}/insights?${params.toString()}`,
-    accessToken
+    opts.workspaceId,
+    opts.adhoc
   );
   // Devolvemos solo el primer "rollup" del rango — Meta puede partir
   // por dimensiones que no estamos pidiendo aquí.
@@ -396,14 +435,14 @@ export async function metaAdsGetCampaignDailyInsights(opts: {
   resultActionTypes?: string[];
   adhoc?: Record<string, string>;
 }): Promise<Array<{ date: string; spend: number; leads: number }>> {
-  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const days = Math.min(Math.max(opts.days ?? 14, 2), 90);
   const params = new URLSearchParams({ fields: "spend,actions,date_start", time_increment: "1" });
   if (opts.since && opts.until) params.set("time_range", JSON.stringify({ since: opts.since, until: opts.until }));
   else params.set("date_preset", days <= 7 ? "last_7d" : days <= 14 ? "last_14d" : days <= 30 ? "last_30d" : "last_90d");
-  const data = await metaFetch<any>(
+  const data = await metaFetchWithWorkspaceTokens<any>(
     `${GRAPH}/${opts.campaignId}/insights?${params.toString()}`,
-    accessToken
+    opts.workspaceId,
+    opts.adhoc
   );
   return (data.data ?? []).map((row: any) => {
     const leads = Array.isArray(row.actions)
@@ -464,7 +503,6 @@ export async function metaAdsListAds(opts: {
   adhoc?: Record<string, string>;
   limit?: number;
 }) {
-  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   let parent: string;
   if (opts.adsetId) parent = opts.adsetId;
   else if (opts.campaignId) parent = opts.campaignId;
@@ -473,9 +511,10 @@ export async function metaAdsListAds(opts: {
     fields: "id,name,status,adset_id,campaign_id,creative",
     limit: String(opts.limit ?? 200)
   });
-  const data = await metaFetch<any>(
+  const data = await metaFetchWithWorkspaceTokens<any>(
     `${GRAPH}/${parent}/ads?${params.toString()}`,
-    accessToken
+    opts.workspaceId,
+    opts.adhoc
   );
   return data.data ?? [];
 }
@@ -490,15 +529,15 @@ export async function metaAdsListAdsets(opts: {
   adhoc?: Record<string, string>;
   limit?: number;
 }) {
-  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
   const params = new URLSearchParams({
     fields:
       "id,name,status,campaign_id,daily_budget,optimization_goal,destination_type,promoted_object,targeting",
     limit: String(opts.limit ?? 50)
   });
-  const data = await metaFetch<any>(
+  const data = await metaFetchWithWorkspaceTokens<any>(
     `${GRAPH}/${opts.campaignId}/adsets?${params.toString()}`,
-    accessToken
+    opts.workspaceId,
+    opts.adhoc
   );
   return data.data ?? [];
 }
@@ -534,7 +573,15 @@ export async function metaAdsDownloadLeads(opts: {
   leads: Array<Record<string, string>>;
   source: string;
 }> {
-  const accessToken = await resolveMetaToken(opts.workspaceId, opts.adhoc);
+  const sourceObjectId = opts.campaignId ?? opts.adsetId ?? opts.adId ?? opts.formId;
+  if (!sourceObjectId) {
+    throw new Error("Debes pasar uno de: campaignId, adsetId, adId, formId");
+  }
+  const accessToken = await resolveMetaTokenForObject(
+    opts.workspaceId,
+    sourceObjectId,
+    opts.adhoc
+  );
 
   // 1) Resolver las "fuentes" de leads. Si es campaignId o adsetId,
   //    listamos los ads hijos. Si es adId o formId, directo.
@@ -555,10 +602,6 @@ export async function metaAdsDownloadLeads(opts: {
       adhoc: opts.adhoc
     });
     adIds = ads.map((a: any) => a.id);
-  } else if (!opts.formId) {
-    throw new Error(
-      "Debes pasar uno de: campaignId, adsetId, adId, formId"
-    );
   }
 
   const sinceTs = opts.since ? Math.floor(new Date(opts.since).getTime() / 1000) : null;
