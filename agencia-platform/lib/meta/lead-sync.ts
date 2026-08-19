@@ -8,7 +8,32 @@ function first(row: Record<string, string>, keys: string[]) {
   return null;
 }
 
-export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAccountId: string; connectionId: string }) {
+type CampaignRef = { id: string; name: string };
+type SyncState = { nextAt?: string; lastAt?: string; lastError?: string | null; campaigns?: CampaignRef[] };
+
+function readSyncState(value: unknown): SyncState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const state = (value as Record<string, unknown>).metaLeadSync;
+  return state && typeof state === "object" && !Array.isArray(state) ? state as SyncState : {};
+}
+
+async function saveSyncState(workspaceId: string, adAccountId: string, current: unknown, state: SyncState) {
+  const base = current && typeof current === "object" && !Array.isArray(current) ? current as Record<string, unknown> : {};
+  await prisma.metaClientProfile.update({
+    where: { workspaceId_adAccountId: { workspaceId, adAccountId } },
+    data: { alertRules: { ...base, metaLeadSync: state } as Prisma.InputJsonValue }
+  });
+}
+
+export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAccountId: string; connectionId: string; campaigns?: CampaignRef[]; force?: boolean }) {
+  const profile = await prisma.metaClientProfile.findUnique({
+    where: { workspaceId_adAccountId: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId } },
+    select: { alertRules: true }
+  });
+  const previousState = readSyncState(profile?.alertRules);
+  if (!opts.force && previousState.nextAt && new Date(previousState.nextAt).getTime() > Date.now()) {
+    return { imported: 0, updated: 0, campaigns: previousState.campaigns?.length ?? 0, deferred: true, nextAt: previousState.nextAt, reason: previousState.lastError ?? "Sincronización programada" };
+  }
   const token = await readMetaTokenByConnection(opts.workspaceId, opts.connectionId);
   if (!token) throw new Error("La conexión Meta no está disponible");
   const adhoc = { META_ADS_TOKEN: token, META_ADS_AD_ACCOUNT_ID: opts.adAccountId };
@@ -18,21 +43,34 @@ export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAcc
   const sinceDate = latest ? new Date(latest.occurredAt.getTime() - 7 * 86_400_000) : new Date(Date.now() - 90 * 86_400_000);
   const since = sinceDate.toISOString().slice(0, 10);
   const until = new Date().toISOString().slice(0, 10);
-  const listed = await metaAdsListCampaigns({ workspaceId: opts.workspaceId, status: "ACTIVE", statusField: "effective_status", refreshStatuses: true, limit: 100, adhoc });
-  const campaigns = listed.filter((campaign: any) => String(campaign.configured_status ?? "").toUpperCase() === "ACTIVE");
+  let campaigns = opts.campaigns?.filter((campaign) => campaign.id && campaign.name) ?? previousState.campaigns ?? [];
+  if (!campaigns.length) {
+    const listed = await metaAdsListCampaigns({ workspaceId: opts.workspaceId, status: "ACTIVE", statusField: "effective_status", refreshStatuses: true, limit: 100, adhoc });
+    campaigns = listed.filter((campaign: any) => String(campaign.configured_status ?? "").toUpperCase() === "ACTIVE").map((campaign: any) => ({ id: String(campaign.id), name: String(campaign.name) }));
+  }
   let imported = 0; let updated = 0;
-  for (const campaign of campaigns) {
-    const adsets = await metaAdsListAdsets({ workspaceId: opts.workspaceId, campaignId: String(campaign.id), adhoc, limit: 100 });
-    const adsetById = new Map(adsets.map((item: any) => [String(item.id), item]));
-    const result = await metaAdsDownloadLeads({ workspaceId: opts.workspaceId, campaignId: String(campaign.id), since, until, adhoc });
+  try {
+   for (const campaign of campaigns) {
+    const result = await metaAdsDownloadLeads({ workspaceId: opts.workspaceId, campaignId: campaign.id, since, until, adhoc });
+    let adsetById = new Map<string, any>();
+    if (result.leads.length) {
+      try {
+        const adsets = await metaAdsListAdsets({ workspaceId: opts.workspaceId, campaignId: campaign.id, adhoc, limit: 100 });
+        adsetById = new Map(adsets.map((item: any) => [String(item.id), item]));
+      } catch (error: any) {
+        // La atribución del lead es prioritaria. Si Meta limita esta consulta
+        // auxiliar, importamos igualmente y el feedback quedará pendiente.
+        if (!/request limit reached|demasiadas llamadas|code.?17|2446079/i.test(String(error?.message ?? error))) throw error;
+      }
+    }
     for (const row of result.leads) {
       const externalLeadId = row.lead_id;
       if (!externalLeadId) continue;
       const existing = await prisma.metaLeadAttribution.findUnique({ where: { workspaceId_adAccountId_externalLeadId: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId } }, select: { id: true } });
-      const adset = adsetById.get(String(row.adset_id ?? "")) as any;
+      const adset = adsetById.get(String(row.adset_id ?? ""));
       const metadata = { ...row, pixelId: adset?.promoted_object?.pixel_id ?? null, metaConnectionId: opts.connectionId } as Prisma.InputJsonValue;
       const data = {
-        campaignId: String(campaign.id), campaignName: String(campaign.name), adsetId: row.adset_id || null,
+        campaignId: campaign.id, campaignName: campaign.name, adsetId: row.adset_id || null,
         adsetName: adset?.name ? String(adset.name) : null, adId: row.ad_id || null, formId: row.form_id || null,
         contactName: first(row, ["full_name", "nombre_completo", "name", "nombre"]),
         email: first(row, ["email", "correo_electronico", "correo"]),
@@ -45,6 +83,17 @@ export async function syncMetaLeadsForAccount(opts: { workspaceId: string; adAcc
       });
       if (existing) updated++; else imported++;
     }
+   }
+  } catch (error: any) {
+    const message = String(error?.message ?? error);
+    if (/request limit reached|demasiadas llamadas|code.?17|2446079/i.test(message)) {
+      const nextAt = new Date(Date.now() + 60 * 60_000).toISOString();
+      await saveSyncState(opts.workspaceId, opts.adAccountId, profile?.alertRules, { ...previousState, campaigns, nextAt, lastError: "Meta ha limitado temporalmente las consultas; reintento automático programado." });
+      return { imported, updated, campaigns: campaigns.length, since, until, deferred: true, nextAt, reason: "Meta ha limitado temporalmente las consultas; reintento automático programado." };
+    }
+    throw error;
   }
-  return { imported, updated, campaigns: campaigns.length, since, until };
+  const nextAt = new Date(Date.now() + 15 * 60_000).toISOString();
+  await saveSyncState(opts.workspaceId, opts.adAccountId, profile?.alertRules, { ...previousState, campaigns, nextAt, lastAt: new Date().toISOString(), lastError: null });
+  return { imported, updated, campaigns: campaigns.length, since, until, deferred: false, nextAt };
 }
