@@ -31,7 +31,7 @@ export default function MetaCommentsClient() {
   const [alertRecipients, setAlertRecipients] = useState<AlertRecipient[]>([]);
   const [newAlertEmail, setNewAlertEmail] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("pending");
   const [clientFilter, setClientFilter] = useState("all");
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
   const [editingClient, setEditingClient] = useState<string | null>(null);
@@ -209,7 +209,7 @@ export default function MetaCommentsClient() {
   }, [clientGroups, items]);
   const visible = useMemo(() => items.filter((item) =>
     (clientFilter === "all" || clientKeyOf(item.feed) === clientFilter)
-    && (filter === "all" || (filter === "pending" ? item.status !== "replied" : filter === "negative" ? item.sentiment === "negative" : item.status === "replied"))
+    && (filter === "all" || (filter === "pending" ? item.status !== "replied" : filter === "negative" ? item.sentiment === "negative" && item.status !== "replied" : item.status === "replied"))
   ), [items, filter, clientFilter]);
   const feed = feeds.find((item) => item.campaignId === selectedCampaignId);
 
@@ -252,7 +252,7 @@ export default function MetaCommentsClient() {
       {importResult && <div className="mt-3 text-sm font-medium text-emerald-700">{importResult}</div>}
     </div>
     {(error || feed?.lastError) && <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><b>No se ha podido completar la sincronización:</b> {error ?? feed?.lastError}<div className="mt-1 text-xs">El token debe incluir pages_read_engagement y pages_manage_engagement y tener acceso a la página del anuncio.</div><button onClick={() => setConnectionOpen(true)} className="mt-3 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100">Reconectar Meta</button></div>}
-    <div className="mb-4 flex flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} className="mr-2 rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select>{[["all", "Todos"], ["pending", "Pendientes"], ["negative", "Negativos"], ["replied", "Respondidos"]].map(([key, label]) => <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
+    <div className="mb-4 flex flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} className="mr-2 rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select>{[["pending", "Pendientes"], ["negative", "Negativos pendientes"], ["replied", "Respondidos"]].map(([key, label]) => <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
     {visible.length === 0 ? <div className="rounded-xl border bg-white p-10 text-center text-slate-500"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" /><div className="font-medium text-slate-700">No hay comentarios en este filtro</div><div className="mt-1 text-sm">Pulsa “Sincronizar ahora” para consultar Meta.</div></div> : <div className="space-y-4">{visible.map((item) => <article id={`meta-comment-${item.id}`} key={item.id} className={`scroll-mt-6 rounded-xl border bg-white p-5 ${item.sentiment === "negative" ? "border-rose-300" : ""}`}>
       <div className="mb-3 flex flex-wrap items-start gap-2"><div className="flex-1"><div className="font-semibold">{item.authorName ?? "Usuario de Meta"}</div><div className="text-xs text-slate-500">{clientNameOf(item.feed)} · {item.adName ?? "Anuncio"} · {new Date(item.commentCreatedAt).toLocaleString("es-ES")}</div></div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${item.sentiment === "negative" ? "bg-rose-100 text-rose-700" : item.sentiment === "positive" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{item.sentiment === "negative" && <AlertTriangle className="h-3 w-3" />}{item.sentiment === "negative" ? "Negativo" : item.sentiment === "positive" ? "Positivo" : "Neutral"}</span></div>
       <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{item.message}</div>
