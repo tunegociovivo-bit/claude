@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { useSession } from "next-auth/react";
 import { playSoniaBlob, speakSonia } from "@/lib/voice/sonia-audio";
 
 const LS_KEY = "meta-cooldown-voiced-until";
@@ -15,8 +16,11 @@ const POLL_MS = 60_000;
 
 export default function MetaCooldownVoiceNotifier() {
   const busy = useRef(false);
+  const { data: session, status } = useSession();
+  const isAdmin = ((session?.user as any)?.role ?? "") === "ADMIN";
 
   useEffect(() => {
+    if (status !== "authenticated" || !isAdmin) return;
     let stop = false;
 
     async function announce(minutes: number) {
@@ -62,7 +66,7 @@ export default function MetaCooldownVoiceNotifier() {
       stop = true;
       clearInterval(id);
     };
-  }, []);
+  }, [isAdmin, status]);
 
   return null;
 }

@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
+import { callerIsAdmin } from "@/lib/api/permissions";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
 import { resolveRunOwnerId } from "@/lib/ai/nv-ia/run-owner";
@@ -152,6 +153,10 @@ async function writeSpeakCache(workspaceId: string, key: string, text: string) {
 }
 
 export const GET = withApi({ scope: "tasks:read" }, async (req, { api, params }) => {
+  // Spoken Sonia notifications are private operational alerts for admins.
+  // Returning no audio (instead of an error body) also prevents browser
+  // clients from falling back to a generic beep for ordinary workers.
+  if (!(await callerIsAdmin(api))) return new NextResponse(null, { status: 204 });
   const taskId = String((params as any)?.id ?? "");
   if (!taskId) return NextResponse.json({ error: "taskId requerido" }, { status: 400 });
 

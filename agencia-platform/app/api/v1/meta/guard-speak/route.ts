@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
+import { callerIsAdmin } from "@/lib/api/permissions";
 import { getMetaGuardState } from "@/lib/integrations/meta-rate-guard";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 
@@ -30,6 +31,7 @@ function firstNameOf(name: string | null, email: string | null): string | null {
 }
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
+  if (!(await callerIsAdmin(api))) return new NextResponse(null, { status: 204 });
   const state = await getMetaGuardState();
   if (!state.inCooldown) return new NextResponse(null, { status: 204 });
 

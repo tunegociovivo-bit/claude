@@ -168,6 +168,7 @@ export default function TareasClient({
   const { data: session } = useSession();
   const myUserId = (session?.user as any)?.id as string | undefined;
   const myEmail = ((session?.user as any)?.email as string | undefined)?.toLowerCase();
+  const isAdminUser = ((session?.user as any)?.role ?? "") === "ADMIN";
   // El dock derecho (calendario fijo + tablón de notas) se muestra en el
   // panel personal de info@negociovivo.com, igual que la redirección de
   // la home lo lleva directo a su kanban. Solo en pantallas anchas (xl+).
@@ -347,7 +348,7 @@ export default function TareasClient({
       return;
     }
 
-    if (notifyMode !== "off") {
+    if (isAdminUser && notifyMode !== "off") {
       for (const tr of transitions) {
         // Aislamiento por usuario: solo el DUEÑO de la tarea (quien se la
         // encargó a Sonia) oye su voz/beep. Otro admin que ve el tablón
@@ -382,7 +383,7 @@ export default function TareasClient({
       }
     }
     aiStatusRef.current = aiStatusByTask;
-  }, [aiStatusByTask, notifyMode, markVoiced]);
+  }, [aiStatusByTask, isAdminUser, notifyMode, markVoiced]);
 
   // Helper para reproducir voz — fetch el audio del endpoint y play.
   // Definido como useCallback para que sea referenciable en handlers.
