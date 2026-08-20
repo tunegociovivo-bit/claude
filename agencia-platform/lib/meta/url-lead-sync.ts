@@ -25,6 +25,9 @@ export type UrlLeadSource = {
 };
 
 const MAX_BYTES = 10 * 1024 * 1024;
+const SHEET_HEADER_ROWS = 20;
+const SHEET_RECENT_ROWS = 500;
+const SHEET_MAX_COLUMNS = 80;
 const PRIVATE_V4 = [/^10\./, /^127\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^0\./];
 const DOCUMENT_HOSTS = ["docs.google.com", "drive.google.com", "googleapis.com", "googleusercontent.com", "dropbox.com", "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com"];
 
@@ -74,6 +77,28 @@ function csvCell(value: unknown) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+function sheetColumnName(columnCount: number) {
+  let value = Math.max(1, Math.min(SHEET_MAX_COLUMNS, columnCount));
+  let result = "";
+  while (value > 0) {
+    value--;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+export function privateSheetRanges(title: string, rowCount: number, columnCount: number) {
+  const quotedTitle = `'${title.replace(/'/g, "''")}'`;
+  const lastColumn = sheetColumnName(columnCount);
+  const lastRow = Math.max(1, rowCount);
+  if (lastRow <= SHEET_HEADER_ROWS + SHEET_RECENT_ROWS) return [`${quotedTitle}!A1:${lastColumn}${lastRow}`];
+  return [
+    `${quotedTitle}!A1:${lastColumn}${SHEET_HEADER_ROWS}`,
+    `${quotedTitle}!A${lastRow - SHEET_RECENT_ROWS + 1}:${lastColumn}${lastRow}`
+  ];
+}
+
 async function fetchPrivateSheet(file: { id: string; gid?: string }, accessToken: string, rawUrl: string) {
   const headers = { Authorization: `Bearer ${accessToken}` };
   const metaResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}?fields=sheets.properties`, { headers, signal: AbortSignal.timeout(30_000) });
@@ -83,13 +108,17 @@ async function fetchPrivateSheet(file: { id: string; gid?: string }, accessToken
   const selected = sheets.find((item: any) => String(item?.properties?.sheetId) === String(file.gid)) ?? sheets[0];
   const title = selected?.properties?.title;
   if (!title) throw new Error("Google Sheets no devolvió ninguna pestaña legible.");
-  const range = `'${String(title).replace(/'/g, "''")}'`;
-  const valuesResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}/values/${encodeURIComponent(range)}?majorDimension=ROWS`, { headers, signal: AbortSignal.timeout(90_000) });
-  if (!valuesResponse.ok) throw new Error(`Google Sheets respondió HTTP ${valuesResponse.status}. Comprueba que tunegociovivo@gmail.com tenga acceso de lectura.`);
-  const data = await valuesResponse.json();
-  const values: unknown[][] = Array.isArray(data.values) ? data.values : [];
+  const rowCount = Number(selected?.properties?.gridProperties?.rowCount) || 1;
+  const columnCount = Number(selected?.properties?.gridProperties?.columnCount) || SHEET_MAX_COLUMNS;
+  const values: unknown[][] = [];
+  for (const range of privateSheetRanges(String(title), rowCount, columnCount)) {
+    const valuesResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}/values/${encodeURIComponent(range)}?majorDimension=ROWS`, { headers, signal: AbortSignal.timeout(90_000) });
+    if (!valuesResponse.ok) throw new Error(`Google Sheets respondió HTTP ${valuesResponse.status}. Comprueba que tunegociovivo@gmail.com tenga acceso de lectura.`);
+    const data = await valuesResponse.json();
+    if (Array.isArray(data.values)) values.push(...data.values);
+  }
   const buffer = Buffer.from(values.map((row) => row.map(csvCell).join(",")).join("\n"), "utf8");
-  if (buffer.byteLength > MAX_BYTES) throw new Error("La pestaña seleccionada supera el límite de 10 MB.");
+  if (buffer.byteLength > MAX_BYTES) throw new Error("Las 500 filas más recientes superan el límite de 10 MB. Reduce el número de columnas o el contenido de las celdas.");
   return { buffer, mime: "text/csv", finalUrl: new URL(rawUrl) };
 }
 
