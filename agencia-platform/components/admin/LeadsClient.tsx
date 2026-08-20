@@ -70,6 +70,8 @@ type Lead = {
   ticketScore: number | null;
   ticketTier: string | null;
   contactStatus: string;
+  commercialTaskId: string | null;
+  commercialSentAt: string | null;
   aiOpener: string | null;
   hasWhatsapp: boolean;
   // Origen solo-email (Franquicias): sin WhatsApp; se contacta por la cola de
@@ -1251,6 +1253,27 @@ function LeadsTable({
   // CTA de Franquicias (origen solo-email): generar borradores en la cola.
   const [draftingEmails, setDraftingEmails] = useState(false);
   const [draftResult, setDraftResult] = useState<string | null>(null);
+  const [commercialBusyId, setCommercialBusyId] = useState<string | null>(null);
+  const [commercialResult, setCommercialResult] = useState<{ leadId: string; ok: boolean; text: string } | null>(null);
+
+  async function sendToCommercial(lead: Lead) {
+    if (lead.commercialSentAt) return;
+    setCommercialBusyId(lead.id);
+    setCommercialResult(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${lead.id}/send-to-commercial`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        throw new Error(j?.error?.message ?? `Error ${r.status}`);
+      }
+      setCommercialResult({ leadId: lead.id, ok: true, text: "Tarea creada y WhatsApp enviado." });
+      onChanged();
+    } catch (error: any) {
+      setCommercialResult({ leadId: lead.id, ok: false, text: error?.message ?? "No se pudo enviar a comercial." });
+    } finally {
+      setCommercialBusyId(null);
+    }
+  }
 
   // Al cambiar los filtros, limpia la selección (no al solo cargar más páginas).
   useEffect(() => {
@@ -1446,6 +1469,7 @@ function LeadsTable({
               <th className="text-left px-3 py-2.5" title="Próximo mensaje programado para este lead">Próximo</th>
               <th className="text-left px-3 py-2.5" title="Mensajes WhatsApp enviados a este lead">Enviados</th>
               <th className="text-left px-3 py-2.5">Estado</th>
+              <th className="text-left px-3 py-2.5">Comercial</th>
               {anyOwner && <th className="text-left px-3 py-2.5" title="Titular/franquiciado del establecimiento identificado">Titular</th>}
             </tr>
           </thead>
@@ -1542,6 +1566,41 @@ function LeadsTable({
                   </td>
                   <td className="px-3 py-2">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${st.color}`}>{st.label}</span>
+                  </td>
+                  <td className="px-3 py-2 min-w-[175px]">
+                    {l.commercialSentAt ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-semibold"
+                          title={`Enviado a comercial el ${new Date(l.commercialSentAt).toLocaleString("es-ES")}`}
+                        >
+                          ✓ Enviado a comercial
+                        </span>
+                        {l.commercialTaskId && (
+                          <a href={`/tareas?task=${l.commercialTaskId}`} className="text-[10px] text-brand-700 underline" title="Abrir tarea comercial">
+                            Tarea ↗
+                          </a>
+                        )}
+                      </span>
+                    ) : (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => sendToCommercial(l)}
+                          disabled={commercialBusyId === l.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-semibold disabled:opacity-50"
+                          title="Crear tarea en AITOR (COMERCIAL) · LEADS GMB y avisar por WhatsApp"
+                        >
+                          {commercialBusyId === l.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListChecks className="h-3 w-3" />}
+                          {l.commercialTaskId ? "Reintentar aviso" : "Crear tarea comercial"}
+                        </button>
+                        {commercialResult?.leadId === l.id && (
+                          <div className={`text-[10px] max-w-[230px] ${commercialResult.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                            {commercialResult.text}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </td>
                   {anyOwner && (
                     <td className="px-3 py-2 whitespace-nowrap">

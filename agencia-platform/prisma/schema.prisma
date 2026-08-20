@@ -1342,6 +1342,12 @@ model Lead {
   // Si el lead se convirtió en cliente del Hub, su id (para enlazar y evitar
   // duplicar al pulsar "Convertir en cliente" más de una vez).
   convertedClientId   String?
+  // Derivación manual al equipo comercial. `commercialTaskId` permite que
+  // el flujo sea idempotente; `commercialSentAt` solo se completa cuando el
+  // aviso de WhatsApp al comercial ha salido correctamente.
+  commercialTaskId    String?
+  commercialSendingAt DateTime?
+  commercialSentAt    DateTime?
   legacyWpId          Int?      @unique
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -1360,6 +1366,7 @@ model Lead {
   @@index([searchId])
   @@index([score])
   @@index([workspaceId, ticketScore])
+  @@index([workspaceId, commercialSentAt])
 }
 
 // Cola de envío de mensajes (saliente). Cron procesa items con

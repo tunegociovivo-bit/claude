@@ -81,6 +81,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       ticketScore: true,
       ticketTier: true,
       contactStatus: true,
+      commercialTaskId: true,
+      commercialSentAt: true,
       aiOpener: true,
       hasWhatsapp: true,
       latitude: true,
