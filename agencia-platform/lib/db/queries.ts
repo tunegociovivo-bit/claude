@@ -355,11 +355,18 @@ export async function getTasksForUi(): Promise<UiTask[]> {
 export async function getEventsForUi(userId?: string | null): Promise<UiEvent[]> {
   return tryPrisma(async () => {
     const { prisma } = await import("./prisma");
+    const { getSessionUserId, getSessionWorkspaceId } = await import("@/lib/auth");
+    const { calendarEventVisibility } = await import("@/lib/calendar/visibility");
+    const [workspaceId, effectiveUserId] = await Promise.all([
+      getSessionWorkspaceId(),
+      userId === undefined ? getSessionUserId() : Promise.resolve(userId)
+    ]);
+    if (!workspaceId || !effectiveUserId) return [];
     // Privacidad: los eventos personales (ownerUserId != null) solo los ve su
     // dueño. Los compartidos (ownerUserId null) los ve todo el mundo. Si no
     // hay userId, solo se devuelven los compartidos.
     const rows = await prisma.calendarEvent.findMany({
-      where: { OR: [{ ownerUserId: null }, ...(userId ? [{ ownerUserId: userId }] : [])] } as any,
+      where: { workspaceId, ...calendarEventVisibility(effectiveUserId) } as any,
       orderBy: { startAt: "asc" }
     });
     return rows.map<UiEvent>((r) => ({

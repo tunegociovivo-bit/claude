@@ -11,6 +11,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { eventCreateSchema } from "@/lib/api/schemas";
 import { pushEventIfConnected, deleteEventInGoogle } from "@/lib/integrations/google-calendar/sync";
+import { calendarEventVisibility } from "@/lib/calendar/visibility";
 
 export const PATCH = withApi({ scope: "events:write" }, async (req, { params, api }) => {
   const body = await req.json().catch(() => null);
@@ -20,7 +21,7 @@ export const PATCH = withApi({ scope: "events:write" }, async (req, { params, ap
   if (data.startAt) data.startAt = new Date(data.startAt);
   if (data.endAt) data.endAt = new Date(data.endAt);
   const updated = await prisma.calendarEvent.updateMany({
-    where: { id: params.id, workspaceId: api.workspaceId },
+    where: { id: params.id, workspaceId: api.workspaceId, ...calendarEventVisibility(api.userId) },
     data
   });
   if (updated.count === 0) throw new ApiError(404, "not_found", "Evento no encontrado");
@@ -31,7 +32,7 @@ export const PATCH = withApi({ scope: "events:write" }, async (req, { params, ap
 export const DELETE = withApi({ scope: "events:write" }, async (_req, { params, api }) => {
   // Capturamos info de Google antes del borrado para poder propagarlo.
   const snapshot = await prisma.calendarEvent.findFirst({
-    where: { id: params.id, workspaceId: api.workspaceId },
+    where: { id: params.id, workspaceId: api.workspaceId, ...calendarEventVisibility(api.userId) },
     select: {
       googleEventId: true,
       googleCalendarId: true,
@@ -40,7 +41,7 @@ export const DELETE = withApi({ scope: "events:write" }, async (_req, { params, 
     }
   });
   const deleted = await prisma.calendarEvent.deleteMany({
-    where: { id: params.id, workspaceId: api.workspaceId }
+    where: { id: params.id, workspaceId: api.workspaceId, ...calendarEventVisibility(api.userId) }
   });
   if (deleted.count === 0) throw new ApiError(404, "not_found", "Evento no encontrado");
 
