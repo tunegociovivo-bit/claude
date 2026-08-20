@@ -122,6 +122,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       latitude: business.latitude,
       longitude: business.longitude,
       logoUrl: business.logoUrl,
+      challengeImageUrl: business.challengeImageUrl,
       brandColor: business.brandColor,
       purchaseMode: business.purchaseMode,
       requireTicket: business.requireTicket,

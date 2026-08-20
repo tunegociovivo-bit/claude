@@ -1560,6 +1560,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [shareLabel, setShareLabel] = useState<string>(business.shareOfferLabel ?? "");
   const [shareFriendPct, setShareFriendPct] = useState<number>(business.shareFriendDiscountPct ?? 15);
   const [shareFriendLabel, setShareFriendLabel] = useState<string>(business.shareFriendLabel ?? "");
+  const [challengeImageUrl, setChallengeImageUrl] = useState<string>(business.challengeImageUrl ?? "");
+  const [uploadingChallenge, setUploadingChallenge] = useState(false);
   // Mensaje de WhatsApp del reto: autogenerado a partir de los campos, con
   // posibilidad de editarlo a mano (waMsgEdited=true congela el texto).
   const [waMsg, setWaMsg] = useState<string>("");
@@ -1582,6 +1584,29 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [dealErr, setDealErr] = useState<string | null>(null);
   // Caducidad del reto (días para completarlo). Menos días = más urgencia.
   const [dealDays, setDealDays] = useState<number>(15);
+
+  async function uploadChallengeImage(file: File) {
+    setUploadingChallenge(true);
+    setStatus(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch(`/api/bubui/business/${business.id}/upload-photo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setStatus(json?.error?.message ?? "No se pudo subir la imagen del reto.");
+        return;
+      }
+      setChallengeImageUrl(json.url);
+      setStatus("Imagen subida. Pulsa Guardar descuentos para aplicarla.");
+    } finally {
+      setUploadingChallenge(false);
+    }
+  }
 
   // Si el dueño cambia cualquier valor o el mensaje DESPUÉS de crear un
   // enlace, ese enlace queda obsoleto (el reto guarda un snapshot) →
@@ -1638,6 +1663,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           shareOfferLabel: shareLabel.trim() || null,
           shareFriendDiscountPct: Number(shareFriendPct),
           shareFriendLabel: shareFriendLabel.trim() || null,
+          challengeImageUrl: challengeImageUrl || null,
           shareOfferRequiresPurchase: shareReqPurchase,
           ppFollowDiscountPct: Number(followPct),
           ppPhotoDiscountPct: Number(photoPct),
@@ -1712,6 +1738,40 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           </div>
         </div>
         <p className="text-[11px] text-black/45">El <b>descuento para los amigos</b> es el cupón de bienvenida que recibe cada amigo nuevo que traiga tu cliente. Si dejas los "¿en qué?" vacíos, el descuento es genérico (en todo el negocio).</p>
+
+        <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-3 space-y-2">
+          <div>
+            <div className="text-[12px] font-semibold text-pink-900">Vista del cupón que recibirá el amigo</div>
+            <p className="text-[11px] text-pink-900/70">Si no subes una foto, Bubui utilizará esta imagen predeterminada.</p>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={challengeImageUrl || business.logoUrl || "/bubui/challenge-default.png"}
+            alt="Vista previa del cupón enviado por un amigo"
+            className="w-full rounded-xl border border-pink-200 object-cover"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center rounded-full bg-pink-600 px-4 py-2 text-xs font-bold text-white hover:bg-pink-700">
+              {uploadingChallenge ? "Subiendo…" : "Imagen personalizada del reto"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                disabled={uploadingChallenge}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void uploadChallengeImage(file);
+                }}
+              />
+            </label>
+            {challengeImageUrl && (
+              <button type="button" onClick={() => setChallengeImageUrl("")} className="text-xs font-semibold text-pink-700 hover:underline">
+                Usar imagen predeterminada
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Mensaje de WhatsApp: se autogenera con los valores de arriba y el
             dueño puede editarlo libremente. Si lo edita, dejamos de

@@ -4660,6 +4660,9 @@ model BubuiBusiness {
   subvencionProposals        BubuiSubvencionProposal[]
   // Branding mínimo.
   logoUrl                    String?
+  // Imagen del cupón/reto compartido. Si falta, cliente y portal usan la
+  // creatividad Bubui predeterminada incluida en cada superficie.
+  challengeImageUrl          String?
   brandColor                 String?
   // Oferta default (descuento estándar al cliente cuando escanea). Se usa para
   // el cliente RECURRENTE (ya tiene Bubui y ya ha comprado aquí).
@@ -4933,6 +4936,9 @@ model BubuiCustomer {
   // Programa de afiliados.
   referralCode              String?   @unique // código corto para su enlace de invitación
   referredById              String? // cliente que lo invitó
+  // Oferta-reto concreta cuyo enlace produjo el alta. Permite mostrar y
+  // contabilizar por separado las fases registrado/canjeado de cada reto.
+  referralOfferId           String?
   // Hucha de referidos: % acumulado que el cliente cobra yendo a comer (solo).
   // Se abona cuando un amigo traído se CUALIFICA (alta + tel. verificado + 1ª
   // compra confirmada). Al canjear se aplica hasta el tope por visita del

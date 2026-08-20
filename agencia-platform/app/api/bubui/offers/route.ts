@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
-import { countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
+import { buildFriendChallengeProgress } from "@/lib/bubui/friend-challenge-progress";
 import { sharesLeft } from "@/lib/bubui/share-offer";
 import { getAltActionMinReferrals } from "@/lib/bubui/growth-settings";
 import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
@@ -92,6 +92,7 @@ export async function GET(req: Request) {
           latitude: true,
           longitude: true,
           logoUrl: true,
+          challengeImageUrl: true,
           brandColor: true,
           visibilityScore: true,
           plan: true,
@@ -111,27 +112,49 @@ export async function GET(req: Request) {
   // tiene ya el cliente y sus iniciales (para el reto VISIBLE: caritas con la
   // inicial de cada amigo que ya cuenta + huecos por rellenar).
   const hasLocked = offers.some((o) => !o.active);
-  const verifiedNow = hasLocked ? await countVerifiedReferrals(customerId) : 0;
+  const verifiedFriends = hasLocked
+    ? await prisma.bubuiCustomer.findMany({
+        where: { referredById: customerId, phoneVerified: true },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, referralOfferId: true }
+      })
+    : [];
+  const verifiedNow = verifiedFriends.length;
   // Retos que exigen que los amigos compren: recuento por negocio (amigos que
   // ya compraron allí). Se calcula solo para los negocios implicados.
-  const qualifiedByBiz = new Map<string, number>();
+  const purchasersByBiz = new Map<string, Set<string>>();
   for (const o of offers) {
-    if (o.active || !o.unlockRequiresPurchase || qualifiedByBiz.has(o.businessId)) continue;
-    qualifiedByBiz.set(o.businessId, await countQualifiedReferrals(customerId, o.businessId));
+    if (o.active || purchasersByBiz.has(o.businessId)) continue;
+    const welcomeOffers = await prisma.bubuiOffer.findMany({
+      where: {
+        businessId: o.businessId,
+        customerId: { in: verifiedFriends.map((friend) => friend.id) },
+        source: "referral_welcome"
+      },
+      select: { id: true, customerId: true }
+    });
+    const purchases = welcomeOffers.length
+      ? await prisma.bubuiPurchase.findMany({
+          where: {
+            status: "confirmed",
+            redeemedOfferId: { in: welcomeOffers.map((welcome) => welcome.id) }
+          },
+          select: { redeemedOfferId: true },
+          distinct: ["redeemedOfferId"]
+        })
+      : [];
+    const redeemedIds = new Set(purchases.map((purchase) => purchase.redeemedOfferId).filter(Boolean));
+    purchasersByBiz.set(
+      o.businessId,
+      new Set(welcomeOffers.filter((welcome) => redeemedIds.has(welcome.id)).map((welcome) => welcome.customerId))
+    );
   }
   const sharesCountFor = (o: { active: boolean; businessId: string; unlockRequiresPurchase?: boolean | null }) =>
-    !o.active && o.unlockRequiresPurchase ? (qualifiedByBiz.get(o.businessId) ?? 0) : verifiedNow;
+    !o.active && o.unlockRequiresPurchase ? (purchasersByBiz.get(o.businessId)?.size ?? 0) : verifiedNow;
   // La activación alternativa (reseña/foto) de los cupones-reto se desbloquea al
   // llegar al umbral de amigos dados de alta (configurable por el admin).
   const altMinReferrals = hasLocked ? await getAltActionMinReferrals() : 0;
   const altActionsUnlocked = hasLocked && verifiedNow >= altMinReferrals;
-  const verifiedFriends = hasLocked
-    ? await prisma.bubuiCustomer.findMany({
-        where: { referredById: customerId, phoneVerified: true },
-        orderBy: { createdAt: "desc" },
-        select: { name: true }
-      })
-    : [];
   const friendInitials = verifiedFriends.map((f) => (f.name?.trim()?.[0] || "?").toUpperCase());
 
   // Negocios donde el cliente YA dejó (verificada) una reseña en Google: no
@@ -156,7 +179,14 @@ export async function GET(req: Request) {
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
     const locked = !o.active;
-    const cnt = sharesCountFor(o);
+    const attributedFriends = verifiedFriends.filter((friend) => friend.referralOfferId === o.id);
+    const usesAttributedProgress = attributedFriends.length > 0;
+    const attributedPurchasers = purchasersByBiz.get(o.businessId) ?? new Set<string>();
+    const cnt = usesAttributedProgress
+      ? (o.unlockRequiresPurchase
+          ? attributedFriends.filter((friend) => attributedPurchasers.has(friend.id)).length
+          : attributedFriends.length)
+      : sharesCountFor(o);
     const left = locked ? sharesLeft(o, cnt) : 0;
     const have = locked ? Math.max(0, o.unlockShares - left) : 0;
     // Referido prioritario: negocios de pago (Pro/Premium) destacan en el feed.
@@ -180,9 +210,12 @@ export async function GET(req: Request) {
       // Con desbloqueo por COMPRA, los amigos registrados aún no cuentan
       // (cuentan al gastar su cupón) — este campo permite a la app mostrar
       // "N amigos registrados, pendientes de compra" en vez de nada.
-      friendsRegistered: locked ? verifiedNow : 0,
+      friendsRegistered: locked ? (usesAttributedProgress ? attributedFriends.length : verifiedNow) : 0,
       // Reto visible: iniciales de los amigos que ya cuentan para ESTE reto.
       friendsJoined: locked ? friendInitials.slice(0, have) : [],
+      friendProgress: locked
+        ? buildFriendChallengeProgress(usesAttributedProgress ? attributedFriends : verifiedFriends, attributedPurchasers, o.unlockShares)
+        : [],
       // Activación alternativa por acción (reseña/foto) — solo cupones-reto y
       // solo si el usuario ya superó el umbral de amigos.
       altActionsUnlocked: locked && o.source === "share_challenge" ? altActionsUnlocked : false,

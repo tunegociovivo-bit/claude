@@ -212,7 +212,7 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
     // updateMany con guard = link atómico (no pisa un vínculo concurrente).
     const upd = await prisma.bubuiCustomer.updateMany({
       where: { id: friendId, referredById: null },
-      data: { referredById: referrer.id }
+      data: { referredById: referrer.id, ...(challenge ? { referralOfferId: challenge.id } : {}) }
     });
     if (upd.count === 0) {
       const again = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
@@ -220,6 +220,12 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         return { linked: false, terminal: true, reason: "already_referred_other", referrerId: again?.referredById ?? undefined };
       }
     }
+  }
+  if (challenge) {
+    await prisma.bubuiCustomer.updateMany({
+      where: { id: friendId, referredById: referrer.id, referralOfferId: null },
+      data: { referralOfferId: challenge.id }
+    });
   }
 
   // Hucha de referidos: solo en el vínculo nuevo (los reintentos reparan el

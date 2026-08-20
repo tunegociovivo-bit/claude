@@ -20,6 +20,7 @@ import { registerExpoPushForCustomer } from "../lib/push";
 import { claimPendingDeal, onDealClaimed } from "../lib/deal-pending";
 import { applyPendingRef } from "../lib/referral-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
+import { friendCouponPresentation, friendSlotState, type FriendProgress } from "../lib/friend-challenge-presentation";
 
 type Offer = {
   offerId: string;
@@ -34,10 +35,12 @@ type Offer = {
     latitude?: number | null;
     longitude?: number | null;
     logoUrl?: string | null;
+    challengeImageUrl?: string | null;
     brandColor?: string | null;
   };
   discountPct: number;
   rewardLabel?: string | null;
+  source?: string | null;
   hoursLeft: number;
   distanceM: number | null;
   // Oferta-reto viral: bloqueada hasta traer amigos.
@@ -48,6 +51,7 @@ type Offer = {
   // Amigos ya registrados con el enlace (pueden no contar aún si el reto
   // exige que gasten su cupón comprando).
   friendsRegistered?: number;
+  friendProgress?: FriendProgress[];
   // Activación alternativa por acción (reseña/foto), validada por IA.
   altActionsUnlocked?: boolean;
   altMinReferrals?: number;
@@ -384,18 +388,23 @@ export function Feed() {
                 </Text>
                 {/* Reto visible: una carita por amigo que ya cuenta + huecos */}
                 {!!item.friendsNeeded && item.friendsNeeded > 0 && (
-                  <View style={styles.slotsRow}>
-                    {Array.from({ length: item.friendsNeeded }).map((_, i) => {
-                      const initial = item.friendsJoined?.[i];
-                      const filled = !!initial;
-                      return (
-                        <View key={i} style={[styles.slot, filled ? styles.slotFilled : styles.slotEmpty]}>
-                          <Text style={filled ? styles.slotInitial : styles.slotPlus}>
-                            {filled ? initial : "+"}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                  <View>
+                    <View style={styles.slotsRow}>
+                      {Array.from({ length: item.friendsNeeded }).map((_, i) => {
+                        const progress = item.friendProgress?.[i];
+                        const state = friendSlotState(progress);
+                        const initial = progress?.initial;
+                        return (
+                          <View key={i} style={[styles.slot, styles.slotEmpty, state === "complete" && styles.slotFilled]}>
+                            {state === "half" && <View style={styles.slotHalf} />}
+                            <Text style={state !== "empty" ? styles.slotInitial : styles.slotPlus}>
+                              {state !== "empty" ? initial : "+"}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.slotLegend}>◐ Alta completada · ● Cupón utilizado</Text>
                   </View>
                 )}
                 {/* Desbloqueo por COMPRA: los amigos registrados aún no llenan
@@ -480,8 +489,18 @@ export function Feed() {
                 })
               }
             >
-              <View style={styles.photo}>
-                {item.business.logoUrl ? (
+              <View style={[styles.photo, friendCouponPresentation(item.source).isFriendCoupon && styles.friendPhoto]}>
+                {friendCouponPresentation(item.source).isFriendCoupon ? (
+                  <Image
+                    source={item.business.challengeImageUrl
+                      ? { uri: item.business.challengeImageUrl }
+                      : item.business.logoUrl
+                        ? { uri: item.business.logoUrl }
+                        : require("../../assets/challenge-default.png")}
+                    style={styles.photoImg}
+                    resizeMode="cover"
+                  />
+                ) : item.business.logoUrl ? (
                   <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
                 ) : (
                   <Gradient
@@ -504,6 +523,12 @@ export function Feed() {
                   )}
                 </View>
               </View>
+              {friendCouponPresentation(item.source).isFriendCoupon && (
+                <View style={styles.friendCouponCopy}>
+                  <Text style={styles.friendCouponEyebrow}>{friendCouponPresentation(item.source).eyebrow}</Text>
+                  <Text style={styles.friendCouponMessage}>{friendCouponPresentation(item.source).message}</Text>
+                </View>
+              )}
               <View style={styles.cardBody}>
                 <View style={[styles.av, { backgroundColor: item.business.brandColor || c.pink }]}>
                   <Text style={styles.avText}>{(item.business.name || "?").charAt(0).toUpperCase()}</Text>
@@ -568,10 +593,12 @@ const makeStyles = (c: Palette) =>
     challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
     challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
     slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+    slotLegend: { marginTop: -6, marginBottom: 12, fontSize: 11, color: c.gray, fontWeight: "600" },
     challengePending: { fontSize: 12, color: c.gray, marginTop: -4, marginBottom: 10, lineHeight: 16 },
     slot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
     slotFilled: { backgroundColor: c.pink },
     slotEmpty: { borderWidth: 2, borderColor: c.pink, borderStyle: "dashed", backgroundColor: "transparent" },
+    slotHalf: { position: "absolute", left: 0, top: 0, bottom: 0, width: "50%", backgroundColor: c.pink },
     slotInitial: { color: c.onAccent, fontSize: 15, fontWeight: "900" },
     slotPlus: { color: c.pink, fontSize: 18, fontWeight: "900" },
     challengeBtn: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 13, alignItems: "center", ...shadow.btn },
@@ -586,6 +613,7 @@ const makeStyles = (c: Palette) =>
     altHint: { marginTop: 6, fontSize: 11, color: c.gray, textAlign: "center" },
     altLocked: { marginTop: 12, fontSize: 12, color: c.gray, textAlign: "center", lineHeight: 17 },
     photo: { height: 150, backgroundColor: c.pinkSoft, justifyContent: "flex-end" },
+    friendPhoto: { height: 210 },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     photoScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 90 },
     badge: { position: "absolute", top: 12, right: 12, backgroundColor: "#fff", borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, ...shadow.card },
@@ -594,6 +622,9 @@ const makeStyles = (c: Palette) =>
     pill: { backgroundColor: "rgba(255,255,255,0.92)", borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6 },
     pillText: { fontSize: 12, fontWeight: "700", color: c.ink },
     cardBody: { flexDirection: "row", alignItems: "center", padding: 14, gap: 10 },
+    friendCouponCopy: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 2, backgroundColor: c.white },
+    friendCouponEyebrow: { fontSize: 13, fontWeight: "900", color: c.pink, letterSpacing: 0.3 },
+    friendCouponMessage: { marginTop: 5, fontSize: 13, lineHeight: 18, color: c.gray },
     av: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
     avText: { color: "#fff", fontWeight: "900", fontSize: 17 },
     bizName: { fontWeight: "800", color: c.black, fontSize: 15 },
