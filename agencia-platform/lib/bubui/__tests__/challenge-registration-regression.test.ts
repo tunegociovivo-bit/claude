@@ -18,6 +18,15 @@ describe("challenge registration regressions", () => {
     expect(redirect).toMatch(/JSON\.stringify\(\{ code, offerId \}\)/);
   });
 
+  it("persists the fallback click before leaving WhatsApp for the app or Play", () => {
+    const redirect = read("app/bubui/r/[code]/ReferralRedirect.tsx");
+    expect(redirect).toMatch(/keepalive:\s*true/);
+    expect(redirect).toMatch(/await persistReferralClick\(code, offerId\)/);
+    expect(redirect.indexOf("await persistReferralClick(code, offerId)")).toBeLessThan(
+      redirect.indexOf("tryOpenApp();")
+    );
+  });
+
   it("persists the concrete offer id with referral clicks", () => {
     const schema = read("prisma/schema.prisma");
     const model = schema.slice(schema.indexOf("model BubuiReferralClick"), schema.indexOf("model BubuiCustomDeal"));
