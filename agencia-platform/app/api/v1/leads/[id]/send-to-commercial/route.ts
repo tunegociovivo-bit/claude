@@ -74,7 +74,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
 
   if (!taskId) {
     const created = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${api.workspaceId}:commercial-lead:${lead.id}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${api.workspaceId}:commercial-lead:${lead.id}`}))`;
       const freshLead = await tx.lead.findUnique({
         where: { id: lead.id },
         select: { commercialTaskId: true }
