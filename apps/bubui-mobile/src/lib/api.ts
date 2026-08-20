@@ -56,6 +56,19 @@ const _cfg = Constants.expoConfig as any;
 const APP_VERSION: string = _cfg?.version ?? "";
 const APP_BUILD: string = String(_cfg?.android?.versionCode ?? _cfg?.ios?.buildNumber ?? "");
 
+/** Build a cache-isolated URL because offers can change during registration. */
+export function buildOffersUrl(customerId: string, lat?: number, lng?: number, refreshKey = Date.now()): string {
+  const url = new URL(`${API_BASE}/api/bubui/offers`);
+  url.searchParams.set("customerId", customerId);
+  if (lat != null) url.searchParams.set("lat", String(lat));
+  if (lng != null) url.searchParams.set("lng", String(lng));
+  if (APP_VERSION) url.searchParams.set("appVersion", APP_VERSION);
+  if (APP_BUILD) url.searchParams.set("appBuild", APP_BUILD);
+  url.searchParams.set("appPlatform", Platform.OS);
+  url.searchParams.set("_refresh", String(refreshKey));
+  return url.toString();
+}
+
 // Token de sesión del cliente. Lo fija session.ts al iniciar/guardar sesión.
 // Se envía como `Authorization: Bearer <customerId>:<token>` en cada llamada.
 let auth: { customerId: string; token: string } | null = null;
@@ -236,15 +249,10 @@ export const api = {
       gifts: { id: string; title: string; description: string | null; imageUrl: string | null; link: string | null }[];
     }>(`/api/bubui/customer/${customerId}/plus-gifts`),
   offers: (customerId: string, lat?: number, lng?: number) => {
-    const url = new URL(`${API_BASE}/api/bubui/offers`);
-    url.searchParams.set("customerId", customerId);
-    if (lat != null) url.searchParams.set("lat", String(lat));
-    if (lng != null) url.searchParams.set("lng", String(lng));
     // Reporta la versión instalada (para el panel admin).
-    if (APP_VERSION) url.searchParams.set("appVersion", APP_VERSION);
-    if (APP_BUILD) url.searchParams.set("appBuild", APP_BUILD);
-    url.searchParams.set("appPlatform", Platform.OS);
-    return fetch(url.toString(), { headers: authHeaders() }).then(async (r) => {
+    return fetch(buildOffersUrl(customerId, lat, lng), {
+      headers: { ...authHeaders(), "Cache-Control": "no-cache" }
+    }).then(async (r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     });

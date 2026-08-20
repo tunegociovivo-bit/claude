@@ -206,5 +206,8 @@ export async function GET(req: Request) {
     return b.business.visibilityScore - a.business.visibilityScore;
   });
 
-  return NextResponse.json({ items: enriched, count: enriched.length });
+  return NextResponse.json(
+    { items: enriched, count: enriched.length },
+    { headers: { "Cache-Control": "no-store, max-age=0" } }
+  );
 }
