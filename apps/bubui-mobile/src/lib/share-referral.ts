@@ -1,25 +1,23 @@
 import { Share } from "react-native";
 import { api, API_BASE } from "./api";
 
-/**
- * Abre el menú de compartir con el enlace de invitación del cliente. Si se
- * pasa el contexto de una oferta-reto, el mensaje anima a traer amigos para
- * desbloquearla (motor de crecimiento viral de Bubui).
- */
+/** Opens the native share sheet only after a complete invitation is ready. */
 export async function shareReferralForOffer(
   customerId: string,
   offer?: { offerId?: string | null; businessName?: string | null; prize?: string | null; friendsLeft?: number | null }
-): Promise<void> {
+): Promise<boolean> {
   let code: string | null = null;
   try {
     const r = await api.referral(customerId);
     code = r?.code ?? null;
   } catch {
-    // sin código seguimos con el enlace genérico
+    return false;
   }
-  const link = code
-    ? `${API_BASE}/bubui/r/${code}${offer?.offerId ? `?offer=${encodeURIComponent(offer.offerId)}` : ""}`
-    : "https://bubui.app";
+
+  // A challenge without both identifiers becomes a generic install and loses
+  // attribution. Never let that incomplete URL reach WhatsApp.
+  if (!code || (offer && !offer.offerId)) return false;
+  const link = `${API_BASE}/bubui/r/${code}${offer?.offerId ? `?offer=${encodeURIComponent(offer.offerId)}` : ""}`;
 
   let message: string;
   if (offer?.prize) {
@@ -35,7 +33,8 @@ export async function shareReferralForOffer(
 
   try {
     await Share.share({ message, url: link });
+    return true;
   } catch {
-    // cancelado por el usuario
+    return false;
   }
 }

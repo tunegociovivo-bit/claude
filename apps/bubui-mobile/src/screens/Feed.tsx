@@ -414,16 +414,20 @@ export function Feed() {
                   )}
                 <Bouncy
                   style={styles.challengeBtn}
-                  onPress={() => {
+                  onPress={async () => {
                     sfx.tap();
                     if (customer?.customerId) {
-                      void shareReferralForOffer(customer.customerId, {
+                      const shared = await shareReferralForOffer(customer.customerId, {
                         offerId: item.offerId,
                         businessName: item.business.name,
                         prize: item.rewardLabel ?? `${item.discountPct}%`,
                         friendsLeft: item.sharesLeft ?? null
                       });
-                      setSharedOffers((s) => ({ ...s, [item.offerId]: true }));
+                      if (shared) {
+                        setSharedOffers((s) => ({ ...s, [item.offerId]: true }));
+                      } else {
+                        Alert.alert("No se pudo crear la invitación", "Comprueba tu conexión y vuelve a pulsar Compartir. No se ha enviado ningún enlace incompleto.");
+                      }
                     }
                   }}
                 >
