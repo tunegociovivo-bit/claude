@@ -122,4 +122,14 @@ describe("atribución web (WhatsApp→Play perdido) — fallback por IP", () => 
     prisma.bubuiReferralClick.findFirst.mockResolvedValueOnce(null);
     expect(await findRecentReferralClick(h)).toBeNull();
   });
+
+  it("matches an Android browser click when registration uses the React Native user-agent", async () => {
+    prisma.bubuiReferralClick.findFirst.mockResolvedValueOnce({ code: "GOOD01", offerId: "offer-12345678" });
+    const h = new Headers({ "x-forwarded-for": "1.2.3.4", "user-agent": "okhttp/4.12.0" });
+
+    await expect(findRecentReferralClick(h)).resolves.toEqual({ code: "GOOD01", offerId: "offer-12345678" });
+    expect(prisma.bubuiReferralClick.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.not.objectContaining({ ua: expect.anything() })
+    }));
+  });
 });
