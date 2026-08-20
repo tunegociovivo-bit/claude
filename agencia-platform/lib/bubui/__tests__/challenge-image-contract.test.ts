@@ -21,4 +21,10 @@ describe("business challenge image contract", () => {
     expect(page).toContain("challengeImageUrl");
     expect(page).not.toContain('challengeImageUrl || business.logoUrl || "/bubui/challenge-default.png"');
   });
+
+  it("rejects arbitrary third-party challenge image URLs", () => {
+    const profile = fs.readFileSync(path.join(root, "app/api/bubui/business/[id]/profile/route.ts"), "utf8");
+    expect(profile).toContain("challengeImageUrlSchema");
+    expect(profile).toContain("STORAGE_PUBLIC_URL");
+  });
 });
