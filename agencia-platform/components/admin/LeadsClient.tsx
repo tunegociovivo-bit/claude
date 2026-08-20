@@ -5391,6 +5391,8 @@ function InboxChat({
     archived: boolean;
     followupAt: string | null;
     leadId: string | null;
+    commercialTaskId: string | null;
+    commercialSentAt: string | null;
     aiScore: number | null;
     aiScoreReason: string | null;
     aiDraft: string | null;
@@ -5401,7 +5403,7 @@ function InboxChat({
     replyChannel: string | null;
     optedOut: boolean;
     conversationTask: { id: string; title: string; status: string } | null;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false, conversationTask: null });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, commercialTaskId: null, commercialSentAt: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false, conversationTask: null });
   const [noteDraft, setNoteDraft] = useState("");
   // Mientras el usuario edita la nota, el sondeo de la conversación (cada 8s) NO
   // debe sobrescribir lo que está escribiendo. Este ref marca el foco.
@@ -5411,6 +5413,8 @@ function InboxChat({
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [commercialSending, setCommercialSending] = useState(false);
+  const [commercialMessage, setCommercialMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadReqSeq = useRef(0);
 
@@ -5465,6 +5469,8 @@ function InboxChat({
       archived: !!d.archived,
       followupAt: d.followupAt ?? null,
       leadId: d.lead?.id ?? null,
+      commercialTaskId: d.lead?.commercialTaskId ?? null,
+      commercialSentAt: d.lead?.commercialSentAt ?? null,
       aiScore: d.aiScore ?? null,
       aiScoreReason: d.aiScoreReason ?? null,
       aiDraft: d.aiDraft ?? null,
@@ -5480,6 +5486,27 @@ function InboxChat({
     if (!noteFocusedRef.current) setNoteDraft(d.note ?? "");
     // Al abrir, los no-leídos de esa conversación quedan vistos.
     setConvs((prev) => prev.map((c) => (c.phone === phone ? { ...c, unread: 0 } : c)));
+  }
+
+  async function sendSelectedToCommercial() {
+    if (!threadMeta.leadId || threadMeta.commercialSentAt) return;
+    setCommercialSending(true);
+    setCommercialMessage(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${threadMeta.leadId}/send-to-commercial`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d?.error?.message ?? `Error ${r.status}`);
+      setThreadMeta((m) => ({
+        ...m,
+        commercialTaskId: d.taskId ?? m.commercialTaskId,
+        commercialSentAt: d.sentAt ?? new Date().toISOString()
+      }));
+      setCommercialMessage({ ok: true, text: "Tarea creada y aviso enviado a Aitor" });
+    } catch (e: any) {
+      setCommercialMessage({ ok: false, text: e?.message ?? "No se pudo enviar a comercial" });
+    } finally {
+      setCommercialSending(false);
+    }
   }
 
   // Carga + refresco suave (las respuestas de leads llegan en cualquier momento).
@@ -6031,6 +6058,7 @@ function InboxChat({
                 threadReqSeq.current++;
                 setThread([]);
                 setThreadMeta((m) => ({ ...m, conversationTask: null }));
+                setCommercialMessage(null);
                 setSelected(c.phone);
               }}
               className={`w-full text-left px-3 py-2.5 border-b hover:brightness-95 transition ${notInterested ? "border-l-4 border-l-rose-400 " : ""}${selectedCls}`}
@@ -6184,6 +6212,28 @@ function InboxChat({
                   </button>
                 ))}
                 <span className="flex-1" />
+                {threadMeta.leadId && (
+                  threadMeta.commercialSentAt ? (
+                    <a
+                      href={threadMeta.commercialTaskId ? `/tareas?task=${threadMeta.commercialTaskId}` : "/tareas"}
+                      className="text-[11px] px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 font-semibold"
+                      title="Lead enviado a AITOR (COMERCIAL) · LEADS GMB"
+                    >
+                      ✓ Enviado a comercial
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void sendSelectedToCommercial()}
+                      disabled={commercialSending}
+                      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 font-semibold disabled:opacity-50"
+                      title="Crear tarea en AITOR (COMERCIAL) · LEADS GMB y avisar por WhatsApp"
+                    >
+                      {commercialSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListChecks className="h-3 w-3" />}
+                      {threadMeta.commercialTaskId ? "Reintentar aviso" : "Crear tarea comercial"}
+                    </button>
+                  )
+                )}
                 <button
                   onClick={() => threadMeta.conversationTask
                     ? window.open(`/tareas?task=${threadMeta.conversationTask.id}`, "_blank")
@@ -6216,6 +6266,11 @@ function InboxChat({
                 >
                   {threadMeta.archived ? "📤 Desarchivar" : "🗄️ Archivar"}
                 </button>
+                {commercialMessage && (
+                  <span className={`text-[10px] ${commercialMessage.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                    {commercialMessage.text}
+                  </span>
+                )}
               </div>
               {/* Nota de la conversación */}
               <div className="flex items-center gap-2">
