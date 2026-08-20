@@ -10,6 +10,7 @@ import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
 import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
+import { conversationHeader, displayedLeadPhone, managedChannelLabel } from "@/lib/leads/inbox-display";
 import { usePollingChannel } from "@/lib/client/usePollingChannel";
 import {
   ENQUEUE_BATCH_DELAY_MS,
@@ -5181,14 +5182,12 @@ type Conversation = {
 /** Qué teléfono mostrar: el del lead vinculado, el real que mande WAHA, o un
  *  aviso si WhatsApp lo oculta (LID). Nunca el id privado feo. */
 function shownPhone(c: { leadPhone?: string | null; realPhone?: string | null; isLid?: boolean; phone: string }): string {
-  return c.leadPhone || c.realPhone || (c.isLid ? "nº oculto por WhatsApp" : c.phone);
+  return displayedLeadPhone({ ...c, selectedPhone: c.phone });
 }
 
 /** Nombre legible del canal (número de WhatsApp) a partir del nombre de sesión. */
 function channelLabelOf(channels: { name: string; label?: string | null }[], name: string | null | undefined): string {
-  if (!name) return "Principal";
-  const c = channels.find((x) => x.name === name);
-  return c?.label?.trim() || name;
+  return managedChannelLabel(channels, name);
 }
 
 /** Resalta (en negrita) las apariciones de `term` dentro de `text`, sin
@@ -5661,6 +5660,12 @@ function InboxChat({
   const sel =
     convs.find((c) => c.phone === selected) ??
     (selected ? ({ phone: selected } as unknown as Conversation) : null);
+  const selectedHeader = sel
+    ? conversationHeader({
+        ...threadMeta,
+        selectedPhone: sel.phone,
+      })
+    : null;
 
   // Aplica búsqueda + filtros + orden a la lista (no toca el servidor).
   const PR_RANK: Record<string, number> = { alta: 0, media: 1, baja: 2, none: 3 };
@@ -6060,7 +6065,7 @@ function InboxChat({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-semibold text-slate-800 truncate">
-                      {threadMeta.leadName || threadMeta.displayName || sel.phone}
+                      {selectedHeader?.titleIsPhone ? "📞 " : ""}{selectedHeader?.title}
                     </span>
                     <button
                       onClick={() => {
@@ -6075,10 +6080,7 @@ function InboxChat({
                     </button>
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
-                    📞 {shownPhone({ ...threadMeta, phone: sel.phone })}
-                    {threadMeta.replyChannel
-                      ? ` · 📱 gestionado por: ${channelLabel(threadMeta.replyChannel)}`
-                      : " · 📱 gestionado por: Principal"}
+                    · 📱 gestionado por: {channelLabel(threadMeta.replyChannel)}
                   </div>
                 </div>
                 {/* Prioridad: a quién atender antes */}
