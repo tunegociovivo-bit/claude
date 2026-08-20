@@ -180,14 +180,16 @@ export async function GET(req: Request) {
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
     const locked = !o.active;
     const attributedFriends = verifiedFriends.filter((friend) => friend.referralOfferId === o.id);
-    const usesAttributedProgress = attributedFriends.length > 0;
+    const usesAttributedProgress = o.usesExactReferralTracking;
     const attributedPurchasers = purchasersByBiz.get(o.businessId) ?? new Set<string>();
     const cnt = usesAttributedProgress
       ? (o.unlockRequiresPurchase
           ? attributedFriends.filter((friend) => attributedPurchasers.has(friend.id)).length
           : attributedFriends.length)
       : sharesCountFor(o);
-    const left = locked ? sharesLeft(o, cnt) : 0;
+    const left = locked
+      ? (usesAttributedProgress ? Math.max(0, o.unlockShares - cnt) : sharesLeft(o, cnt))
+      : 0;
     const have = locked ? Math.max(0, o.unlockShares - left) : 0;
     // Referido prioritario: negocios de pago (Pro/Premium) destacan en el feed.
     const priority =

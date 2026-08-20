@@ -106,9 +106,9 @@ export async function POST(req: Request) {
   // Si este comprador fue traído por otro usuario y su negocio de origen exige
   // que los amigos compren para desbloquear el reto, esta compra puede haber
   // completado el reto del referidor → intentamos desbloquearlo.
-  if (customer.referredById) {
+  if (customer.referredById && customer.referralOfferId) {
     void import("@/lib/bubui/share-offer")
-      .then((m) => m.unlockShareChallengeOffers(customer.referredById!))
+      .then((m) => m.unlockShareChallengeOffers(customer.referredById!, customer.referralOfferId!))
       .catch(() => {});
   }
 

@@ -93,6 +93,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
       unlockShares: Math.max(1, deal.friendsRequired),
       unlockBaseline: baseline,
       unlockRequiresPurchase: deal.requiresPurchase,
+      usesExactReferralTracking: true,
       expiresAt: deal.expiresAt
     }
   });

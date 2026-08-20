@@ -494,9 +494,7 @@ export function Feed() {
                   <Image
                     source={item.business.challengeImageUrl
                       ? { uri: item.business.challengeImageUrl }
-                      : item.business.logoUrl
-                        ? { uri: item.business.logoUrl }
-                        : require("../../assets/challenge-default.png")}
+                      : require("../../assets/challenge-default.png")}
                     style={styles.photoImg}
                     resizeMode="cover"
                   />

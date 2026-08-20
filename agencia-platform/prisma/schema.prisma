@@ -5036,6 +5036,9 @@ model BubuiOffer {
   // confirmada) en el negocio. Se estampa al crear la oferta (según el ajuste
   // del negocio o del reto personalizado). false = basta con instalar+verificar.
   unlockRequiresPurchase Boolean   @default(false)
+  // Los retos nuevos atribuyen cada amigo al enlace/oferta exactos. Los retos
+  // antiguos conservan el recuento global para no cambiar su progreso.
+  usesExactReferralTracking Boolean @default(false)
   // Activación ALTERNATIVA de una oferta-reto (reseña/foto validada por IA), en
   // vez de por amigos. Solo disponible para usuarios con +10 amigos dados de alta.
   activatedByAction      Boolean   @default(false)

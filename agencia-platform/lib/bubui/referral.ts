@@ -67,6 +67,42 @@ export async function countVerifiedReferrals(referrerId: string): Promise<number
   return prisma.bubuiCustomer.count({ where: { referredById: referrerId, phoneVerified: true } });
 }
 
+export async function countOfferReferrals(referrerId: string, offerId: string): Promise<number> {
+  return prisma.bubuiCustomer.count({
+    where: { referredById: referrerId, referralOfferId: offerId, phoneVerified: true }
+  });
+}
+
+export async function countQualifiedOfferReferrals(
+  referrerId: string,
+  offerId: string,
+  businessId: string
+): Promise<number> {
+  const friends = await prisma.bubuiCustomer.findMany({
+    where: { referredById: referrerId, referralOfferId: offerId, phoneVerified: true },
+    select: { id: true }
+  });
+  if (friends.length === 0) return 0;
+  const welcomeOffers = await prisma.bubuiOffer.findMany({
+    where: {
+      businessId,
+      customerId: { in: friends.map((friend) => friend.id) },
+      source: "referral_welcome"
+    },
+    select: { id: true }
+  });
+  if (welcomeOffers.length === 0) return 0;
+  const redeemed = await prisma.bubuiPurchase.findMany({
+    where: {
+      status: "confirmed",
+      redeemedOfferId: { in: welcomeOffers.map((welcome) => welcome.id) }
+    },
+    select: { redeemedOfferId: true },
+    distinct: ["redeemedOfferId"]
+  });
+  return redeemed.length;
+}
+
 /**
  * Amigos referidos (verificados) que ADEMÁS han comprado (compra confirmada) en
  * un negocio concreto. Es el recuento para el reto cuando el comercio exige que

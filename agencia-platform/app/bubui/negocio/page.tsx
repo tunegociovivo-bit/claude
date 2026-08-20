@@ -1603,6 +1603,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
       }
       setChallengeImageUrl(json.url);
       setStatus("Imagen subida. Pulsa Guardar descuentos para aplicarla.");
+    } catch {
+      setStatus("No se pudo subir la imagen del reto. Comprueba la conexión e inténtalo de nuevo.");
     } finally {
       setUploadingChallenge(false);
     }
@@ -1746,7 +1748,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={challengeImageUrl || business.logoUrl || "/bubui/challenge-default.png"}
+            src={challengeImageUrl || "/bubui/challenge-default.png"}
             alt="Vista previa del cupón enviado por un amigo"
             className="w-full rounded-xl border border-pink-200 object-cover"
           />

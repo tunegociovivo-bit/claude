@@ -9,7 +9,12 @@
  * llega al objetivo, la oferta se activa y se le avisa por push.
  */
 import { prisma } from "@/lib/db/prisma";
-import { countVerifiedReferrals, countQualifiedReferrals } from "./referral";
+import {
+  countVerifiedReferrals,
+  countQualifiedReferrals,
+  countOfferReferrals,
+  countQualifiedOfferReferrals
+} from "./referral";
 import { notifyBubuiCustomer } from "./notify";
 
 /** URL del formulario de reseñas de Google con el local preseleccionado. */
@@ -66,6 +71,7 @@ export async function createShareChallengeOffer(args: {
         unlockShares: friends,
         unlockBaseline: baseline,
         unlockRequiresPurchase: !!business.shareOfferRequiresPurchase,
+        usesExactReferralTracking: true,
         expiresAt
       }
     });
@@ -107,6 +113,7 @@ export async function createMesaShareChallenge(args: {
         active: false,
         unlockShares: Math.max(1, friends),
         unlockBaseline: baseline,
+        usesExactReferralTracking: true,
         expiresAt
       }
     });
@@ -140,14 +147,21 @@ export async function unlockShareChallengeOffers(referrerId: string, offerId?: s
   const qualifiedByBiz = new Map<string, number>();
   let unlocked = 0;
   for (const offer of locked) {
-    let current = verified;
-    if (offer.unlockRequiresPurchase) {
+    let current = offer.usesExactReferralTracking
+      ? await countOfferReferrals(referrerId, offer.id)
+      : verified;
+    if (offer.unlockRequiresPurchase && offer.usesExactReferralTracking) {
+      current = await countQualifiedOfferReferrals(referrerId, offer.id, offer.businessId);
+    } else if (offer.unlockRequiresPurchase) {
       if (!qualifiedByBiz.has(offer.businessId)) {
         qualifiedByBiz.set(offer.businessId, await countQualifiedReferrals(referrerId, offer.businessId));
       }
       current = qualifiedByBiz.get(offer.businessId) ?? 0;
     }
-    if (sharesLeft(offer, current) > 0) continue;
+    const left = offer.usesExactReferralTracking
+      ? Math.max(0, offer.unlockShares - current)
+      : sharesLeft(offer, current);
+    if (left > 0) continue;
     // Activa solo si seguía bloqueada (evita doble push en carreras).
     const res = await prisma.bubuiOffer.updateMany({
       where: { id: offer.id, active: false },
