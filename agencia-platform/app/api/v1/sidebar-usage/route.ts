@@ -17,7 +17,13 @@ const FEATURE_TO_PLATFORM: Record<string, string> = {
   "voice_draft": "voice_reviews",
   "editorial_generate_month": "nv_dashboard",
   "leads_opener": "nv_leads",
-  "redactor": "redactor_ia"
+  "redactor": "redactor_ia",
+  "meta_monitoring": "meta_suite",
+  "meta_director": "meta_suite",
+  "meta_creative_lab": "meta_suite",
+  "meta_ad_copy": "meta_suite",
+  "meta_ad_image": "meta_suite",
+  "ad_image_qc": "meta_suite"
 };
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
