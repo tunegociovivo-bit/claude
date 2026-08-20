@@ -30,12 +30,14 @@ describe("commercial lead handoff", () => {
       score: 82,
       urgency: "alta",
       gmbUrl: "https://maps.google.com/example",
-      notes: "Llamar por la tarde"
+      notes: "Llamar por la tarde",
+      createdAt: new Date("2026-08-20T08:49:00.000Z"),
     });
 
     expect(text).toContain("Clínica Ejemplo");
     expect(text).toContain("+34 600 000 000");
     expect(text).toContain("Llamar por la tarde");
+    expect(text).toContain("Fecha de entrada del lead: 20/08/2026, 10:49");
   });
 
   it("executes the PostgreSQL advisory lock without deserializing its void result", () => {
