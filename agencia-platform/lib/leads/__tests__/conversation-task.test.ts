@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { conversationTaskWhere } from "../conversation-task";
+import { describe, expect, it, vi } from "vitest";
+import { acquireConversationTaskLock, conversationTaskWhere } from "../conversation-task";
 
 describe("conversationTaskWhere", () => {
   it("vincula la tarea al workspace y teléfono exactos de la conversación", () => {
@@ -20,5 +20,22 @@ describe("conversationTaskWhere", () => {
       { customData: { path: ["leadPhone"], equals: "123@lid" } },
       { customData: { path: ["leadId"], equals: "lead-1" } }
     ]);
+  });
+});
+
+describe("acquireConversationTaskLock", () => {
+  it("usa executeRaw para que Prisma no intente deserializar el void de PostgreSQL", async () => {
+    const executeRaw = vi.fn(async () => 0);
+    const queryRaw = vi.fn(async () => {
+      throw new Error("Failed to deserialize column of type 'void'");
+    });
+
+    await acquireConversationTaskLock(
+      { $executeRaw: executeRaw, $queryRaw: queryRaw } as any,
+      "workspace-1:lead:lead-1"
+    );
+
+    expect(executeRaw).toHaveBeenCalledOnce();
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 });
