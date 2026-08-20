@@ -1,5 +1,13 @@
 import type { Prisma } from "@prisma/client";
 
+/** Execute the advisory lock without deserializing PostgreSQL's void value. */
+export async function acquireConversationTaskLock(
+  tx: Pick<Prisma.TransactionClient, "$executeRaw">,
+  identityKey: string
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${identityKey}, 0))`;
+}
+
 /** Consulta canónica para recuperar la tarea creada desde una conversación. */
 export function conversationTaskWhere(
   workspaceId: string,

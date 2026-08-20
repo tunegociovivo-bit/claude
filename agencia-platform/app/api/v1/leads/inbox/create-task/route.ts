@@ -17,7 +17,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { complete } from "@/lib/ai/anthropic";
 import { readKanbanColumns, DEFAULT_COLUMNS } from "@/lib/kanban";
-import { conversationTaskWhere } from "@/lib/leads/conversation-task";
+import { acquireConversationTaskLock, conversationTaskWhere } from "@/lib/leads/conversation-task";
 import { resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 
 const DEFAULT_PROJECT_HINT = "NEGOCIO VIVO GENERAL";
@@ -176,7 +176,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const result = await prisma.$transaction(async (tx) => {
     // El advisory lock hace atómico el find-or-create incluso con dos pestañas
     // o solicitudes simultáneas. Su ámbito termina con esta transacción.
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${api.workspaceId}:${canonicalIdentity}`}, 0))`;
+    await acquireConversationTaskLock(tx, `${api.workspaceId}:${canonicalIdentity}`);
     const concurrentExisting = await tx.task.findFirst({
       where: conversationTaskWhere(api.workspaceId, identity.phones, identity.leadIds),
       orderBy: { createdAt: "desc" },

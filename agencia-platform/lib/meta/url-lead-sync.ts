@@ -25,6 +25,10 @@ export type UrlLeadSource = {
 };
 
 const MAX_BYTES = 10 * 1024 * 1024;
+const SHEET_HEADER_ROWS = 20;
+const SHEET_RECENT_ROWS = 500;
+const SHEET_MAX_COLUMNS = 80;
+const MAX_FRESH_ROWS_PER_SYNC = 40;
 const PRIVATE_V4 = [/^10\./, /^127\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^0\./];
 const DOCUMENT_HOSTS = ["docs.google.com", "drive.google.com", "googleapis.com", "googleusercontent.com", "dropbox.com", "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com"];
 
@@ -74,6 +78,28 @@ function csvCell(value: unknown) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+function sheetColumnName(columnCount: number) {
+  let value = Math.max(1, Math.min(SHEET_MAX_COLUMNS, columnCount));
+  let result = "";
+  while (value > 0) {
+    value--;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+export function privateSheetRanges(title: string, rowCount: number, columnCount: number) {
+  const quotedTitle = `'${title.replace(/'/g, "''")}'`;
+  const lastColumn = sheetColumnName(columnCount);
+  const lastRow = Math.max(1, rowCount);
+  if (lastRow <= SHEET_HEADER_ROWS + SHEET_RECENT_ROWS) return [`${quotedTitle}!A1:${lastColumn}${lastRow}`];
+  return [
+    `${quotedTitle}!A1:${lastColumn}${SHEET_HEADER_ROWS}`,
+    `${quotedTitle}!A${lastRow - SHEET_RECENT_ROWS + 1}:${lastColumn}${lastRow}`
+  ];
+}
+
 async function fetchPrivateSheet(file: { id: string; gid?: string }, accessToken: string, rawUrl: string) {
   const headers = { Authorization: `Bearer ${accessToken}` };
   const metaResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}?fields=sheets.properties`, { headers, signal: AbortSignal.timeout(30_000) });
@@ -83,13 +109,17 @@ async function fetchPrivateSheet(file: { id: string; gid?: string }, accessToken
   const selected = sheets.find((item: any) => String(item?.properties?.sheetId) === String(file.gid)) ?? sheets[0];
   const title = selected?.properties?.title;
   if (!title) throw new Error("Google Sheets no devolvió ninguna pestaña legible.");
-  const range = `'${String(title).replace(/'/g, "''")}'`;
-  const valuesResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}/values/${encodeURIComponent(range)}?majorDimension=ROWS`, { headers, signal: AbortSignal.timeout(90_000) });
-  if (!valuesResponse.ok) throw new Error(`Google Sheets respondió HTTP ${valuesResponse.status}. Comprueba que tunegociovivo@gmail.com tenga acceso de lectura.`);
-  const data = await valuesResponse.json();
-  const values: unknown[][] = Array.isArray(data.values) ? data.values : [];
+  const rowCount = Number(selected?.properties?.gridProperties?.rowCount) || 1;
+  const columnCount = Number(selected?.properties?.gridProperties?.columnCount) || SHEET_MAX_COLUMNS;
+  const values: unknown[][] = [];
+  for (const range of privateSheetRanges(String(title), rowCount, columnCount)) {
+    const valuesResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(file.id)}/values/${encodeURIComponent(range)}?majorDimension=ROWS`, { headers, signal: AbortSignal.timeout(90_000) });
+    if (!valuesResponse.ok) throw new Error(`Google Sheets respondió HTTP ${valuesResponse.status}. Comprueba que tunegociovivo@gmail.com tenga acceso de lectura.`);
+    const data = await valuesResponse.json();
+    if (Array.isArray(data.values)) values.push(...data.values);
+  }
   const buffer = Buffer.from(values.map((row) => row.map(csvCell).join(",")).join("\n"), "utf8");
-  if (buffer.byteLength > MAX_BYTES) throw new Error("La pestaña seleccionada supera el límite de 10 MB.");
+  if (buffer.byteLength > MAX_BYTES) throw new Error("Las 500 filas más recientes superan el límite de 10 MB. Reduce el número de columnas o el contenido de las celdas.");
   return { buffer, mime: "text/csv", finalUrl: new URL(rawUrl) };
 }
 
@@ -200,7 +230,11 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
     const parsed = await parseFile(downloaded.buffer, filenameFor(downloaded.finalUrl, downloaded.mime), downloaded.mime);
     const rows: unknown[] = parsed.kind === "tabular" ? tabularToObjects(parsed.data) : parsed.text.split(/\n{2,}/).map((text) => ({ text })).filter((item) => item.text.trim());
     const seen = new Set(source.seenHashes ?? []);
-    const fresh = rows.map((row) => ({ row, hash: rowHash(row) })).filter((item) => !seen.has(item.hash)).slice(0, 200);
+    // Una sola llamada de IA por ejecución evita agotar el tiempo máximo de la
+    // petición. Las siguientes revisiones continuarán con las filas pendientes.
+    const unseenRows = rows.map((row) => ({ row, hash: rowHash(row) })).filter((item) => !seen.has(item.hash));
+    const fresh = unseenRows.slice(-MAX_FRESH_ROWS_PER_SYNC);
+    const hasBacklog = unseenRows.length > fresh.length;
     let extracted: AiLead[] = [];
     if (fresh.length) {
       const notes = (stages as any)?.campaignNotes?.[source.campaignId]?.qualificationNotes ?? "";
@@ -218,7 +252,7 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
       await prisma.metaLeadAttribution.upsert({ where: { workspaceId_adAccountId_externalLeadId: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId } }, create: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId, source: "url_document", campaignId: source.campaignId, campaignName: source.campaignName, contactName: lead.contactName, email: lead.email, phone: lead.phone, status: "new", occurredAt: timestamp, metadata: { sourceId: source.id, sourceUrl: source.url, rowHash: lead.rowHash, aiQualifiedSuggestion: lead.isQualified } }, update: { contactName: lead.contactName, email: lead.email, phone: lead.phone, campaignId: source.campaignId, campaignName: source.campaignName } });
       imported++;
     }
-    const now = new Date(); const updated: UrlLeadSource = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + source.intervalMinutes * 60_000).toISOString(), lastError: null, lastImported: imported, totalImported: (source.totalImported ?? 0) + imported, seenHashes: [...(source.seenHashes ?? []), ...fresh.map((item) => item.hash)].slice(-5000) };
+    const now = new Date(); const updated: UrlLeadSource = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + (hasBacklog ? 5 : source.intervalMinutes) * 60_000).toISOString(), lastError: null, lastImported: imported, totalImported: (source.totalImported ?? 0) + imported, seenHashes: [...(source.seenHashes ?? []), ...fresh.map((item) => item.hash)].slice(-5000) };
     await prisma.metaClientProfile.update({ where: { id: profile.id }, data: { commercialStages: { ...stages, urlLeadSources: sources.map((item) => item.id === source.id ? updated : item) } as Prisma.InputJsonValue } });
     return { skipped: false, imported, rowsRead: rows.length, newRows: fresh.length, source: updated };
   } catch (error: any) {
