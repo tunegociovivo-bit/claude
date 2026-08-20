@@ -36,8 +36,9 @@ describe("fuentes online de leads", () => {
   });
 
   it("convierte la clasificación de IA en la calidad visible del lead", () => {
-    expect(automaticLeadStatus(true)).toBe("qualified");
-    expect(automaticLeadStatus(false)).toBe("invalid");
+    expect(automaticLeadStatus("good")).toBe("qualified");
+    expect(automaticLeadStatus("bad")).toBe("invalid");
+    expect(automaticLeadStatus("pending")).toBe("new");
   });
 
   it("reprograma solo las fuentes de la campaña cuyas indicaciones cambian", () => {

@@ -225,10 +225,13 @@ export async function deleteUrlLeadSource(workspaceId: string, adAccountId: stri
   await prisma.metaClientProfile.update({ where: { id: profile.id }, data: { commercialStages: { ...stages, urlLeadSources: readSources(stages).filter((item) => item.id !== sourceId) } as Prisma.InputJsonValue } });
 }
 
-type AiLead = { rowHash: string; contactName: string | null; email: string | null; phone: string | null; occurredAt: string | null; isQualified: boolean };
+type AiLeadQuality = "good" | "bad" | "pending";
+type AiLead = { rowHash: string; contactName: string | null; email: string | null; phone: string | null; occurredAt: string | null; quality: AiLeadQuality };
 
-export function automaticLeadStatus(isQualified: boolean) {
-  return isQualified ? "qualified" : "invalid";
+export function automaticLeadStatus(quality: AiLeadQuality) {
+  if (quality === "good") return "qualified";
+  if (quality === "bad") return "invalid";
+  return "new";
 }
 
 export function resetCampaignLeadSources(value: unknown, campaignId: string, now = new Date()) {
@@ -260,7 +263,7 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
     if (fresh.length) {
       const notes = (stages as any)?.campaignNotes?.[source.campaignId]?.qualificationNotes ?? "";
       for (const batch of leadClassificationBatches(fresh)) {
-        const result = await completeJson<{ leads: AiLead[] }>({ workspaceId: opts.workspaceId, system: "Extrae leads reales de filas nuevas de un documento comercial. No inventes datos. Devuelve una entrada por fila que contenga un posible lead; conserva exactamente rowHash. isQualified solo puede ser true cuando la fila cumple claramente las indicaciones. Fechas en ISO o null.", user: JSON.stringify({ campaign: source.campaignName, qualificationNotes: notes, rows: batch }), schema: { type: "object", properties: { leads: { type: "array", items: { type: "object", properties: { rowHash: { type: "string" }, contactName: { type: ["string", "null"] }, email: { type: ["string", "null"] }, phone: { type: ["string", "null"] }, occurredAt: { type: ["string", "null"] }, isQualified: { type: "boolean" } }, required: ["rowHash", "contactName", "email", "phone", "occurredAt", "isQualified"], additionalProperties: false } } }, required: ["leads"], additionalProperties: false }, maxTokens: 3000 });
+        const result = await completeJson<{ leads: AiLead[] }>({ workspaceId: opts.workspaceId, system: "Extrae leads reales de filas nuevas de un documento comercial. No inventes datos. Devuelve una entrada por fila que contenga un posible lead y conserva exactamente rowHash. Aplica las indicaciones de la campaña: quality=good para un lead claramente bueno, quality=bad para uno claramente malo y quality=pending cuando las indicaciones digan que aún no se sabe o no permitan decidir. Fechas en ISO o null.", user: JSON.stringify({ campaign: source.campaignName, qualificationNotes: notes, rows: batch }), schema: { type: "object", properties: { leads: { type: "array", items: { type: "object", properties: { rowHash: { type: "string" }, contactName: { type: ["string", "null"] }, email: { type: ["string", "null"] }, phone: { type: ["string", "null"] }, occurredAt: { type: ["string", "null"] }, quality: { type: "string", enum: ["good", "bad", "pending"] } }, required: ["rowHash", "contactName", "email", "phone", "occurredAt", "quality"], additionalProperties: false } } }, required: ["leads"], additionalProperties: false }, maxTokens: 3000 });
         const allowed = new Set(batch.map((item) => item.hash));
         extracted.push(...(result.leads ?? []).filter((lead) => allowed.has(lead.rowHash)));
       }
@@ -272,19 +275,20 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
       const externalLeadId = `url:${source.id}:${lead.rowHash}`;
       const key = { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId };
       const existing = await prisma.metaLeadAttribution.findUnique({ where: { workspaceId_adAccountId_externalLeadId: key }, select: { id: true, status: true } });
-      const automaticStatus = automaticLeadStatus(lead.isQualified);
-      const metadata = { sourceId: source.id, sourceUrl: source.url, rowHash: lead.rowHash, aiQualifiedSuggestion: lead.isQualified, qualitySource: "campaign_instructions" };
+      const automaticStatus = automaticLeadStatus(lead.quality);
+      const qualityScore = lead.quality === "good" ? 100 : lead.quality === "bad" ? 0 : null;
+      const metadata = { sourceId: source.id, sourceUrl: source.url, rowHash: lead.rowHash, aiQuality: lead.quality, qualitySource: "campaign_instructions" };
       const item = await prisma.metaLeadAttribution.upsert({
         where: { workspaceId_adAccountId_externalLeadId: key },
-        create: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId, source: "url_document", campaignId: source.campaignId, campaignName: source.campaignName, contactName: lead.contactName, email: lead.email, phone: lead.phone, status: automaticStatus, qualityScore: lead.isQualified ? 100 : 0, qualifiedAt: lead.isQualified ? new Date() : null, occurredAt: timestamp, metadata },
+        create: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId, source: "url_document", campaignId: source.campaignId, campaignName: source.campaignName, contactName: lead.contactName, email: lead.email, phone: lead.phone, status: automaticStatus, qualityScore, qualifiedAt: lead.quality === "good" ? new Date() : null, occurredAt: timestamp, metadata },
         update: { contactName: lead.contactName, email: lead.email, phone: lead.phone, campaignId: source.campaignId, campaignName: source.campaignName, metadata }
       });
       // Reclassification after changed instructions may only update untouched leads.
       // Never overwrite a quality/stage that a person has already reviewed.
       if (existing?.status === "new") {
-        await prisma.metaLeadAttribution.update({ where: { id: item.id }, data: { status: automaticStatus, qualityScore: lead.isQualified ? 100 : 0, qualifiedAt: lead.isQualified ? new Date() : null } });
+        await prisma.metaLeadAttribution.update({ where: { id: item.id }, data: { status: automaticStatus, qualityScore, qualifiedAt: lead.quality === "good" ? new Date() : null } });
       }
-      if (!existing || existing.status === "new") classified++;
+      if (automaticStatus !== "new" && (!existing || existing.status === "new")) classified++;
       if (!existing) imported++;
     }
     const now = new Date(); const updated: UrlLeadSource = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + (hasBacklog ? 5 : source.intervalMinutes) * 60_000).toISOString(), lastError: null, lastImported: imported, totalImported: (source.totalImported ?? 0) + imported, seenHashes: [...(source.seenHashes ?? []), ...fresh.map((item) => item.hash)].slice(-5000) };
