@@ -17,6 +17,16 @@ export const dynamic = "force-dynamic";
 // Tope global de descuento por compra (protege el margen del negocio).
 const MAX_DISCOUNT_PCT = 50;
 
+const challengeImageUrlSchema = z.string().url().refine((value) => {
+  const allowedBases = [
+    process.env.STORAGE_PUBLIC_URL,
+    process.env.NEXT_PUBLIC_BUBUI_URL,
+    process.env.HUB_BASE_URL,
+    "https://hub.negociovivo.app"
+  ].filter((base): base is string => !!base).map((base) => base.replace(/\/+$/, ""));
+  return allowedBases.some((base) => value === base || value.startsWith(`${base}/`));
+}, "La imagen debe haberse subido al almacenamiento de Bubui");
+
 const schema = z
   .object({
     description: z.string().max(500).optional().nullable(),
@@ -28,7 +38,7 @@ const schema = z
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     logoUrl: z.string().url().optional().nullable(),
-    challengeImageUrl: z.string().url().optional().nullable(),
+    challengeImageUrl: challengeImageUrlSchema.optional().nullable(),
     brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
     defaultDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
     newCustomerDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),

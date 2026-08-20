@@ -70,12 +70,12 @@ export async function POST(req: Request) {
   });
 
   // Si canjea una oferta cruzada, la marcamos redeemed.
-  if (purchase.redeemedOfferId) {
-    await prisma.bubuiOffer.update({
+  const redeemedOffer = purchase.redeemedOfferId
+    ? await prisma.bubuiOffer.update({
       where: { id: purchase.redeemedOfferId },
       data: { redeemed: true, redeemedAt: new Date() }
-    });
-  }
+    })
+    : null;
 
   // Actualiza stats del cliente.
   const customer = await prisma.bubuiCustomer.update({
@@ -106,9 +106,13 @@ export async function POST(req: Request) {
   // Si este comprador fue traído por otro usuario y su negocio de origen exige
   // que los amigos compren para desbloquear el reto, esta compra puede haber
   // completado el reto del referidor → intentamos desbloquearlo.
-  if (customer.referredById && customer.referralOfferId) {
-    void import("@/lib/bubui/share-offer")
-      .then((m) => m.unlockShareChallengeOffers(customer.referredById!, customer.referralOfferId!))
+  if (redeemedOffer) {
+    void import("@/lib/bubui/challenge-redemption")
+      .then((m) => m.reevaluateChallengeAfterFriendCouponRedemption({
+        source: redeemedOffer.source,
+        referredById: customer.referredById,
+        referralOfferId: customer.referralOfferId
+      }))
       .catch(() => {});
   }
 

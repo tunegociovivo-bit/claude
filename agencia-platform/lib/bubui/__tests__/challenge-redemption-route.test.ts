@@ -35,7 +35,7 @@ describe("express referral coupon redemption", () => {
   it("calls the behavioral helper after persisting the express redemption", () => {
     const scan = fs.readFileSync(path.join(root, "app/api/bubui/scan/route.ts"), "utf8");
     const redeemed = scan.indexOf("data: { redeemed: true");
-    const reevaluate = scan.indexOf("reevaluateChallengeAfterFriendCouponRedemption");
+    const reevaluate = scan.indexOf("reevaluateChallengeAfterFriendCouponRedemption", redeemed);
     expect(redeemed).toBeGreaterThan(-1);
     expect(reevaluate).toBeGreaterThan(redeemed);
   });

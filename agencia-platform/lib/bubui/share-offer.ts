@@ -113,7 +113,6 @@ export async function createMesaShareChallenge(args: {
         active: false,
         unlockShares: Math.max(1, friends),
         unlockBaseline: baseline,
-        usesExactReferralTracking: true,
         expiresAt
       }
     });

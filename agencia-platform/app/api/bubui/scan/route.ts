@@ -20,7 +20,8 @@ import {
 } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { isNewCustomer } from "@/lib/bubui/table";
-import { createShareChallengeOffer, unlockShareChallengeOffers } from "@/lib/bubui/share-offer";
+import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
+import { reevaluateChallengeAfterFriendCouponRedemption } from "@/lib/bubui/challenge-redemption";
 import { notifyBusinessNewReferredClient } from "@/lib/bubui/referral";
 import { alertBusiness } from "@/lib/bubui/business-push";
 import { computeWalletApplication, consumeWallet } from "@/lib/bubui/wallet";
@@ -243,9 +244,11 @@ export async function POST(req: Request) {
         where: { id: activeOffer.id },
         data: { redeemed: true, redeemedAt: new Date() }
       }).catch(() => {});
-      if (activeOffer.source === "referral_welcome" && customer.referredById && customer.referralOfferId) {
-        void unlockShareChallengeOffers(customer.referredById, customer.referralOfferId).catch(() => {});
-      }
+      void reevaluateChallengeAfterFriendCouponRedemption({
+        source: activeOffer.source,
+        referredById: customer.referredById,
+        referralOfferId: customer.referralOfferId
+      }).catch(() => {});
     }
     await prisma.bubuiCustomer.update({
       where: { id: d.customerId },
