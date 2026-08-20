@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const H = vi.hoisted(() => ({
   verified: 0,
+  exactVerified: 0,
+  exactQualified: 0,
   prisma: {
     bubuiOffer: { findMany: vi.fn(), updateMany: vi.fn() }
   },
@@ -11,7 +13,9 @@ const H = vi.hoisted(() => ({
 vi.mock("@/lib/db/prisma", () => ({ prisma: H.prisma }));
 vi.mock("../referral", () => ({
   countVerifiedReferrals: vi.fn(async () => H.verified),
-  countQualifiedReferrals: vi.fn()
+  countQualifiedReferrals: vi.fn(),
+  countOfferReferrals: vi.fn(async () => H.exactVerified),
+  countQualifiedOfferReferrals: vi.fn(async () => H.exactQualified)
 }));
 vi.mock("../notify", () => ({ notifyBubuiCustomer: H.notify }));
 
@@ -27,6 +31,7 @@ const OFFER = {
   unlockBaseline: 0,
   unlockShares: 5,
   unlockRequiresPurchase: false,
+  usesExactReferralTracking: true,
   rewardLabel: null,
   discountPct: 30,
   business: { name: "Roman Trainer" }
@@ -35,6 +40,8 @@ const OFFER = {
 beforeEach(() => {
   vi.clearAllMocks();
   H.verified = 0;
+  H.exactVerified = 0;
+  H.exactQualified = 0;
   H.prisma.bubuiOffer.findMany.mockResolvedValue([OFFER]);
   H.prisma.bubuiOffer.updateMany.mockResolvedValue({ count: 1 });
 });
@@ -42,12 +49,12 @@ beforeEach(() => {
 describe("reto de cinco amigos", () => {
   it("sigue bloqueado con los cuatro primeros y se activa exactamente con el quinto", async () => {
     for (let uniqueFriends = 1; uniqueFriends <= 4; uniqueFriends++) {
-      H.verified = uniqueFriends;
+      H.exactVerified = uniqueFriends;
       expect(await unlockShareChallengeOffers("owner-1", OFFER.id)).toBe(0);
     }
     expect(H.prisma.bubuiOffer.updateMany).not.toHaveBeenCalled();
 
-    H.verified = 5;
+    H.exactVerified = 5;
     expect(await unlockShareChallengeOffers("owner-1", OFFER.id)).toBe(1);
     expect(H.prisma.bubuiOffer.updateMany).toHaveBeenCalledTimes(1);
     expect(H.prisma.bubuiOffer.updateMany).toHaveBeenCalledWith({
@@ -57,9 +64,25 @@ describe("reto de cinco amigos", () => {
   });
 
   it("una carrera posterior no vuelve a activar ni notificar", async () => {
-    H.verified = 5;
+    H.exactVerified = 5;
     H.prisma.bubuiOffer.updateMany.mockResolvedValue({ count: 0 });
     expect(await unlockShareChallengeOffers("owner-1", OFFER.id)).toBe(0);
     expect(H.notify).not.toHaveBeenCalled();
+  });
+
+  it("no hereda amigos globales de otro reto cuando este todavía está vacío", async () => {
+    H.verified = 99;
+    H.exactVerified = 0;
+    expect(await unlockShareChallengeOffers("owner-1", OFFER.id)).toBe(0);
+    expect(H.prisma.bubuiOffer.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("cuando exige compra solo cuenta el canje exacto del cupón de este reto", async () => {
+    H.prisma.bubuiOffer.findMany.mockResolvedValue([{ ...OFFER, unlockRequiresPurchase: true }]);
+    H.exactVerified = 5;
+    H.exactQualified = 4;
+    expect(await unlockShareChallengeOffers("owner-1", OFFER.id)).toBe(0);
+    H.exactQualified = 5;
+    expect(await unlockShareChallengeOffers("owner-1", OFFER.id)).toBe(1);
   });
 });
