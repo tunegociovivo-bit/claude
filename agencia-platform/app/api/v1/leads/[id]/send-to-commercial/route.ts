@@ -29,6 +29,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
       urgency: true,
       gmbUrl: true,
       notes: true,
+      createdAt: true,
       commercialTaskId: true,
       commercialSentAt: true
     }
@@ -105,6 +106,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
             leadId: lead.id,
             leadName: lead.name,
             leadPhone: lead.phone,
+            leadEnteredAt: lead.createdAt.toISOString(),
             leadUrl: `/admin/leads?lead=${lead.id}`
           } as any
         },
@@ -142,6 +144,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
     "📈 *Nuevo lead para comercial*",
     "",
     `*Negocio:* ${lead.name}`,
+    `*Fecha de entrada:* ${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", dateStyle: "short", timeStyle: "short" }).format(lead.createdAt)}`,
     `*Teléfono:* ${lead.phone ?? "—"}`,
     `*Web:* ${lead.website ?? "—"}`,
     `*Provincia:* ${lead.province ?? "—"}`,

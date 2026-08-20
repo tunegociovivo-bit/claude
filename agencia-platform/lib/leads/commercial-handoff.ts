@@ -27,10 +27,20 @@ export function commercialLeadDescription(lead: {
   urgency: string | null;
   gmbUrl: string | null;
   notes: string | null;
+  createdAt: Date | string;
 }): string {
+  const entryDate = new Intl.DateTimeFormat("es-ES", {
+    timeZone: "Europe/Madrid",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(lead.createdAt));
   return [
     "Lead enviado manualmente desde Generador de Leads IA.",
     "",
+    `Fecha de entrada del lead: ${entryDate}`,
     `Negocio: ${lead.name}`,
     `Teléfono: ${lead.phone ?? "—"}`,
     `Web: ${lead.website ?? "—"}`,
