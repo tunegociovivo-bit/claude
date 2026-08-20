@@ -227,6 +227,17 @@ export async function deleteUrlLeadSource(workspaceId: string, adAccountId: stri
 
 type AiLead = { rowHash: string; contactName: string | null; email: string | null; phone: string | null; occurredAt: string | null; isQualified: boolean };
 
+export function automaticLeadStatus(isQualified: boolean) {
+  return isQualified ? "qualified" : "invalid";
+}
+
+export function resetCampaignLeadSources(value: unknown, campaignId: string, now = new Date()) {
+  if (!Array.isArray(value)) return null;
+  return value.map((source) => source && typeof source === "object" && (source as any).campaignId === campaignId
+    ? { ...source, seenHashes: [], nextSyncAt: now.toISOString(), lastError: null }
+    : source);
+}
+
 export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId: string; sourceId: string; force?: boolean }) {
   const profile = await prisma.metaClientProfile.findUnique({ where: { workspaceId_adAccountId: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId } } });
   if (!profile) throw new Error("La cuenta no tiene perfil de atribución.");
@@ -255,15 +266,30 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
       }
     }
     let imported = 0;
+    let classified = 0;
     for (const lead of extracted) {
       const timestamp = lead.occurredAt && !Number.isNaN(Date.parse(lead.occurredAt)) ? new Date(lead.occurredAt) : new Date();
       const externalLeadId = `url:${source.id}:${lead.rowHash}`;
-      await prisma.metaLeadAttribution.upsert({ where: { workspaceId_adAccountId_externalLeadId: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId } }, create: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId, source: "url_document", campaignId: source.campaignId, campaignName: source.campaignName, contactName: lead.contactName, email: lead.email, phone: lead.phone, status: "new", occurredAt: timestamp, metadata: { sourceId: source.id, sourceUrl: source.url, rowHash: lead.rowHash, aiQualifiedSuggestion: lead.isQualified } }, update: { contactName: lead.contactName, email: lead.email, phone: lead.phone, campaignId: source.campaignId, campaignName: source.campaignName } });
-      imported++;
+      const key = { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId };
+      const existing = await prisma.metaLeadAttribution.findUnique({ where: { workspaceId_adAccountId_externalLeadId: key }, select: { id: true, status: true } });
+      const automaticStatus = automaticLeadStatus(lead.isQualified);
+      const metadata = { sourceId: source.id, sourceUrl: source.url, rowHash: lead.rowHash, aiQualifiedSuggestion: lead.isQualified, qualitySource: "campaign_instructions" };
+      const item = await prisma.metaLeadAttribution.upsert({
+        where: { workspaceId_adAccountId_externalLeadId: key },
+        create: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId, source: "url_document", campaignId: source.campaignId, campaignName: source.campaignName, contactName: lead.contactName, email: lead.email, phone: lead.phone, status: automaticStatus, qualityScore: lead.isQualified ? 100 : 0, qualifiedAt: lead.isQualified ? new Date() : null, occurredAt: timestamp, metadata },
+        update: { contactName: lead.contactName, email: lead.email, phone: lead.phone, campaignId: source.campaignId, campaignName: source.campaignName, metadata }
+      });
+      // Reclassification after changed instructions may only update untouched leads.
+      // Never overwrite a quality/stage that a person has already reviewed.
+      if (existing?.status === "new") {
+        await prisma.metaLeadAttribution.update({ where: { id: item.id }, data: { status: automaticStatus, qualityScore: lead.isQualified ? 100 : 0, qualifiedAt: lead.isQualified ? new Date() : null } });
+      }
+      if (!existing || existing.status === "new") classified++;
+      if (!existing) imported++;
     }
     const now = new Date(); const updated: UrlLeadSource = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + (hasBacklog ? 5 : source.intervalMinutes) * 60_000).toISOString(), lastError: null, lastImported: imported, totalImported: (source.totalImported ?? 0) + imported, seenHashes: [...(source.seenHashes ?? []), ...fresh.map((item) => item.hash)].slice(-5000) };
     await prisma.metaClientProfile.update({ where: { id: profile.id }, data: { commercialStages: { ...stages, urlLeadSources: sources.map((item) => item.id === source.id ? updated : item) } as Prisma.InputJsonValue } });
-    return { skipped: false, imported, rowsRead: rows.length, newRows: fresh.length, source: updated };
+    return { skipped: false, imported, classified, rowsRead: rows.length, newRows: fresh.length, source: updated };
   } catch (error: any) {
     const now = new Date(); const updated = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + source.intervalMinutes * 60_000).toISOString(), lastError: String(error?.message ?? error).slice(0, 500), lastImported: 0 };
     await prisma.metaClientProfile.update({ where: { id: profile.id }, data: { commercialStages: { ...stages, urlLeadSources: sources.map((item) => item.id === source.id ? updated : item) } as Prisma.InputJsonValue } });

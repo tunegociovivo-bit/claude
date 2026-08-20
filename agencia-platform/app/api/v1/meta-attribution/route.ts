@@ -5,7 +5,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { attributionMetrics, META_LEAD_STAGES, stageDates } from "@/lib/meta/attribution";
 import type { Prisma } from "@prisma/client";
-import { deleteUrlLeadSource, saveUrlLeadSource, syncUrlLeadSource } from "@/lib/meta/url-lead-sync";
+import { deleteUrlLeadSource, resetCampaignLeadSources, saveUrlLeadSource, syncUrlLeadSource } from "@/lib/meta/url-lead-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +41,7 @@ export const POST = withApi({}, async (req, { api }) => {
     return NextResponse.json({ profile: safeProfile });
   }
   if (parsed.data.action === "campaign_notes") {
+    const campaignId = parsed.data.campaignId;
     const existing = await prisma.metaClientProfile.findUnique({ where: { workspaceId_adAccountId: { workspaceId: api.workspaceId, adAccountId: parsed.data.adAccountId } } });
     const commercialStages = existing?.commercialStages && typeof existing.commercialStages === "object" && !Array.isArray(existing.commercialStages)
       ? existing.commercialStages as Record<string, unknown>
@@ -48,8 +49,10 @@ export const POST = withApi({}, async (req, { api }) => {
     const campaignNotes = commercialStages.campaignNotes && typeof commercialStages.campaignNotes === "object" && !Array.isArray(commercialStages.campaignNotes)
       ? commercialStages.campaignNotes as Record<string, unknown>
       : {};
+    const resetSources = resetCampaignLeadSources(commercialStages.urlLeadSources, campaignId);
     const nextStages = {
       ...commercialStages,
+      ...(resetSources ? { urlLeadSources: resetSources } : {}),
       campaignNotes: {
         ...campaignNotes,
         [parsed.data.campaignId]: {
