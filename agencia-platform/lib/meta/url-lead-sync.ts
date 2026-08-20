@@ -28,7 +28,9 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const SHEET_HEADER_ROWS = 20;
 const SHEET_RECENT_ROWS = 500;
 const SHEET_MAX_COLUMNS = 80;
-const MAX_FRESH_ROWS_PER_SYNC = 40;
+// Keep one structured AI response comfortably below the provider output limit.
+// A pending backlog is drained by the automatic five-minute follow-up runs.
+const MAX_FRESH_ROWS_PER_SYNC = 12;
 const PRIVATE_V4 = [/^10\./, /^127\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^0\./];
 const DOCUMENT_HOSTS = ["docs.google.com", "drive.google.com", "googleapis.com", "googleusercontent.com", "dropbox.com", "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com"];
 
@@ -98,6 +100,14 @@ export function privateSheetRanges(title: string, rowCount: number, columnCount:
     `${quotedTitle}!A1:${lastColumn}${SHEET_HEADER_ROWS}`,
     `${quotedTitle}!A${lastRow - SHEET_RECENT_ROWS + 1}:${lastColumn}${lastRow}`
   ];
+}
+
+export function leadClassificationBatches<T>(rows: T[]) {
+  const batches: T[][] = [];
+  for (let offset = 0; offset < rows.length; offset += MAX_FRESH_ROWS_PER_SYNC) {
+    batches.push(rows.slice(offset, offset + MAX_FRESH_ROWS_PER_SYNC));
+  }
+  return batches;
 }
 
 async function fetchPrivateSheet(file: { id: string; gid?: string }, accessToken: string, rawUrl: string) {
@@ -238,8 +248,7 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
     let extracted: AiLead[] = [];
     if (fresh.length) {
       const notes = (stages as any)?.campaignNotes?.[source.campaignId]?.qualificationNotes ?? "";
-      for (let offset = 0; offset < fresh.length; offset += 40) {
-        const batch = fresh.slice(offset, offset + 40);
+      for (const batch of leadClassificationBatches(fresh)) {
         const result = await completeJson<{ leads: AiLead[] }>({ workspaceId: opts.workspaceId, system: "Extrae leads reales de filas nuevas de un documento comercial. No inventes datos. Devuelve una entrada por fila que contenga un posible lead; conserva exactamente rowHash. isQualified solo puede ser true cuando la fila cumple claramente las indicaciones. Fechas en ISO o null.", user: JSON.stringify({ campaign: source.campaignName, qualificationNotes: notes, rows: batch }), schema: { type: "object", properties: { leads: { type: "array", items: { type: "object", properties: { rowHash: { type: "string" }, contactName: { type: ["string", "null"] }, email: { type: ["string", "null"] }, phone: { type: ["string", "null"] }, occurredAt: { type: ["string", "null"] }, isQualified: { type: "boolean" } }, required: ["rowHash", "contactName", "email", "phone", "occurredAt", "isQualified"], additionalProperties: false } } }, required: ["leads"], additionalProperties: false }, maxTokens: 3000 });
         const allowed = new Set(batch.map((item) => item.hash));
         extracted.push(...(result.leads ?? []).filter((lead) => allowed.has(lead.rowHash)));
