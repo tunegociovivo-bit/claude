@@ -28,6 +28,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const SHEET_HEADER_ROWS = 20;
 const SHEET_RECENT_ROWS = 500;
 const SHEET_MAX_COLUMNS = 80;
+const MAX_FRESH_ROWS_PER_SYNC = 40;
 const PRIVATE_V4 = [/^10\./, /^127\./, /^169\.254\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^0\./];
 const DOCUMENT_HOSTS = ["docs.google.com", "drive.google.com", "googleapis.com", "googleusercontent.com", "dropbox.com", "dropboxusercontent.com", "1drv.ms", "onedrive.live.com", "sharepoint.com"];
 
@@ -229,7 +230,9 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
     const parsed = await parseFile(downloaded.buffer, filenameFor(downloaded.finalUrl, downloaded.mime), downloaded.mime);
     const rows: unknown[] = parsed.kind === "tabular" ? tabularToObjects(parsed.data) : parsed.text.split(/\n{2,}/).map((text) => ({ text })).filter((item) => item.text.trim());
     const seen = new Set(source.seenHashes ?? []);
-    const fresh = rows.map((row) => ({ row, hash: rowHash(row) })).filter((item) => !seen.has(item.hash)).slice(0, 200);
+    // Una sola llamada de IA por ejecución evita agotar el tiempo máximo de la
+    // petición. Las siguientes revisiones continuarán con las filas pendientes.
+    const fresh = rows.map((row) => ({ row, hash: rowHash(row) })).filter((item) => !seen.has(item.hash)).slice(-MAX_FRESH_ROWS_PER_SYNC);
     let extracted: AiLead[] = [];
     if (fresh.length) {
       const notes = (stages as any)?.campaignNotes?.[source.campaignId]?.qualificationNotes ?? "";
