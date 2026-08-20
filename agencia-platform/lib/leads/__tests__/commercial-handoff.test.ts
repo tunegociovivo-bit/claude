@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { commercialLeadDescription, findCommercialColumnId } from "../commercial-handoff";
 
@@ -34,5 +36,15 @@ describe("commercial lead handoff", () => {
     expect(text).toContain("Clínica Ejemplo");
     expect(text).toContain("+34 600 000 000");
     expect(text).toContain("Llamar por la tarde");
+  });
+
+  it("executes the PostgreSQL advisory lock without deserializing its void result", () => {
+    const route = readFileSync(
+      resolve(process.cwd(), "app/api/v1/leads/[id]/send-to-commercial/route.ts"),
+      "utf8",
+    );
+
+    expect(route).toContain("tx.$executeRaw`SELECT pg_advisory_xact_lock");
+    expect(route).not.toContain("tx.$queryRaw`SELECT pg_advisory_xact_lock");
   });
 });
