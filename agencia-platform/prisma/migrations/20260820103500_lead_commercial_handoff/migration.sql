@@ -1,7 +1,7 @@
 ALTER TABLE "Lead"
-  ADD COLUMN "commercialTaskId" TEXT,
-  ADD COLUMN "commercialSendingAt" TIMESTAMP(3),
-  ADD COLUMN "commercialSentAt" TIMESTAMP(3);
+  ADD COLUMN IF NOT EXISTS "commercialTaskId" TEXT,
+  ADD COLUMN IF NOT EXISTS "commercialSendingAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "commercialSentAt" TIMESTAMP(3);
 
-CREATE INDEX "Lead_workspaceId_commercialSentAt_idx"
+CREATE INDEX IF NOT EXISTS "Lead_workspaceId_commercialSentAt_idx"
   ON "Lead"("workspaceId", "commercialSentAt");
