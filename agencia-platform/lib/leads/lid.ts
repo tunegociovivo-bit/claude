@@ -32,12 +32,17 @@ export function realPhoneFromMeta(meta: any): string | null {
     meta?.payload?._data?.author,
     meta?.payload?._data?.from,
     meta?.payload?._data?.id?.remote,
+    meta?.payload?._data?.key?.remoteJidAlt,
+    meta?.payload?._data?.key?.remoteJid,
+    meta?.payload?._data?.Info?.Chat,
+    meta?.payload?._data?.Info?.Sender,
+    meta?.payload?._data?.Info?.Recipient,
     meta?.from,
     meta?.author
   ].filter((x): x is string => typeof x === "string" && x.length > 0);
   // Preferimos los @c.us (número real); ignoramos @lid / @g.us.
   for (const c of candidates) {
-    if (/@c\.us$/i.test(c)) {
+    if (/@(?:c\.us|s\.whatsapp\.net)$/i.test(c)) {
       const d = c.replace(/@.*$/, "").replace(/\D/g, "");
       if (looksLikePhone(d)) return d;
     }
@@ -45,7 +50,7 @@ export function realPhoneFromMeta(meta: any): string | null {
   // Algún campo puede traer el número pelado.
   for (const c of candidates) {
     const d = c.replace(/@.*$/, "").replace(/\D/g, "");
-    if (/@c\.us$/i.test(c) || (!/@/.test(c) && looksLikePhone(d))) return d;
+    if (/@(?:c\.us|s\.whatsapp\.net)$/i.test(c) || (!/@/.test(c) && looksLikePhone(d))) return d;
   }
   return null;
 }

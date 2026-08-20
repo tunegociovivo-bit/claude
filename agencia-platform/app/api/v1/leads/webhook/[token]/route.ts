@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { ingestInbox, recordOutboundFromPhone } from "@/lib/leads/inbox";
 import { extractWahaMessageId } from "@/lib/leads/waha";
+import { realPhoneFromMeta } from "@/lib/leads/lid";
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   const workspaces = await prisma.workspace.findMany();
@@ -173,14 +174,18 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     body?.payload?._data?.author,
     body?.payload?._data?.from,
     body?.payload?._data?.id?.remote,
+    body?.payload?._data?.key?.remoteJidAlt,
+    body?.payload?._data?.key?.remoteJid,
+    body?.payload?._data?.Info?.Chat,
+    body?.payload?._data?.Info?.Sender,
     body?.from,
     body?.data?.key?.remoteJid,
     body?.data?.from,
     body?.message?.from,
     body?.sender
   ].filter((x): x is string => typeof x === "string" && x.length > 0);
-  const realPhone = fromCandidates.find((c) => /@c\.us$/i.test(c) || /^\+?\d{6,15}@/.test(c) || /^\+?\d{6,15}$/.test(c));
-  const fromPhone = realPhone ?? fromCandidates[0] ?? "";
+  const realPhone = fromCandidates.find((c) => /@(?:c\.us|s\.whatsapp\.net)$/i.test(c) || /^\+?\d{6,15}@/.test(c) || /^\+?\d{6,15}$/.test(c));
+  const fromPhone = realPhoneFromMeta(body) ?? realPhone ?? fromCandidates[0] ?? "";
 
   // El cuerpo del mensaje llega en rutas distintas según proveedor/motor:
   //  - WAHA v2: payload.body
