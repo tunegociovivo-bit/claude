@@ -46,6 +46,7 @@ export default function MetaDashboardClient() {
   const [ai, setAi] = useState<AiRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiCostMicros, setAiCostMicros] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const initialPeriod = useMemo(defaultPeriod, []);
   const [since, setSince] = useState(initialPeriod.since);
@@ -81,6 +82,15 @@ export default function MetaDashboardClient() {
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
   useEffect(() => { setData(null); if (account) void loadMonitoring(account); }, [account, loadMonitoring]);
+  useEffect(() => {
+    fetch("/api/v1/sidebar-usage", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => {
+        const item = body?.platforms?.find((platform: { key: string }) => platform.key === "meta_suite");
+        setAiCostMicros(item?.micros ?? 0);
+      })
+      .catch(() => setAiCostMicros(null));
+  }, []);
 
   async function analyzeWithAi() {
     if (!account || !data) return;
@@ -98,7 +108,7 @@ export default function MetaDashboardClient() {
   const periodLabel = data ? `${new Date(`${data.period.since}T12:00:00Z`).toLocaleDateString("es-ES")}–${new Date(`${data.period.until}T12:00:00Z`).toLocaleDateString("es-ES")}` : "";
   return <div className="p-4 sm:p-6">
     <MetaSuiteNav />
-    <PageHeader title="META" description="Supervisión, recomendaciones y creación de campañas de Meta desde un único centro." actions={<div className="flex gap-2"><Link href="/admin/meta-comments" className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" /> Comentarios</Link><Link href="/campanas-meta" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"><Sparkles className="h-4 w-4" /> Crear campaña con IA</Link></div>} />
+    <PageHeader title="META" description="Supervisión, recomendaciones y creación de campañas de Meta desde un único centro." center={<div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-center"><div className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">Coste IA estimado · 7 días</div><div className="text-lg font-bold text-indigo-950">{aiCostMicros === null ? "—" : new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(aiCostMicros / 1_000_000)}</div></div>} actions={<div className="flex gap-2"><Link href="/admin/meta-comments" className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold"><MessageSquare className="h-4 w-4" /> Comentarios</Link><Link href="/campanas-meta" className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white"><Sparkles className="h-4 w-4" /> Crear campaña con IA</Link></div>} />
 
     <section className="mb-5 rounded-xl border bg-white p-4">
       <div className="flex flex-wrap items-end gap-3"><label className="min-w-64 flex-1 text-sm font-semibold text-slate-700">Cuenta publicitaria<select value={selected} onChange={(event) => setSelected(event.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 font-normal"><option value="">Selecciona una cuenta…</option>{accounts.map((item) => <option key={`${item.connectionId}:${item.id}`} value={`${item.connectionId}:${item.id}`}>{item.name} · {item.connectionName} · {item.id}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Desde<input type="date" value={since} max={until} onChange={(event) => setSince(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 font-normal" /></label><label className="text-sm font-semibold text-slate-700">Hasta<input type="date" value={until} min={since} onChange={(event) => setUntil(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 font-normal" /></label><button disabled={!account || loading} onClick={() => account && void loadMonitoring(account)} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualizar análisis</button></div>

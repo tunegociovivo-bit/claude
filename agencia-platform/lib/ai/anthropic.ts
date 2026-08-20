@@ -198,6 +198,9 @@ function strictifySchema<T = any>(schema: T): T {
  */
 export async function completeJson<T = any>(opts: {
   workspaceId: string;
+  userId?: string | null;
+  projectId?: string | null;
+  feature?: string;
   system: string;
   user: string;
   schema: any;
@@ -227,8 +230,9 @@ export async function completeJson<T = any>(opts: {
   } else {
     userContent = opts.user;
   }
+  const model = opts.model ?? DEFAULT_MODEL;
   const resp = await client.messages.create({
-    model: opts.model ?? DEFAULT_MODEL,
+    model,
     max_tokens: opts.maxTokens ?? 2048,
     system: [
       { type: "text", text: stripLoneSurrogates(opts.system), cache_control: { type: "ephemeral" } }
@@ -238,6 +242,17 @@ export async function completeJson<T = any>(opts: {
       format: { type: "json_schema", schema: strictSchema }
     }
   } as any);
+  const { logAiUsage } = await import("./usage");
+  logAiUsage({
+    workspaceId: opts.workspaceId,
+    userId: opts.userId ?? null,
+    projectId: opts.projectId ?? null,
+    feature: opts.feature ?? "complete_json",
+    provider: "anthropic",
+    model,
+    inputTokens: (resp as any).usage?.input_tokens ?? 0,
+    outputTokens: (resp as any).usage?.output_tokens ?? 0
+  }).catch(() => {});
   const text = resp.content.find((b) => b.type === "text") as any;
   if (!text) throw new Error("Sin respuesta de texto del modelo");
   if (resp.stop_reason === "max_tokens") {
