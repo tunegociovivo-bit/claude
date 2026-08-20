@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { conversationHeader, managedChannelLabel } from "../inbox-display";
+import { conversationHeader, conversationListTitle, managedChannelLabel } from "../inbox-display";
 
 describe("lead inbox display", () => {
   it("uses the real phone instead of a WhatsApp LID when the contact has no name", () => {
@@ -22,6 +22,16 @@ describe("lead inbox display", () => {
         displayName: "DRpools Mantenimiento",
       }),
     ).toEqual({ title: "DRpools Mantenimiento", titleIsPhone: false });
+  });
+
+  it("replaces an internal WhatsApp id with the real phone in the left column", () => {
+    expect(
+      conversationListTitle({
+        selectedPhone: "158501590556885",
+        realPhone: "34619071581",
+        isLid: true,
+      }),
+    ).toBe("34619071581");
   });
 
   it("shows the account name together with its phone label", () => {
