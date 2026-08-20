@@ -48,5 +48,7 @@ ENV PORT=3000
 # — carpeta prisma/migrations vacía—, así que `migrate deploy` era un no-op y
 # las tablas nuevas del schema, p.ej. BackupRun, nunca llegaban a producción).
 # Mismos flags que el `start` de package.json: no acepta pérdida de datos.
-# Usamos `;` para que la app arranque aunque el push falle (disponibilidad).
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss=false --skip-generate; node server.js"]
+# La derivación comercial necesita tres columnas nuevas. Se aplican primero
+# con SQL idempotente para que un drift antiguo no deje esa ruta sirviendo 500.
+# Después se conserva el db push general best-effort del despliegue histórico.
+CMD ["sh", "-c", "npx prisma db execute --file prisma/migrations/20260820103500_lead_commercial_handoff/migration.sql --schema prisma/schema.prisma && (npx prisma db push --accept-data-loss=false --skip-generate || true) && node server.js"]

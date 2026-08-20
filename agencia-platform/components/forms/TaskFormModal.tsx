@@ -10,6 +10,7 @@ import CommentRenderer from "@/components/forms/CommentRenderer";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import LeadConversationEmbed from "@/components/leads/LeadConversationEmbed";
+import { taskLeadReference } from "@/lib/leads/task-lead-reference";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
 import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot, Square, Zap, ArrowUp, ArrowDown } from "lucide-react";
@@ -775,14 +776,7 @@ export default function TaskFormModal({
   // Tarea creada desde el generador de leads (WhatsApp): teléfono del lead para
   // embeber la conversación arriba. Viene de currentTask.leadMeta (abierta desde
   // la tarjeta) o del customData cargado (abierta por ?task=).
-  const leadPhone: string | null =
-    ((currentTask as any)?.leadMeta?.phone as string | undefined) ||
-    ((customData as any)?.source === "leads" ? ((customData as any).leadPhone as string) : null) ||
-    null;
-  const leadId: string | null =
-    ((currentTask as any)?.leadMeta?.leadId as string | undefined) ||
-    ((customData as any)?.source === "leads" ? ((customData as any).leadId as string) : null) ||
-    null;
+  const leadReference = taskLeadReference((currentTask as any)?.leadMeta, customData as any);
 
   return (
     <Modal
@@ -868,12 +862,12 @@ export default function TaskFormModal({
           Volver a "{parentInStack.title}"
         </button>
       )}
-      {leadPhone && (
+      {leadReference && (
         <div className="mb-4">
           <div className="mb-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
-            🟢 Tarea del generador de leads
+            🟢 Conversación del lead
           </div>
-          <LeadConversationEmbed phone={leadPhone} leadId={leadId} />
+          <LeadConversationEmbed phone={leadReference.phone} leadId={leadReference.leadId} />
         </div>
       )}
       <form id="task-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-6">

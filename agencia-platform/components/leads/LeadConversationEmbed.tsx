@@ -78,7 +78,12 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
   }, [items]);
 
   const chan = channels.find((c) => c.name === replyChannel);
-  const chanLabel = chan?.label || chan?.phone || replyChannel || "Principal";
+  const channelDetail = chan?.label || chan?.phone || null;
+  const chanLabel = replyChannel
+    ? channelDetail && channelDetail !== replyChannel
+      ? `${replyChannel} - ${channelDetail}`
+      : replyChannel
+    : "Principal";
 
   async function send() {
     const t = text.trim();
@@ -115,7 +120,7 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
           </div>
           <div className="text-[10px] text-emerald-800/80 truncate">
             📱 Gestionado por: <strong>{chanLabel}</strong>
-            {realPhone && !isLid ? ` · ${realPhone}` : isLid ? " · nº oculto por WhatsApp" : ""}
+            {realPhone ? ` · ${realPhone}` : isLid ? " · nº oculto por WhatsApp" : ""}
           </div>
         </div>
         <a

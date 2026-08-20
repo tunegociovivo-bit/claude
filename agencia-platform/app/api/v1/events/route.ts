@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { eventCreateSchema } from "@/lib/api/schemas";
 import { pushEventIfConnected } from "@/lib/integrations/google-calendar/sync";
+import { calendarEventVisibility } from "@/lib/calendar/visibility";
 
 export const GET = withApi({ scope: "events:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -17,7 +18,7 @@ export const GET = withApi({ scope: "events:read" }, async (req, { api }) => {
   }
   // Privacidad: eventos personales (ownerUserId != null) solo para su dueño;
   // los compartidos (ownerUserId null) para todos.
-  where.OR = [{ ownerUserId: null }, ...(api.userId ? [{ ownerUserId: api.userId }] : [])];
+  Object.assign(where, calendarEventVisibility(api.userId));
   const items = await prisma.calendarEvent.findMany({
     where,
     include: { client: { select: { id: true, name: true } } },
@@ -36,6 +37,7 @@ export const POST = withApi({ scope: "events:write" }, async (req, { api }) => {
       startAt: new Date(parsed.data.startAt),
       endAt: parsed.data.endAt ? new Date(parsed.data.endAt) : undefined,
       workspaceId: api.workspaceId,
+      ownerUserId: api.userId,
       // Si el creador tiene Google conectado, anclamos al evento desde
       // ya como "owner" suyo; el push real lo hace pushEventIfConnected.
       googleOwnerUserId: api.userId ?? undefined

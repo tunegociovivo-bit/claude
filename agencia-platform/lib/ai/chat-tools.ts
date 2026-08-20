@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { calendarEventVisibility } from "@/lib/calendar/visibility";
 
 export type ChatToolCtx = { workspaceId: string; userId?: string; isAdmin?: boolean };
 
@@ -458,6 +459,7 @@ export const chatTools: ChatTool[] = [
       const events = await prisma.calendarEvent.findMany({
         where: {
           workspaceId: ctx.workspaceId,
+          ...calendarEventVisibility(ctx.userId),
           startAt: { gte: from, lte: to }
         },
         include: { client: { select: { name: true } } },
@@ -602,7 +604,7 @@ chatTools.push({
         select: { id: true, title: true }
       }),
       prisma.calendarEvent.findMany({
-        where: { workspaceId: ws, OR: [{ title: ci }, { description: ci }] },
+        where: { workspaceId: ws, AND: [calendarEventVisibility(ctx.userId), { OR: [{ title: ci }, { description: ci }] }] },
         take: 100,
         orderBy: { startAt: "desc" },
         select: { id: true, title: true, startAt: true, client: { select: { name: true } } }
@@ -1523,7 +1525,7 @@ chatTools.push({
         where: {
           workspaceId: ctx.workspaceId,
           startAt: { lt: windowEnd },
-          OR: [{ endAt: { gt: startAt } }, { endAt: null, startAt: { gte: startAt, lt: windowEnd } }]
+          AND: [calendarEventVisibility(ctx.userId), { OR: [{ endAt: { gt: startAt } }, { endAt: null, startAt: { gte: startAt, lt: windowEnd } }] }]
         },
         select: { id: true, title: true, startAt: true },
         take: 5
@@ -1532,6 +1534,7 @@ chatTools.push({
       const ev = await prisma.calendarEvent.create({
         data: {
           workspaceId: ctx.workspaceId,
+          ownerUserId: ctx.userId,
           title: String(args?.title ?? "Evento").slice(0, 200),
           description: args?.description ? String(args.description).slice(0, 2000) : null,
           startAt,
@@ -1582,7 +1585,7 @@ chatTools.push({
   run: async (args, ctx) => {
     try {
       const id = String(args?.id ?? "");
-      const ev = await prisma.calendarEvent.findFirst({ where: { id, workspaceId: ctx.workspaceId } });
+      const ev = await prisma.calendarEvent.findFirst({ where: { id, workspaceId: ctx.workspaceId, ...calendarEventVisibility(ctx.userId) } });
       if (!ev) return JSON.stringify({ error: "No encontré ese evento en el calendario." });
       const data: any = {};
       if (args?.startAt) {
@@ -1624,7 +1627,7 @@ chatTools.push({
   run: async (args, ctx) => {
     try {
       const id = String(args?.id ?? "");
-      const ev = await prisma.calendarEvent.findFirst({ where: { id, workspaceId: ctx.workspaceId } });
+      const ev = await prisma.calendarEvent.findFirst({ where: { id, workspaceId: ctx.workspaceId, ...calendarEventVisibility(ctx.userId) } });
       if (!ev) return JSON.stringify({ error: "No encontré ese evento en el calendario." });
       try {
         const { deleteEventIfConnected } = await import("@/lib/integrations/google-calendar/sync");

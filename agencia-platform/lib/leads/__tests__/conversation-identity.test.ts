@@ -38,6 +38,29 @@ describe("resolveConversationIdentity", () => {
     expect(result.leadIds).toContain("lead-explicit");
     expect(result.phones).toContain("34600999888");
   });
+
+  it("une el LID con el teléfono real incluido por NOWEB en remoteJidAlt", async () => {
+    const findInbox = vi.fn().mockResolvedValueOnce([
+      {
+        phoneNormalized: "158501590556885",
+        fromPhone: "158501590556885",
+        leadId: null,
+        meta: {
+          payload: {
+            from: "158501590556885@lid",
+            _data: { key: { remoteJidAlt: "34600111222@s.whatsapp.net" } }
+          }
+        }
+      }
+    ]);
+    const findMeta = vi.fn().mockResolvedValue([]);
+
+    const result = await resolveConversationIdentity({
+      leadInboxMessage: { findMany: findInbox }, leadConversationMeta: { findMany: findMeta }
+    } as any, "w1", "158501590556885");
+
+    expect(result.phones).toContain("34600111222");
+  });
 });
 
 describe("outgoingReplyIdentity — no contamina phoneNormalized con alias crudos", () => {

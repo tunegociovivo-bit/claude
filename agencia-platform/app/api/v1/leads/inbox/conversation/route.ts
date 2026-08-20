@@ -29,7 +29,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       where: messageWhere,
       orderBy: { receivedAt: "asc" },
       take: 500,
-      include: { lead: { select: { id: true, name: true, phone: true } } }
+      include: { lead: { select: { id: true, name: true, phone: true, commercialTaskId: true, commercialSentAt: true } } }
     }),
     prisma.leadMessage.findMany({
       where: {
@@ -123,7 +123,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     phone,
     realPhone,
     isLid,
-    lead: lead ? { id: lead.id, name: lead.name, phone: (lead as any).phone ?? null } : null,
+    lead: lead ? {
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone ?? null,
+      commercialTaskId: lead.commercialTaskId ?? null,
+      commercialSentAt: lead.commercialSentAt?.toISOString() ?? null
+    } : null,
     displayName: convMeta?.displayName ?? null,
     note: convMeta?.note ?? null,
     priority: convMeta?.priority ?? "none",

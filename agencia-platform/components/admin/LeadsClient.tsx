@@ -10,6 +10,7 @@ import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
 import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
+import { conversationHeader, conversationListTitle, displayedLeadPhone, managedChannelLabel } from "@/lib/leads/inbox-display";
 import { usePollingChannel } from "@/lib/client/usePollingChannel";
 import {
   ENQUEUE_BATCH_DELAY_MS,
@@ -69,6 +70,8 @@ type Lead = {
   ticketScore: number | null;
   ticketTier: string | null;
   contactStatus: string;
+  commercialTaskId: string | null;
+  commercialSentAt: string | null;
   aiOpener: string | null;
   hasWhatsapp: boolean;
   // Origen solo-email (Franquicias): sin WhatsApp; se contacta por la cola de
@@ -1250,6 +1253,27 @@ function LeadsTable({
   // CTA de Franquicias (origen solo-email): generar borradores en la cola.
   const [draftingEmails, setDraftingEmails] = useState(false);
   const [draftResult, setDraftResult] = useState<string | null>(null);
+  const [commercialBusyId, setCommercialBusyId] = useState<string | null>(null);
+  const [commercialResult, setCommercialResult] = useState<{ leadId: string; ok: boolean; text: string } | null>(null);
+
+  async function sendToCommercial(lead: Lead) {
+    if (lead.commercialSentAt) return;
+    setCommercialBusyId(lead.id);
+    setCommercialResult(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${lead.id}/send-to-commercial`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        throw new Error(j?.error?.message ?? `Error ${r.status}`);
+      }
+      setCommercialResult({ leadId: lead.id, ok: true, text: "Tarea creada y WhatsApp enviado." });
+      onChanged();
+    } catch (error: any) {
+      setCommercialResult({ leadId: lead.id, ok: false, text: error?.message ?? "No se pudo enviar a comercial." });
+    } finally {
+      setCommercialBusyId(null);
+    }
+  }
 
   // Al cambiar los filtros, limpia la selección (no al solo cargar más páginas).
   useEffect(() => {
@@ -1445,6 +1469,7 @@ function LeadsTable({
               <th className="text-left px-3 py-2.5" title="Próximo mensaje programado para este lead">Próximo</th>
               <th className="text-left px-3 py-2.5" title="Mensajes WhatsApp enviados a este lead">Enviados</th>
               <th className="text-left px-3 py-2.5">Estado</th>
+              <th className="text-left px-3 py-2.5">Comercial</th>
               {anyOwner && <th className="text-left px-3 py-2.5" title="Titular/franquiciado del establecimiento identificado">Titular</th>}
             </tr>
           </thead>
@@ -1541,6 +1566,41 @@ function LeadsTable({
                   </td>
                   <td className="px-3 py-2">
                     <span className={`inline-block px-2 py-0.5 rounded text-[10px] border ${st.color}`}>{st.label}</span>
+                  </td>
+                  <td className="px-3 py-2 min-w-[175px]">
+                    {l.commercialSentAt ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-semibold"
+                          title={`Enviado a comercial el ${new Date(l.commercialSentAt).toLocaleString("es-ES")}`}
+                        >
+                          ✓ Enviado a comercial
+                        </span>
+                        {l.commercialTaskId && (
+                          <a href={`/tareas?task=${l.commercialTaskId}`} className="text-[10px] text-brand-700 underline" title="Abrir tarea comercial">
+                            Tarea ↗
+                          </a>
+                        )}
+                      </span>
+                    ) : (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => sendToCommercial(l)}
+                          disabled={commercialBusyId === l.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-semibold disabled:opacity-50"
+                          title="Crear tarea en AITOR (COMERCIAL) · LEADS GMB y avisar por WhatsApp"
+                        >
+                          {commercialBusyId === l.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListChecks className="h-3 w-3" />}
+                          {l.commercialTaskId ? "Reintentar aviso" : "Crear tarea comercial"}
+                        </button>
+                        {commercialResult?.leadId === l.id && (
+                          <div className={`text-[10px] max-w-[230px] ${commercialResult.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                            {commercialResult.text}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </td>
                   {anyOwner && (
                     <td className="px-3 py-2 whitespace-nowrap">
@@ -5181,14 +5241,12 @@ type Conversation = {
 /** Qué teléfono mostrar: el del lead vinculado, el real que mande WAHA, o un
  *  aviso si WhatsApp lo oculta (LID). Nunca el id privado feo. */
 function shownPhone(c: { leadPhone?: string | null; realPhone?: string | null; isLid?: boolean; phone: string }): string {
-  return c.leadPhone || c.realPhone || (c.isLid ? "nº oculto por WhatsApp" : c.phone);
+  return displayedLeadPhone({ ...c, selectedPhone: c.phone });
 }
 
 /** Nombre legible del canal (número de WhatsApp) a partir del nombre de sesión. */
 function channelLabelOf(channels: { name: string; label?: string | null }[], name: string | null | undefined): string {
-  if (!name) return "Principal";
-  const c = channels.find((x) => x.name === name);
-  return c?.label?.trim() || name;
+  return managedChannelLabel(channels, name);
 }
 
 /** Resalta (en negrita) las apariciones de `term` dentro de `text`, sin
@@ -5333,6 +5391,8 @@ function InboxChat({
     archived: boolean;
     followupAt: string | null;
     leadId: string | null;
+    commercialTaskId: string | null;
+    commercialSentAt: string | null;
     aiScore: number | null;
     aiScoreReason: string | null;
     aiDraft: string | null;
@@ -5343,7 +5403,7 @@ function InboxChat({
     replyChannel: string | null;
     optedOut: boolean;
     conversationTask: { id: string; title: string; status: string } | null;
-  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false, conversationTask: null });
+  }>({ leadName: null, leadPhone: null, realPhone: null, isLid: false, displayName: null, note: null, priority: "none", status: "pending", archived: false, followupAt: null, leadId: null, commercialTaskId: null, commercialSentAt: null, aiScore: null, aiScoreReason: null, aiDraft: null, aiCallNow: false, aiCallScript: null, autoFollowupStep: 0, autoFollowupOff: false, replyChannel: null, optedOut: false, conversationTask: null });
   const [noteDraft, setNoteDraft] = useState("");
   // Mientras el usuario edita la nota, el sondeo de la conversación (cada 8s) NO
   // debe sobrescribir lo que está escribiendo. Este ref marca el foco.
@@ -5353,6 +5413,8 @@ function InboxChat({
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [commercialSending, setCommercialSending] = useState(false);
+  const [commercialMessage, setCommercialMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadReqSeq = useRef(0);
 
@@ -5407,6 +5469,8 @@ function InboxChat({
       archived: !!d.archived,
       followupAt: d.followupAt ?? null,
       leadId: d.lead?.id ?? null,
+      commercialTaskId: d.lead?.commercialTaskId ?? null,
+      commercialSentAt: d.lead?.commercialSentAt ?? null,
       aiScore: d.aiScore ?? null,
       aiScoreReason: d.aiScoreReason ?? null,
       aiDraft: d.aiDraft ?? null,
@@ -5422,6 +5486,27 @@ function InboxChat({
     if (!noteFocusedRef.current) setNoteDraft(d.note ?? "");
     // Al abrir, los no-leídos de esa conversación quedan vistos.
     setConvs((prev) => prev.map((c) => (c.phone === phone ? { ...c, unread: 0 } : c)));
+  }
+
+  async function sendSelectedToCommercial() {
+    if (!threadMeta.leadId || threadMeta.commercialSentAt) return;
+    setCommercialSending(true);
+    setCommercialMessage(null);
+    try {
+      const r = await fetch(`/api/v1/leads/${threadMeta.leadId}/send-to-commercial`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d?.error?.message ?? `Error ${r.status}`);
+      setThreadMeta((m) => ({
+        ...m,
+        commercialTaskId: d.taskId ?? m.commercialTaskId,
+        commercialSentAt: d.sentAt ?? new Date().toISOString()
+      }));
+      setCommercialMessage({ ok: true, text: "Tarea creada y aviso enviado a Aitor" });
+    } catch (e: any) {
+      setCommercialMessage({ ok: false, text: e?.message ?? "No se pudo enviar a comercial" });
+    } finally {
+      setCommercialSending(false);
+    }
   }
 
   // Carga + refresco suave (las respuestas de leads llegan en cualquier momento).
@@ -5661,6 +5746,12 @@ function InboxChat({
   const sel =
     convs.find((c) => c.phone === selected) ??
     (selected ? ({ phone: selected } as unknown as Conversation) : null);
+  const selectedHeader = sel
+    ? conversationHeader({
+        ...threadMeta,
+        selectedPhone: sel.phone,
+      })
+    : null;
 
   // Aplica búsqueda + filtros + orden a la lista (no toca el servidor).
   const PR_RANK: Record<string, number> = { alta: 0, media: 1, baja: 2, none: 3 };
@@ -5956,6 +6047,10 @@ function InboxChat({
           const selectedCls = notInterested
             ? selected === c.phone ? "bg-rose-100/70 opacity-90" : "bg-slate-50 opacity-60"
             : selected === c.phone ? pc.sel : pc.base;
+          const listTitle = conversationListTitle({
+            ...c,
+            selectedPhone: c.phone,
+          });
           return (
             <button
               key={c.phone}
@@ -5963,6 +6058,7 @@ function InboxChat({
                 threadReqSeq.current++;
                 setThread([]);
                 setThreadMeta((m) => ({ ...m, conversationTask: null }));
+                setCommercialMessage(null);
                 setSelected(c.phone);
               }}
               className={`w-full text-left px-3 py-2.5 border-b hover:brightness-95 transition ${notInterested ? "border-l-4 border-l-rose-400 " : ""}${selectedCls}`}
@@ -5972,8 +6068,8 @@ function InboxChat({
                   {notInterested && <span className="no-underline" title="No interesado">❌</span>}
                   {c.optedOut && <span className="no-underline" title="Bloqueado para siempre">🚫</span>}
                   {isSearchable(qDebounced)
-                    ? <Highlighted text={c.leadName || c.displayName || c.phone} term={qDebounced} />
-                    : (c.leadName || c.displayName || c.phone)}
+                    ? <Highlighted text={listTitle} term={qDebounced} />
+                    : listTitle}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   {c.aiCallNow && (
@@ -6060,7 +6156,7 @@ function InboxChat({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-semibold text-slate-800 truncate">
-                      {threadMeta.leadName || threadMeta.displayName || sel.phone}
+                      {selectedHeader?.titleIsPhone ? "📞 " : ""}{selectedHeader?.title}
                     </span>
                     <button
                       onClick={() => {
@@ -6075,10 +6171,7 @@ function InboxChat({
                     </button>
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
-                    📞 {shownPhone({ ...threadMeta, phone: sel.phone })}
-                    {threadMeta.replyChannel
-                      ? ` · 📱 gestionado por: ${channelLabel(threadMeta.replyChannel)}`
-                      : " · 📱 gestionado por: Principal"}
+                    · 📱 gestionado por: {channelLabel(threadMeta.replyChannel)}
                   </div>
                 </div>
                 {/* Prioridad: a quién atender antes */}
@@ -6119,6 +6212,28 @@ function InboxChat({
                   </button>
                 ))}
                 <span className="flex-1" />
+                {threadMeta.leadId && (
+                  threadMeta.commercialSentAt ? (
+                    <a
+                      href={threadMeta.commercialTaskId ? `/tareas?task=${threadMeta.commercialTaskId}` : "/tareas"}
+                      className="text-[11px] px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 font-semibold"
+                      title="Lead enviado a AITOR (COMERCIAL) · LEADS GMB"
+                    >
+                      ✓ Enviado a comercial
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void sendSelectedToCommercial()}
+                      disabled={commercialSending}
+                      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 font-semibold disabled:opacity-50"
+                      title="Crear tarea en AITOR (COMERCIAL) · LEADS GMB y avisar por WhatsApp"
+                    >
+                      {commercialSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ListChecks className="h-3 w-3" />}
+                      {threadMeta.commercialTaskId ? "Reintentar aviso" : "Crear tarea comercial"}
+                    </button>
+                  )
+                )}
                 <button
                   onClick={() => threadMeta.conversationTask
                     ? window.open(`/tareas?task=${threadMeta.conversationTask.id}`, "_blank")
@@ -6151,6 +6266,11 @@ function InboxChat({
                 >
                   {threadMeta.archived ? "📤 Desarchivar" : "🗄️ Archivar"}
                 </button>
+                {commercialMessage && (
+                  <span className={`text-[10px] ${commercialMessage.ok ? "text-emerald-700" : "text-rose-600"}`}>
+                    {commercialMessage.text}
+                  </span>
+                )}
               </div>
               {/* Nota de la conversación */}
               <div className="flex items-center gap-2">

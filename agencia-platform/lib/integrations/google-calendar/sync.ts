@@ -86,7 +86,7 @@ export async function pullForConnection(
       if (existing) {
         await prisma.calendarEvent.update({
           where: { id: existing.id },
-          data: { ...mapped, lastSyncedAt: new Date() }
+          data: { ...mapped, ownerUserId: conn.userId, googleOwnerUserId: conn.userId, lastSyncedAt: new Date() }
         });
         result.updated++;
       } else {
@@ -96,6 +96,7 @@ export async function pullForConnection(
             googleCalendarId: conn.calendarId,
             googleEventId: e.id,
             googleOwnerUserId: conn.userId,
+            ownerUserId: conn.userId,
             lastSyncedAt: new Date(),
             ...mapped
           }
@@ -146,6 +147,7 @@ export async function pushEventToGoogle(
           googleEventId: created.id,
           googleCalendarId: conn.calendarId,
           googleOwnerUserId: conn.userId,
+          ownerUserId: event.ownerUserId ?? conn.userId,
           lastSyncedAt: new Date()
         }
       });

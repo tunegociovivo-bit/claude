@@ -1,3 +1,5 @@
+import { realPhoneFromMeta } from "./lid";
+
 type ConversationDb = {
   leadInboxMessage: { findMany(args: any): Promise<any[]> };
   leadConversationMeta: { findMany(args: any): Promise<any[]> };
@@ -22,6 +24,8 @@ export async function resolveConversationIdentity(
     if (m.phoneNormalized) phones.add(String(m.phoneNormalized));
     if (m.fromPhone) phones.add(String(m.fromPhone));
     if (m.leadId) leadIds.add(String(m.leadId));
+    const realPhone = realPhoneFromMeta(m.meta);
+    if (realPhone) phones.add(realPhone);
   };
   const addMeta = (m: any) => {
     if (m.phone) phones.add(String(m.phone));
@@ -30,14 +34,14 @@ export async function resolveConversationIdentity(
 
   const seed = await db.leadInboxMessage.findMany({
     where: { workspaceId, OR: [{ phoneNormalized: phone }, { fromPhone: phone }] },
-    select: { phoneNormalized: true, fromPhone: true, leadId: true }
+    select: { phoneNormalized: true, fromPhone: true, leadId: true, meta: true }
   });
   seed.forEach(addMessage);
 
   if (leadIds.size) {
     const linked = await db.leadInboxMessage.findMany({
       where: { workspaceId, leadId: { in: [...leadIds] } },
-      select: { phoneNormalized: true, fromPhone: true, leadId: true }
+      select: { phoneNormalized: true, fromPhone: true, leadId: true, meta: true }
     });
     linked.forEach(addMessage);
   }

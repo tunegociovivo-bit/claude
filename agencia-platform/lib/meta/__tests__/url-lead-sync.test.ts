@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getUrlLeadSources, normalizeLeadSourceUrl, privateSheetRanges } from "../url-lead-sync";
+import { automaticLeadStatus, getUrlLeadSources, leadClassificationBatches, normalizeLeadSourceUrl, privateSheetRanges, resetCampaignLeadSources } from "../url-lead-sync";
 
 describe("fuentes online de leads", () => {
   it("convierte un Google Spreadsheet en una exportación XLSX conservando gid", () => {
@@ -29,5 +29,27 @@ describe("fuentes online de leads", () => {
 
   it("lee una hoja pequeña en una sola petición", () => {
     expect(privateSheetRanges("Leads", 300, 12)).toEqual(["'Leads'!A1:L300"]);
+  });
+  it("limita cada respuesta estructurada de IA para evitar truncamientos", () => {
+    const rows = Array.from({ length: 25 }, (_, index) => index);
+    expect(leadClassificationBatches(rows).map((batch) => batch.length)).toEqual([12, 12, 1]);
+  });
+
+  it("convierte la clasificación de IA en la calidad visible del lead", () => {
+    expect(automaticLeadStatus("good")).toBe("qualified");
+    expect(automaticLeadStatus("bad")).toBe("invalid");
+    expect(automaticLeadStatus("pending")).toBe("new");
+  });
+
+  it("reprograma solo las fuentes de la campaña cuyas indicaciones cambian", () => {
+    const now = new Date("2026-08-20T08:00:00.000Z");
+    const sources = resetCampaignLeadSources([
+      { id: "a", campaignId: "c1", seenHashes: ["old"], nextSyncAt: "later", lastError: "error" },
+      { id: "b", campaignId: "c2", seenHashes: ["keep"] }
+    ], "c1", now);
+    expect(sources).toEqual([
+      { id: "a", campaignId: "c1", seenHashes: [], nextSyncAt: now.toISOString(), lastError: null },
+      { id: "b", campaignId: "c2", seenHashes: ["keep"] }
+    ]);
   });
 });
