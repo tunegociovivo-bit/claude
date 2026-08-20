@@ -125,7 +125,11 @@ type AiStatusInfo = {
   lastAiCommentPreview?: string | null;
 };
 
-const COLUMN_ORDER_KEY = "kanban-column-order-v2";
+const COLUMN_ORDER_KEY_PREFIX = "kanban-column-order-v3";
+
+function columnOrderKey(projectId: string) {
+  return `${COLUMN_ORDER_KEY_PREFIX}:${projectId}`;
+}
 
 // Presets de color para columnas. Usados también en ColumnHeaderMenu
 // para que el usuario pueda recolorear la columna en línea.
@@ -574,11 +578,20 @@ export default function TareasClient({
         setWorkspaceColumns(d.items ?? FALLBACK_COLUMNS);
         setColumnsLoaded(true);
       });
-    try {
-      const saved = localStorage.getItem(COLUMN_ORDER_KEY);
-      if (saved) setUserColumnOrder(JSON.parse(saved));
-    } catch {}
   }, []);
+
+  // El orden es una preferencia visual propia de cada proyecto. Una clave
+  // global hacía que ordenar AITOR (COMERCIAL), por ejemplo, recolocase las
+  // columnas al abrir después NEGOCIO VIVO GENERAL.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(columnOrderKey(filters.project));
+      const parsed = saved ? JSON.parse(saved) : [];
+      setUserColumnOrder(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setUserColumnOrder([]);
+    }
+  }, [filters.project]);
 
   // Columnas efectivas: si hay un proyecto filtrado y ese proyecto
   // tiene columnas propias (project.kanbanColumns), usamos esas
@@ -930,7 +943,7 @@ export default function TareasClient({
   function persistColumnOrder(order: string[]) {
     setUserColumnOrder(order);
     try {
-      localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(order));
+      localStorage.setItem(columnOrderKey(filters.project), JSON.stringify(order));
     } catch {}
   }
 
