@@ -23,6 +23,24 @@ import { useRouter } from "next/navigation";
 
 const ANDROID_PACKAGE = "com.negociovivo.bubui";
 
+async function persistReferralClick(code: string, offerId?: string): Promise<void> {
+  try {
+    await Promise.race([
+      fetch("/api/bubui/referral-click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, offerId }),
+        // WhatsApp may hide this page immediately when the app is opened.
+        // keepalive prevents the browser from cancelling the safety net.
+        keepalive: true
+      }),
+      new Promise<void>((resolve) => window.setTimeout(resolve, 1200))
+    ]);
+  } catch {
+    // Install Referrer and the deep link remain the primary attribution paths.
+  }
+}
+
 export default function ReferralRedirect({ code, offerId }: { code: string; offerId?: string }) {
   const router = useRouter();
   const [os, setOs] = useState<"android" | "ios" | "other">("other");
@@ -48,22 +66,21 @@ export default function ReferralRedirect({ code, offerId }: { code: string; offe
   }
 
   useEffect(() => {
-    if (!code) { router.replace(pwa); return; }
-    try { localStorage.setItem("bubui.ref", code); } catch {}
-    // Atribución de reserva por IP: aunque el amigo acabe instalando la app
-    // a mano desde Play, el registro lo vinculará igual.
-    fetch("/api/bubui/referral-click", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, offerId })
-    }).catch(() => {});
+    let cancelled = false;
+    void (async () => {
+      if (!code) { router.replace(pwa); return; }
+      try { localStorage.setItem("bubui.ref", code); } catch {}
+      await persistReferralClick(code, offerId);
+      if (cancelled) return;
 
-    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-    const isAndroid = /android/i.test(ua);
-    const isIOS = /iphone|ipad|ipod/i.test(ua);
-    if (!isAndroid && !isIOS) { router.replace(pwa); return; } // escritorio → PWA
-    setOs(isAndroid ? "android" : "ios");
-    tryOpenApp(); // con la app instalada, entra directo
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+      const isAndroid = /android/i.test(ua);
+      const isIOS = /iphone|ipad|ipod/i.test(ua);
+      if (!isAndroid && !isIOS) { router.replace(pwa); return; }
+      setOs(isAndroid ? "android" : "ios");
+      tryOpenApp();
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, offerId]);
 
