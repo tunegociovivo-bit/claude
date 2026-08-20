@@ -15,6 +15,7 @@ import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { Video, ResizeMode } from "expo-av";
 import { onboardingVideoSource } from "../lib/onboardingVideo";
+import { initialOnboardingStep, canExploreAsGuest } from "../lib/onboarding-entry";
 
 function fmtDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -41,7 +42,7 @@ export function Onboarding() {
   //        3 = login (solo teléfono + OTP)
   // Si se entra con `start: "register"` (p. ej. invitado pulsando "Cuenta"),
   // saltamos el vídeo y vamos directos a la pantalla de registro.
-  const [step, setStep] = useState(route.params?.start === "register" ? INTRO_STEP_COUNT : 0);
+  const [step, setStep] = useState(initialOnboardingStep(Platform.OS, route.params?.start === "register"));
   // Reto pendiente (llega de un enlace WhatsApp→Play o deep link). Si lo hay, el
   // alta es OBLIGATORIA para reclamarlo: se salta el vídeo, se va directo al
   // registro, se muestra el contexto del reto y se OCULTA "Explorar sin cuenta".
@@ -348,7 +349,7 @@ export function Onboarding() {
             OJO: si hay un RETO pendiente, NO se ofrece invitado — el alta es
             necesaria para reclamarlo (si no, el usuario entra como invitado con
             0 cupones y pierde el reto, que fue justo el fallo reportado). */}
-        {!pendingDeal && !pendingInvite && (
+        {canExploreAsGuest(Platform.OS, !!pendingDeal || !!pendingInvite) && (
           <TouchableOpacity
             style={styles.guestBtn}
             onPress={() => { sfx.tap(); nav.reset({ index: 0, routes: [{ name: "Feed" }] }); }}
