@@ -232,7 +232,9 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
     const seen = new Set(source.seenHashes ?? []);
     // Una sola llamada de IA por ejecución evita agotar el tiempo máximo de la
     // petición. Las siguientes revisiones continuarán con las filas pendientes.
-    const fresh = rows.map((row) => ({ row, hash: rowHash(row) })).filter((item) => !seen.has(item.hash)).slice(-MAX_FRESH_ROWS_PER_SYNC);
+    const unseenRows = rows.map((row) => ({ row, hash: rowHash(row) })).filter((item) => !seen.has(item.hash));
+    const fresh = unseenRows.slice(-MAX_FRESH_ROWS_PER_SYNC);
+    const hasBacklog = unseenRows.length > fresh.length;
     let extracted: AiLead[] = [];
     if (fresh.length) {
       const notes = (stages as any)?.campaignNotes?.[source.campaignId]?.qualificationNotes ?? "";
@@ -250,7 +252,7 @@ export async function syncUrlLeadSource(opts: { workspaceId: string; adAccountId
       await prisma.metaLeadAttribution.upsert({ where: { workspaceId_adAccountId_externalLeadId: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId } }, create: { workspaceId: opts.workspaceId, adAccountId: opts.adAccountId, externalLeadId, source: "url_document", campaignId: source.campaignId, campaignName: source.campaignName, contactName: lead.contactName, email: lead.email, phone: lead.phone, status: "new", occurredAt: timestamp, metadata: { sourceId: source.id, sourceUrl: source.url, rowHash: lead.rowHash, aiQualifiedSuggestion: lead.isQualified } }, update: { contactName: lead.contactName, email: lead.email, phone: lead.phone, campaignId: source.campaignId, campaignName: source.campaignName } });
       imported++;
     }
-    const now = new Date(); const updated: UrlLeadSource = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + source.intervalMinutes * 60_000).toISOString(), lastError: null, lastImported: imported, totalImported: (source.totalImported ?? 0) + imported, seenHashes: [...(source.seenHashes ?? []), ...fresh.map((item) => item.hash)].slice(-5000) };
+    const now = new Date(); const updated: UrlLeadSource = { ...source, lastSyncAt: now.toISOString(), nextSyncAt: new Date(now.getTime() + (hasBacklog ? 5 : source.intervalMinutes) * 60_000).toISOString(), lastError: null, lastImported: imported, totalImported: (source.totalImported ?? 0) + imported, seenHashes: [...(source.seenHashes ?? []), ...fresh.map((item) => item.hash)].slice(-5000) };
     await prisma.metaClientProfile.update({ where: { id: profile.id }, data: { commercialStages: { ...stages, urlLeadSources: sources.map((item) => item.id === source.id ? updated : item) } as Prisma.InputJsonValue } });
     return { skipped: false, imported, rowsRead: rows.length, newRows: fresh.length, source: updated };
   } catch (error: any) {
