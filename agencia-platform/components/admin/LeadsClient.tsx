@@ -10,7 +10,7 @@ import { PROVINCE_NAMES } from "@/lib/leads/spain-provinces";
 import { municipalitiesForProvince } from "@/lib/leads/spain-municipalities";
 import { localDayRangeUtc } from "@/lib/leads/local-day";
 import { isSearchable, normalizeSearch, MIN_SEARCH_CHARS } from "@/lib/leads/inbox-conversations";
-import { conversationHeader, displayedLeadPhone, managedChannelLabel } from "@/lib/leads/inbox-display";
+import { conversationHeader, conversationListTitle, displayedLeadPhone, managedChannelLabel } from "@/lib/leads/inbox-display";
 import { usePollingChannel } from "@/lib/client/usePollingChannel";
 import {
   ENQUEUE_BATCH_DELAY_MS,
@@ -5961,6 +5961,10 @@ function InboxChat({
           const selectedCls = notInterested
             ? selected === c.phone ? "bg-rose-100/70 opacity-90" : "bg-slate-50 opacity-60"
             : selected === c.phone ? pc.sel : pc.base;
+          const listTitle = conversationListTitle({
+            ...c,
+            selectedPhone: c.phone,
+          });
           return (
             <button
               key={c.phone}
@@ -5977,8 +5981,8 @@ function InboxChat({
                   {notInterested && <span className="no-underline" title="No interesado">❌</span>}
                   {c.optedOut && <span className="no-underline" title="Bloqueado para siempre">🚫</span>}
                   {isSearchable(qDebounced)
-                    ? <Highlighted text={c.leadName || c.displayName || c.phone} term={qDebounced} />
-                    : (c.leadName || c.displayName || c.phone)}
+                    ? <Highlighted text={listTitle} term={qDebounced} />
+                    : listTitle}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                   {c.aiCallNow && (

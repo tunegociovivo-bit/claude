@@ -26,6 +26,10 @@ export function conversationHeader(input: ConversationHeaderInput): {
     : { title: displayedLeadPhone(input), titleIsPhone: true };
 }
 
+export function conversationListTitle(input: ConversationHeaderInput): string {
+  return conversationHeader(input).title;
+}
+
 export function managedChannelLabel(
   channels: Channel[],
   name: string | null | undefined,
