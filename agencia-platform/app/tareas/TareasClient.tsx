@@ -899,7 +899,12 @@ export default function TareasClient({
         status = String(t.status);
       } else {
         const extraStatus = t.extraProjectStatuses?.[filters.project];
-        status = extraStatus ?? (orderedColumns[0]?.id ?? String(t.status));
+        // Nunca vincular una tarea compartida a la primera columna visible:
+        // ese orden es una preferencia de presentación y puede cambiar al
+        // arrastrar columnas. Si el proyecto compartido aún no tiene un
+        // estado propio, conservamos el estado estable de la tarea; si no
+        // existe en este tablero, caerá en la columna virtual de huérfanas.
+        status = extraStatus ?? String(t.status);
       }
       const targetMap = isPrimary ? map : shared;
       if (targetMap[status]) targetMap[status].push(t);
