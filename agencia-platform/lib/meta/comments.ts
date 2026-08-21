@@ -1,8 +1,15 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
-import { readMetaTokenByConnection, readWorkspaceMetaToken } from "@/lib/meta/connection";
+import { listWorkspaceMetaTokens, readMetaTokenByConnection, readWorkspaceMetaToken } from "@/lib/meta/connection";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
+
+class MetaGraphError extends Error {
+  constructor(message: string, readonly status: number, readonly path: string, readonly code?: number) {
+    super(message);
+    this.name = "MetaGraphError";
+  }
+}
 
 async function graph(workspaceId: string, path: string, init?: RequestInit, explicitToken?: string) {
   const token = explicitToken ?? await readWorkspaceMetaToken(workspaceId);
@@ -10,7 +17,14 @@ async function graph(workspaceId: string, path: string, init?: RequestInit, expl
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(`${GRAPH}/${path}${separator}access_token=${encodeURIComponent(token)}`, { ...init, cache: "no-store" });
   const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`Meta ${response.status} en ${path.split("?")[0]}: ${json?.error?.message ?? "error desconocido"}`);
+  if (!response.ok) {
+    throw new MetaGraphError(
+      `Meta ${response.status} en ${path.split("?")[0]}: ${json?.error?.message ?? "error desconocido"}`,
+      response.status,
+      path.split("?")[0],
+      typeof json?.error?.code === "number" ? json.error.code : undefined
+    );
+  }
   return json;
 }
 
@@ -30,6 +44,51 @@ async function graphAll(workspaceId: string, path: string, explicitToken?: strin
     pages++;
   }
   return found.slice(0, maxItems);
+}
+
+function isCampaignAccessError(error: unknown): boolean {
+  return error instanceof MetaGraphError && (error.status === 400 || error.status === 403);
+}
+
+async function campaignAdsWithAvailableConnection(
+  workspaceId: string,
+  campaignId: string,
+  fields: string,
+  preferredConnectionId?: string | null
+) {
+  const connections = await listWorkspaceMetaTokens(workspaceId);
+  const preferred = preferredConnectionId ? connections.find((item) => item.id === preferredConnectionId) : undefined;
+  const candidates = [
+    ...(preferred ? [preferred] : []),
+    ...connections.filter((item) => item.id !== preferred?.id)
+  ];
+  if (!candidates.length) {
+    const fallbackToken = await readWorkspaceMetaToken(workspaceId);
+    if (fallbackToken) candidates.push({ id: "", metaUserId: null, displayName: null, token: fallbackToken });
+  }
+
+  let lastAccessError: unknown = null;
+  for (const connection of candidates) {
+    try {
+      const ads = await graphAll(
+        workspaceId,
+        `${campaignId}/ads?fields=id,name,creative{${fields}}&limit=100`,
+        connection.token,
+        2000
+      );
+      return { ads, connectionId: connection.id || null, token: connection.token };
+    } catch (error) {
+      if (!isCampaignAccessError(error)) throw error;
+      lastAccessError = error;
+    }
+  }
+
+  const detail = lastAccessError instanceof Error ? ` ${lastAccessError.message}` : "";
+  throw new Error(
+    `Ninguna de las conexiones Meta vinculadas tiene acceso a la campaña ${campaignId}. ` +
+    `Conecta la cuenta que administra su cuenta publicitaria y concede ads_read, ` +
+    `pages_read_engagement y pages_manage_engagement.${detail}`
+  );
 }
 
 type AuthorizedMetaPages = {
@@ -120,10 +179,14 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
   });
   try {
     const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec";
-    const connectionToken = await readMetaTokenByConnection(workspaceId, feed.metaConnectionId);
-    if (feed.metaConnectionId && !connectionToken) throw new Error("La conexión Meta asignada a esta campaña ha caducado o ya no existe. Reconéctala antes de sincronizar.");
-    const ads = await graphAll(workspaceId, `${campaignId}/ads?fields=id,name,creative{${creativeFields}}&limit=100`, connectionToken ?? undefined, 2000);
-    const authorizedPages = await pageTokens(workspaceId, feed.metaConnectionId);
+    const resolved = await campaignAdsWithAvailableConnection(workspaceId, campaignId, creativeFields, feed.metaConnectionId);
+    const connectionToken = resolved.token;
+    const ads = resolved.ads;
+    const resolvedConnectionId = resolved.connectionId ?? feed.metaConnectionId;
+    if (resolvedConnectionId && resolvedConnectionId !== feed.metaConnectionId) {
+      await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { metaConnectionId: resolvedConnectionId } });
+    }
+    const authorizedPages = await pageTokens(workspaceId, resolvedConnectionId);
     const sentReplyRows = await prisma.metaAdComment.findMany({
       where: { workspaceId, externalReplyId: { not: null } },
       select: { externalReplyId: true }
