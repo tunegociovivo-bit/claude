@@ -9,13 +9,14 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { api } from "../lib/api";
 import { saveSession } from "../lib/session";
-import { getPendingRef, applyPendingRef, waitForReferrerCapture, onReferralCaptured } from "../lib/referral-pending";
+import { getPendingRef, applyPendingRef, clearPendingRef, waitForReferrerCapture, onReferralCaptured } from "../lib/referral-pending";
 import { claimPendingDeal, getPendingDeal, waitForDealCapture, onDealCaptured } from "../lib/deal-pending";
 import { Wordmark } from "../components/Wordmark";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import { Video, ResizeMode } from "expo-av";
 import { onboardingVideoSource } from "../lib/onboardingVideo";
 import { initialOnboardingStep, canExploreAsGuest } from "../lib/onboarding-entry";
+import { registrationChallengeContext } from "../lib/registration-challenge";
 
 function fmtDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -48,6 +49,7 @@ export function Onboarding() {
   // registro, se muestra el contexto del reto y se OCULTA "Explorar sin cuenta".
   type PendingDeal = { token: string; businessName: string; clientDiscountPct: number; title: string | null; friendsRequired: number };
   const [pendingDeal, setPendingDeal] = useState<PendingDeal | null>(null);
+  const [dealCaptureResolved, setDealCaptureResolved] = useState(false);
   type PendingInvite = { code: string; offerId: string; businessName: string; friendDiscountPct: number; friendTitle: string | null };
   const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
   useEffect(() => {
@@ -56,6 +58,9 @@ export function Onboarding() {
     async function applyDeal(token: string) {
       if (!alive || appliedToken === token) return;
       appliedToken = token;
+      // Oculta de inmediato cualquier invitación antigua mientras se resuelve
+      // el nuevo enlace empresarial; evita un parpadeo 16% -> 30%.
+      setDealCaptureResolved(false);
       setStep(INTRO_STEP_COUNT + 1);
       setOtpStep("form");
       try {
@@ -65,16 +70,20 @@ export function Onboarding() {
         setPendingDeal({ token, businessName: d.businessName, clientDiscountPct: d.clientDiscountPct, title: d.title, friendsRequired: d.friendsRequired });
       } catch {
         if (alive) setPendingDeal({ token, businessName: "el negocio", clientDiscountPct: 0, title: null, friendsRequired: 0 });
+      } finally {
+        if (alive) setDealCaptureResolved(true);
       }
     }
     void (async () => {
       await waitForDealCapture();
       const token = await getPendingDeal();
       if (token) await applyDeal(token);
+      if (alive && !token) setDealCaptureResolved(true);
     })();
     const off = onDealCaptured((token) => { void applyDeal(token); });
     return () => { alive = false; off(); };
   }, []);
+  const registrationChallenge = registrationChallengeContext(pendingDeal, pendingInvite, dealCaptureResolved);
   useEffect(() => {
     let alive = true;
     let appliedRef: string | null = null;
@@ -193,8 +202,12 @@ export function Onboarding() {
     try {
       // Espera ACOTADA (≤2,5s) a que la captura del Install Referrer termine
       // antes de concluir que no hay código — cierra la carrera captura/alta.
-      await waitForReferrerCapture();
-      const pendingRef = await getPendingRef();
+      await waitForDealCapture();
+      const activeDealToken = await getPendingDeal();
+      // El enlace directo del empresario tiene prioridad absoluta. Una
+      // invitación antigua restaurada nunca puede cambiar el 30% por el 16%.
+      if (!activeDealToken) await waitForReferrerCapture();
+      const pendingRef = activeDealToken ? null : await getPendingRef();
       const [ref, offerId] = pendingRef?.split("|", 2) ?? [];
       const r = await api.verifyOtp({
         phone: phone.trim(),
@@ -218,12 +231,15 @@ export function Onboarding() {
       // OJO: NO limpiamos el ref pendiente aquí — la vinculación de
       // verify-otp puede fallar silenciosamente en el servidor. El Feed
       // reintenta con applyPendingRef (idempotente) y limpia al confirmar.
-      await applyPendingRef(r.customerId);
+      if (!activeDealToken) await applyPendingRef(r.customerId);
       // Reto: espera (acotada) a que la captura del token termine ANTES de
       // reclamar, para cerrar la carrera captura/alta (antes se reclamaba sin
       // esperar y en instalación diferida el token aún no estaba guardado).
-      await waitForDealCapture();
       await claimPendingDeal(r.customerId);
+      // Solo después de confirmar el reclamo eliminamos la invitación
+      // incompatible restaurada; si el claim falla, conservamos ambos tokens
+      // para poder reintentar sin pérdida de información.
+      if (activeDealToken && !(await getPendingDeal())) await clearPendingRef();
       try { await Location.requestForegroundPermissionsAsync(); } catch {}
       try { await Notifications.requestPermissionsAsync(); } catch {}
       sfx.success();
@@ -303,12 +319,12 @@ export function Onboarding() {
           <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
         </View>
 
-        {(pendingDeal || pendingInvite) && (
+        {registrationChallenge && (
           <View style={[styles.retoBanner, { marginTop: 0, marginBottom: 16 }]}>
             <Text style={styles.retoBannerEmoji}>🎁</Text>
             <Text style={styles.retoBannerText}>
-              <Text style={{ fontWeight: "900" }}>{pendingDeal?.businessName ?? pendingInvite?.businessName}</Text> te invita
-              {(pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct) ? <Text>: <Text style={{ fontWeight: "900" }}>{pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct}%{(pendingDeal?.title || pendingInvite?.friendTitle) ? ` en ${pendingDeal?.title || pendingInvite?.friendTitle}` : ""}</Text></Text> : null}
+              <Text style={{ fontWeight: "900" }}>{registrationChallenge.businessName}</Text> te invita
+              {registrationChallenge.discountPct ? <Text>: <Text style={{ fontWeight: "900" }}>{registrationChallenge.discountPct}%{registrationChallenge.title ? ` en ${registrationChallenge.title}` : ""}</Text></Text> : null}
               . <Text style={{ fontWeight: "800" }}>Crea tu cuenta para recibirlo.</Text>
             </Text>
           </View>
@@ -453,13 +469,13 @@ export function Onboarding() {
         <Text style={styles.tag}>Ahorra. Disfruta. Apoya local.</Text>
       </View>
 
-      {(pendingDeal || pendingInvite) && (
+      {registrationChallenge && (
         <View style={styles.retoBanner}>
           <Text style={styles.retoBannerEmoji}>🎁</Text>
           <Text style={styles.retoBannerText}>
-            <Text style={{ fontWeight: "900" }}>{pendingDeal?.businessName ?? pendingInvite?.businessName}</Text> te invita
-            {(pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct) ? (
-              <Text>: consigue un <Text style={{ fontWeight: "900" }}>{pendingDeal?.clientDiscountPct || pendingInvite?.friendDiscountPct}%{(pendingDeal?.title || pendingInvite?.friendTitle) ? ` en ${pendingDeal?.title || pendingInvite?.friendTitle}` : ""}</Text></Text>
+            <Text style={{ fontWeight: "900" }}>{registrationChallenge.businessName}</Text> te invita
+            {registrationChallenge.discountPct ? (
+              <Text>: consigue un <Text style={{ fontWeight: "900" }}>{registrationChallenge.discountPct}%{registrationChallenge.title ? ` en ${registrationChallenge.title}` : ""}</Text></Text>
             ) : null}
             . Regístrate para reclamarlo.
           </Text>

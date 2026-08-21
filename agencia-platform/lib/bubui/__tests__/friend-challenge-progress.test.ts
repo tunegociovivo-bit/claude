@@ -13,11 +13,11 @@ describe("buildFriendChallengeProgress", () => {
     );
 
     expect(result).toEqual([
-      { initial: "A", registered: true, redeemed: true },
-      { initial: "B", registered: true, redeemed: false },
-      { initial: null, registered: false, redeemed: false },
-      { initial: null, registered: false, redeemed: false },
-      { initial: null, registered: false, redeemed: false },
+      { customerId: "a", name: "Ana", initial: "A", registered: true, redeemed: true },
+      { customerId: "b", name: "Bruno", initial: "B", registered: true, redeemed: false },
+      { customerId: null, name: null, initial: null, registered: false, redeemed: false },
+      { customerId: null, name: null, initial: null, registered: false, redeemed: false },
+      { customerId: null, name: null, initial: null, registered: false, redeemed: false },
     ]);
   });
 

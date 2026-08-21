@@ -1,4 +1,6 @@
 export type FriendProgress = {
+  customerId: string | null;
+  name: string | null;
   initial: string | null;
   registered: boolean;
   redeemed: boolean;

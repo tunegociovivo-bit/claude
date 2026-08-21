@@ -105,6 +105,17 @@ export function Feed() {
   const [banner, setBanner] = useState<{ imageUrl?: string; link?: string; active: boolean; business?: BannerBusiness } | null>(null);
   // Alto real del banner según la proporción de la imagen (para no recortarla).
   const [bannerH, setBannerH] = useState<number>(BANNER_H_FALLBACK);
+  const openFriendChallenge = useCallback((item: Offer) => {
+    const action = challengeActionCopy({ mode: item.challengeServiceMode, businessName: item.business.name, address: item.business.address, inviterName: item.challengeInviterName });
+    const price = challengePriceCopy(item.challengeServicePrice, item.discountPct);
+    Alert.alert(
+      "Tu amigo te ha enviado un reto",
+      [item.challengeServiceDescription || item.rewardLabel || "Disfruta de este servicio con un descuento especial.", price, action].filter(Boolean).join("\n\n"),
+      item.challengeServiceMode === "online"
+        ? [{ text: "Ahora no", style: "cancel" }, { text: "Contactar por WhatsApp", onPress: () => { const phone = (item.business.phone || "").replace(/\D/g, ""); if (phone) { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "whatsapp").catch(() => {}); void Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(action)}`); } else Alert.alert("Falta el WhatsApp", "El negocio todavía no ha indicado un teléfono público."); } }]
+        : [{ text: "Ahora no", style: "cancel" }, { text: "Escanear QR en el local", onPress: () => { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "qr").catch(() => {}); nav.navigate("Scan", { businessId: item.business.id }); } }]
+    );
+  }, [customer?.customerId, nav]);
   useEffect(() => {
     const uri = banner?.active ? banner.imageUrl : undefined;
     if (!uri) return;
@@ -401,11 +412,14 @@ export function Feed() {
                         const state = friendSlotState(progress);
                         const initial = progress?.initial;
                         return (
-                          <View key={i} style={[styles.slot, styles.slotEmpty, state === "complete" && styles.slotFilled]}>
-                            {state === "half" && <View style={styles.slotHalf} />}
-                            <Text style={state !== "empty" ? styles.slotInitial : styles.slotPlus}>
-                              {state !== "empty" ? initial : "+"}
-                            </Text>
+                          <View key={progress?.customerId ?? i} style={styles.slotColumn}>
+                            <View style={[styles.slot, styles.slotEmpty, state === "complete" && styles.slotFilled]} accessibilityLabel={progress?.name ? `${progress.name}: ${state === "complete" ? "cupón utilizado" : "alta completada"}` : "Amigo pendiente"}>
+                              {state === "half" && <View style={styles.slotHalf} />}
+                              <Text style={state !== "empty" ? styles.slotInitial : styles.slotPlus}>
+                                {state !== "empty" ? initial : "+"}
+                              </Text>
+                            </View>
+                            <Text style={styles.slotName} numberOfLines={1}>{progress?.name || "Pendiente"}</Text>
                           </View>
                         );
                       })}
@@ -492,15 +506,7 @@ export function Feed() {
                   nav.navigate("Negocio", { business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel } });
                   return;
                 }
-                const action = challengeActionCopy({ mode: item.challengeServiceMode, businessName: item.business.name, address: item.business.address, inviterName: item.challengeInviterName });
-                const price = challengePriceCopy(item.challengeServicePrice, item.discountPct);
-                Alert.alert(
-                  "Tu amigo te ha enviado un reto",
-                  [item.challengeServiceDescription || item.rewardLabel || "Disfruta de este servicio con un descuento especial.", price, action].filter(Boolean).join("\n\n"),
-                  item.challengeServiceMode === "online"
-                    ? [{ text: "Ahora no", style: "cancel" }, { text: "Contactar por WhatsApp", onPress: () => { const phone = (item.business.phone || "").replace(/\D/g, ""); if (phone) { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "whatsapp").catch(() => {}); void Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(action)}`); } else Alert.alert("Falta el WhatsApp", "El negocio todavía no ha indicado un teléfono público."); } }]
-                    : [{ text: "Ahora no", style: "cancel" }, { text: "Escanear QR en el local", onPress: () => { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "qr").catch(() => {}); nav.navigate("Scan", { businessId: item.business.id }); } }]
-                );
+                openFriendChallenge(item);
               }}
             >
               <View style={[styles.photo, friendCouponPresentation(item.source).isFriendCoupon && styles.friendPhoto]}>
@@ -539,6 +545,9 @@ export function Feed() {
                 <View style={styles.friendCouponCopy}>
                   <Text style={styles.friendCouponEyebrow}>{friendCouponPresentation(item.source).eyebrow}</Text>
                   <Text style={styles.friendCouponMessage}>{friendCouponPresentation(item.source).message}</Text>
+                  <TouchableOpacity style={styles.friendCouponCta} onPress={() => openFriendChallenge(item)} accessibilityRole="button">
+                    <Text style={styles.friendCouponCtaText}>Ver detalles y aceptar el reto</Text>
+                  </TouchableOpacity>
                 </View>
               )}
               <View style={styles.cardBody}>
@@ -605,6 +614,8 @@ const makeStyles = (c: Palette) =>
     challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
     challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
     slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+    slotColumn: { width: 54, alignItems: "center" },
+    slotName: { width: 54, marginTop: 4, fontSize: 9, fontWeight: "700", color: c.gray, textAlign: "center" },
     slotLegend: { marginTop: -6, marginBottom: 12, fontSize: 11, color: c.gray, fontWeight: "600" },
     challengePending: { fontSize: 12, color: c.gray, marginTop: -4, marginBottom: 10, lineHeight: 16 },
     slot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
@@ -637,6 +648,8 @@ const makeStyles = (c: Palette) =>
     friendCouponCopy: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 2, backgroundColor: c.white },
     friendCouponEyebrow: { fontSize: 13, fontWeight: "900", color: c.pink, letterSpacing: 0.3 },
     friendCouponMessage: { marginTop: 5, fontSize: 13, lineHeight: 18, color: c.gray },
+    friendCouponCta: { marginTop: 12, marginBottom: 10, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 12, alignItems: "center" },
+    friendCouponCtaText: { color: c.onAccent, fontSize: 13, fontWeight: "900" },
     av: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },
     avText: { color: "#fff", fontWeight: "900", fontSize: 17 },
     bizName: { fontWeight: "800", color: c.black, fontSize: 15 },

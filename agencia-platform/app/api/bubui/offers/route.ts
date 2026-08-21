@@ -93,6 +93,9 @@ export async function GET(req: Request) {
           longitude: true,
           logoUrl: true,
           challengeImageUrl: true,
+          challengeServiceDescription: true,
+          challengeServicePrice: true,
+          challengeServiceMode: true,
           brandColor: true,
           visibilityScore: true,
           plan: true,
@@ -213,9 +216,11 @@ export async function GET(req: Request) {
       expiresAt: o.expiresAt,
       hoursLeft: Math.round(hoursLeft),
       daysLeft: Math.max(1, Math.ceil(hoursLeft / 24)),
-      challengeServiceDescription: o.challengeServiceDescription,
-      challengeServicePrice: o.challengeServicePrice,
-      challengeServiceMode: o.challengeServiceMode,
+      // Cupones creados antes de guardar estos campos en la oferta conservan
+      // el detalle actual del negocio, para que el CTA nunca aparezca vacío.
+      challengeServiceDescription: o.challengeServiceDescription ?? o.business.challengeServiceDescription,
+      challengeServicePrice: o.challengeServicePrice ?? o.business.challengeServicePrice,
+      challengeServiceMode: o.challengeServiceMode ?? o.business.challengeServiceMode,
       challengeInviterName: o.challengeInviterName,
       distanceM,
       // Oferta-reto viral: bloqueada hasta conseguir amigos.

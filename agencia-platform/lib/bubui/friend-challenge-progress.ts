@@ -8,6 +8,8 @@ export function buildFriendChallengeProgress(
   return Array.from({ length: Math.max(0, slots) }, (_, index) => {
     const friend = friends[index];
     return {
+      customerId: friend?.id ?? null,
+      name: friend?.name?.trim() || null,
       initial: friend ? (friend.name?.trim()?.[0] || "?").toUpperCase() : null,
       registered: !!friend,
       redeemed: !!friend && purchaserIds.has(friend.id),
