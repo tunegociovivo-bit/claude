@@ -7,6 +7,9 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson, AIDisabledError } from "@/lib/ai/anthropic";
 import { normalizePhone } from "./waha";
+import { buildCommercialReplyAlert } from "./commercial-reply-alert";
+import { COMMERCIAL_PHONE, COMMERCIAL_PROJECT } from "./commercial-handoff";
+import { mergeLeadConversationItems, type LeadConversationItem } from "./conversation-items";
 
 export type InboxClass =
   | "interested"
@@ -16,6 +19,75 @@ export type InboxClass =
   | "off_topic"
   | "positive_no"
   | "auto_reply";
+
+async function notifyCommercialProjectReply(opts: {
+  workspaceId: string;
+  leadId: string | null;
+  leadName?: string | null;
+  phone: string;
+}) {
+  const identityFilters: any[] = [{ customData: { path: ["leadPhone"], equals: opts.phone } }];
+  if (opts.leadId) identityFilters.push({ customData: { path: ["leadId"], equals: opts.leadId } });
+  const task = await prisma.task.findFirst({
+    where: {
+      workspaceId: opts.workspaceId,
+      deletedAt: null,
+      project: { name: { equals: COMMERCIAL_PROJECT, mode: "insensitive" }, deletedAt: null },
+      OR: identityFilters
+    },
+    orderBy: { createdAt: "desc" },
+    select: { title: true }
+  });
+  if (!task) return;
+  const identityWhere = [{ phoneNormalized: opts.phone }, ...(opts.leadId ? [{ leadId: opts.leadId }] : [])];
+  const [inboxMessages, campaignMessages] = await Promise.all([
+    prisma.leadInboxMessage.findMany({
+      where: { workspaceId: opts.workspaceId, OR: identityWhere },
+      orderBy: { receivedAt: "asc" },
+      take: 500,
+      select: { id: true, externalMessageId: true, direction: true, body: true, receivedAt: true, instanceName: true }
+    }),
+    prisma.leadMessage.findMany({
+      where: { workspaceId: opts.workspaceId, OR: identityWhere, status: { in: ["sent", "delivered", "read"] } },
+      orderBy: { sentAt: "asc" },
+      take: 200,
+      select: { id: true, externalMessageId: true, renderedMessage: true, sentAt: true, instanceName: true }
+    })
+  ]);
+  const messages = mergeLeadConversationItems([
+    ...inboxMessages.map((message) => ({
+      id: message.id,
+      externalMessageId: message.externalMessageId,
+      direction: message.direction === "out" ? "out" as const : "in" as const,
+      body: message.body,
+      at: message.receivedAt.toISOString(),
+      instanceName: message.instanceName,
+      kind: "inbox" as const
+    })),
+    ...campaignMessages.map((message) => ({
+      id: message.id,
+      externalMessageId: message.externalMessageId,
+      direction: "out" as const,
+      body: message.renderedMessage,
+      at: (message.sentAt ?? new Date(0)).toISOString(),
+      instanceName: message.instanceName,
+      kind: "campaign" as const
+    }))
+  ] satisfies LeadConversationItem[]);
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://hub.negociovivo.app";
+  const conversationUrl = `${baseUrl}/admin/leads?tab=inbox&phone=${encodeURIComponent(opts.phone)}`;
+  const text = buildCommercialReplyAlert({
+    leadName: opts.leadName ?? null,
+    phone: opts.phone,
+    taskTitle: task.title,
+    conversationUrl,
+    messages: messages.map((message) => ({ direction: message.direction, body: message.body }))
+  });
+  const recipient = normalizePhone(COMMERCIAL_PHONE);
+  if (!recipient) return;
+  const { sendText } = await import("./waha");
+  await sendText({ workspaceId: opts.workspaceId, phoneNormalized: recipient, text });
+}
 
 /**
  * Heurística básica (rápida y gratuita). Si la IA está deshabilitada o
@@ -412,6 +484,18 @@ export async function ingestInbox(opts: {
         return { messageId: keepId, classification: classified.classification, leadId };
       }
     }
+  }
+
+  // Si la conversación ya tiene una tarea en AITOR (COMERCIAL), Aitor recibe
+  // el hilo y un enlace móvil directo para contestar. Se ejecuta para cualquier
+  // respuesta real del lead, no solo para las clasificadas como interesadas.
+  if (!isInternalContact) {
+    await notifyCommercialProjectReply({
+      workspaceId: opts.workspaceId,
+      leadId,
+      leadName,
+      phone: phoneNormalized
+    }).catch((error: any) => console.warn("[inbox notify-commercial-project]", error?.message ?? error));
   }
 
   // Push a los admins del workspace por CADA mensaje entrante, para no perder

@@ -5411,6 +5411,8 @@ function InboxChat({
   const [savingMeta, setSavingMeta] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [commercialSending, setCommercialSending] = useState(false);
@@ -5552,6 +5554,36 @@ function InboxChat({
       );
     } catch (e: any) {
       setSendErr(e?.message ?? "No se pudo enviar");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendAttachment() {
+    if (!attachment || !selected || sending) return;
+    setSending(true);
+    setSendErr(null);
+    try {
+      const form = new FormData();
+      form.set("phone", selected);
+      form.set("file", attachment);
+      if (draft.trim()) form.set("caption", draft.trim());
+      const r = await fetch("/api/v1/leads/inbox/reply-file", { method: "POST", body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+      setAttachment(null);
+      setDraft("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setThread((prev) => [...prev, {
+        id: d.id ?? `tmp-file-${Date.now()}`,
+        direction: "out",
+        body: d.body,
+        at: d.at ?? new Date().toISOString(),
+        instanceName: d.instanceName ?? null,
+        kind: "inbox"
+      }]);
+    } catch (e: any) {
+      setSendErr(e?.message ?? "No se pudo enviar el archivo");
     } finally {
       setSending(false);
     }
@@ -6420,7 +6452,29 @@ function InboxChat({
                   </button>
                 </div>
               )}
+              {attachment && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-slate-700">
+                  <span className="truncate">📎 {attachment.name} · {(attachment.size / 1024 / 1024).toFixed(1)} MB</span>
+                  <button type="button" onClick={() => setAttachment(null)} className="font-semibold text-rose-600">Quitar</button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png,.webp"
+                  onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sending}
+                  className="mb-0.5 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-lg hover:bg-slate-50 disabled:opacity-50"
+                  title="Adjuntar presupuesto o documento (máx. 20 MB)"
+                >
+                  📎
+                </button>
                 <div className="flex-1">
                   <button
                     onClick={() => void suggestReply()}
@@ -6445,12 +6499,12 @@ function InboxChat({
                   />
                 </div>
                 <button
-                  onClick={() => void send()}
-                  disabled={sending || !draft.trim()}
+                  onClick={() => void (attachment ? sendAttachment() : send())}
+                  disabled={sending || (!draft.trim() && !attachment)}
                   className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
                   {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Enviar
+                  {attachment ? "Enviar archivo" : "Enviar"}
                 </button>
               </div>
             </div>
