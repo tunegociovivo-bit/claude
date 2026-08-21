@@ -34,10 +34,19 @@ describe("mergeLeadConversationItems", () => {
     expect(result[0]).toMatchObject({ kind: "campaign", ack: 2, externalMessageId: "wamid.same-message" });
   });
 
-  it("keeps two messages when WhatsApp returned different identifiers", () => {
+  it("merges campaign and phone-history copies even when the provider returned different identifiers", () => {
     const result = mergeLeadConversationItems([
       campaign(),
       phoneEcho({ id: "inbox-2", externalMessageId: "wamid.actual-second-send" })
+    ]);
+
+    expect(result).toHaveLength(1);
+  });
+
+  it("keeps two actual sends from the same source when their identifiers differ", () => {
+    const result = mergeLeadConversationItems([
+      campaign(),
+      campaign({ id: "campaign-2", externalMessageId: "wamid.actual-second-send" })
     ]);
 
     expect(result).toHaveLength(2);

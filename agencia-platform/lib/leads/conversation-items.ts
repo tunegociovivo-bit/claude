@@ -19,8 +19,9 @@ export type LeadConversationItem = {
  *
  * Legacy campaign rows sometimes lack that provider identifier. For those
  * rows only, an opposite-source row with identical text within 90 seconds is
- * the phone-history echo. Two rows with different provider IDs are always
- * retained, as are two rows from the same source.
+ * the phone-history echo. Some providers also return a different identifier
+ * when phone history is synchronized, so source + text + time is the fallback
+ * identity. Two rows from the same source are always retained.
  */
 export function mergeLeadConversationItems(items: LeadConversationItem[]): LeadConversationItem[] {
   const merged: LeadConversationItem[] = [];
@@ -35,8 +36,6 @@ export function mergeLeadConversationItems(items: LeadConversationItem[]): LeadC
 
     const legacyMatchIndex = merged.findLastIndex((candidate) => {
       if (candidate.direction !== "out" || candidate.kind === item.kind) return false;
-      const candidateExternalId = candidate.externalMessageId?.trim();
-      if (externalId && candidateExternalId) return false;
       if (candidate.body.trim() !== item.body.trim()) return false;
       return Math.abs(Date.parse(candidate.at) - Date.parse(item.at)) <= 90_000;
     });
