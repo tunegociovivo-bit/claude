@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
-import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 
 const schema = z.object({ offerId: z.string().min(1), channel: z.enum(["qr", "whatsapp"]) });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  if (!(await customerAuthOk(req, params.id))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+  if (customerIdFromAuth(req) !== params.id || !(await customerAuthOk(req, params.id))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "validation", message: "Contacto inválido" } }, { status: 400 });
   const customer = await prisma.bubuiCustomer.findUnique({ where: { id: params.id }, select: { referralOfferId: true } });
