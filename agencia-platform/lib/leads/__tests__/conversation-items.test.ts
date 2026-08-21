@@ -43,6 +43,20 @@ describe("mergeLeadConversationItems", () => {
     expect(result).toHaveLength(2);
   });
 
+  it("merges the campaign row with its phone echo when a legacy row has no WhatsApp identifier", () => {
+    const result = mergeLeadConversationItems([
+      campaign({ externalMessageId: null }),
+      phoneEcho()
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      kind: "campaign",
+      ack: 2,
+      externalMessageId: "wamid.same-message"
+    });
+  });
+
   it("never merges inbound messages with an outbound campaign message", () => {
     const result = mergeLeadConversationItems([
       campaign(),
