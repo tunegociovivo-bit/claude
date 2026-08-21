@@ -52,6 +52,36 @@ describe("mergeLeadConversationItems", () => {
     expect(result).toHaveLength(2);
   });
 
+  it("merges a manual Hub reply with its phone-history echo even when both are inbox rows", () => {
+    const result = mergeLeadConversationItems([
+      phoneEcho({
+        id: "human-reply",
+        externalMessageId: "hub-provider-id",
+        body: "Quiere que le vuelva a llamar y comentamos?",
+        source: "human_reply"
+      } as any),
+      phoneEcho({
+        id: "phone-echo",
+        externalMessageId: "phone-history-id",
+        body: "Quiere que le vuelva a llamar y comentamos?",
+        at: "2026-08-17T09:08:12.000Z",
+        source: "phone_outbound"
+      } as any)
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: "human-reply", source: "human_reply" });
+  });
+
+  it("keeps two deliberate manual replies with identical text", () => {
+    const result = mergeLeadConversationItems([
+      phoneEcho({ id: "human-1", externalMessageId: "send-1", source: "human_reply" } as any),
+      phoneEcho({ id: "human-2", externalMessageId: "send-2", source: "human_reply" } as any)
+    ]);
+
+    expect(result).toHaveLength(2);
+  });
+
   it("merges the campaign row with its phone echo when a legacy row has no WhatsApp identifier", () => {
     const result = mergeLeadConversationItems([
       campaign({ externalMessageId: null }),
