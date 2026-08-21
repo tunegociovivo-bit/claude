@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
+import { formatWhatsappAttachmentBody, validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
 import { conversationWhere, outgoingReplyIdentity, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 import { sendFile } from "@/lib/leads/waha";
 
@@ -48,7 +48,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     throw new ApiError(502, "send_failed", `No se pudo enviar el archivo: ${error?.message ?? error}`);
   }
   const replyIds = outgoingReplyIdentity(lastIn, phone);
-  const body = [`📎 ${filename}`, caption].filter(Boolean).join("\n");
+  const body = formatWhatsappAttachmentBody(filename, caption);
   const saved = await prisma.leadInboxMessage.create({
     data: {
       workspaceId: api.workspaceId,

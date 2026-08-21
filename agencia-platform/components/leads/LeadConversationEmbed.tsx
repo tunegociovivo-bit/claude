@@ -7,7 +7,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Send, ExternalLink } from "lucide-react";
+import { Loader2, Send, ExternalLink, Paperclip, X } from "lucide-react";
+import { validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
 
 type Msg = {
   id: string;
@@ -37,8 +38,10 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
   const [optedOut, setOptedOut] = useState(false);
   const [channels, setChannels] = useState<{ name: string; label?: string | null; phone?: string | null }[]>([]);
   const [text, setText] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     try {
@@ -86,6 +89,10 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
     : "Principal";
 
   async function send() {
+    if (attachment) {
+      await sendAttachment();
+      return;
+    }
     const t = text.trim();
     if (!t || sending) return;
     setSending(true);
@@ -105,6 +112,33 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
       await load();
     } catch (e: any) {
       alert(e?.message ?? "Error de red");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendAttachment() {
+    if (!attachment || sending) return;
+    const validationError = validateWhatsappAttachment(attachment);
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
+    setSending(true);
+    const form = new FormData();
+    form.set("phone", phone);
+    form.set("file", attachment);
+    if (text.trim()) form.set("caption", text.trim());
+    try {
+      const r = await fetch("/api/v1/leads/inbox/reply-file", { method: "POST", body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.message ?? d?.error?.message ?? "No se pudo enviar el documento.");
+      setAttachment(null);
+      setText("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      await load();
+    } catch (error: any) {
+      alert(error?.message ?? "Error de red al enviar el documento");
     } finally {
       setSending(false);
     }
@@ -168,7 +202,50 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
             ⚠️ Este contacto pidió no recibir mensajes (opt-out). Responde solo si retomó él la conversación.
           </div>
         )}
+        {attachment && (
+          <div className="mb-1.5 flex items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] text-slate-700">
+            <span className="truncate">📎 {attachment.name} · {(attachment.size / 1024 / 1024).toFixed(1)} MB</span>
+            <button
+              type="button"
+              onClick={() => {
+                setAttachment(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+              className="shrink-0 text-rose-600 hover:text-rose-800"
+              title="Quitar documento"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-1.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png,.webp"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              if (file) {
+                const error = validateWhatsappAttachment(file);
+                if (error) {
+                  alert(error);
+                  event.target.value = "";
+                  return;
+                }
+              }
+              setAttachment(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-md border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+            title="Adjuntar presupuesto o documento (máx. 20 MB)"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </button>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -179,15 +256,15 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
               }
             }}
             rows={1}
-            placeholder="Responder por WhatsApp… (Enter envía, Shift+Enter salto de línea)"
+            placeholder={attachment ? "Mensaje opcional para el documento…" : "Responder por WhatsApp… (Enter envía, Shift+Enter salto de línea)"}
             className="flex-1 resize-none text-xs border rounded-md px-2 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none max-h-24"
           />
           <button
             type="button"
             onClick={() => void send()}
-            disabled={sending || !text.trim()}
+            disabled={sending || (!text.trim() && !attachment)}
             className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-            title="Enviar por WhatsApp"
+            title={attachment ? "Enviar documento por WhatsApp" : "Enviar por WhatsApp"}
           >
             {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           </button>

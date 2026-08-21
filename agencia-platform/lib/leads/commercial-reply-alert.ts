@@ -22,6 +22,10 @@ export function validateWhatsappAttachment(file: { name: string; type: string; s
   return null;
 }
 
+export function formatWhatsappAttachmentBody(filename: string, caption?: string): string {
+  return [`📎 ${filename.trim()}`, caption?.trim()].filter(Boolean).join("\n");
+}
+
 export function buildCommercialReplyAlert(opts: {
   leadName: string | null;
   phone: string;
