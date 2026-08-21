@@ -16,6 +16,21 @@ import { scheduleChallengeFollowup } from "./challenge-lifecycle";
 
 export const MILESTONES = [1, 3, 5] as const;
 
+export function referralWelcomeTrigger(challengeOfferId?: string | null): string {
+  return challengeOfferId ? `ref:welcome:${challengeOfferId}` : "ref:welcome";
+}
+
+export function referralWelcomeExpiry(
+  dealExpiresAt?: Date | null,
+  challengeExpiresAt?: Date | null,
+  now = new Date()
+): Date {
+  const genericExpiry = new Date(now.getTime() + 30 * 86_400_000);
+  return [dealExpiresAt, challengeExpiresAt, genericExpiry]
+    .filter((date): date is Date => !!date)
+    .reduce((earliest, date) => date.getTime() < earliest.getTime() ? date : earliest, genericExpiry);
+}
+
 const DEFAULT_REWARDS: Record<number, string> = {
   1: "2",
   3: "3",
@@ -79,24 +94,29 @@ export async function countQualifiedOfferReferrals(
   offerId: string,
   businessId: string
 ): Promise<number> {
-  const friends = await prisma.bubuiCustomer.findMany({
-    where: { referredById: referrerId, referralOfferId: offerId, phoneVerified: true },
-    select: { id: true }
-  });
-  if (friends.length === 0) return 0;
   const welcomeOffers = await prisma.bubuiOffer.findMany({
     where: {
       businessId,
-      customerId: { in: friends.map((friend) => friend.id) },
-      source: "referral_welcome"
+      source: "referral_welcome",
+      triggerBusinessId: referralWelcomeTrigger(offerId)
+    },
+    select: { id: true, customerId: true }
+  });
+  if (welcomeOffers.length === 0) return 0;
+  const friends = await prisma.bubuiCustomer.findMany({
+    where: {
+      id: { in: welcomeOffers.map((welcome) => welcome.customerId) },
+      referredById: referrerId,
+      phoneVerified: true
     },
     select: { id: true }
   });
-  if (welcomeOffers.length === 0) return 0;
+  if (friends.length === 0) return 0;
+  const friendIds = new Set(friends.map((friend) => friend.id));
   const redeemed = await prisma.bubuiPurchase.findMany({
     where: {
       status: "confirmed",
-      redeemedOfferId: { in: welcomeOffers.map((welcome) => welcome.id) }
+      redeemedOfferId: { in: welcomeOffers.filter((welcome) => friendIds.has(welcome.customerId)).map((welcome) => welcome.id) }
     },
     select: { redeemedOfferId: true },
     distinct: ["redeemedOfferId"]
@@ -230,6 +250,7 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
 
   let challenge: {
     id: string; businessId: string; customerId: string;
+    expiresAt: Date;
     challengeServiceDescription: string | null; challengeServicePrice: number | null;
     challengeServiceMode: string | null; challengeInviterName: string | null;
   } | null = null;
@@ -243,7 +264,7 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         ...(friend.referredById === referrer.id ? {} : { expiresAt: { gt: new Date() } })
       },
       select: {
-        id: true, businessId: true, customerId: true,
+        id: true, businessId: true, customerId: true, expiresAt: true,
         challengeServiceDescription: true, challengeServicePrice: true,
         challengeServiceMode: true, challengeInviterName: true
       }
@@ -301,8 +322,6 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
     return { linked: true, terminal: true, reason: "referrals_disabled", referrerId: referrer.id, welcomeOfferCreated: false };
   }
 
-  const exp = new Date(Date.now() + 30 * 86_400_000);
-
   // Cupón de bienvenida para el amigo (en el negocio de origen). El comercio
   // configura este % en "Descuento para los amigos"; si es 0, usamos el de
   // cliente nuevo y, en su defecto, el descuento por defecto.
@@ -311,8 +330,9 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
   const activeDeal = await prisma.bubuiCustomDeal.findFirst({
     where: { businessId: originId, claimedByCustomerId: referrer.id, ...(challenge ? { offerId: challenge.id } : {}), expiresAt: { gt: new Date() } },
     orderBy: { claimedAt: "desc" },
-    select: { friendDiscountPct: true }
+    select: { friendDiscountPct: true, expiresAt: true }
   });
+  const exp = referralWelcomeExpiry(activeDeal?.expiresAt, challenge?.expiresAt);
   const friendPct =
     (activeDeal && activeDeal.friendDiscountPct > 0 ? activeDeal.friendDiscountPct : 0) ||
     business.shareFriendDiscountPct ||
@@ -325,9 +345,9 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         customerId: friendId,
         businessId: originId,
         discountPct: friendPct,
-        // Una sola bienvenida por amigo+negocio, venga del enlace genérico o
-        // del reto. Reabrir/cambiar de formato nunca puede crear un 2º cupón.
-        triggerBusinessId: "ref:welcome",
+        // Cada reto contextual conserva su propio cupón y sus condiciones.
+        // El genérico mantiene la identidad histórica para compatibilidad.
+        triggerBusinessId: referralWelcomeTrigger(challenge?.id),
         source: "referral_welcome",
         challengeServiceDescription: challenge?.challengeServiceDescription ?? business.challengeServiceDescription,
         challengeServicePrice: challenge?.challengeServicePrice ?? business.challengeServicePrice,

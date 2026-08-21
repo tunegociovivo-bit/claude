@@ -21,7 +21,7 @@ vi.mock("@/lib/integrations/email", () => ({ isEmailEnabled: () => false, sendEm
 vi.mock("../wallet", () => ({ creditReferrerWallet }));
 vi.mock("../share-offer", () => ({ unlockShareChallengeOffers: vi.fn(), sharesLeft: vi.fn() }));
 
-import { applyReferral } from "../referral";
+import { applyReferral, referralWelcomeExpiry, referralWelcomeTrigger } from "../referral";
 import { findRecentReferralClick, hashIpFromHeaders } from "../referral-click";
 
 const REFERRER = { id: "ref-1", firstBusinessId: "biz-1" };
@@ -51,6 +51,22 @@ function arm(opts: { friendReferredById?: string | null; offerCreate?: "ok" | "p
 }
 
 beforeEach(() => { vi.clearAllMocks(); });
+
+describe("cupón contextual del reto", () => {
+  it("usa una identidad distinta por reto", () => {
+    expect(referralWelcomeTrigger("offer-a")).toBe("ref:welcome:offer-a");
+    expect(referralWelcomeTrigger("offer-b")).toBe("ref:welcome:offer-b");
+    expect(referralWelcomeTrigger()).toBe("ref:welcome");
+  });
+
+  it("nunca permite que el cupón sobreviva al reto", () => {
+    const now = new Date("2026-08-21T10:00:00.000Z");
+    const challengeExpiry = new Date("2026-09-05T10:00:00.000Z");
+    const laterDealExpiry = new Date("2026-09-10T10:00:00.000Z");
+    expect(referralWelcomeExpiry(laterDealExpiry, challengeExpiry, now)).toEqual(challengeExpiry);
+    expect(referralWelcomeExpiry(null, null, now)).toEqual(new Date("2026-09-20T10:00:00.000Z"));
+  });
+});
 
 describe("applyReferral — resultados verificables", () => {
   it("código inválido → no-op TERMINAL (la app puede descartar el pendiente)", async () => {

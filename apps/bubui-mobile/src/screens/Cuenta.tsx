@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import * as Application from "expo-application";
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking, Alert } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -207,6 +208,7 @@ export function Cuenta() {
 
           <FadeIn replayOnFocus delay={stagger(4)}>
             <Text style={styles.legal}>Bubui · Piloto en Benalmádena · Una app de Negocio Vivo</Text>
+            <Text style={styles.build}>Versión {Application.nativeApplicationVersion || "-"} · build {Application.nativeBuildVersion || "-"}</Text>
           </FadeIn>
         </View>
       </ScrollView>
@@ -272,5 +274,6 @@ const makeStyles = (c: Palette) =>
     linkText: { flex: 1, fontSize: 14, fontWeight: "700", color: c.black },
     chev: { fontSize: 22, color: c.grayLight },
     divider: { height: 1, backgroundColor: c.border, marginLeft: 46 },
-    legal: { fontSize: 11, color: c.grayLight, textAlign: "center", marginTop: 22 }
+    legal: { fontSize: 11, color: c.grayLight, textAlign: "center", marginTop: 22 },
+    build: { fontSize: 10, color: c.grayLight, textAlign: "center", marginTop: 5 }
   });

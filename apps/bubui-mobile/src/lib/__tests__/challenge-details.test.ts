@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { challengeActionCopy, challengePriceCopy } from "../challenge-details";
+import { challengeActionCopy, challengePriceBreakdown, challengePriceCopy, formatEuro } from "../challenge-details";
 
 describe("friend challenge details", () => {
   it("explica la accion local con direccion", () => {
@@ -15,5 +15,10 @@ describe("friend challenge details", () => {
 
   it("muestra precio, descuento y ahorro", () => {
     expect(challengePriceCopy(80, 15)).toEqual("80,00 € · ahorras 12,00 € · pagas 68,00 €");
+  });
+
+  it("calcula y formatea el precio final destacado", () => {
+    expect(challengePriceBreakdown(250, 16)).toEqual({ original: 250, savings: 40, final: 210 });
+    expect(formatEuro(210)).toBe("210,00 €");
   });
 });
