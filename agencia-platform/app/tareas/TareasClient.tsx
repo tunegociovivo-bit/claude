@@ -1242,11 +1242,9 @@ export default function TareasClient({
         </div>
       </div>
 
-      {/* Filtros: en móvil overflow-x scrollable; en >=sm wrap normal.
-          Cuando hay proyecto filtrado, el dropdown de proyectos se
-          oculta (la sidebar ya muestra cuál estás viendo y permite
-          cambiar). Si no, se muestra para poder enfocar uno. */}
-      <div className="mb-2 flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+      {/* Filtros frecuentes visibles; los secundarios viven en un menú para
+          mantener la cabecera en una sola línea incluso con el dock abierto. */}
+      <div className="mb-2 flex items-center gap-2">
         {filters.project === "all" && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs shrink-0">
             <Filter className="h-3.5 w-3.5 text-slate-400" />
@@ -1281,28 +1279,6 @@ export default function TareasClient({
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
-        <select
-          value={filters.priority}
-          onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
-        >
-          <option value="all">Prioridad…</option>
-          <option value="urgencia">🚨 Urgencia</option>
-          <option value="alta">Alta</option>
-          <option value="normal">Normal (sin prioridad)</option>
-        </select>
-        <select
-          value={filters.due}
-          onChange={(e) => setFilters((f) => ({ ...f, due: e.target.value as TaskFilters["due"] }))}
-          className="px-3 py-1.5 rounded-lg bg-white border text-xs focus:outline-none shrink-0"
-        >
-          <option value="all">Vencimiento…</option>
-          <option value="overdue">Vencidas</option>
-          <option value="today">Hoy</option>
-          <option value="week">Esta semana</option>
-          <option value="no-date">Sin fecha</option>
-        </select>
-        <RecurrenceGuardToggle />
         {/* "limpiar" inline: solo aparece si hay algún filtro activo.
             Sustituye a la antigua barra SavedFiltersBar que ocupaba
             una fila entera. */}
@@ -1325,22 +1301,28 @@ export default function TareasClient({
             Limpiar
           </button>
         )}
-        <a
-          href={
-            filters.project !== "all"
-              ? `/admin/columnas?project=${encodeURIComponent(filters.project)}`
-              : "/admin/columnas"
-          }
-          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border text-xs text-slate-600 hover:text-slate-900 ml-auto shrink-0"
-          title={
-            filters.project !== "all"
-              ? "Configurar columnas de ESTE proyecto"
-              : "Configurar columnas globales del workspace"
-          }
-        >
-          <Settings2 className="h-3.5 w-3.5" />
-          {filters.project !== "all" ? "Columnas del proyecto" : "Columnas"}
-        </a>
+        <details className="relative ml-auto shrink-0">
+          <summary className="flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-lg border bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+            <Filter className="h-3.5 w-3.5" /> Más filtros
+            {(filters.priority !== "all" || filters.due !== "all") && <span className="rounded-full bg-brand-100 px-1.5 text-[10px] font-bold text-brand-700">{Number(filters.priority !== "all") + Number(filters.due !== "all")}</span>}
+          </summary>
+          <div className="absolute right-0 top-10 z-50 w-72 space-y-3 rounded-xl border bg-white p-3 shadow-xl">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridad
+              <select value={filters.priority} onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-xs focus:outline-none">
+                <option value="all">Todas</option><option value="urgencia">🚨 Urgencia</option><option value="alta">Alta</option><option value="normal">Normal (sin prioridad)</option>
+              </select>
+            </label>
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Vencimiento
+              <select value={filters.due} onChange={(e) => setFilters((f) => ({ ...f, due: e.target.value as TaskFilters["due"] }))} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-xs focus:outline-none">
+                <option value="all">Cualquier fecha</option><option value="overdue">Vencidas</option><option value="today">Hoy</option><option value="week">Esta semana</option><option value="no-date">Sin fecha</option>
+              </select>
+            </label>
+            <div className="border-t pt-3"><RecurrenceGuardToggle /></div>
+            <a href={filters.project !== "all" ? `/admin/columnas?project=${encodeURIComponent(filters.project)}` : "/admin/columnas"} className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+              <Settings2 className="h-3.5 w-3.5" /> {filters.project !== "all" ? "Configurar columnas del proyecto" : "Configurar columnas"}
+            </a>
+          </div>
+        </details>
       </div>
       </div>
 
