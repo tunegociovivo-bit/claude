@@ -27,7 +27,6 @@ import {
   verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import PageHeader from "@/components/PageHeader";
 import AiSpendBadge from "@/components/AiSpendBadge";
 import AvatarStack from "@/components/AvatarStack";
 import TaskFormModal from "@/components/forms/TaskFormModal";
@@ -1207,72 +1206,47 @@ export default function TareasClient({
       {/* El título refleja el contexto: si hay proyecto filtrado, su
           nombre; si no, el genérico. Igual con la descripción — vacía
           cuando estás dentro de un proyecto, el contexto ya se ve. */}
-      <PageHeader
-        dense
-        title={(() => {
-          if (selectionMode) return `${selected.size} tareas seleccionadas`;
-          if (filters.project !== "all") {
-            const p = projects.find((x) => x.id === filters.project);
-            if (p?.name) return p.name;
-          }
-          return "Tareas y proyectos";
-        })()}
-        description={
-          selectionMode ? "Aplica acciones masivas a las tareas marcadas." : undefined
-        }
-        center={<AiSpendBadge />}
-        actions={
-          <>
-            <div className="flex items-center bg-white border rounded-lg p-0.5">
-              <button
-                onClick={() => setView("kanban")}
-                className={clsx(
-                  "px-2.5 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5",
-                  view === "kanban" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900"
-                )}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                Tablero
-              </button>
-              <button
-                onClick={() => setView("list")}
-                className={clsx(
-                  "px-2.5 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1.5",
-                  view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900"
-                )}
-              >
-                <List className="h-3.5 w-3.5" />
-                Lista
-              </button>
-            </div>
-            <button
-              onClick={() => setSelectionMode((v) => !v)}
-              className={clsx(
-                "inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border",
-                selectionMode
-                  ? "bg-brand-50 border-brand-300 text-brand-700"
-                  : "bg-white text-slate-700 hover:bg-slate-50"
-              )}
-            >
-              {selectionMode ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-              {selectionMode ? "Cancelar selección" : "Seleccionar"}
+      <div className="mb-2 flex min-w-0 items-center gap-2 border-b border-slate-200 pb-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-slate-950">
+            {selectionMode
+              ? `${selected.size} tareas seleccionadas`
+              : filters.project !== "all"
+                ? projects.find((project) => project.id === filters.project)?.name ?? "Tareas"
+                : "Tareas y proyectos"}
+          </h1>
+          {selectionMode && <p className="truncate text-xs text-slate-500">Aplica acciones a las tareas marcadas.</p>}
+        </div>
+        <AiSpendBadge />
+        <div className="ml-1 flex shrink-0 items-center gap-1.5">
+          <div className="flex items-center rounded-lg border bg-white p-0.5" aria-label="Vista de tareas">
+            <button onClick={() => setView("kanban")} className={clsx("inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium", view === "kanban" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900")}>
+              <LayoutGrid className="h-3.5 w-3.5" /> Tablero
             </button>
-            <button
-              onClick={() => openNewTask()}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
-            >
-              <Plus className="h-4 w-4" />
-              Nueva tarea
+            <button onClick={() => setView("list")} className={clsx("inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium", view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900")}>
+              <List className="h-3.5 w-3.5" /> Lista
             </button>
-          </>
-        }
-      />
+          </div>
+          <button
+            onClick={() => setSelectionMode((value) => !value)}
+            title={selectionMode ? "Cancelar selección" : "Seleccionar varias tareas"}
+            aria-label={selectionMode ? "Cancelar selección" : "Seleccionar varias tareas"}
+            className={clsx("inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium", selectionMode ? "border-brand-300 bg-brand-50 text-brand-700" : "bg-white text-slate-600 hover:bg-slate-50")}
+          >
+            {selectionMode ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+            <span className="hidden xl:inline">{selectionMode ? "Cancelar" : "Seleccionar"}</span>
+          </button>
+          <button onClick={() => openNewTask()} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand-600 px-3 text-xs font-semibold text-white hover:bg-brand-700">
+            <Plus className="h-4 w-4" /> Nueva tarea
+          </button>
+        </div>
+      </div>
 
       {/* Filtros: en móvil overflow-x scrollable; en >=sm wrap normal.
           Cuando hay proyecto filtrado, el dropdown de proyectos se
           oculta (la sidebar ya muestra cuál estás viendo y permite
           cambiar). Si no, se muestra para poder enfocar uno. */}
-      <div className="flex items-center gap-2 mb-2 flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
+      <div className="mb-2 flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
         {filters.project === "all" && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs shrink-0">
             <Filter className="h-3.5 w-3.5 text-slate-400" />
@@ -3242,10 +3216,6 @@ function AiSoniaDebugPanel({
   const secsSincePoll = debug.lastPollAt
     ? Math.floor((now - debug.lastPollAt) / 1000)
     : null;
-  const statesByCount: Record<string, number> = {};
-  for (const v of Object.values(activeMap)) {
-    if (v.aiStatus) statesByCount[v.aiStatus] = (statesByCount[v.aiStatus] ?? 0) + 1;
-  }
   const isHealthy = debug.lastPollOk && secsSincePoll !== null && secsSincePoll < 30;
   // Lookup taskId → task (para mostrar título + saber si está
   // visible en el filtro actual).
@@ -3254,14 +3224,11 @@ function AiSoniaDebugPanel({
     .filter(([, v]) => v.aiStatus !== null)
     .map(([taskId, info]) => ({ taskId, info, task: taskById.get(taskId) }));
   return (
-    <div
-      className="hidden md:block text-xs border-b bg-slate-50"
-      style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-    >
+    <div className="hidden border-b border-slate-200 bg-slate-50/80 text-xs md:block">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 px-3 py-1.5 hover:bg-slate-100 transition text-left"
+        className="flex h-9 w-full items-center gap-2 px-3 text-left transition hover:bg-slate-100"
         title="Click para expandir/contraer detalles"
       >
         <span
@@ -3273,29 +3240,23 @@ function AiSoniaDebugPanel({
             backgroundColor: isHealthy ? "#10b981" : debug.lastPollError ? "#ef4444" : "#94a3b8"
           }}
         />
-        <span className="text-slate-700 font-semibold">Sonia status</span>
-        <span className="text-slate-500">
-          polling: {debug.pollCount} chequeos
-          {secsSincePoll !== null && ` · último hace ${secsSincePoll}s`}
+        <span className="font-semibold text-slate-700">Sonia {isHealthy ? "operativa" : "estado"}</span>
+        <span className="hidden text-slate-400 xl:inline">
+          {debug.pollCount} chequeos{secsSincePoll !== null && ` · hace ${secsSincePoll}s`}
         </span>
         {debug.lastPollError && (
           <span className="text-rose-600 font-semibold">⚠ {debug.lastPollError}</span>
         )}
-        <span className="text-slate-500">
-          activos: {debug.activeCount}
-          {debug.activeCount > 0 &&
-            " — " +
-              Object.entries(statesByCount)
-                .map(([k, n]) => `${n}×${k}`)
-                .join(", ")}
+        <span className="rounded-full bg-white px-2 py-0.5 font-medium text-slate-600 ring-1 ring-slate-200">
+          {debug.activeCount} activas
         </span>
         <a
           href="/admin/sonia-autonomia"
           onClick={(e) => e.stopPropagation()}
           title="Panel de autonomía de Sonia (multimodelo, aprendizaje, canary)"
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 font-medium"
+          className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800"
         >
-          Panel de autonomía
+          Autonomía
         </a>
         <span
           role="button"
@@ -3312,7 +3273,7 @@ function AiSoniaDebugPanel({
             }
           }}
           className={
-            "ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-md cursor-pointer select-none " +
+            "inline-flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none " +
             (notifyMode === "voice"
               ? "bg-violet-100 text-violet-800 hover:bg-violet-200"
               : notifyMode === "sound"
@@ -3333,11 +3294,7 @@ function AiSoniaDebugPanel({
               ? "🔔 sonido"
               : "🔕 silencio"}
         </span>
-        {debug.activeCount > 0 && (
-          <span className="text-violet-700 font-semibold">
-            {expanded ? "▾ Ocultar detalle" : "▸ Ver detalle"}
-          </span>
-        )}
+        {debug.activeCount > 0 && <span className="font-semibold text-violet-700">{expanded ? "▾ Ocultar" : "▸ Detalle"}</span>}
       </button>
       {expanded && activeEntries.length > 0 && (
         <div className="px-3 pb-2 pt-1 border-t border-slate-200">
