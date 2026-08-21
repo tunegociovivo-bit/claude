@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCommercialReplyAlert, validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
+import { buildCommercialReplyAlert, formatWhatsappAttachmentBody, validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
 
 describe("buildCommercialReplyAlert", () => {
   it("includes the complete ordered conversation and a direct mobile reply link", () => {
@@ -28,5 +28,13 @@ describe("validateWhatsappAttachment", () => {
   it("rejects executable files and files larger than 20 MB", () => {
     expect(validateWhatsappAttachment({ name: "factura.exe", type: "application/octet-stream", size: 10 })).toMatch(/tipo/i);
     expect(validateWhatsappAttachment({ name: "grande.pdf", type: "application/pdf", size: 21 * 1024 * 1024 })).toMatch(/20 MB/i);
+  });
+});
+
+describe("formatWhatsappAttachmentBody", () => {
+  it("shows the native document and its optional caption in the task conversation", () => {
+    expect(formatWhatsappAttachmentBody("Presupuesto 2026.pdf", "Te adjunto la propuesta")).toBe(
+      "📎 Presupuesto 2026.pdf\nTe adjunto la propuesta"
+    );
   });
 });
