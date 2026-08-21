@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api/auth";
 import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/lid";
 import { conversationWhere, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 import { conversationTaskWhere } from "@/lib/leads/conversation-task";
+import { mergeLeadConversationItems, type LeadConversationItem } from "@/lib/leads/conversation-items";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       },
       orderBy: { sentAt: "asc" },
       take: 200,
-      select: { id: true, renderedMessage: true, sentAt: true, instanceName: true, status: true }
+      select: { id: true, renderedMessage: true, sentAt: true, instanceName: true, status: true, externalMessageId: true }
     }),
     prisma.leadOptout.findUnique({
       where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } },
@@ -58,20 +59,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     })
   ]);
 
-  type Item = {
-    id: string;
-    direction: "in" | "out";
-    body: string;
-    at: string;
-    instanceName: string | null;
-    kind: "inbox" | "campaign";
-    classification?: string | null;
-    status?: string;
-    ack?: number | null;
-  };
-  const items: Item[] = [
+  const items = mergeLeadConversationItems([
     ...inboxMsgs.map((m) => ({
       id: m.id,
+      externalMessageId: m.externalMessageId,
       direction: (m.direction === "out" ? "out" : "in") as "in" | "out",
       body: m.body,
       at: m.receivedAt.toISOString(),
@@ -83,6 +74,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     })),
     ...campaignMsgs.map((m) => ({
       id: m.id,
+      externalMessageId: m.externalMessageId,
       direction: "out" as const,
       body: m.renderedMessage,
       at: (m.sentAt ?? new Date(0)).toISOString(),
@@ -91,7 +83,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       status: m.status,
       ack: m.status === "read" ? 3 : m.status === "delivered" ? 2 : m.status === "sent" ? 1 : null
     }))
-  ].sort((a, b) => a.at.localeCompare(b.at));
+  ] satisfies LeadConversationItem[]);
 
   // Canal de respuesta: el del último mensaje ENTRANTE (responder por el
   // mismo número al que escribió el lead).
