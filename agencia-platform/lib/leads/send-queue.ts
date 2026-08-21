@@ -40,6 +40,24 @@ const SESSION_DOWN_RE = /not\s*working|SCAN_QR|STARTING|STOPPED|FAILED|session.*
  */
 export const SENT_STATUSES = ["sent", "delivered", "read"];
 
+export type QueueChannelCapacity = {
+  instanceName: string | null;
+  blocked: boolean;
+  newChatsCapReached: boolean;
+};
+
+export function chooseQueueChannelWithCapacity(
+  assigned: string | null,
+  channels: QueueChannelCapacity[],
+  newConversation: boolean
+): string | null | undefined {
+  const canUse = (channel: QueueChannelCapacity) =>
+    !channel.blocked && (!newConversation || !channel.newChatsCapReached);
+  const current = channels.find((channel) => channel.instanceName === assigned);
+  if (current && canUse(current)) return assigned;
+  return channels.find((channel) => channel.instanceName !== assigned && canUse(channel))?.instanceName;
+}
+
 export type LeadsSendSettings = {
   sendEnabled: boolean;
   sendDelayMinSec: number;
@@ -1204,6 +1222,36 @@ export async function processQueueTick(workspaceId: string): Promise<{
     if (!lastSentByPhoneChannel.has(k)) lastSentByPhoneChannel.set(k, r.sentAt);
   }
   const channelChecks = new Map<string, { settings: LeadsSendSettings; blocked: boolean; newChatsCapReached: boolean }>();
+  const configuredChannels = (await getLeadChannels(workspaceId)).filter((channel) => channel.active !== false);
+  const channelRoster: (string | null)[] = [null, ...configuredChannels.map((channel) => channel.name)];
+  for (const message of due) {
+    if (!channelRoster.includes(message.instanceName)) channelRoster.push(message.instanceName);
+  }
+
+  async function getChannelCheck(instanceName: string | null) {
+    const channelKey = instanceName ?? "__principal__";
+    const cached = channelChecks.get(channelKey);
+    if (cached) return cached;
+    const channelSettings = await getSendSettings(workspaceId, instanceName);
+    const [sentDay, sentHour, lastChannel, newChats] = await Promise.all([
+      countSentToday(workspaceId, instanceName),
+      countSentInWindow(workspaceId, 60, instanceName),
+      prisma.leadMessage.findFirst({
+        where: { workspaceId, instanceName, status: { in: SENT_STATUSES }, sentAt: { not: null } },
+        orderBy: { sentAt: "desc" }, select: { sentAt: true }
+      }),
+      countNewConversationsToday(workspaceId, instanceName).catch(() => Number.MAX_SAFE_INTEGER)
+    ]);
+    const pacingBlocked = !!lastChannel?.sentAt &&
+      (now.getTime() - lastChannel.sentAt.getTime()) / 1000 < channelSettings.sendDelayMinSec;
+    const check = {
+      settings: channelSettings,
+      blocked: sentDay >= channelSettings.dailyLimit || sentHour >= channelSettings.maxPerHour || pacingBlocked,
+      newChatsCapReached: newChats >= channelSettings.maxNewChatsPerDay
+    };
+    channelChecks.set(channelKey, check);
+    return check;
+  }
 
   const toCancel: string[] = [];
   const toBlockLink: string[] = [];
@@ -1218,38 +1266,37 @@ export async function processQueueTick(workspaceId: string): Promise<{
       toCancel.push(m.id);
       continue;
     }
+    let check = await getChannelCheck(m.instanceName);
+    const globallyNeverContacted = !lastSentByPhone.get(m.phoneNormalized);
+    if (check.blocked || (globallyNeverContacted && check.newChatsCapReached)) {
+      const capacities: QueueChannelCapacity[] = [];
+      for (const instanceName of channelRoster) {
+        const candidate = await getChannelCheck(instanceName);
+        capacities.push({
+          instanceName,
+          blocked: candidate.blocked,
+          newChatsCapReached: candidate.newChatsCapReached
+        });
+      }
+      const alternative = chooseQueueChannelWithCapacity(m.instanceName, capacities, globallyNeverContacted);
+      if (alternative !== undefined) {
+        m.instanceName = alternative;
+        check = await getChannelCheck(alternative);
+      } else if (check.blocked) {
+        // Sácalo del lote vencido para que, si los primeros BATCH mensajes son
+        // todos de este canal, un teléfono sano situado detrás pueda avanzar en
+        // el siguiente tick.
+        toPark.push({
+          id: m.id,
+          at: new Date(now.getTime() + Math.max(60, check.settings.sendDelayMinSec) * 1000)
+        });
+        continue;
+      } else {
+        toDefer.push(m.id);
+        continue;
+      }
+    }
     const channelKey = m.instanceName ?? "__principal__";
-    let check = channelChecks.get(channelKey);
-    if (!check) {
-      const channelSettings = await getSendSettings(workspaceId, m.instanceName);
-      const [sentDay, sentHour, lastChannel, newChats] = await Promise.all([
-        countSentToday(workspaceId, m.instanceName),
-        countSentInWindow(workspaceId, 60, m.instanceName),
-        prisma.leadMessage.findFirst({
-          where: { workspaceId, instanceName: m.instanceName, status: { in: SENT_STATUSES }, sentAt: { not: null } },
-          orderBy: { sentAt: "desc" }, select: { sentAt: true }
-        }),
-        countNewConversationsToday(workspaceId, m.instanceName).catch(() => Number.MAX_SAFE_INTEGER)
-      ]);
-      const pacingBlocked = !!lastChannel?.sentAt &&
-        (now.getTime() - lastChannel.sentAt.getTime()) / 1000 < channelSettings.sendDelayMinSec;
-      check = {
-        settings: channelSettings,
-        blocked: sentDay >= channelSettings.dailyLimit || sentHour >= channelSettings.maxPerHour || pacingBlocked,
-        newChatsCapReached: newChats >= channelSettings.maxNewChatsPerDay
-      };
-      channelChecks.set(channelKey, check);
-    }
-    if (check.blocked) {
-      // Sácalo del lote vencido para que, si los primeros BATCH mensajes son
-      // todos de este canal, un teléfono sano situado detrás pueda avanzar en
-      // el siguiente tick.
-      toPark.push({
-        id: m.id,
-        at: new Date(now.getTime() + Math.max(60, check.settings.sendDelayMinSec) * 1000)
-      });
-      continue;
-    }
     const channelRecovery = check.settings.recoveryMode;
     const lastSent = channelRecovery
       ? lastSentByPhoneChannel.get(`${channelKey}\0${m.phoneNormalized}`)
@@ -1266,11 +1313,6 @@ export async function processQueueTick(workspaceId: string): Promise<{
       // Enlace en el PRIMER mensaje → bloqueado (anti-baneo), no se reintenta.
       if (settings.blockLinksInFirstMessage && containsLink(m.renderedMessage)) {
         toBlockLink.push(m.id);
-        continue;
-      }
-      // Tope de chats nuevos alcanzado → aplazar a mañana.
-      if (check.newChatsCapReached) {
-        toDefer.push(m.id);
         continue;
       }
       if (!targetNew) targetNew = m; // primer nunca-contactado elegible
@@ -1321,6 +1363,10 @@ export async function processQueueTick(workspaceId: string): Promise<{
     // adelantar leads nuevos y que la cola drene con volumen.
     return { processed: false, error: toDefer.length ? "new_chats_daily_cap" : "no_eligible_due" };
   }
+  await prisma.leadMessage.update({
+    where: { id: chosen.id },
+    data: { instanceName: chosen.instanceName }
+  });
   return sendMessageById(workspaceId, chosen.id, { settings });
 }
 
