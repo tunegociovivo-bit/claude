@@ -4704,6 +4704,9 @@ model BubuiBusiness {
   shareFriendDiscountPct     Int                       @default(15)
   // En qué se aplica el descuento de los amigos (ej. "suplementos deportivos").
   shareFriendLabel           String?
+  challengeServiceDescription String?                 @db.Text
+  challengeServicePrice     Float?
+  challengeServiceMode      String                    @default("local") // local | online
   // Condición para desbloquear el reto de compartir:
   //   false → basta con que los amigos se instalen y verifiquen el teléfono.
   //   true  → además, cada amigo debe GASTAR su cupón (compra confirmada) en
@@ -5039,6 +5042,10 @@ model BubuiOffer {
   // Los retos nuevos atribuyen cada amigo al enlace/oferta exactos. Los retos
   // antiguos conservan el recuento global para no cambiar su progreso.
   usesExactReferralTracking Boolean @default(false)
+  challengeServiceDescription String? @db.Text
+  challengeServicePrice     Float?
+  challengeServiceMode      String?
+  challengeInviterName      String?
   // Activación ALTERNATIVA de una oferta-reto (reseña/foto validada por IA), en
   // vez de por amigos. Solo disponible para usuarios con +10 amigos dados de alta.
   activatedByAction      Boolean   @default(false)
@@ -5334,6 +5341,9 @@ model BubuiCustomDeal {
   friendTitle         String? // en qué se aplica el de los amigos (ej. "suplementos deportivos")
   message             String? // mensaje personalizado del dueño; la página /reto lo muestra tal cual
   requiresPurchase    Boolean   @default(false) // amigos deben comprar para contar
+  serviceDescription  String?   @db.Text
+  servicePrice        Float?
+  serviceMode         String    @default("local") // local | online
   expiresAt           DateTime
   claimedByCustomerId String? // cliente que lo reclamó
   claimedAt           DateTime?
@@ -5344,6 +5354,26 @@ model BubuiCustomDeal {
 
   @@index([businessId])
   @@index([claimedByCustomerId])
+}
+
+model BubuiChallengeParticipant {
+  id                 String    @id @default(cuid())
+  offerId            String
+  referrerCustomerId String
+  friendCustomerId   String
+  businessId         String
+  status             String    @default("registered") // registered | awaiting_business | still_pending | followup_pending | confirmed | declined | lost
+  registeredAt       DateTime  @default(now())
+  nextFollowupAt     DateTime?
+  followupSentAt     DateTime?
+  decidedAt          DateTime?
+  reminderSentAt     DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([offerId, friendCustomerId])
+  @@index([businessId, status, nextFollowupAt])
+  @@index([referrerCustomerId, status])
 }
 
 // Traza SEGURA del flujo de un reto (custom-deal), correlada por token+etapa,

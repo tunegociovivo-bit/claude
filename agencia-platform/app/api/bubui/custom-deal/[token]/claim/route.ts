@@ -74,6 +74,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
   }
 
   const code = await ensureReferralCode(customerId);
+  const claimingCustomer = await prisma.bubuiCustomer.findUnique({ where: { id: customerId }, select: { name: true } });
 
   // Crea la oferta-reto bloqueada para el cliente (reutiliza el motor existente).
   // El baseline usa el mismo criterio que el desbloqueo (instalar vs comprar).
@@ -93,6 +94,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
       unlockShares: Math.max(1, deal.friendsRequired),
       unlockBaseline: baseline,
       unlockRequiresPurchase: deal.requiresPurchase,
+      challengeServiceDescription: deal.serviceDescription,
+      challengeServicePrice: deal.servicePrice,
+      challengeServiceMode: deal.serviceMode,
+      challengeInviterName: claimingCustomer?.name ?? null,
       usesExactReferralTracking: true,
       expiresAt: deal.expiresAt
     }

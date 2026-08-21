@@ -120,6 +120,12 @@ export async function GET(req: Request) {
       })
     : [];
   const verifiedNow = verifiedFriends.length;
+  const challengeParticipants = hasLocked
+    ? await prisma.bubuiChallengeParticipant.findMany({
+        where: { offerId: { in: offers.filter((offer) => !offer.active).map((offer) => offer.id) } },
+        select: { offerId: true, friendCustomerId: true, status: true }
+      })
+    : [];
   // Retos que exigen que los amigos compren: recuento por negocio (amigos que
   // ya compraron allí). Se calcula solo para los negocios implicados.
   const purchasersByBiz = new Map<string, Set<string>>();
@@ -179,9 +185,11 @@ export async function GET(req: Request) {
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
     const locked = !o.active;
-    const attributedFriends = verifiedFriends.filter((friend) => friend.referralOfferId === o.id);
+    const excludedFriendIds = new Set(challengeParticipants.filter((participant) => participant.offerId === o.id && ["declined", "lost"].includes(participant.status)).map((participant) => participant.friendCustomerId));
+    const attributedFriends = verifiedFriends.filter((friend) => friend.referralOfferId === o.id && !excludedFriendIds.has(friend.id));
     const usesAttributedProgress = o.usesExactReferralTracking;
-    const attributedPurchasers = purchasersByBiz.get(o.businessId) ?? new Set<string>();
+    const attributedPurchasers = new Set(purchasersByBiz.get(o.businessId) ?? []);
+    challengeParticipants.filter((participant) => participant.offerId === o.id && participant.status === "confirmed").forEach((participant) => attributedPurchasers.add(participant.friendCustomerId));
     const cnt = usesAttributedProgress
       ? (o.unlockRequiresPurchase
           ? attributedFriends.filter((friend) => attributedPurchasers.has(friend.id)).length
@@ -204,6 +212,11 @@ export async function GET(req: Request) {
       source: o.source,
       expiresAt: o.expiresAt,
       hoursLeft: Math.round(hoursLeft),
+      daysLeft: Math.max(1, Math.ceil(hoursLeft / 24)),
+      challengeServiceDescription: o.challengeServiceDescription,
+      challengeServicePrice: o.challengeServicePrice,
+      challengeServiceMode: o.challengeServiceMode,
+      challengeInviterName: o.challengeInviterName,
       distanceM,
       // Oferta-reto viral: bloqueada hasta conseguir amigos.
       locked,

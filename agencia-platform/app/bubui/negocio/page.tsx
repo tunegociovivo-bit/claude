@@ -1561,6 +1561,9 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [shareFriendPct, setShareFriendPct] = useState<number>(business.shareFriendDiscountPct ?? 15);
   const [shareFriendLabel, setShareFriendLabel] = useState<string>(business.shareFriendLabel ?? "");
   const [challengeImageUrl, setChallengeImageUrl] = useState<string>(business.challengeImageUrl ?? "");
+  const [challengeServiceDescription, setChallengeServiceDescription] = useState<string>(business.challengeServiceDescription ?? "");
+  const [challengeServicePrice, setChallengeServicePrice] = useState<string>(business.challengeServicePrice != null ? String(business.challengeServicePrice) : "");
+  const [challengeServiceMode, setChallengeServiceMode] = useState<"local" | "online">(business.challengeServiceMode === "online" ? "online" : "local");
   const [uploadingChallenge, setUploadingChallenge] = useState(false);
   // Mensaje de WhatsApp del reto: autogenerado a partir de los campos, con
   // posibilidad de editarlo a mano (waMsgEdited=true congela el texto).
@@ -1617,10 +1620,11 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
     setDealResult(null);
     setDealErr(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sharePct, shareFriends, shareFriendPct, shareLabel, shareFriendLabel, shareReqPurchase, waMsg, waMsgEdited]);
+  }, [sharePct, shareFriends, shareFriendPct, shareLabel, shareFriendLabel, shareReqPurchase, waMsg, waMsgEdited, challengeServiceDescription, challengeServicePrice, challengeServiceMode]);
 
   async function createDealLink() {
     if (Number(sharePct) < 1) { setDealErr("Pon un descuento de cliente mayor que 0 para crear el enlace."); return; }
+    if (!challengeServiceDescription.trim()) { setDealErr("Describe el servicio que recibirá el amigo antes de crear el enlace."); return; }
     setDealBusy(true);
     setDealErr(null);
     try {
@@ -1638,6 +1642,9 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           // final él mismo). Sin personalizar, plantilla estándar.
           message: waMsgEdited ? waMsg.trim() || null : null,
           requiresPurchase: shareReqPurchase,
+          serviceDescription: challengeServiceDescription.trim(),
+          servicePrice: challengeServicePrice.trim() ? Number(challengeServicePrice) : null,
+          serviceMode: challengeServiceMode,
           expiresInDays: Number(dealDays) || 15
         })
       });
@@ -1666,6 +1673,9 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           shareFriendDiscountPct: Number(shareFriendPct),
           shareFriendLabel: shareFriendLabel.trim() || null,
           challengeImageUrl: challengeImageUrl || null,
+          challengeServiceDescription: challengeServiceDescription.trim() || null,
+          challengeServicePrice: challengeServicePrice.trim() ? Number(challengeServicePrice) : null,
+          challengeServiceMode,
           shareOfferRequiresPurchase: shareReqPurchase,
           ppFollowDiscountPct: Number(followPct),
           ppPhotoDiscountPct: Number(photoPct),
@@ -1740,6 +1750,30 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           </div>
         </div>
         <p className="text-[11px] text-black/45">El <b>descuento para los amigos</b> es el cupón de bienvenida que recibe cada amigo nuevo que traiga tu cliente. Si dejas los "¿en qué?" vacíos, el descuento es genérico (en todo el negocio).</p>
+
+        <div className="rounded-xl border-2 border-pink-200 bg-white p-3 space-y-3">
+          <div>
+            <div className="text-sm font-bold">Información del servicio ofrecido</div>
+            <p className="text-[11px] text-black/55">El amigo verá la descripción, el precio normal y cuánto ahorra antes de aceptar.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setChallengeServiceMode("local")} className={`rounded-xl border-2 p-4 text-sm font-black ${challengeServiceMode === "local" ? "border-pink-600 bg-pink-50 text-pink-700" : "border-black/10"}`}>📍 SERVICIO EN EL LOCAL</button>
+            <button type="button" onClick={() => setChallengeServiceMode("online")} className={`rounded-xl border-2 p-4 text-sm font-black ${challengeServiceMode === "online" ? "border-pink-600 bg-pink-50 text-pink-700" : "border-black/10"}`}>💬 SERVICIO ONLINE</button>
+          </div>
+          <label className="block text-xs">
+            <span className="block font-semibold mb-1">Describe claramente el servicio *</span>
+            <textarea value={challengeServiceDescription} onChange={(e) => setChallengeServiceDescription(e.target.value)} rows={4} maxLength={1000} placeholder="Ej.: sesión de entrenamiento personal de 60 minutos, valoración inicial y plan adaptado." className="w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="block text-xs sm:w-56">
+            <span className="block font-semibold mb-1">Precio normal (€) <span className="font-normal text-black/45">(opcional)</span></span>
+            <input type="number" min={0} step="0.01" value={challengeServicePrice} onChange={(e) => setChallengeServicePrice(e.target.value)} className="w-full rounded-lg border px-3 py-2" placeholder="80,00" />
+          </label>
+          {challengeServicePrice.trim() && Number(challengeServicePrice) >= 0 && (
+            <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
+              Precio: <b>{Number(challengeServicePrice).toFixed(2)} €</b> · Ahorro: <b>{(Number(challengeServicePrice) * Number(shareFriendPct) / 100).toFixed(2)} €</b> · Con el reto: <b>{(Number(challengeServicePrice) * (100 - Number(shareFriendPct)) / 100).toFixed(2)} €</b>
+            </div>
+          )}
+        </div>
 
         <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-3 space-y-2">
           <div>
@@ -4206,6 +4240,7 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
   const [items, setItems] = useState<any[] | null>(null);
   const [remindingId, setRemindingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [respondingFriend, setRespondingFriend] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -4264,6 +4299,17 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
     } finally {
       setDeletingId(null);
     }
+  }
+
+  async function answerFriend(offerId: string, friendId: string, action: "yes" | "no" | "later" | "remind" | "lost") {
+    setRespondingFriend(friendId);
+    try {
+      const response = await fetch(`/api/bubui/business/${businessId}/challenges/${offerId}/friends/${friendId}`, {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ action })
+      });
+      if (!response.ok) alert("No se pudo guardar la respuesta.");
+      else await load();
+    } finally { setRespondingFriend(null); }
   }
 
   if (items === null) {
@@ -4325,6 +4371,28 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                     {complete ? "¡Completado!" : `${done}/${need} amigos`}
                   </span>
                 </div>
+                {!!c.friends?.length && (
+                  <div className="mt-2 rounded-lg bg-pink-50/60 p-2">
+                    <div className="mb-1 text-[11px] font-bold text-pink-900">Personas dadas de alta con este reto</div>
+                    <div className="space-y-1">
+                      {c.friends.map((friend: any) => (
+                        <div key={friend.customerId} className="rounded-md border border-pink-100 bg-white p-2 text-[11px]">
+                          <div className="flex items-center justify-between gap-2"><span className="font-semibold">{friend.name || "Sin nombre"}</span><span className="text-black/55">{friend.phone || "Sin teléfono"} · {(friend.redeemed || friend.status === "confirmed") ? "● completado" : "◐ alta completada"}</span></div>
+                          {["awaiting_business", "followup_pending"].includes(friend.status) && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "yes")} className="rounded-full bg-emerald-600 px-3 py-1 font-bold text-white">Sí</button>
+                              <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "no")} className="rounded-full bg-rose-100 px-3 py-1 font-bold text-rose-700">No</button>
+                              <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "later")} className="rounded-full bg-amber-100 px-3 py-1 font-bold text-amber-800">Todavía no</button>
+                              {friend.status === "followup_pending" && !friend.reminderSentAt && <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "remind")} className="rounded-full bg-pink-100 px-3 py-1 font-bold text-pink-700">Enviar recordatorio</button>}
+                              {friend.reminderSentAt && <span className="rounded-full bg-emerald-50 px-3 py-1 font-bold text-emerald-700">Recordatorio enviado</span>}
+                              {friend.status === "followup_pending" && <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "lost")} className="rounded-full bg-black/5 px-3 py-1 font-bold">Dar por perdido</button>}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

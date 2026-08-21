@@ -28,6 +28,9 @@ const schema = z.object({
   // añade SIEMPRE al final aquí (así no se puede perder ni manipular).
   message: z.string().trim().max(600).optional().nullable(),
   requiresPurchase: z.boolean().optional(),
+  serviceDescription: z.string().trim().min(1).max(1000),
+  servicePrice: z.number().min(0).max(1_000_000).optional().nullable(),
+  serviceMode: z.enum(["local", "online"]),
   expiresInDays: z.number().int().min(1).max(120).optional()
 });
 
@@ -58,6 +61,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       friendsRequired: d.friendsRequired,
       friendDiscountPct: d.friendDiscountPct,
       requiresPurchase: !!d.requiresPurchase,
+      serviceDescription: d.serviceDescription,
+      servicePrice: d.servicePrice ?? null,
+      serviceMode: d.serviceMode,
       expiresAt: new Date(Date.now() + days * 86_400_000)
     }
   });

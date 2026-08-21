@@ -18,6 +18,9 @@ type Deal = {
   friendDiscountPct: number;
   friendTitle: string | null;
   message: string | null;
+  serviceDescription: string | null;
+  servicePrice: number | null;
+  serviceMode: "local" | "online";
   expired: boolean;
   claimed: boolean;
 };
@@ -182,6 +185,16 @@ export default function RetoClient({ token }: { token: string }) {
           </p>
         )}
       </div>
+
+      {deal.serviceDescription && (
+        <div className="mb-4 rounded-xl border border-pink-200 bg-pink-50/50 p-4 text-left">
+          <div className="text-xs font-bold uppercase text-pink-700">{deal.serviceMode === "online" ? "💬 Servicio online" : "📍 Servicio en el local"}</div>
+          <p className="mt-2 text-sm text-black/75">{deal.serviceDescription}</p>
+          {deal.servicePrice != null && (
+            <p className="mt-2 text-sm"><b>Precio normal: {deal.servicePrice.toFixed(2)} €</b><br />Ahorras {(deal.servicePrice * deal.friendDiscountPct / 100).toFixed(2)} € · pagarías {(deal.servicePrice * (100 - deal.friendDiscountPct) / 100).toFixed(2)} € con el cupón de amigo.</p>
+          )}
+        </div>
+      )}
 
       {mode === "app" ? (
         <div className="space-y-3">

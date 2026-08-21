@@ -21,6 +21,7 @@ import { claimPendingDeal, onDealClaimed } from "../lib/deal-pending";
 import { applyPendingRef } from "../lib/referral-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
 import { friendCouponPresentation, friendSlotState, type FriendProgress } from "../lib/friend-challenge-presentation";
+import { challengeActionCopy, challengePriceCopy } from "../lib/challenge-details";
 
 type Offer = {
   offerId: string;
@@ -42,6 +43,11 @@ type Offer = {
   rewardLabel?: string | null;
   source?: string | null;
   hoursLeft: number;
+  daysLeft?: number;
+  challengeServiceDescription?: string | null;
+  challengeServicePrice?: number | null;
+  challengeServiceMode?: "local" | "online" | null;
+  challengeInviterName?: string | null;
   distanceM: number | null;
   // Oferta-reto viral: bloqueada hasta traer amigos.
   locked?: boolean;
@@ -471,11 +477,9 @@ export function Feed() {
 
                 {/* Caducidad del cupón (si no haces nada, caduca). */}
                 <Text style={styles.challengeExpiry}>
-                  {item.hoursLeft > 48
-                    ? `Caduca en ${Math.ceil(item.hoursLeft / 24)} días`
-                    : item.hoursLeft >= 1
-                      ? `⏳ Caduca en ${Math.round(item.hoursLeft)} h`
-                      : "⏳ Caduca hoy"}
+                  {item.hoursLeft > 0
+                    ? `Caduca en ${item.daysLeft ?? Math.max(1, Math.ceil(item.hoursLeft / 24))} ${(item.daysLeft ?? Math.max(1, Math.ceil(item.hoursLeft / 24))) === 1 ? "día" : "días"}`
+                    : "⏳ Caduca hoy"}
                 </Text>
               </View>
             </FadeIn>
@@ -483,11 +487,21 @@ export function Feed() {
           <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
             <Bouncy
               style={styles.card}
-              onPress={() =>
-                nav.navigate("Negocio", {
-                  business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel }
-                })
-              }
+              onPress={() => {
+                if (!friendCouponPresentation(item.source).isFriendCoupon) {
+                  nav.navigate("Negocio", { business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel } });
+                  return;
+                }
+                const action = challengeActionCopy({ mode: item.challengeServiceMode, businessName: item.business.name, address: item.business.address, inviterName: item.challengeInviterName });
+                const price = challengePriceCopy(item.challengeServicePrice, item.discountPct);
+                Alert.alert(
+                  "Tu amigo te ha enviado un reto",
+                  [item.challengeServiceDescription || item.rewardLabel || "Disfruta de este servicio con un descuento especial.", price, action].filter(Boolean).join("\n\n"),
+                  item.challengeServiceMode === "online"
+                    ? [{ text: "Ahora no", style: "cancel" }, { text: "Contactar por WhatsApp", onPress: () => { const phone = (item.business.phone || "").replace(/\D/g, ""); if (phone) void Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(action)}`); else Alert.alert("Falta el WhatsApp", "El negocio todavía no ha indicado un teléfono público."); } }]
+                    : [{ text: "Ahora no", style: "cancel" }, { text: "Escanear QR en el local", onPress: () => nav.navigate("Scan", { businessId: item.business.id }) }]
+                );
+              }}
             >
               <View style={[styles.photo, friendCouponPresentation(item.source).isFriendCoupon && styles.friendPhoto]}>
                 {friendCouponPresentation(item.source).isFriendCoupon ? (
@@ -517,7 +531,7 @@ export function Feed() {
                     <View style={styles.pill}><Text style={styles.pillText}>📍 {fmtDist(item.distanceM)}</Text></View>
                   )}
                   {item.hoursLeft > 0 && (
-                    <View style={styles.pill}><Text style={styles.pillText}>⏰ {item.hoursLeft}h</Text></View>
+                    <View style={styles.pill}><Text style={styles.pillText}>⏰ {item.daysLeft ?? Math.max(1, Math.ceil(item.hoursLeft / 24))} d</Text></View>
                   )}
                 </View>
               </View>

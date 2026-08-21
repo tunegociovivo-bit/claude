@@ -23,6 +23,9 @@ export type CustomDealPublic = {
   friendDiscountPct: number;
   friendTitle: string | null;
   message: string | null;
+  serviceDescription?: string | null;
+  servicePrice?: number | null;
+  serviceMode?: string;
   expired: boolean;
   claimed: boolean;
   friendShareUrl: string | null;
@@ -58,6 +61,9 @@ export async function getCustomDealPublic(token: string): Promise<CustomDealPubl
     friendDiscountPct: deal.friendDiscountPct,
     friendTitle: deal.friendTitle,
     message: deal.message,
+    serviceDescription: deal.serviceDescription,
+    servicePrice: deal.servicePrice,
+    serviceMode: deal.serviceMode,
     expired: deal.expiresAt.getTime() < Date.now(),
     claimed: !!deal.claimedByCustomerId,
     friendShareUrl

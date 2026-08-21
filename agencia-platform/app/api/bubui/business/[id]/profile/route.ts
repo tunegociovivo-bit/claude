@@ -67,6 +67,9 @@ const schema = z
     shareOfferLabel: z.string().trim().max(60).optional().nullable(),
     shareFriendDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     shareFriendLabel: z.string().trim().max(80).optional().nullable(),
+    challengeServiceDescription: z.string().trim().max(1000).optional().nullable(),
+    challengeServicePrice: z.number().min(0).max(1_000_000).optional().nullable(),
+    challengeServiceMode: z.enum(["local", "online"]).optional(),
     shareOfferRequiresPurchase: z.boolean().optional(),
     loyaltyEnabled: z.boolean().optional(),
     loyaltyGoal: z.number().int().min(2).max(20).optional(),
@@ -138,6 +141,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (data.birthdayMessage === "") data.birthdayMessage = null;
   if (data.shareOfferLabel === "") data.shareOfferLabel = null;
   if (data.shareFriendLabel === "") data.shareFriendLabel = null;
+  if (data.challengeServiceDescription === "") data.challengeServiceDescription = null;
   if (data.mesaPerkLabel === "") data.mesaPerkLabel = null;
   // Garantía: ruleta min <= max.
   if (data.wheelMinPct != null && data.wheelMaxPct != null && data.wheelMinPct > data.wheelMaxPct) {

@@ -216,7 +216,7 @@ export type ApplyReferralResult = {
 export async function applyReferral(friendId: string, code: string, offerId?: string): Promise<ApplyReferralResult> {
   const referrer = await prisma.bubuiCustomer.findUnique({
     where: { referralCode: code.toUpperCase() },
-    select: { id: true, firstBusinessId: true }
+    select: { id: true, firstBusinessId: true, name: true }
   });
   if (!referrer) return { linked: false, terminal: true, reason: "invalid_code" };
   if (referrer.id === friendId) return { linked: false, terminal: true, reason: "self_referral" };
@@ -227,7 +227,11 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
     return { linked: false, terminal: true, reason: "already_referred_other", referrerId: friend.referredById };
   }
 
-  let challenge: { id: string; businessId: string } | null = null;
+  let challenge: {
+    id: string; businessId: string; customerId: string;
+    challengeServiceDescription: string | null; challengeServicePrice: number | null;
+    challengeServiceMode: string | null; challengeInviterName: string | null;
+  } | null = null;
   if (offerId) {
     challenge = await prisma.bubuiOffer.findFirst({
       where: {
@@ -237,7 +241,11 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         redeemed: false,
         ...(friend.referredById === referrer.id ? {} : { expiresAt: { gt: new Date() } })
       },
-      select: { id: true, businessId: true }
+      select: {
+        id: true, businessId: true, customerId: true,
+        challengeServiceDescription: true, challengeServicePrice: true,
+        challengeServiceMode: true, challengeInviterName: true
+      }
     });
     if (!challenge) {
       return { linked: false, terminal: friend.referredById !== referrer.id, reason: "invalid_challenge" };
@@ -320,6 +328,10 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         // del reto. Reabrir/cambiar de formato nunca puede crear un 2º cupón.
         triggerBusinessId: "ref:welcome",
         source: "referral_welcome",
+        challengeServiceDescription: challenge?.challengeServiceDescription ?? business.challengeServiceDescription,
+        challengeServicePrice: challenge?.challengeServicePrice ?? business.challengeServicePrice,
+        challengeServiceMode: challenge?.challengeServiceMode ?? business.challengeServiceMode,
+        challengeInviterName: challenge?.challengeInviterName ?? referrer.name,
         expiresAt: exp
       }
     });
@@ -332,6 +344,21 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
       // Transitorio: conservar linked pero NO terminal → la app reintenta.
       return { linked: true, terminal: false, reason: "welcome_offer_failed", referrerId: referrer.id, welcomeOfferCreated: false };
     }
+  }
+
+  if (challenge) {
+    await prisma.bubuiChallengeParticipant.upsert({
+      where: { offerId_friendCustomerId: { offerId: challenge.id, friendCustomerId: friendId } },
+      create: {
+        offerId: challenge.id,
+        referrerCustomerId: referrer.id,
+        friendCustomerId: friendId,
+        businessId: challenge.businessId,
+        status: "registered",
+        nextFollowupAt: new Date(Date.now() + 86_400_000)
+      },
+      update: {}
+    });
   }
 
   // Recompensas de hito para el referidor.
