@@ -17,6 +17,10 @@ export function friendCouponPresentation(source?: string | null) {
   };
 }
 
+export function friendCouponDestination(source?: string | null): "FriendChallengeDetail" | "Negocio" {
+  return source === "referral_welcome" ? "FriendChallengeDetail" : "Negocio";
+}
+
 export function friendSlotState(progress?: Partial<FriendProgress>): "empty" | "half" | "complete" {
   if (progress?.redeemed) return "complete";
   if (progress?.registered) return "half";

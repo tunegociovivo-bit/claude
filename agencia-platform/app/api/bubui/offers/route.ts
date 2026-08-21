@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { haversineMeters } from "@/lib/bubui/core";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
-import { buildFriendChallengeProgress } from "@/lib/bubui/friend-challenge-progress";
+import { buildFriendChallengeProgress, friendsForChallengeOffer } from "@/lib/bubui/friend-challenge-progress";
 import { sharesLeft } from "@/lib/bubui/share-offer";
 import { getAltActionMinReferrals } from "@/lib/bubui/growth-settings";
 import { mesaReviewUrl, mesaReviewPlatformLabel } from "@/lib/bubui/table";
@@ -126,7 +126,7 @@ export async function GET(req: Request) {
   const challengeParticipants = hasLocked
     ? await prisma.bubuiChallengeParticipant.findMany({
         where: { offerId: { in: offers.filter((offer) => !offer.active).map((offer) => offer.id) } },
-        select: { offerId: true, friendCustomerId: true, status: true }
+        select: { offerId: true, friendCustomerId: true, status: true, registeredAt: true }
       })
     : [];
   // Retos que exigen que los amigos compren: recuento por negocio (amigos que
@@ -188,11 +188,18 @@ export async function GET(req: Request) {
     }
     const hoursLeft = Math.max(0, (o.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000));
     const locked = !o.active;
-    const excludedFriendIds = new Set(challengeParticipants.filter((participant) => participant.offerId === o.id && ["declined", "lost"].includes(participant.status)).map((participant) => participant.friendCustomerId));
-    const attributedFriends = verifiedFriends.filter((friend) => friend.referralOfferId === o.id && !excludedFriendIds.has(friend.id));
-    const usesAttributedProgress = o.usesExactReferralTracking;
-    const attributedPurchasers = new Set(purchasersByBiz.get(o.businessId) ?? []);
-    challengeParticipants.filter((participant) => participant.offerId === o.id && participant.status === "confirmed").forEach((participant) => attributedPurchasers.add(participant.friendCustomerId));
+    const offerParticipants = challengeParticipants.filter((participant) => participant.offerId === o.id);
+    const hasParticipantProgress = offerParticipants.length > 0;
+    const attributedFriends = friendsForChallengeOffer(o.id, verifiedFriends, challengeParticipants);
+    const usesAttributedProgress = o.usesExactReferralTracking || hasParticipantProgress;
+    const attributedPurchasers = new Set<string>(
+      !o.usesExactReferralTracking && !hasParticipantProgress
+        ? (purchasersByBiz.get(o.businessId) ?? [])
+        : []
+    );
+    offerParticipants
+      .filter((participant) => participant.status === "confirmed")
+      .forEach((participant) => attributedPurchasers.add(participant.friendCustomerId));
     const cnt = usesAttributedProgress
       ? (o.unlockRequiresPurchase
           ? attributedFriends.filter((friend) => attributedPurchasers.has(friend.id)).length

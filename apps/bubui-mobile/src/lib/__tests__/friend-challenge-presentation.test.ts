@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { friendCouponPresentation, friendSlotState } from "../friend-challenge-presentation";
+import { friendCouponDestination, friendCouponPresentation, friendSlotState } from "../friend-challenge-presentation";
 
 describe("friend challenge presentation", () => {
   it("identifies referral welcome offers as a coupon sent by a friend", () => {
@@ -12,6 +12,11 @@ describe("friend challenge presentation", () => {
 
   it("does not relabel ordinary offers", () => {
     expect(friendCouponPresentation("cross").isFriendCoupon).toBe(false);
+  });
+
+  it("routes friend coupons to their dedicated detail instead of the generic business page", () => {
+    expect(friendCouponDestination("referral_welcome")).toBe("FriendChallengeDetail");
+    expect(friendCouponDestination("cross")).toBe("Negocio");
   });
 
   it("renders registered friends as half complete and purchasers as complete", () => {

@@ -13,6 +13,7 @@ import { Scan } from "./src/screens/Scan";
 import { Mesa } from "./src/screens/Mesa";
 import { Plus } from "./src/screens/Plus";
 import { Negocio, type NegocioParam } from "./src/screens/Negocio"
+import { FriendChallengeDetail, type FriendChallengeDetailParam } from "./src/screens/FriendChallengeDetail";
 import { CheckSession, clearSession } from "./src/lib/session";
 import { setOnAuthExpired } from "./src/lib/api";
 import { setupNotificationTapHandler } from "./src/lib/push";
@@ -43,6 +44,7 @@ export type RootStackParamList = {
     Mesa: { businessId?: string; code?: string; businessName?: string };
     Plus: undefined;
     Negocio: NegocioParam;
+    FriendChallengeDetail: FriendChallengeDetailParam;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -154,6 +156,7 @@ function AppInner() {
                                 <Stack.Screen name="Mesa" component={Mesa} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Plus" component={Plus} options={{ animation: "slide_from_bottom" }} />
                                 <Stack.Screen name="Negocio" component={Negocio} options={{ animation: "slide_from_right" }} />
+                                <Stack.Screen name="FriendChallengeDetail" component={FriendChallengeDetail} options={{ animation: "slide_from_right" }} />
                       </Stack.Navigator>
               </NavigationContainer>
         </ErrorBoundary>

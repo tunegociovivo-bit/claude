@@ -20,8 +20,7 @@ import { registerExpoPushForCustomer } from "../lib/push";
 import { claimPendingDeal, onDealClaimed } from "../lib/deal-pending";
 import { applyPendingRef } from "../lib/referral-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
-import { friendCouponPresentation, friendSlotState, type FriendProgress } from "../lib/friend-challenge-presentation";
-import { challengeActionCopy, challengePriceCopy } from "../lib/challenge-details";
+import { friendCouponDestination, friendCouponPresentation, friendSlotState, type FriendProgress } from "../lib/friend-challenge-presentation";
 
 type Offer = {
   offerId: string;
@@ -106,16 +105,29 @@ export function Feed() {
   // Alto real del banner según la proporción de la imagen (para no recortarla).
   const [bannerH, setBannerH] = useState<number>(BANNER_H_FALLBACK);
   const openFriendChallenge = useCallback((item: Offer) => {
-    const action = challengeActionCopy({ mode: item.challengeServiceMode, businessName: item.business.name, address: item.business.address, inviterName: item.challengeInviterName });
-    const price = challengePriceCopy(item.challengeServicePrice, item.discountPct);
-    Alert.alert(
-      "Tu amigo te ha enviado un reto",
-      [item.challengeServiceDescription || item.rewardLabel || "Disfruta de este servicio con un descuento especial.", price, action].filter(Boolean).join("\n\n"),
-      item.challengeServiceMode === "online"
-        ? [{ text: "Ahora no", style: "cancel" }, { text: "Contactar por WhatsApp", onPress: () => { const phone = (item.business.phone || "").replace(/\D/g, ""); if (phone) { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "whatsapp").catch(() => {}); void Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(action)}`); } else Alert.alert("Falta el WhatsApp", "El negocio todavía no ha indicado un teléfono público."); } }]
-        : [{ text: "Ahora no", style: "cancel" }, { text: "Escanear QR en el local", onPress: () => { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "qr").catch(() => {}); nav.navigate("Scan", { businessId: item.business.id }); } }]
-    );
-  }, [customer?.customerId, nav]);
+    nav.navigate("FriendChallengeDetail", {
+      challenge: {
+        offerId: item.offerId,
+        discountPct: item.discountPct,
+        rewardLabel: item.rewardLabel,
+        hoursLeft: item.hoursLeft,
+        daysLeft: item.daysLeft,
+        description: item.challengeServiceDescription,
+        price: item.challengeServicePrice,
+        mode: item.challengeServiceMode,
+        inviterName: item.challengeInviterName,
+        business: {
+          id: item.business.id,
+          name: item.business.name,
+          category: item.business.category,
+          city: item.business.city,
+          address: item.business.address,
+          phone: item.business.phone,
+          challengeImageUrl: item.business.challengeImageUrl,
+        },
+      },
+    });
+  }, [nav]);
   useEffect(() => {
     const uri = banner?.active ? banner.imageUrl : undefined;
     if (!uri) return;
@@ -502,7 +514,7 @@ export function Feed() {
             <Bouncy
               style={styles.card}
               onPress={() => {
-                if (!friendCouponPresentation(item.source).isFriendCoupon) {
+                if (friendCouponDestination(item.source) === "Negocio") {
                   nav.navigate("Negocio", { business: { ...item.business, discountPct: item.discountPct, hoursLeft: item.hoursLeft, distanceM: item.distanceM, rewardLabel: item.rewardLabel } });
                   return;
                 }
@@ -545,9 +557,9 @@ export function Feed() {
                 <View style={styles.friendCouponCopy}>
                   <Text style={styles.friendCouponEyebrow}>{friendCouponPresentation(item.source).eyebrow}</Text>
                   <Text style={styles.friendCouponMessage}>{friendCouponPresentation(item.source).message}</Text>
-                  <TouchableOpacity style={styles.friendCouponCta} onPress={() => openFriendChallenge(item)} accessibilityRole="button">
+                  <View style={styles.friendCouponCta}>
                     <Text style={styles.friendCouponCtaText}>Ver detalles y aceptar el reto</Text>
-                  </TouchableOpacity>
+                  </View>
                 </View>
               )}
               <View style={styles.cardBody}>
