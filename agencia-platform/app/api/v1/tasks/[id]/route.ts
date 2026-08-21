@@ -11,6 +11,7 @@ import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
 import { textForTask } from "@/lib/search/indexers";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
+import { commercialLeadCustomData, isLeadTaskCustomData } from "@/lib/leads/task-lead-reference";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -24,6 +25,18 @@ export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }
     }
   });
   if (!task) throw new ApiError(404, "not_found", "Tarea no encontrada");
+  let recoveredCustomData = task.customData;
+  if (!isLeadTaskCustomData(task.customData as any)) {
+    const commercialLead = await prisma.lead.findFirst({
+      where: { workspaceId: api.workspaceId, commercialTaskId: task.id },
+      select: { id: true, name: true, phone: true }
+    });
+    const recovered = commercialLead ? commercialLeadCustomData(commercialLead) : null;
+    if (recovered) {
+      recoveredCustomData = recovered;
+      await prisma.task.update({ where: { id: task.id }, data: { customData: recovered as any } });
+    }
+  }
   // Los comentarios son polimórficos (sin FK directo en BD), así que
   // los consultamos aparte por targetType + targetId.
   const comments = await prisma.comment.findMany({
@@ -31,7 +44,7 @@ export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }
     include: { author: true },
     orderBy: { createdAt: "asc" }
   });
-  return NextResponse.json({ ...task, comments });
+  return NextResponse.json({ ...task, customData: recoveredCustomData, comments });
 });
 
 export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api }) => {

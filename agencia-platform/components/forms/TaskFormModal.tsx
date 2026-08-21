@@ -10,7 +10,7 @@ import CommentRenderer from "@/components/forms/CommentRenderer";
 import MeetingRecorder from "@/components/forms/MeetingRecorder";
 import type { MentionCandidate } from "@/components/forms/mentionSuggestion";
 import LeadConversationEmbed from "@/components/leads/LeadConversationEmbed";
-import { taskLeadReference } from "@/lib/leads/task-lead-reference";
+import { isLeadTaskCustomData, taskLeadReference } from "@/lib/leads/task-lead-reference";
 import type { UiProject, UiMember, UiTask } from "@/lib/db/queries";
 import { RECURRENCE_OPTIONS } from "@/lib/tasks/recurrence";
 import { Loader2, Trash2, MessageSquare, X, CheckSquare, Check, ArrowLeft, ExternalLink, Mic, RefreshCw, Bot, Square, Zap, ArrowUp, ArrowDown } from "lucide-react";
@@ -501,7 +501,7 @@ export default function TaskFormModal({
       customData:
         selectedTemplateId && Object.keys(customData).length > 0
           ? customData
-          : (customData as any)?.source === "leads"
+          : isLeadTaskCustomData(customData as any)
             ? customData
             : null,
       flashTasks,

@@ -111,7 +111,7 @@ export type UiTask = (typeof mockTasks)[number] & {
 
 /** Extrae los datos de lead de customData (source="leads"). */
 function extractLeadMeta(customData: any): UiTask["leadMeta"] {
-  if (!customData || customData.source !== "leads") return null;
+  if (!customData || !["leads", "lead-commercial-handoff"].includes(customData.source)) return null;
   return {
     phone: customData.leadPhone ?? undefined,
     leadId: customData.leadId ?? null,
