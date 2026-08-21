@@ -59,14 +59,14 @@ describe("mergeLeadConversationItems", () => {
         externalMessageId: "hub-provider-id",
         body: "Quiere que le vuelva a llamar y comentamos?",
         source: "human_reply"
-      } as any),
+      }),
       phoneEcho({
         id: "phone-echo",
         externalMessageId: "phone-history-id",
         body: "Quiere que le vuelva a llamar y comentamos?",
         at: "2026-08-17T09:08:12.000Z",
         source: "phone_outbound"
-      } as any)
+      })
     ]);
 
     expect(result).toHaveLength(1);
@@ -75,8 +75,8 @@ describe("mergeLeadConversationItems", () => {
 
   it("keeps two deliberate manual replies with identical text", () => {
     const result = mergeLeadConversationItems([
-      phoneEcho({ id: "human-1", externalMessageId: "send-1", source: "human_reply" } as any),
-      phoneEcho({ id: "human-2", externalMessageId: "send-2", source: "human_reply" } as any)
+      phoneEcho({ id: "human-1", externalMessageId: "send-1", source: "human_reply" }),
+      phoneEcho({ id: "human-2", externalMessageId: "send-2", source: "human_reply" })
     ]);
 
     expect(result).toHaveLength(2);

@@ -69,6 +69,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       instanceName: m.instanceName,
       kind: "inbox" as const,
       classification: m.classification,
+      source: m.meta && typeof m.meta === "object" && !Array.isArray(m.meta) && "source" in m.meta
+        ? String(m.meta.source ?? "") || null
+        : null,
       // Check de oro: acuse de recibo de WhatsApp para tus respuestas.
       ack: m.ack
     })),
