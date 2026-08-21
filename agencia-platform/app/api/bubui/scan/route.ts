@@ -252,7 +252,7 @@ export async function POST(req: Request) {
       if (customer.referralOfferId) {
         void prisma.bubuiChallengeParticipant.updateMany({
           where: { offerId: customer.referralOfferId, friendCustomerId: d.customerId },
-          data: { status: "confirmed", decidedAt: new Date(), nextFollowupAt: null }
+          data: { status: "confirmed", decidedAt: new Date(), nextFollowupAt: null, contactedAt: new Date(), contactChannel: "qr" }
         }).catch(() => {});
       }
     }

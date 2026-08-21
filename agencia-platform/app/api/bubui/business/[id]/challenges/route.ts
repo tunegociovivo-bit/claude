@@ -11,6 +11,7 @@ import { businessTokenAllows } from "@/lib/bubui/auth";
 import { countVerifiedReferrals, countQualifiedReferrals } from "@/lib/bubui/referral";
 import { sharesLeft } from "@/lib/bubui/share-offer";
 import { buildChallengeFriends } from "@/lib/bubui/challenge-friends";
+import { buildChallengeTimeline, challengeConversionMetrics } from "@/lib/bubui/challenge-lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     where: {
       businessId: params.id,
       source: "share_challenge",
-      active: false,
       redeemed: false,
       expiresAt: { gt: new Date() }
     },
@@ -53,7 +53,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const redeemedIds = new Set(friendPurchases.map((purchase) => purchase.customerId));
   const participants = await prisma.bubuiChallengeParticipant.findMany({
     where: { offerId: { in: offers.map((offer) => offer.id) } },
-    select: { offerId: true, friendCustomerId: true, status: true, nextFollowupAt: true, reminderSentAt: true }
+    select: { offerId: true, friendCustomerId: true, status: true, nextFollowupAt: true, reminderSentAt: true, contactedAt: true, contactChannel: true, registeredAt: true, decidedAt: true }
   });
 
   const items = await Promise.all(
@@ -62,11 +62,25 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         ? buildChallengeFriends(o.id, exactFriends.map((friend) => ({ ...friend, redeemed: redeemedIds.has(friend.id) })))
             .map((friend) => {
               const participant = participants.find((row) => row.offerId === o.id && row.friendCustomerId === friend.customerId);
-              return { ...friend, redeemed: friend.redeemed || participant?.status === "confirmed", status: participant?.status ?? "registered", nextFollowupAt: participant?.nextFollowupAt?.toISOString() ?? null, reminderSentAt: participant?.reminderSentAt?.toISOString() ?? null };
+              const status = participant?.status ?? "registered";
+              return {
+                ...friend,
+                redeemed: friend.redeemed || status === "confirmed",
+                status,
+                nextFollowupAt: participant?.nextFollowupAt?.toISOString() ?? null,
+                reminderSentAt: participant?.reminderSentAt?.toISOString() ?? null,
+                timeline: buildChallengeTimeline({
+                  registeredAt: participant?.registeredAt ?? new Date(friend.registeredAt),
+                  contactedAt: participant?.contactedAt ?? null,
+                  decidedAt: participant?.decidedAt ?? null,
+                  status,
+                  contactChannel: participant?.contactChannel ?? null
+                })
+              };
             })
-            .filter((friend) => !["declined", "lost"].includes(friend.status))
         : [];
-      const exactDone = o.unlockRequiresPurchase ? friends.filter((friend) => friend.redeemed).length : friends.length;
+      const progressingFriends = friends.filter((friend) => !["declined", "lost"].includes(friend.status));
+      const exactDone = o.unlockRequiresPurchase ? progressingFriends.filter((friend) => friend.redeemed).length : progressingFriends.length;
       const verified = o.usesExactReferralTracking ? exactDone : (o.unlockRequiresPurchase
         ? await countQualifiedReferrals(o.customerId, params.id)
         : await countVerifiedReferrals(o.customerId));
@@ -88,10 +102,21 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         requiresPurchase: o.unlockRequiresPurchase,
         expiresAt: o.expiresAt.toISOString(),
         createdAt: o.createdAt.toISOString(),
-        friends
+        friends,
+        serviceMode: o.challengeServiceMode ?? "local",
+        metrics: challengeConversionMetrics(friends.map((friend) => ({
+          mode: o.challengeServiceMode ?? "local", registered: true,
+          contacted: friend.timeline.some((event) => event.key === "contacted" && event.state === "complete"),
+          confirmed: friend.status === "confirmed", declined: ["declined", "lost"].includes(friend.status)
+        }))).total
       };
     })
   );
 
-  return NextResponse.json({ items });
+  const allRows = items.flatMap((item) => item.friends.map((friend) => ({
+    mode: item.serviceMode, registered: true,
+    contacted: friend.timeline.some((event) => event.key === "contacted" && event.state === "complete"),
+    confirmed: friend.status === "confirmed", declined: ["declined", "lost"].includes(friend.status)
+  })));
+  return NextResponse.json({ items, metrics: challengeConversionMetrics(allRows) });
 }

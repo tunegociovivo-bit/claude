@@ -70,6 +70,8 @@ const schema = z
     challengeServiceDescription: z.string().trim().max(1000).optional().nullable(),
     challengeServicePrice: z.number().min(0).max(1_000_000).optional().nullable(),
     challengeServiceMode: z.enum(["local", "online"]).optional(),
+    challengeFirstFollowupHours: z.number().int().min(1).max(168).optional(),
+    challengeRepeatFollowupDays: z.number().int().min(1).max(30).optional(),
     shareOfferRequiresPurchase: z.boolean().optional(),
     loyaltyEnabled: z.boolean().optional(),
     loyaltyGoal: z.number().int().min(2).max(20).optional(),

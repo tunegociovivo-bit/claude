@@ -1564,6 +1564,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   const [challengeServiceDescription, setChallengeServiceDescription] = useState<string>(business.challengeServiceDescription ?? "");
   const [challengeServicePrice, setChallengeServicePrice] = useState<string>(business.challengeServicePrice != null ? String(business.challengeServicePrice) : "");
   const [challengeServiceMode, setChallengeServiceMode] = useState<"local" | "online">(business.challengeServiceMode === "online" ? "online" : "local");
+  const [challengeFirstFollowupHours, setChallengeFirstFollowupHours] = useState<number>(business.challengeFirstFollowupHours ?? 24);
+  const [challengeRepeatFollowupDays, setChallengeRepeatFollowupDays] = useState<number>(business.challengeRepeatFollowupDays ?? 3);
   const [uploadingChallenge, setUploadingChallenge] = useState(false);
   // Mensaje de WhatsApp del reto: autogenerado a partir de los campos, con
   // posibilidad de editarlo a mano (waMsgEdited=true congela el texto).
@@ -1676,6 +1678,8 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           challengeServiceDescription: challengeServiceDescription.trim() || null,
           challengeServicePrice: challengeServicePrice.trim() ? Number(challengeServicePrice) : null,
           challengeServiceMode,
+          challengeFirstFollowupHours: Number(challengeFirstFollowupHours),
+          challengeRepeatFollowupDays: Number(challengeRepeatFollowupDays),
           shareOfferRequiresPurchase: shareReqPurchase,
           ppFollowDiscountPct: Number(followPct),
           ppPhotoDiscountPct: Number(photoPct),
@@ -1773,6 +1777,14 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
               Precio: <b>{Number(challengeServicePrice).toFixed(2)} €</b> · Ahorro: <b>{(Number(challengeServicePrice) * Number(shareFriendPct) / 100).toFixed(2)} €</b> · Con el reto: <b>{(Number(challengeServicePrice) * (100 - Number(shareFriendPct)) / 100).toFixed(2)} €</b>
             </div>
           )}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="text-xs font-bold text-amber-900">Seguimiento automático</div>
+            <p className="mb-2 text-[11px] text-amber-900/70">Elige cuándo preguntarte si el nuevo cliente contrató el servicio.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs"><span className="mb-1 block">Primer aviso (horas)</span><input type="number" min={1} max={168} value={challengeFirstFollowupHours} onChange={(e) => setChallengeFirstFollowupHours(Number(e.target.value))} className="w-full rounded-lg border bg-white px-3 py-2" /></label>
+              <label className="text-xs"><span className="mb-1 block">Repetir tras “Todavía no” (días)</span><input type="number" min={1} max={30} value={challengeRepeatFollowupDays} onChange={(e) => setChallengeRepeatFollowupDays(Number(e.target.value))} className="w-full rounded-lg border bg-white px-3 py-2" /></label>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-3 space-y-2">
@@ -4238,6 +4250,7 @@ function MiniMetric({ label, value }: { label: string; value: number | string })
  */
 function ActiveChallengesPanel({ businessId, token }: { businessId: string; token: string }) {
   const [items, setItems] = useState<any[] | null>(null);
+  const [challengeMetrics, setChallengeMetrics] = useState<any | null>(null);
   const [remindingId, setRemindingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [respondingFriend, setRespondingFriend] = useState<string | null>(null);
@@ -4247,7 +4260,7 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
       const r = await fetch(`/api/bubui/business/${businessId}/challenges`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (r.ok) setItems((await r.json()).items ?? []);
+      if (r.ok) { const data = await r.json(); setItems(data.items ?? []); setChallengeMetrics(data.metrics ?? null); }
       else setItems([]);
     } catch {
       setItems([]);
@@ -4328,6 +4341,17 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
         </p>
       ) : (
         <div className="space-y-2">
+          {challengeMetrics && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {(["total", "local", "online"] as const).map((mode) => (
+                <div key={mode} className="rounded-lg border border-pink-100 bg-pink-50/50 p-2 text-center">
+                  <div className="text-[10px] font-bold uppercase text-black/50">{mode === "total" ? "Todos los retos" : mode === "local" ? "📍 Local" : "💬 Online"}</div>
+                  <div className="text-sm font-black">{challengeMetrics[mode].conversionRate}% conversión</div>
+                  <div className="text-[10px] text-black/55">{challengeMetrics[mode].registered} altas · {challengeMetrics[mode].contacted} contactos · {challengeMetrics[mode].confirmed} contratados</div>
+                </div>
+              ))}
+            </div>
+          )}
           {items.map((c) => {
             const done = c.done ?? 0;
             const need = c.need ?? 0;
@@ -4371,6 +4395,7 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                     {complete ? "¡Completado!" : `${done}/${need} amigos`}
                   </span>
                 </div>
+                {c.metrics && <div className="mt-1 text-[10px] text-black/50">Conversión de este reto: <b>{c.metrics.conversionRate}%</b> · Contacto: <b>{c.metrics.contactRate}%</b></div>}
                 {!!c.friends?.length && (
                   <div className="mt-2 rounded-lg bg-pink-50/60 p-2">
                     <div className="mb-1 text-[11px] font-bold text-pink-900">Personas dadas de alta con este reto</div>
@@ -4378,6 +4403,16 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                       {c.friends.map((friend: any) => (
                         <div key={friend.customerId} className="rounded-md border border-pink-100 bg-white p-2 text-[11px]">
                           <div className="flex items-center justify-between gap-2"><span className="font-semibold">{friend.name || "Sin nombre"}</span><span className="text-black/55">{friend.phone || "Sin teléfono"} · {(friend.redeemed || friend.status === "confirmed") ? "● completado" : "◐ alta completada"}</span></div>
+                          {!!friend.timeline?.length && (
+                            <div className="mt-2 flex items-start gap-1">
+                              {friend.timeline.map((event: any, index: number) => (
+                                <div key={event.key} className="flex min-w-0 flex-1 items-start">
+                                  <div className="min-w-0 text-center"><div className={`mx-auto h-3 w-3 rounded-full ${event.state === "complete" ? event.label === "Descartado" ? "bg-rose-500" : "bg-emerald-500" : "border-2 border-black/20 bg-white"}`} /><div className="mt-1 truncate text-[9px] font-semibold">{event.label}</div>{event.at && <div className="text-[8px] text-black/40">{new Date(event.at).toLocaleDateString("es-ES")}</div>}</div>
+                                  {index < friend.timeline.length - 1 && <div className={`mt-1.5 h-0.5 flex-1 ${event.state === "complete" ? "bg-emerald-300" : "bg-black/10"}`} />}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {["awaiting_business", "followup_pending"].includes(friend.status) && (
                             <div className="mt-2 flex flex-wrap gap-1">
                               <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "yes")} className="rounded-full bg-emerald-600 px-3 py-1 font-bold text-white">Sí</button>

@@ -4707,6 +4707,8 @@ model BubuiBusiness {
   challengeServiceDescription String?                 @db.Text
   challengeServicePrice     Float?
   challengeServiceMode      String                    @default("local") // local | online
+  challengeFirstFollowupHours Int                     @default(24)
+  challengeRepeatFollowupDays Int                     @default(3)
   // Condición para desbloquear el reto de compartir:
   //   false → basta con que los amigos se instalen y verifiquen el teléfono.
   //   true  → además, cada amigo debe GASTAR su cupón (compra confirmada) en
@@ -5364,6 +5366,8 @@ model BubuiChallengeParticipant {
   businessId         String
   status             String    @default("registered") // registered | awaiting_business | still_pending | followup_pending | confirmed | declined | lost
   registeredAt       DateTime  @default(now())
+  contactedAt        DateTime?
+  contactChannel     String? // qr | whatsapp
   nextFollowupAt     DateTime?
   followupSentAt     DateTime?
   decidedAt          DateTime?

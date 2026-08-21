@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
+import { scheduleChallengeFollowup } from "@/lib/bubui/challenge-lifecycle";
 
 const schema = z.object({ action: z.enum(["yes", "no", "later", "remind", "lost"]) });
 
@@ -16,11 +17,18 @@ export async function POST(req: Request, { params }: { params: { id: string; off
   const now = new Date();
   const action = parsed.data.action;
   const status = action === "yes" ? "confirmed" : action === "no" ? "declined" : action === "later" ? "still_pending" : action === "lost" ? "lost" : participant.status;
-  const nextFollowupAt = action === "later" ? new Date(now.getTime() + 3 * 86_400_000) : null;
+  const business = action === "later" ? await prisma.bubuiBusiness.findUnique({ where: { id: params.id }, select: { challengeFirstFollowupHours: true, challengeRepeatFollowupDays: true } }) : null;
+  const nextFollowupAt = action === "later" && business ? scheduleChallengeFollowup("repeat", now, { firstHours: business.challengeFirstFollowupHours, repeatDays: business.challengeRepeatFollowupDays }) : null;
   await prisma.bubuiChallengeParticipant.update({
     where: { id: participant.id },
     data: { status, nextFollowupAt, decidedAt: ["yes", "no", "lost"].includes(action) ? now : null, ...(action === "remind" ? { reminderSentAt: now } : {}) }
   });
+  if (["yes", "no", "later"].includes(action)) {
+    await prisma.bubuiChallengeParticipant.updateMany({
+      where: { id: participant.id, contactedAt: null },
+      data: { contactedAt: now, contactChannel: "business" }
+    });
+  }
   if (action === "yes") {
     const [offer, confirmed] = await Promise.all([
       prisma.bubuiOffer.findFirst({ where: { id: params.offerId, businessId: params.id, source: "share_challenge", active: false }, select: { id: true, unlockShares: true } }),

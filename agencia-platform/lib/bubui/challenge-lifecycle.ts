@@ -25,3 +25,49 @@ export function nextChallengeFollowup(status: string, from: Date) {
   if (status === "still_pending") return { status: "followup_pending", at: new Date(from.getTime() + 3 * 86_400_000) };
   return { status: "lost", at: null };
 }
+
+export function scheduleChallengeFollowup(
+  kind: "first" | "repeat",
+  from: Date,
+  settings: { firstHours: number; repeatDays: number }
+) {
+  const amount = kind === "first" ? settings.firstHours * 3_600_000 : settings.repeatDays * 86_400_000;
+  return new Date(from.getTime() + amount);
+}
+
+export function buildChallengeTimeline(input: {
+  registeredAt: Date;
+  contactedAt: Date | null;
+  decidedAt: Date | null;
+  status: string;
+  contactChannel: string | null;
+}) {
+  const channel = input.contactChannel === "whatsapp" ? "WhatsApp" : input.contactChannel === "qr" ? "QR en el local" : "el negocio";
+  const result = input.status === "confirmed" ? "Contratado" : ["declined", "lost"].includes(input.status) ? "Descartado" : "Pendiente de resultado";
+  return [
+    { key: "registered", label: "Alta", at: input.registeredAt.toISOString(), state: "complete" },
+    { key: "contacted", label: `Contacto por ${channel}`, at: input.contactedAt?.toISOString() ?? null, state: input.contactedAt ? "complete" : "pending" },
+    { key: "result", label: result, at: input.decidedAt?.toISOString() ?? null, state: input.decidedAt ? "complete" : "pending" },
+  ];
+}
+
+type ConversionRow = { mode: string; registered: boolean; contacted: boolean; confirmed: boolean; declined: boolean };
+function summarizeConversion(rows: ConversionRow[]) {
+  const registered = rows.filter((row) => row.registered).length;
+  const contacted = rows.filter((row) => row.contacted).length;
+  const confirmed = rows.filter((row) => row.confirmed).length;
+  const declined = rows.filter((row) => row.declined).length;
+  return {
+    registered, contacted, confirmed, declined,
+    contactRate: registered ? Math.round(contacted * 100 / registered) : 0,
+    conversionRate: registered ? Math.round(confirmed * 100 / registered) : 0,
+  };
+}
+
+export function challengeConversionMetrics(rows: ConversionRow[]) {
+  return {
+    total: summarizeConversion(rows),
+    local: summarizeConversion(rows.filter((row) => row.mode === "local")),
+    online: summarizeConversion(rows.filter((row) => row.mode === "online")),
+  };
+}

@@ -126,6 +126,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       challengeServiceDescription: business.challengeServiceDescription,
       challengeServicePrice: business.challengeServicePrice,
       challengeServiceMode: business.challengeServiceMode,
+      challengeFirstFollowupHours: business.challengeFirstFollowupHours,
+      challengeRepeatFollowupDays: business.challengeRepeatFollowupDays,
       brandColor: business.brandColor,
       purchaseMode: business.purchaseMode,
       requireTicket: business.requireTicket,

@@ -12,6 +12,7 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
+import { scheduleChallengeFollowup } from "./challenge-lifecycle";
 
 export const MILESTONES = [1, 3, 5] as const;
 
@@ -355,7 +356,10 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
         friendCustomerId: friendId,
         businessId: challenge.businessId,
         status: "registered",
-        nextFollowupAt: new Date(Date.now() + 86_400_000)
+        nextFollowupAt: scheduleChallengeFollowup("first", new Date(), {
+          firstHours: business.challengeFirstFollowupHours,
+          repeatDays: business.challengeRepeatFollowupDays
+        })
       },
       update: {}
     });

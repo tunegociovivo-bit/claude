@@ -257,6 +257,10 @@ export const api = {
       return r.json();
     });
   },
+  challengeContact: (customerId: string, offerId: string, channel: "qr" | "whatsapp") =>
+    call<{ ok: true }>(`/api/bubui/customer/${encodeURIComponent(customerId)}/challenge-contact`, {
+      method: "POST", body: JSON.stringify({ offerId, channel })
+    }),
   /** Activa un cupón-reto con una acción (reseña/foto) validada por IA, en vez
    *  de esperar a los amigos. Solo disponible con +10 amigos dados de alta. */
   offerVerifyAction: (offerId: string, customerId: string, type: "review" | "social", imageBase64: string, mimeType: string) =>

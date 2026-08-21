@@ -498,8 +498,8 @@ export function Feed() {
                   "Tu amigo te ha enviado un reto",
                   [item.challengeServiceDescription || item.rewardLabel || "Disfruta de este servicio con un descuento especial.", price, action].filter(Boolean).join("\n\n"),
                   item.challengeServiceMode === "online"
-                    ? [{ text: "Ahora no", style: "cancel" }, { text: "Contactar por WhatsApp", onPress: () => { const phone = (item.business.phone || "").replace(/\D/g, ""); if (phone) void Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(action)}`); else Alert.alert("Falta el WhatsApp", "El negocio todavía no ha indicado un teléfono público."); } }]
-                    : [{ text: "Ahora no", style: "cancel" }, { text: "Escanear QR en el local", onPress: () => nav.navigate("Scan", { businessId: item.business.id }) }]
+                    ? [{ text: "Ahora no", style: "cancel" }, { text: "Contactar por WhatsApp", onPress: () => { const phone = (item.business.phone || "").replace(/\D/g, ""); if (phone) { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "whatsapp").catch(() => {}); void Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(action)}`); } else Alert.alert("Falta el WhatsApp", "El negocio todavía no ha indicado un teléfono público."); } }]
+                    : [{ text: "Ahora no", style: "cancel" }, { text: "Escanear QR en el local", onPress: () => { if (customer?.customerId) void api.challengeContact(customer.customerId, item.offerId, "qr").catch(() => {}); nav.navigate("Scan", { businessId: item.business.id }); } }]
                 );
               }}
             >
