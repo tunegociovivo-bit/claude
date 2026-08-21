@@ -1692,6 +1692,48 @@ function KanbanGrid({
   isMobile?: boolean;
   isDragging?: boolean;
 }) {
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const board = boardScrollRef.current;
+    const topScroll = topScrollRef.current;
+    const topScrollContent = topScrollContentRef.current;
+    if (!board || !topScroll || !topScrollContent) return;
+
+    let syncing = false;
+    const updateWidth = () => {
+      topScrollContent.style.width = `${board.scrollWidth}px`;
+      topScroll.style.display = board.scrollWidth > board.clientWidth ? "block" : "none";
+    };
+    const syncFromBoard = () => {
+      if (syncing) return;
+      syncing = true;
+      topScroll.scrollLeft = board.scrollLeft;
+      syncing = false;
+    };
+    const syncFromTop = () => {
+      if (syncing) return;
+      syncing = true;
+      board.scrollLeft = topScroll.scrollLeft;
+      syncing = false;
+    };
+
+    updateWidth();
+    board.addEventListener("scroll", syncFromBoard, { passive: true });
+    topScroll.addEventListener("scroll", syncFromTop, { passive: true });
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(board);
+    if (board.firstElementChild) resizeObserver.observe(board.firstElementChild);
+
+    return () => {
+      board.removeEventListener("scroll", syncFromBoard);
+      topScroll.removeEventListener("scroll", syncFromTop);
+      resizeObserver.disconnect();
+    };
+  }, [columnCount]);
+
   // Layout estilo Asana: en móvil columna casi al 100% del viewport
   // (88vw) con la siguiente asomando ~12vw para indicar swipe. Snap
   // mandatory ancla cada columna al hacer scroll horizontal. En sm+
@@ -1703,15 +1745,25 @@ function KanbanGrid({
   // horizontal mientras arrastras una tarea entre columnas.
   const snapClass = isDragging ? "" : "snap-x snap-mandatory sm:snap-none";
   return (
-    <div
-      className={`grid grid-flow-col gap-2 sm:gap-4 overflow-x-auto pb-2 ${snapClass} flex-1 [&>*]:min-h-full [&>*]:snap-start`}
-      style={{
-        gridAutoColumns: isMobile
-          ? "88vw"
-          : `minmax(320px, ${columnCount <= 6 ? "1fr" : "360px"})`
-      }}
-    >
-      {children}
+    <div className="min-w-0 flex-1">
+      <div
+        ref={topScrollRef}
+        aria-label="Desplazar columnas horizontalmente"
+        className="sticky top-2 z-30 mb-2 h-4 overflow-x-auto overflow-y-hidden rounded-md border border-slate-200 bg-slate-100 shadow-sm"
+      >
+        <div ref={topScrollContentRef} className="h-px" />
+      </div>
+      <div
+        ref={boardScrollRef}
+        className={`grid grid-flow-col gap-2 sm:gap-4 overflow-x-auto pb-2 ${snapClass} [&>*]:min-h-full [&>*]:snap-start`}
+        style={{
+          gridAutoColumns: isMobile
+            ? "88vw"
+            : `minmax(320px, ${columnCount <= 6 ? "1fr" : "360px"})`
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
