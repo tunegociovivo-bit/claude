@@ -11,6 +11,7 @@ const { prisma, creditReferrerWallet } = vi.hoisted(() => ({
     bubuiCustomDeal: { findFirst: vi.fn() },
     bubuiBusiness: { findUnique: vi.fn() },
     bubuiOffer: { create: vi.fn(), findFirst: vi.fn() },
+    bubuiChallengeParticipant: { upsert: vi.fn() },
     bubuiBusinessNotification: { create: vi.fn() },
     bubuiReferralClick: { findFirst: vi.fn() }
   },
@@ -31,7 +32,7 @@ const BUSINESS = {
   referralReward1: null, referralReward3: null, referralReward5: null
 };
 
-function arm(opts: { friendReferredById?: string | null; offerCreate?: "ok" | "p2002" | "boom"; origin?: boolean }) {
+function arm(opts: { friendReferredById?: string | null; offerCreate?: "ok" | "p2002" | "boom"; origin?: boolean; challenge?: boolean }) {
   prisma.bubuiCustomer.findUnique.mockImplementation(async ({ where }: any) => {
     if (where.referralCode) return where.referralCode === "GOOD01" ? { ...REFERRER, firstBusinessId: opts.origin === false ? null : "biz-1" } : null;
     if (where.id === "friend-1") return { referredById: opts.friendReferredById ?? null, name: "Ana", phone: "600" };
@@ -41,6 +42,13 @@ function arm(opts: { friendReferredById?: string | null; offerCreate?: "ok" | "p
   prisma.bubuiCustomer.count.mockResolvedValue(1);
   prisma.bubuiCustomDeal.findFirst.mockResolvedValue(null);
   prisma.bubuiBusiness.findUnique.mockResolvedValue(BUSINESS);
+  prisma.bubuiOffer.findFirst.mockResolvedValue(opts.challenge ? {
+    id: "offer-challenge", businessId: "biz-1", customerId: "ref-1",
+    expiresAt: new Date("2026-09-05T10:00:00.000Z"),
+    challengeServiceDescription: "Servicio", challengeServicePrice: 100,
+    challengeServiceMode: "online", challengeInviterName: "David"
+  } : null);
+  prisma.bubuiChallengeParticipant.upsert.mockResolvedValue({});
   prisma.bubuiBusinessNotification.create.mockResolvedValue({});
   prisma.bubuiOffer.create.mockImplementation(async ({ data }: any) => {
     if (data.triggerBusinessId !== "ref:welcome") return {}; // hitos: siempre ok
@@ -137,6 +145,16 @@ describe("atribución web (WhatsApp→Play perdido) — fallback por IP", () => 
     expect(await findRecentReferralClick(h)).toEqual({ code: "GOOD01", offerId: "offer-12345678" });
     prisma.bubuiReferralClick.findFirst.mockResolvedValueOnce(null);
     expect(await findRecentReferralClick(h)).toBeNull();
+  });
+
+  it("ya referido globalmente por otro puede participar en un reto contextual", async () => {
+    arm({ friendReferredById: "otro", challenge: true });
+    const r = await applyReferral("friend-1", "GOOD01", "offer-challenge");
+    expect(r).toMatchObject({ linked: true, terminal: true, welcomeOfferCreated: true, referrerId: "ref-1" });
+    expect(prisma.bubuiChallengeParticipant.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { offerId_friendCustomerId: { offerId: "offer-challenge", friendCustomerId: "friend-1" } }
+    }));
+    expect(creditReferrerWallet).not.toHaveBeenCalled();
   });
 
   it("matches an Android browser click when registration uses the React Native user-agent", async () => {

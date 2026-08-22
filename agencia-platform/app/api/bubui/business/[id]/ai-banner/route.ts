@@ -25,6 +25,7 @@ import { isPaidPlan } from "@/lib/bubui/plan";
 import { getAiBannerPolicy, getAiBannerFreeCount } from "@/lib/bubui/ai-banner-settings";
 import { generateBusinessBanner, isPhotoAiEnabledAsync } from "@/lib/bubui/photo";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
+import { publicMediaUrl } from "@/lib/bubui/public-media";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // gpt-image-2 con edición tarda
@@ -42,7 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       { status: 503 }
     );
   }
-  if (!isStorageEnabled() || !process.env.STORAGE_PUBLIC_URL) {
+  if (!isStorageEnabled()) {
     return NextResponse.json(
       { error: { code: "storage_unavailable", message: "El almacenamiento permanente del banner no está configurado. No se ha consumido ningún uso." } },
       { status: 503 }
@@ -148,7 +149,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   let remainingCredits = business.aiBannerCredits;
 
   // ── Almacenamiento ──
-  if (!isStorageEnabled() || !process.env.STORAGE_PUBLIC_URL) {
+  if (!isStorageEnabled()) {
     return NextResponse.json(
       { error: { code: "storage_unavailable", message: "El almacenamiento permanente del banner no está configurado. No se ha consumido ningún uso." } },
       { status: 503 }
@@ -159,7 +160,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const buf = Buffer.from(pngBase64, "base64");
     const key = `bubui/ai-banner/${params.id}/${Date.now()}.png`;
     await uploadBuffer({ s3Key: key, body: buf, contentType: "image/png" });
-    url = await signedDownloadUrl(key);
+    url = process.env.STORAGE_PUBLIC_URL
+      ? await signedDownloadUrl(key)
+      : publicMediaUrl(
+          (process.env.NEXT_PUBLIC_BUBUI_URL || process.env.HUB_BASE_URL || "https://bubui.app").replace(/\/+$/, ""),
+          key
+        );
   } catch (e: any) {
     console.error("[bubui ai-banner storage]", e?.message ?? e);
     return NextResponse.json(

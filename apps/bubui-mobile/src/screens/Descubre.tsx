@@ -13,7 +13,7 @@ import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 type Business = {
   id: string; slug: string; name: string; category: string; city: string;
   address?: string | null; latitude?: number | null; longitude?: number | null;
-  logoUrl?: string | null; brandColor?: string | null;
+  logoUrl?: string | null; coverImageUrl?: string | null; brandColor?: string | null;
   defaultDiscountPct: number; distanceM: number | null; topInCategory?: boolean;
 };
 
@@ -129,7 +129,7 @@ export function Descubre() {
             <FadeIn delay={Math.min(index, 6) * 50} dy={18}>
               <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => nav.navigate("Negocio", { business: b })}>
                 <View style={[styles.photo, b.brandColor ? { backgroundColor: b.brandColor } : null]}>
-                  {!!b.logoUrl && <Image source={{ uri: b.logoUrl }} style={styles.photoImg} resizeMode="cover" />}
+                  {!!(b.coverImageUrl || b.logoUrl) && <Image source={{ uri: b.coverImageUrl || b.logoUrl! }} style={styles.photoImg} resizeMode="cover" />}
                   <TouchableOpacity style={styles.heart} onPress={() => toggleFav(b.slug)}>
                     <Text style={{ fontSize: 16 }}>{fav ? "❤️" : "🤍"}</Text>
                   </TouchableOpacity>

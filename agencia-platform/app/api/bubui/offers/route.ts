@@ -92,6 +92,7 @@ export async function GET(req: Request) {
           latitude: true,
           longitude: true,
           logoUrl: true,
+          coverImageUrl: true,
           challengeImageUrl: true,
           challengeServiceDescription: true,
           challengeServicePrice: true,
@@ -115,20 +116,28 @@ export async function GET(req: Request) {
   // tiene ya el cliente y sus iniciales (para el reto VISIBLE: caritas con la
   // inicial de cada amigo que ya cuenta + huecos por rellenar).
   const hasLocked = offers.some((o) => !o.active);
-  const verifiedFriends = hasLocked
-    ? await prisma.bubuiCustomer.findMany({
-        where: { referredById: customerId, phoneVerified: true },
-        orderBy: { createdAt: "asc" },
-        select: { id: true, name: true, referralOfferId: true }
-      })
-    : [];
-  const verifiedNow = verifiedFriends.length;
   const challengeParticipants = hasLocked
     ? await prisma.bubuiChallengeParticipant.findMany({
         where: { offerId: { in: offers.filter((offer) => !offer.active).map((offer) => offer.id) } },
         select: { offerId: true, friendCustomerId: true, status: true, registeredAt: true }
       })
     : [];
+  const participantFriendIds = Array.from(new Set(challengeParticipants.map((participant) => participant.friendCustomerId)));
+  const verifiedFriends = hasLocked
+    ? await prisma.bubuiCustomer.findMany({
+        where: {
+          phoneVerified: true,
+          OR: [
+            { referredById: customerId },
+            ...(participantFriendIds.length ? [{ id: { in: participantFriendIds } }] : [])
+          ]
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, referralOfferId: true, referredById: true }
+      })
+    : [];
+  const globallyReferredFriends = verifiedFriends.filter((friend) => friend.referredById === customerId);
+  const verifiedNow = globallyReferredFriends.length;
   // Retos que exigen que los amigos compren: recuento por negocio (amigos que
   // ya compraron allí). Se calcula solo para los negocios implicados.
   const purchasersByBiz = new Map<string, Set<string>>();
@@ -137,7 +146,7 @@ export async function GET(req: Request) {
     const welcomeOffers = await prisma.bubuiOffer.findMany({
       where: {
         businessId: o.businessId,
-        customerId: { in: verifiedFriends.map((friend) => friend.id) },
+        customerId: { in: globallyReferredFriends.map((friend) => friend.id) },
         source: "referral_welcome"
       },
       select: { id: true, customerId: true }
@@ -164,7 +173,7 @@ export async function GET(req: Request) {
   // llegar al umbral de amigos dados de alta (configurable por el admin).
   const altMinReferrals = hasLocked ? await getAltActionMinReferrals() : 0;
   const altActionsUnlocked = hasLocked && verifiedNow >= altMinReferrals;
-  const friendInitials = verifiedFriends.map((f) => (f.name?.trim()?.[0] || "?").toUpperCase());
+  const friendInitials = globallyReferredFriends.map((f) => (f.name?.trim()?.[0] || "?").toUpperCase());
 
   // Negocios donde el cliente YA dejó (verificada) una reseña en Google: no
   // le volvemos a ofrecer reseñar (Google solo permite una por usuario/sitio).
@@ -241,7 +250,7 @@ export async function GET(req: Request) {
       // Reto visible: iniciales de los amigos que ya cuentan para ESTE reto.
       friendsJoined: locked ? friendInitials.slice(0, have) : [],
       friendProgress: locked
-        ? buildFriendChallengeProgress(usesAttributedProgress ? attributedFriends : verifiedFriends, attributedPurchasers, o.unlockShares)
+        ? buildFriendChallengeProgress(usesAttributedProgress ? attributedFriends : globallyReferredFriends, attributedPurchasers, o.unlockShares)
         : [],
       // Activación alternativa por acción (reseña/foto) — solo cupones-reto y
       // solo si el usuario ya superó el umbral de amigos.

@@ -84,6 +84,19 @@ export async function countVerifiedReferrals(referrerId: string): Promise<number
 }
 
 export async function countOfferReferrals(referrerId: string, offerId: string): Promise<number> {
+  const participants = await prisma.bubuiChallengeParticipant.findMany({
+    where: { offerId, referrerCustomerId: referrerId },
+    select: { friendCustomerId: true, status: true }
+  });
+  if (participants.length > 0) {
+    const activeIds = participants
+      .filter((participant) => participant.status !== "declined" && participant.status !== "lost")
+      .map((participant) => participant.friendCustomerId);
+    if (activeIds.length === 0) return 0;
+    return prisma.bubuiCustomer.count({
+      where: { id: { in: activeIds }, phoneVerified: true }
+    });
+  }
   return prisma.bubuiCustomer.count({
     where: { referredById: referrerId, referralOfferId: offerId, phoneVerified: true }
   });
@@ -103,10 +116,15 @@ export async function countQualifiedOfferReferrals(
     select: { id: true, customerId: true }
   });
   if (welcomeOffers.length === 0) return 0;
+  const participants = await prisma.bubuiChallengeParticipant.findMany({
+    where: { offerId, referrerCustomerId: referrerId, friendCustomerId: { in: welcomeOffers.map((welcome) => welcome.customerId) } },
+    select: { friendCustomerId: true }
+  });
+  if (participants.length === 0) return 0;
+  const participantIds = participants.map((participant) => participant.friendCustomerId);
   const friends = await prisma.bubuiCustomer.findMany({
     where: {
-      id: { in: welcomeOffers.map((welcome) => welcome.customerId) },
-      referredById: referrerId,
+      id: { in: participantIds },
       phoneVerified: true
     },
     select: { id: true }
@@ -244,7 +262,10 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
 
   const friend = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
   if (!friend) return { linked: false, terminal: true, reason: "friend_not_found" };
-  if (friend.referredById && friend.referredById !== referrer.id) {
+  // La afiliación global es de un solo uso, pero la participación en un reto
+  // contextual es M:N. Un cliente existente puede aceptar retos posteriores
+  // sin cambiar su referredById ni generar de nuevo premios de captación.
+  if (!offerId && friend.referredById && friend.referredById !== referrer.id) {
     return { linked: false, terminal: true, reason: "already_referred_other", referrerId: friend.referredById };
   }
 
@@ -273,7 +294,7 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
       return { linked: false, terminal: friend.referredById !== referrer.id, reason: "invalid_challenge" };
     }
   }
-  const newlyLinked = !friend.referredById;
+  let newlyLinked = !friend.referredById;
   if (newlyLinked) {
     // updateMany con guard = link atómico (no pisa un vínculo concurrente).
     const upd = await prisma.bubuiCustomer.updateMany({
@@ -282,9 +303,10 @@ export async function applyReferral(friendId: string, code: string, offerId?: st
     });
     if (upd.count === 0) {
       const again = await prisma.bubuiCustomer.findUnique({ where: { id: friendId }, select: { referredById: true } });
-      if (again?.referredById !== referrer.id) {
+      if (again?.referredById !== referrer.id && !challenge) {
         return { linked: false, terminal: true, reason: "already_referred_other", referrerId: again?.referredById ?? undefined };
       }
+      if (again?.referredById !== referrer.id) newlyLinked = false;
     }
   }
   if (challenge) {

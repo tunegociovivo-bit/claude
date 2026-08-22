@@ -51,6 +51,7 @@ export async function GET(req: Request) {
       latitude: true,
       longitude: true,
       logoUrl: true,
+      coverImageUrl: true,
       brandColor: true,
       defaultDiscountPct: true,
       visibilityScore: true,

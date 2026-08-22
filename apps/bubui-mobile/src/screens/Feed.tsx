@@ -37,6 +37,7 @@ type Offer = {
     latitude?: number | null;
     longitude?: number | null;
     logoUrl?: string | null;
+    coverImageUrl?: string | null;
     challengeImageUrl?: string | null;
     brandColor?: string | null;
   };
@@ -225,7 +226,7 @@ export function Feed() {
             business: {
               id: b.id, slug: b.slug, name: b.name, category: b.category, city: b.city,
               address: b.address, phone: b.phone,
-              latitude: b.latitude, longitude: b.longitude, logoUrl: b.logoUrl, brandColor: b.brandColor
+              latitude: b.latitude, longitude: b.longitude, logoUrl: b.logoUrl, coverImageUrl: b.coverImageUrl, brandColor: b.brandColor
             },
             discountPct: b.defaultDiscountPct ?? 0,
             rewardLabel: null,
@@ -576,8 +577,8 @@ export function Feed() {
                     style={styles.photoImg}
                     resizeMode={item.business.challengeImageUrl ? "cover" : "contain"}
                   />
-                ) : item.business.logoUrl ? (
-                  <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
+                ) : (item.business.coverImageUrl || item.business.logoUrl) ? (
+                  <Image source={{ uri: item.business.coverImageUrl || item.business.logoUrl! }} style={styles.photoImg} resizeMode="cover" />
                 ) : (
                   <Gradient
                     colors={item.business.brandColor ? [item.business.brandColor, item.business.brandColor] : OFFER_GRADS[index % OFFER_GRADS.length]}
