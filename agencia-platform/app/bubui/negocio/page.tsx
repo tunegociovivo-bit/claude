@@ -3328,6 +3328,8 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     businessType: business.businessType ?? "servicios",
     address: business.address ?? "",
     phone: business.phone ?? "",
+    notificationEmail: business.notificationEmail ?? business.ownerEmail ?? "",
+    notificationWhatsapp: business.notificationWhatsapp ?? business.ownerPhone ?? "",
     latitude: business.latitude ?? "",
     longitude: business.longitude ?? "",
     logoUrl: business.logoUrl ?? "",
@@ -3380,6 +3382,8 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (form.businessType !== (business.businessType ?? "servicios")) payload.businessType = form.businessType;
       if (form.address !== business.address) payload.address = form.address || null;
       if (form.phone !== (business.phone ?? "")) payload.phone = form.phone || null;
+      if (form.notificationEmail !== (business.notificationEmail ?? business.ownerEmail ?? "")) payload.notificationEmail = form.notificationEmail || null;
+      if (form.notificationWhatsapp !== (business.notificationWhatsapp ?? business.ownerPhone ?? "")) payload.notificationWhatsapp = form.notificationWhatsapp || null;
       if (form.latitude !== "" && Number(form.latitude) !== business.latitude) payload.latitude = Number(form.latitude);
       if (form.longitude !== "" && Number(form.longitude) !== business.longitude) payload.longitude = Number(form.longitude);
       if (form.logoUrl !== business.logoUrl) payload.logoUrl = form.logoUrl || null;
@@ -3519,6 +3523,16 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
             className="w-full px-2 py-1.5 border rounded bg-white"
           />
         </label>
+        <div className="sm:col-span-2 rounded-xl border-2 border-pink-200 bg-pink-50 p-4 space-y-3">
+          <div>
+            <div className="font-bold text-sm">🔔 Notificaciones del negocio</div>
+            <p className="text-[11px] text-slate-600 mt-1">Datos privados para recibir seguimientos de retos. No cambian tu email de acceso ni se muestran a los clientes.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <label><span className="block font-medium mb-1">Email de notificaciones</span><input type="email" value={form.notificationEmail} onChange={(e) => setForm({ ...form, notificationEmail: e.target.value })} placeholder="avisos@minegocio.com" className="w-full px-2 py-1.5 border rounded bg-white" /></label>
+            <label><span className="block font-medium mb-1">WhatsApp de notificaciones</span><input type="tel" inputMode="tel" value={form.notificationWhatsapp} onChange={(e) => setForm({ ...form, notificationWhatsapp: e.target.value })} placeholder="+34 600 000 000" className="w-full px-2 py-1.5 border rounded bg-white" /></label>
+          </div>
+        </div>
         <label className="sm:col-span-2">
           <span className="block font-medium mb-1">Teléfono de contacto</span>
           <input

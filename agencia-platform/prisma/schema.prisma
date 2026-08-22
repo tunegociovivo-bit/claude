@@ -4829,6 +4829,9 @@ model BubuiBusiness {
   ownerPasswordHash          String
   ownerName                  String?
   ownerPhone                 String?
+  // Destinos privados para avisos operativos del negocio (no se muestran al cliente).
+  notificationEmail          String?
+  notificationWhatsapp       String?
   // Quien lo refirió a Bubui (si vino vía QR de otro negocio).
   referrerId                 String?
   // Stripe billing — para suscripción Pro/Premium.

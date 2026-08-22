@@ -41,6 +41,8 @@ const schema = z
     address: z.string().max(200).optional().nullable(),
     // Teléfono público de contacto (botón "Llamar" en la app).
     phone: z.string().trim().max(30).optional().nullable(),
+    notificationEmail: z.string().trim().email().max(254).optional().nullable(),
+    notificationWhatsapp: z.string().trim().max(30).optional().nullable(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     logoUrl: z.string().url().optional().nullable(),
@@ -148,6 +150,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (!normalizedPhone) return NextResponse.json({ error: { code: "validation", message: "Introduce un teléfono válido con prefijo internacional." } }, { status: 400 });
     data.phone = normalizedPhone;
   }
+  if (data.notificationEmail === "") data.notificationEmail = null;
+  if (data.notificationWhatsapp === "") data.notificationWhatsapp = null;
+  if (data.notificationWhatsapp) {
+    const normalized = normalizeBusinessPhone(data.notificationWhatsapp);
+    if (!normalized) return NextResponse.json({ error: { code: "validation", message: "Introduce un WhatsApp válido con prefijo internacional." } }, { status: 400 });
+    data.notificationWhatsapp = normalized;
+  }
   if (data.websiteUrl === "") data.websiteUrl = null;
   if (data.googlePlaceId === "") data.googlePlaceId = null;
   for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl", "tripadvisorUrl"] as const) {
@@ -189,6 +198,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       longitude: updated.longitude,
       logoUrl: updated.logoUrl,
       coverImageUrl: updated.coverImageUrl,
+      notificationEmail: updated.notificationEmail,
+      notificationWhatsapp: updated.notificationWhatsapp,
       websiteUrl: updated.websiteUrl,
       challengeImageUrl: updated.challengeImageUrl,
       brandColor: updated.brandColor,

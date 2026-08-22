@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { cronAuthOk } from "@/lib/cron-auth";
 import { sendPushToBubuiBusiness } from "@/lib/bubui/business-push";
 import { isEmailEnabled, sendEmail } from "@/lib/integrations/email";
+import { buildChallengeFollowupMessage } from "@/lib/bubui/challenge-followup-message";
+import { normalizePhone, sendText } from "@/lib/leads/waha";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +24,16 @@ export async function GET(req: NextRequest) {
     });
     if (claimed.count === 0) continue;
     try {
-      const [business, friend] = await Promise.all([
-        prisma.bubuiBusiness.findUnique({ where: { id: participant.businessId }, select: { name: true, ownerEmail: true } }),
-        prisma.bubuiCustomer.findUnique({ where: { id: participant.friendCustomerId }, select: { name: true, phone: true } })
+      const [business, friend, offer] = await Promise.all([
+        prisma.bubuiBusiness.findUnique({ where: { id: participant.businessId }, select: { name: true, ownerEmail: true, ownerPhone: true, phone: true, notificationEmail: true, notificationWhatsapp: true } }),
+        prisma.bubuiCustomer.findUnique({ where: { id: participant.friendCustomerId }, select: { name: true, phone: true } }),
+        prisma.bubuiOffer.findUnique({ where: { id: participant.offerId }, select: { rewardLabel: true, discountPct: true, challengeServiceDescription: true } })
       ]);
       if (!business) throw new Error("business_not_found");
       const who = friend?.name || friend?.phone || "El nuevo cliente";
       const second = originalStatus === "still_pending";
+      const reviewUrl = `https://hub.negociovivo.app/bubui/negocio?challenge=${encodeURIComponent(participant.offerId)}&friend=${encodeURIComponent(participant.friendCustomerId)}#retos-activos`;
+      const rich = buildChallengeFollowupMessage({ businessName: business.name, friendName: who, challengeTitle: offer?.challengeServiceDescription || offer?.rewardLabel, discountPct: offer?.discountPct, second, reviewUrl });
       const message = second
         ? `¿${who} ha contratado ya el servicio del reto? Puedes confirmar, enviarle un recordatorio o darlo por perdido.`
         : `Ha llegado el momento de revisar el alta de ${who}. ¿Ha contratado el servicio con el descuento del reto?`;
@@ -50,13 +55,19 @@ export async function GET(req: NextRequest) {
         link: "/bubui/negocio#retos-activos",
         tag: `challenge_followup_${participant.id}_${finalStatus}`
       }).catch(() => ({ sent: 0, removed: 0 }));
-      if (isEmailEnabled() && business.ownerEmail) {
+      const emailTo = business.notificationEmail || business.ownerEmail;
+      if (isEmailEnabled() && emailTo) {
         await sendEmail({
-          to: business.ownerEmail,
-          subject: `Seguimiento del reto de ${who}`,
-          text: `${message}\n\nResponde Sí, No o Todavía no desde Retos activos: https://hub.negociovivo.app/bubui/negocio#retos-activos`,
-          html: `<p>${message}</p><p><a href="https://hub.negociovivo.app/bubui/negocio#retos-activos">Responder Sí, No o Todavía no</a></p>`
+          to: emailTo,
+          subject: rich.subject,
+          text: rich.text,
+          html: rich.html
         }).catch((error) => console.error("[bubui challenge followup email]", participant.id, error));
+      }
+      const whatsapp = normalizePhone(business.notificationWhatsapp || business.ownerPhone || business.phone);
+      if (whatsapp) {
+        const workspace = await prisma.workspace.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+        if (workspace) await sendText({ workspaceId: workspace.id, phoneNormalized: whatsapp, text: rich.text }).catch((error) => console.error("[bubui challenge followup whatsapp]", participant.id, error));
       }
       sent++;
     } catch (error) {
