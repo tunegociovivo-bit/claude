@@ -22,6 +22,7 @@ import { applyPendingRef } from "../lib/referral-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
 import { friendCouponDestination, friendCouponPresentation, friendSlotState, type FriendProgress } from "../lib/friend-challenge-presentation";
 import { canRemindChallengeFriend } from "../lib/whatsapp-target";
+import { challengePriceBreakdown, formatEuro } from "../lib/challenge-details";
 
 type Offer = {
   offerId: string;
@@ -411,6 +412,29 @@ export function Feed() {
                     </Text>
                   </View>
                 </View>
+                <View style={styles.challengePrizeBox}>
+                  <View style={styles.challengePrizeHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.challengePrizeEyebrow}>TU PREMIO AL COMPLETARLO</Text>
+                      <Text style={styles.challengePrizeTitle}>{item.rewardLabel || "Descuento especial"}</Text>
+                    </View>
+                    {item.discountPct > 0 && <Text style={styles.challengePrizeBadge}>−{item.discountPct}%</Text>}
+                  </View>
+                  {!!item.challengeServiceDescription && (
+                    <Text style={styles.challengePrizeDescription} numberOfLines={4}>{item.challengeServiceDescription}</Text>
+                  )}
+                  <Text style={styles.challengeMode}>{item.challengeServiceMode === "online" ? "💬 Servicio online" : "📍 Servicio en el local"}</Text>
+                  {(() => {
+                    const price = item.discountPct > 0 ? challengePriceBreakdown(item.challengeServicePrice, item.discountPct) : null;
+                    return price ? (
+                      <View style={styles.challengePrices}>
+                        <View><Text style={styles.challengePriceLabel}>PRECIO ORIGINAL</Text><Text style={styles.challengeOriginal}>{formatEuro(price.original)}</Text></View>
+                        <View><Text style={styles.challengePriceLabel}>AHORRAS</Text><Text style={styles.challengeSavings}>{formatEuro(price.savings)}</Text></View>
+                        <View style={styles.challengeFinalBox}><Text style={styles.challengeFinalLabel}>PAGARÁS</Text><Text style={styles.challengeFinal}>{formatEuro(price.final)}</Text></View>
+                      </View>
+                    ) : null;
+                  })()}
+                </View>
                 <Text style={styles.challengeMsg}>
                   {item.sharesLeft && item.sharesLeft > 0
                     ? `Tráete ${item.sharesLeft} amig${item.sharesLeft === 1 ? "o" : "os"} más a Bubui para activarla.`
@@ -539,14 +563,18 @@ export function Feed() {
                 openFriendChallenge(item);
               }}
             >
-              <View style={[styles.photo, friendCouponPresentation(item.source).isFriendCoupon && styles.friendPhoto]}>
+              <View style={[
+                styles.photo,
+                friendCouponPresentation(item.source).isFriendCoupon && styles.friendPhoto,
+                friendCouponPresentation(item.source).isFriendCoupon && !item.business.challengeImageUrl && styles.defaultFriendPhoto,
+              ]}>
                 {friendCouponPresentation(item.source).isFriendCoupon ? (
                   <Image
                     source={item.business.challengeImageUrl
                       ? { uri: item.business.challengeImageUrl }
                       : require("../../assets/challenge-default.png")}
                     style={styles.photoImg}
-                    resizeMode="cover"
+                    resizeMode={item.business.challengeImageUrl ? "cover" : "contain"}
                   />
                 ) : item.business.logoUrl ? (
                   <Image source={{ uri: item.business.logoUrl }} style={styles.photoImg} resizeMode="cover" />
@@ -558,7 +586,12 @@ export function Feed() {
                 )}
                 {/* Velo inferior para que los chips de vidrio se lean sobre
                     cualquier foto. */}
-                <Gradient colors={gradients.scrim} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.photoScrim} />
+                <Gradient
+                  colors={gradients.scrim}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={[styles.photoScrim, friendCouponPresentation(item.source).isFriendCoupon && !item.business.challengeImageUrl && styles.defaultPhotoScrim]}
+                />
                 {item.discountPct > 0 && (
                   <View style={styles.badge}><Text style={styles.badgeText}>-{item.discountPct}%</Text></View>
                 )}
@@ -642,6 +675,20 @@ const makeStyles = (c: Palette) =>
     challengeLock: { fontSize: 26 },
     challengeBiz: { fontSize: 15, fontWeight: "900", color: c.black },
     challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
+    challengePrizeBox: { marginTop: 12, padding: 13, borderRadius: radius.md, backgroundColor: c.white, borderWidth: 1, borderColor: c.border },
+    challengePrizeHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+    challengePrizeEyebrow: { fontSize: 9, fontWeight: "900", color: c.gray, letterSpacing: 0.5 },
+    challengePrizeTitle: { marginTop: 3, fontSize: 15, fontWeight: "900", color: c.black },
+    challengePrizeBadge: { color: c.onAccent, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, fontSize: 18, fontWeight: "900" },
+    challengePrizeDescription: { marginTop: 9, color: c.ink, fontSize: 12, lineHeight: 17 },
+    challengeMode: { marginTop: 8, color: c.pinkDeep, fontSize: 11, fontWeight: "800" },
+    challengePrices: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+    challengePriceLabel: { color: c.gray, fontSize: 8, fontWeight: "900" },
+    challengeOriginal: { color: c.gray, fontSize: 12, fontWeight: "800", textDecorationLine: "line-through" },
+    challengeSavings: { color: "#15946B", fontSize: 13, fontWeight: "900" },
+    challengeFinalBox: { backgroundColor: c.pinkSoft, borderRadius: radius.sm, paddingHorizontal: 9, paddingVertical: 6 },
+    challengeFinalLabel: { color: c.pinkDeep, fontSize: 8, fontWeight: "900" },
+    challengeFinal: { color: c.pinkDeep, fontSize: 17, fontWeight: "900" },
     challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
     slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
     slotColumn: { width: 54, minHeight: 54, alignItems: "center" },
@@ -668,8 +715,10 @@ const makeStyles = (c: Palette) =>
     altLocked: { marginTop: 12, fontSize: 12, color: c.gray, textAlign: "center", lineHeight: 17 },
     photo: { height: 150, backgroundColor: c.pinkSoft, justifyContent: "flex-end" },
     friendPhoto: { height: 210 },
+    defaultFriendPhoto: { height: Math.round((SCREEN_W - 32) * 512 / 2064) },
     photoImg: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     photoScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 90 },
+    defaultPhotoScrim: { height: 32 },
     badge: { position: "absolute", top: 12, right: 12, backgroundColor: "#fff", borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, ...shadow.card },
     badgeText: { color: c.pinkDeep, fontWeight: "900", fontSize: 14 },
     pillRow: { flexDirection: "row", gap: 8, padding: 12 },

@@ -8,9 +8,23 @@ describe("friend challenge details", () => {
   });
 
   it("genera mensaje de WhatsApp con el nombre del amigo", () => {
-    const copy = challengeActionCopy({ mode: "online", businessName: "Roman Trainer", inviterName: "Ana" });
+    const copy = challengeActionCopy({ mode: "online", businessName: "Roman Trainer", inviterName: "Ana", recipientName: "Luis", serviceTitle: "Entrenamiento personal", description: "Plan de tres meses", discountPct: 16, price: 250 });
     expect(copy).toContain("Ana");
+    expect(copy).toContain("Luis");
     expect(copy).toContain("Roman Trainer");
+    expect(copy).toContain("*16%*");
+    expect(copy).toContain("250,00");
+    expect(copy).toContain("40,00");
+    expect(copy).toContain("210,00");
+    expect(copy).toContain("Entrenamiento personal");
+  });
+
+  it("omite importes inexistentes sin empobrecer el mensaje", () => {
+    const copy = challengeActionCopy({ mode: "online", businessName: "Negocio Vivo", discountPct: 15 });
+    expect(copy).toContain("Negocio Vivo");
+    expect(copy).toContain("*15%*");
+    expect(copy).not.toContain("Precio original");
+    expect(copy).not.toContain("undefined");
   });
 
   it("muestra precio, descuento y ahorro", () => {

@@ -19,6 +19,7 @@ describe("business challenge image contract", () => {
     expect(page).toContain("/bubui/challenge-default.png");
     expect(page).toContain("Imagen personalizada del reto");
     expect(page).toContain("challengeImageUrl");
+    expect(page).toContain("aspect-[2064/512] object-contain");
     expect(page).not.toContain('challengeImageUrl || business.logoUrl || "/bubui/challenge-default.png"');
   });
 

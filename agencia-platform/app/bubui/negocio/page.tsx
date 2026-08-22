@@ -1796,7 +1796,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
           <img
             src={challengeImageUrl || "/bubui/challenge-default.png"}
             alt="Vista previa del cupón enviado por un amigo"
-            className="w-full rounded-xl border border-pink-200 object-cover"
+            className={`w-full rounded-xl border border-pink-200 bg-pink-50 ${challengeImageUrl ? "object-cover" : "aspect-[2064/512] object-contain"}`}
           />
           <div className="flex flex-wrap items-center gap-2">
             <label className="inline-flex cursor-pointer items-center rounded-full bg-pink-600 px-4 py-2 text-xs font-bold text-white hover:bg-pink-700">

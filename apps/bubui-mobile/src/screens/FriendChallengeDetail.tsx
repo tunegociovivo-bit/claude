@@ -42,12 +42,18 @@ export function FriendChallengeDetail() {
   const { challenge } = useRoute<DetailRoute>().params;
   const [showWhatsAppChooser, setShowWhatsAppChooser] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const action = challengeActionCopy({
+  const actionFor = (recipientName?: string | null) => challengeActionCopy({
     mode: challenge.mode,
     businessName: challenge.business.name,
     address: challenge.business.address,
     inviterName: challenge.inviterName,
+    recipientName,
+    serviceTitle: challenge.rewardLabel,
+    description: challenge.description,
+    discountPct: challenge.discountPct,
+    price: challenge.price,
   });
+  const action = actionFor();
   const price = challengePriceBreakdown(challenge.price, challenge.discountPct);
   const daysLeft = challenge.daysLeft ?? Math.max(1, Math.ceil(challenge.hoursLeft / 24));
 
@@ -57,9 +63,11 @@ export function FriendChallengeDetail() {
   }
 
   async function openWhatsApp(target: WhatsAppTarget) {
+    const customer = await CheckSession().catch(() => null);
+    const richAction = actionFor(customer?.name);
     const url = Platform.OS === "android"
-      ? whatsappAppUrl(challenge.business.phone || "", action)
-      : whatsappChatUrl(challenge.business.phone || "", action);
+      ? whatsappAppUrl(challenge.business.phone || "", richAction)
+      : whatsappChatUrl(challenge.business.phone || "", richAction);
     setActionError(null);
     try {
       if (Platform.OS === "android") {
@@ -101,11 +109,11 @@ export function FriendChallengeDetail() {
         <TouchableOpacity style={styles.back} onPress={() => nav.goBack()} accessibilityRole="button">
           <Text style={styles.backText}>‹ Volver</Text>
         </TouchableOpacity>
-        <View style={styles.hero}>
+        <View style={[styles.hero, !challenge.business.challengeImageUrl && styles.defaultHero]}>
           <Image
             source={challenge.business.challengeImageUrl ? { uri: challenge.business.challengeImageUrl } : require("../../assets/challenge-default.png")}
-            style={styles.image}
-            resizeMode="cover"
+            style={[styles.image, !challenge.business.challengeImageUrl && styles.defaultImage]}
+            resizeMode={challenge.business.challengeImageUrl ? "cover" : "contain"}
           />
           <View style={styles.discountBadge}><Text style={styles.discountBadgeText}>−{challenge.discountPct}%</Text></View>
         </View>
@@ -179,7 +187,9 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   back: { alignSelf: "flex-start", paddingVertical: 8, paddingRight: 16 },
   backText: { color: c.pink, fontSize: 15, fontWeight: "800" },
   hero: { position: "relative", marginTop: 8 },
+  defaultHero: { aspectRatio: 2064 / 512 },
   image: { width: "100%", height: 230, borderRadius: radius.lg, backgroundColor: c.pinkSoft },
+  defaultImage: { height: "100%" },
   discountBadge: { position: "absolute", top: 14, right: 14, borderRadius: radius.pill, paddingHorizontal: 18, paddingVertical: 10, backgroundColor: c.pink, ...shadow.btn },
   discountBadgeText: { color: c.onAccent, fontSize: 22, fontWeight: "900" },
   eyebrow: { marginTop: 20, color: c.pink, fontWeight: "900", fontSize: 13, textAlign: "center", letterSpacing: 0.4 },
