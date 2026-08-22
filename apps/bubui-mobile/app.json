@@ -156,7 +156,8 @@
       "./plugins/withFmtConstevalFix",
       "./plugins/withOptionalGoogleServices",
       "./plugins/withIosNotificationServiceExtension",
-      "./plugins/withDisableAndroidBackup"
+      "./plugins/withDisableAndroidBackup",
+      "./plugins/withWhatsAppQueries"
     ],
     "extra": {
       "apiBaseUrl": "https://bubui.app",

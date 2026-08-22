@@ -5,7 +5,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { getCurrentLatLng } from "../lib/location";
 import { CheckSession, saveSession, type Customer } from "../lib/session";
 import { api, type BannerBusiness } from "../lib/api";
-import { shareReferralForOffer } from "../lib/share-referral";
+import { remindFriendForOffer, shareReferralForOffer } from "../lib/share-referral";
 import { Ionicons } from "@expo/vector-icons";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
@@ -21,6 +21,7 @@ import { claimPendingDeal, onDealClaimed } from "../lib/deal-pending";
 import { applyPendingRef } from "../lib/referral-pending";
 import { startBubuiGeofencing } from "../lib/geofence";
 import { friendCouponDestination, friendCouponPresentation, friendSlotState, type FriendProgress } from "../lib/friend-challenge-presentation";
+import { canRemindChallengeFriend } from "../lib/whatsapp-target";
 
 type Offer = {
   offerId: string;
@@ -424,15 +425,32 @@ export function Feed() {
                         const state = friendSlotState(progress);
                         const initial = progress?.initial;
                         return (
-                          <View key={progress?.customerId ?? i} style={styles.slotColumn}>
-                            <View style={[styles.slot, styles.slotEmpty, state === "complete" && styles.slotFilled]} accessibilityLabel={progress?.name ? `${progress.name}: ${state === "complete" ? "cupón utilizado" : "alta completada"}` : "Amigo pendiente"}>
+                          <TouchableOpacity
+                            key={progress?.customerId ?? i}
+                            style={styles.slotColumn}
+                            disabled={!canRemindChallengeFriend(progress)}
+                            accessibilityRole={canRemindChallengeFriend(progress) ? "button" : undefined}
+                            accessibilityLabel={progress?.name ? `${progress.name}: ${state === "complete" ? "cupón utilizado" : "alta completada. Enviar recordatorio"}` : "Amigo pendiente"}
+                            onPress={async () => {
+                              if (!customer?.customerId || !progress?.name) return;
+                              const shared = await remindFriendForOffer(customer.customerId, progress.name, {
+                                offerId: item.offerId,
+                                businessName: item.business.name,
+                              });
+                              if (!shared) Alert.alert("No se pudo preparar el recordatorio", "Comprueba tu conexión y vuelve a intentarlo.");
+                            }}
+                          >
+                            <View
+                              style={[styles.slot, styles.slotEmpty, state === "complete" && styles.slotFilled]}
+                            >
                               {state === "half" && <View style={styles.slotHalf} />}
                               <Text style={state !== "empty" ? styles.slotInitial : styles.slotPlus}>
                                 {state !== "empty" ? initial : "+"}
                               </Text>
                             </View>
                             <Text style={styles.slotName} numberOfLines={1}>{progress?.name || "Pendiente"}</Text>
-                          </View>
+                            {state === "half" && <Text style={styles.slotReminder}>Recordar</Text>}
+                          </TouchableOpacity>
                         );
                       })}
                     </View>
@@ -626,8 +644,9 @@ const makeStyles = (c: Palette) =>
     challengeReward: { fontSize: 13, fontWeight: "800", color: c.pink },
     challengeMsg: { fontSize: 13, color: c.black, marginTop: 8, marginBottom: 10 },
     slotsRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
-    slotColumn: { width: 54, alignItems: "center" },
+    slotColumn: { width: 54, minHeight: 54, alignItems: "center" },
     slotName: { width: 54, marginTop: 4, fontSize: 9, fontWeight: "700", color: c.gray, textAlign: "center" },
+    slotReminder: { width: 54, marginTop: 2, fontSize: 8, fontWeight: "900", color: c.pink, textAlign: "center" },
     slotLegend: { marginTop: -6, marginBottom: 12, fontSize: 11, color: c.gray, fontWeight: "600" },
     challengePending: { fontSize: 12, color: c.gray, marginTop: -4, marginBottom: 10, lineHeight: 16 },
     slot: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },

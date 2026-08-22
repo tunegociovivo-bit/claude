@@ -16,4 +16,18 @@ describe("Android clean-install challenge configuration", () => {
   it("disables Android Auto Backup so an uninstall cannot restore stale attribution", () => {
     expect(config.plugins).toContain("./plugins/withDisableAndroidBackup");
   });
+
+  it("directs WhatsApp choices to the selected Android package", () => {
+    expect(config.plugins).toContain("./plugins/withWhatsAppQueries");
+    const patch = readFileSync(resolve(__dirname, "../../../patches/expo-intent-launcher+12.1.5.patch"), "utf8");
+    expect(patch).toContain("intent.setPackage(params.packageName)");
+  });
+
+  it("keeps the challenge acceptance CTA outside the scrollable content", () => {
+    const source = readFileSync(resolve(__dirname, "../../screens/FriendChallengeDetail.tsx"), "utf8");
+    const scrollEnd = source.indexOf("</ScrollView>");
+    const footer = source.indexOf("styles.stickyFooter");
+    expect(scrollEnd).toBeGreaterThan(0);
+    expect(footer).toBeGreaterThan(scrollEnd);
+  });
 });

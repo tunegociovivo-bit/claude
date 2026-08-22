@@ -11,7 +11,7 @@ vi.mock("../api", () => ({
   api: { referral: H.referral }
 }));
 
-import { shareReferralForOffer } from "../share-referral";
+import { remindFriendForOffer, shareReferralForOffer } from "../share-referral";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -40,5 +40,17 @@ describe("shareReferralForOffer", () => {
     H.share.mockRejectedValue(new Error("cancelled"));
 
     await expect(shareReferralForOffer("customer-1", { offerId: "offer12345678" })).resolves.toBe(false);
+  });
+});
+
+describe("remindFriendForOffer", () => {
+  it("prepara un recordatorio nominal con el enlace del reto exacto", async () => {
+    H.referral.mockResolvedValue({ code: "ABC123" });
+    H.share.mockResolvedValue({ action: "sharedAction" });
+    await expect(remindFriendForOffer("customer-1", "Ana", { offerId: "offer123", businessName: "Roman Trainer" })).resolves.toBe(true);
+    expect(H.share).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("Hola Ana"),
+      url: "https://bubui.app/bubui/r/ABC123?offer=offer123"
+    }));
   });
 });

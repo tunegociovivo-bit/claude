@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../lib/api";
 import { CheckSession } from "../lib/session";
 import { challengeActionCopy, challengePriceBreakdown, formatEuro } from "../lib/challenge-details";
-import { WHATSAPP_PACKAGES, whatsappChatUrl, type WhatsAppTarget } from "../lib/whatsapp-target";
+import { WHATSAPP_PACKAGES, whatsappAppUrl, whatsappChatUrl, type WhatsAppTarget } from "../lib/whatsapp-target";
 import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 import type { RootStackParamList } from "../../App";
 
@@ -57,7 +57,9 @@ export function FriendChallengeDetail() {
   }
 
   async function openWhatsApp(target: WhatsAppTarget) {
-    const url = whatsappChatUrl(challenge.business.phone || "", action);
+    const url = Platform.OS === "android"
+      ? whatsappAppUrl(challenge.business.phone || "", action)
+      : whatsappChatUrl(challenge.business.phone || "", action);
     setActionError(null);
     try {
       if (Platform.OS === "android") {
@@ -95,7 +97,7 @@ export function FriendChallengeDetail() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <TouchableOpacity style={styles.back} onPress={() => nav.goBack()} accessibilityRole="button">
           <Text style={styles.backText}>‹ Volver</Text>
         </TouchableOpacity>
@@ -134,12 +136,15 @@ export function FriendChallengeDetail() {
           <View style={styles.expiryPill}><Text style={styles.expiry}>⏰ Te quedan {daysLeft} {daysLeft === 1 ? "día" : "días"}</Text></View>
         </View>
 
-        {!!actionError && <Text style={styles.error}>{actionError}</Text>}
+        <Text style={styles.hint}>Cuando lo completes, tu amigo avanzará en su reto y ambos disfrutaréis del descuento.</Text>
+      </ScrollView>
+
+      <View style={[styles.stickyFooter, { paddingBottom: Math.max(12, insets.bottom) }]}>
+        {!!actionError && <Text style={styles.error} numberOfLines={2}>{actionError}</Text>}
         <TouchableOpacity style={styles.cta} onPress={acceptChallenge} accessibilityRole="button" accessibilityLabel={challenge.mode === "online" ? "Elegir WhatsApp para aceptar el reto" : "Escanear el QR para aceptar el reto"}>
           <Text style={styles.ctaText}>{challenge.mode === "online" ? "Elegir WhatsApp y aceptar" : "Escanear QR y aceptar el reto"}</Text>
         </TouchableOpacity>
-        <Text style={styles.hint}>Cuando lo completes, tu amigo avanzará en su reto y ambos disfrutaréis del descuento.</Text>
-      </ScrollView>
+      </View>
 
       <Modal visible={showWhatsAppChooser} transparent animationType="slide" onRequestClose={() => setShowWhatsAppChooser(false)}>
         <View style={styles.modalBackdrop}>
@@ -169,6 +174,7 @@ export function FriendChallengeDetail() {
 
 const makeStyles = (c: Palette) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
+  scroll: { flex: 1 },
   content: { paddingHorizontal: 18, paddingBottom: 36 },
   back: { alignSelf: "flex-start", paddingVertical: 8, paddingRight: 16 },
   backText: { color: c.pink, fontSize: 15, fontWeight: "800" },
@@ -193,7 +199,8 @@ const makeStyles = (c: Palette) => StyleSheet.create({
   actionCopy: { marginTop: 18, color: c.ink, fontSize: 14, lineHeight: 21 },
   expiryPill: { marginTop: 14, alignSelf: "flex-start", backgroundColor: c.pinkSoft, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill },
   expiry: { color: c.pinkDeep, fontSize: 12, fontWeight: "900" },
-  cta: { marginTop: 20, backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 18, paddingHorizontal: 18, alignItems: "center", ...shadow.btn },
+  stickyFooter: { backgroundColor: c.white, borderTopWidth: 1, borderTopColor: c.border, paddingHorizontal: 18, paddingTop: 12, ...shadow.card },
+  cta: { backgroundColor: c.pink, borderRadius: radius.pill, paddingVertical: 18, paddingHorizontal: 18, alignItems: "center", ...shadow.btn },
   ctaText: { color: c.onAccent, fontWeight: "900", fontSize: 16, textAlign: "center" },
   hint: { marginTop: 12, color: c.gray, textAlign: "center", fontSize: 12, lineHeight: 18 },
   error: { marginTop: 12, color: "#B42318", backgroundColor: "#FEF3F2", borderRadius: radius.md, padding: 10, textAlign: "center", fontWeight: "700" },

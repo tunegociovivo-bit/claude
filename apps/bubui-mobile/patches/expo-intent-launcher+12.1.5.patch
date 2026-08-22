@@ -1,0 +1,14 @@
+diff --git a/node_modules/expo-intent-launcher/android/src/main/java/expo/modules/intentlauncher/IntentLauncherModule.kt b/node_modules/expo-intent-launcher/android/src/main/java/expo/modules/intentlauncher/IntentLauncherModule.kt
+--- a/node_modules/expo-intent-launcher/android/src/main/java/expo/modules/intentlauncher/IntentLauncherModule.kt
++++ b/node_modules/expo-intent-launcher/android/src/main/java/expo/modules/intentlauncher/IntentLauncherModule.kt
+@@ -47,6 +47,10 @@ class IntentLauncherModule : Module() {
+             ComponentName(context, params.className)
+           }
+       }
++
++      if (params.className == null && params.packageName != null) {
++        intent.setPackage(params.packageName)
++      }
+ 
+       // `setData` and `setType` are exclusive, so we need to use `setDataAndType` in that case.
+       if (params.data != null && params.type != null) {

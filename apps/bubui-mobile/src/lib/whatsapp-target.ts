@@ -9,3 +9,12 @@ export function whatsappChatUrl(phone: string, message: string) {
   const digits = phone.replace(/\D/g, "");
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
+
+export function whatsappAppUrl(phone: string, message: string) {
+  const digits = phone.replace(/\D/g, "");
+  return `whatsapp://send?phone=${digits}&text=${encodeURIComponent(message)}`;
+}
+
+export function canRemindChallengeFriend(progress?: { registered?: boolean; redeemed?: boolean } | null) {
+  return !!progress?.registered && !progress?.redeemed;
+}
