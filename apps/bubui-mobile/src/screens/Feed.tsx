@@ -34,6 +34,10 @@ type Offer = {
     city?: string | null;
     address?: string | null;
     phone?: string | null;
+    websiteUrl?: string | null;
+    instagramUrl?: string | null;
+    facebookUrl?: string | null;
+    tiktokUrl?: string | null;
     latitude?: number | null;
     longitude?: number | null;
     logoUrl?: string | null;
@@ -225,7 +229,7 @@ export function Feed() {
             offerId: b.id,
             business: {
               id: b.id, slug: b.slug, name: b.name, category: b.category, city: b.city,
-              address: b.address, phone: b.phone,
+              address: b.address, phone: b.phone, websiteUrl: b.websiteUrl, instagramUrl: b.instagramUrl, facebookUrl: b.facebookUrl, tiktokUrl: b.tiktokUrl,
               latitude: b.latitude, longitude: b.longitude, logoUrl: b.logoUrl, coverImageUrl: b.coverImageUrl, brandColor: b.brandColor
             },
             discountPct: b.defaultDiscountPct ?? 0,

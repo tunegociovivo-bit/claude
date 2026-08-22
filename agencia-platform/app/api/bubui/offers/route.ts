@@ -89,6 +89,10 @@ export async function GET(req: Request) {
           city: true,
           address: true,
           phone: true,
+          websiteUrl: true,
+          instagramUrl: true,
+          facebookUrl: true,
+          tiktokUrl: true,
           latitude: true,
           longitude: true,
           logoUrl: true,
@@ -105,8 +109,7 @@ export async function GET(req: Request) {
           googlePlaceId: true,
           mesaReviewPlatform: true,
           tripadvisorUrl: true,
-          trustpilotUrl: true,
-          instagramUrl: true
+          trustpilotUrl: true
         }
       }
     }

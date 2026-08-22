@@ -1,8 +1,9 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, Share, Platform } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "../lib/api";
+import { BusinessIcon } from "../components/BusinessIcon";
+import { businessContactLinks, businessDiscountCopy, couponExpiryCopy, resolveBusinessHero } from "../lib/business-detail-presentation";
 import { FadeIn } from "../components/FadeIn";
 import { Gradient } from "../components/Gradient";
 import { useTheme, type Palette, radius, shadow, gradients } from "../lib/theme";
@@ -22,6 +23,11 @@ export type BusinessLite = {
   latitude?: number | null;
   longitude?: number | null;
   logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  websiteUrl?: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  tiktokUrl?: string | null;
   brandColor?: string | null;
   defaultDiscountPct?: number;
   discountPct?: number;
@@ -53,6 +59,10 @@ export function Negocio() {
   const { business: b } = useRoute<NegocioRoute>().params;
 
   const discount = b.discountPct ?? b.defaultDiscountPct;
+  const discountCopy = businessDiscountCopy(discount);
+  const expiryCopy = couponExpiryCopy(b.hoursLeft);
+  const media = resolveBusinessHero(b);
+  const contactLinks = businessContactLinks({ websiteUrl: b.websiteUrl, instagramUrl: b.instagramUrl, facebookUrl: b.facebookUrl, tiktokUrl: b.tiktokUrl, whatsapp: b.phone });
   const distance = fmtDistance(b.distanceM);
   // Para promos internas no hay ficha web: usamos su enlace de CTA o la home.
   const webUrl = b.slug ? `${API_BASE}/bubui/n/${b.slug}` : b.ctaLink || API_BASE;
@@ -107,9 +117,11 @@ export function Negocio() {
     <View style={styles.root}>
       <FadeIn replayOnFocus dy={0} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
-        {/* Hero con color de marca o gradiente */}
+        {/* Portada y logo son recursos distintos. */}
         <View style={[styles.hero, { paddingTop: insets.top + 8 }]}>
-          {b.brandColor ? (
+          {media.heroUrl ? (
+            <Image source={{ uri: media.heroUrl }} style={styles.heroImage} resizeMode="cover" />
+          ) : b.brandColor ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: b.brandColor }]} />
           ) : (
             <Gradient colors={gradients.brand} style={StyleSheet.absoluteFill} />
@@ -121,13 +133,13 @@ export function Negocio() {
             <Text style={styles.shareIcon}>↗</Text>
           </TouchableOpacity>
 
-          {b.logoUrl ? (
-            <Image source={{ uri: b.logoUrl }} style={styles.logo} resizeMode="cover" />
+          {media.logoUrl ? (
+            <Image source={{ uri: media.logoUrl }} style={styles.logo} resizeMode="contain" />
           ) : (
-            <Image source={require("../../assets/ill-tienda.png")} style={styles.logo} resizeMode="cover" />
+            <View style={styles.logoFallback}><Text style={styles.logoInitial}>{b.name.trim()[0]?.toUpperCase() || "B"}</Text></View>
           )}
-          {discount != null && (
-            <View style={styles.tag}><Text style={styles.tagText}>-{discount}%</Text></View>
+          {discountCopy && (
+            <View style={styles.tag}><Text style={styles.tagText}>{discountCopy.badge}</Text></View>
           )}
         </View>
 
@@ -145,6 +157,16 @@ export function Negocio() {
 
           {!!b.rewardLabel && <Text style={styles.reward}>🎁 {b.rewardLabel}</Text>}
 
+          {discountCopy && (
+            <View style={styles.discountCard}>
+              <Text style={styles.discountBadge}>{discountCopy.badge}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.discountTitle}>{discountCopy.title}</Text>
+                <Text style={styles.discountDetail}>{discountCopy.detail}</Text>
+              </View>
+            </View>
+          )}
+
           {!!b.description && <Text style={styles.desc}>{b.description}</Text>}
 
           {!!b.address && (
@@ -154,11 +176,11 @@ export function Negocio() {
             </View>
           )}
 
-          {b.hoursLeft != null && (
+          {expiryCopy && (
             <View style={styles.infoRow}>
               <Text style={styles.infoIcon}>⏰</Text>
-              <Text style={[styles.infoText, b.hoursLeft < 24 && { color: c.pink, fontWeight: "800" }]}>
-                Tu cupón caduca en {b.hoursLeft}h
+              <Text style={[styles.infoText, (b.hoursLeft ?? Infinity) < 24 && { color: c.pink, fontWeight: "800" }]}>
+                {expiryCopy}
               </Text>
             </View>
           )}
@@ -176,7 +198,7 @@ export function Negocio() {
           ) : (
             <TouchableOpacity style={styles.ctaWrap} onPress={() => nav.navigate("Scan", { businessId: "" })} activeOpacity={0.9}>
               <Gradient colors={gradients.hero} style={styles.cta}>
-                <Ionicons name="scan-outline" size={18} color="#fff" />
+                <BusinessIcon name="scan" size={20} color="#fff" />
                 <Text style={styles.ctaText}>Escanear QR aquí</Text>
               </Gradient>
             </TouchableOpacity>
@@ -185,21 +207,35 @@ export function Negocio() {
           <View style={styles.actionsRow}>
             {!b.isPromo && (
               <TouchableOpacity style={styles.action} onPress={howToGet} activeOpacity={0.85}>
-                <Ionicons name="navigate" size={22} color={c.pink} />
+                <BusinessIcon name="navigate" size={22} color={c.pink} />
                 <Text style={styles.actionText}>Cómo llegar</Text>
               </TouchableOpacity>
             )}
             {!!b.phone && (
               <TouchableOpacity style={styles.action} onPress={callBusiness} activeOpacity={0.85}>
-                <Ionicons name="call" size={22} color={c.pink} />
+                <BusinessIcon name="call" size={22} color={c.pink} />
                 <Text style={styles.actionText}>Llamar</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.action} onPress={shareDiscount} activeOpacity={0.85}>
-              <Ionicons name="logo-whatsapp" size={22} color={c.pink} />
+              <BusinessIcon name="share" size={22} color={c.pink} />
               <Text style={styles.actionText}>Compartir</Text>
             </TouchableOpacity>
           </View>
+
+          {contactLinks.length > 0 && (
+            <View style={styles.socialSection}>
+              <Text style={styles.socialTitle}>Conecta con {b.name}</Text>
+              <View style={styles.socialGrid}>
+                {contactLinks.map((link) => (
+                  <TouchableOpacity key={link.kind} style={styles.socialAction} onPress={() => Linking.openURL(link.url).catch(() => {})} activeOpacity={0.82}>
+                    <BusinessIcon name={link.kind} size={22} color={c.pink} />
+                    <Text style={styles.socialText}>{link.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {!b.isPromo && !!b.slug && (
             <TouchableOpacity onPress={() => Linking.openURL(webUrl).catch(() => {})} style={{ marginTop: 14 }}>
@@ -216,12 +252,15 @@ export function Negocio() {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: c.bg },
-    hero: { height: 240, alignItems: "center", justifyContent: "flex-end", paddingBottom: 0 },
+    hero: { height: 240, alignItems: "center", justifyContent: "flex-end", paddingBottom: 0, overflow: "hidden" },
+    heroImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     closeBtn: { position: "absolute", left: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
     closeText: { fontSize: 26, fontWeight: "900", color: "#0A0A0A", marginTop: -2 },
     shareBtn: { position: "absolute", right: 14, height: 40, width: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center" },
     shareIcon: { fontSize: 20, fontWeight: "900", color: "#0A0A0A" },
     logo: { height: 110, width: 110, borderRadius: 24, marginBottom: -34, borderWidth: 4, borderColor: c.bg, backgroundColor: c.white, ...shadow.card },
+    logoFallback: { height: 110, width: 110, borderRadius: 24, marginBottom: -34, borderWidth: 4, borderColor: c.bg, backgroundColor: c.pinkWash, alignItems: "center", justifyContent: "center", ...shadow.card },
+    logoInitial: { fontSize: 42, fontWeight: "900", color: c.pinkDeep },
     tag: { position: "absolute", right: 16, bottom: 14, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, ...shadow.btn },
     tagText: { color: c.onAccent, fontWeight: "900", fontSize: 15 },
     body: { paddingHorizontal: 20, paddingTop: 46, alignItems: "center" },
@@ -230,6 +269,10 @@ const makeStyles = (c: Palette) =>
     badge: { marginTop: 12, backgroundColor: c.pinkWash, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: c.pinkSoft },
     badgeText: { color: c.pinkDeep, fontWeight: "800", fontSize: 13 },
     reward: { marginTop: 12, fontSize: 15, fontWeight: "700", color: c.ink, textAlign: "center" },
+    discountCard: { alignSelf: "stretch", marginTop: 16, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.pinkWash, borderWidth: 1, borderColor: c.pinkSoft, borderRadius: radius.lg, padding: 14 },
+    discountBadge: { minWidth: 64, textAlign: "center", color: c.onAccent, backgroundColor: c.pink, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 9, fontSize: 18, fontWeight: "900", overflow: "hidden" },
+    discountTitle: { color: c.black, fontSize: 15, fontWeight: "900" },
+    discountDetail: { color: c.gray, fontSize: 12.5, lineHeight: 18, marginTop: 3 },
     desc: { marginTop: 14, fontSize: 14.5, color: c.ink, lineHeight: 21, textAlign: "center" },
     infoRow: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch", marginTop: 14, paddingHorizontal: 4 },
     infoIcon: { fontSize: 16 },
@@ -240,5 +283,10 @@ const makeStyles = (c: Palette) =>
     actionsRow: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 14 },
     action: { flex: 1, paddingVertical: 14, alignItems: "center", gap: 6, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white, ...shadow.card },
     actionText: { fontSize: 12.5, fontWeight: "800", color: c.ink },
+    socialSection: { alignSelf: "stretch", marginTop: 22 },
+    socialTitle: { color: c.black, fontSize: 16, fontWeight: "900", marginBottom: 10 },
+    socialGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+    socialAction: { minWidth: "30%", flexGrow: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 12, paddingHorizontal: 10, borderRadius: radius.md, borderWidth: 1, borderColor: c.border, backgroundColor: c.white },
+    socialText: { color: c.ink, fontSize: 12.5, fontWeight: "800" },
     fichaLink: { fontSize: 13, fontWeight: "700", color: c.gray, textAlign: "center" }
   });

@@ -12,8 +12,9 @@ import { useTheme, type Palette, radius, shadow } from "../lib/theme";
 
 type Business = {
   id: string; slug: string; name: string; category: string; city: string;
-  address?: string | null; latitude?: number | null; longitude?: number | null;
+  address?: string | null; phone?: string | null; latitude?: number | null; longitude?: number | null;
   logoUrl?: string | null; coverImageUrl?: string | null; brandColor?: string | null;
+  websiteUrl?: string | null; instagramUrl?: string | null; facebookUrl?: string | null; tiktokUrl?: string | null;
   defaultDiscountPct: number; distanceM: number | null; topInCategory?: boolean;
 };
 
