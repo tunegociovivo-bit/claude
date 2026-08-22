@@ -14,6 +14,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { bubuiUrl } from "@/lib/bubui/url";
+import { normalizeBusinessPhone } from "@/lib/bubui/business-phone";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: { code: "validation", message: parsed.error.issues[0]?.message ?? "Datos inválidos" } }, { status: 400 });
   }
   const d = parsed.data;
-  const business = await prisma.bubuiBusiness.findUnique({ where: { id: params.id }, select: { name: true } });
+  const business = await prisma.bubuiBusiness.findUnique({ where: { id: params.id }, select: { name: true, phone: true } });
   if (!business) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+  const normalizedPhone = normalizeBusinessPhone(business.phone);
+  if (d.serviceMode === "online" && !normalizedPhone) {
+    return NextResponse.json(
+      { error: { code: "missing_whatsapp_phone", field: "phone", message: "Añade un teléfono válido al perfil antes de crear un reto online. Es imprescindible para recibir las solicitudes por WhatsApp." } },
+      { status: 422 }
+    );
+  }
+  if (d.serviceMode === "online" && normalizedPhone && normalizedPhone !== business.phone) {
+    await prisma.bubuiBusiness.update({ where: { id: params.id }, data: { phone: normalizedPhone } });
+  }
 
   const token = randomBytes(8).toString("hex");
   const days = d.expiresInDays ?? 30;

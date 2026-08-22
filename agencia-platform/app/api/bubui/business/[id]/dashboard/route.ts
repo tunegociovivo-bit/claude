@@ -122,6 +122,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       latitude: business.latitude,
       longitude: business.longitude,
       logoUrl: business.logoUrl,
+      coverImageUrl: business.coverImageUrl,
+      websiteUrl: business.websiteUrl,
       challengeImageUrl: business.challengeImageUrl,
       challengeServiceDescription: business.challengeServiceDescription,
       challengeServicePrice: business.challengeServicePrice,

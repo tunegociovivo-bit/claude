@@ -42,6 +42,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       { status: 503 }
     );
   }
+  if (!isStorageEnabled() || !process.env.STORAGE_PUBLIC_URL) {
+    return NextResponse.json(
+      { error: { code: "storage_unavailable", message: "El almacenamiento permanente del banner no está configurado. No se ha consumido ningún uso." } },
+      { status: 503 }
+    );
+  }
 
   const business = await prisma.bubuiBusiness.findUnique({
     where: { id: params.id },
@@ -140,40 +146,39 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   // ── Consumir cupo gratis / crédito (best-effort, atómico por condición) ──
   let remainingCredits = business.aiBannerCredits;
-  try {
-    if (free) {
-      await prisma.bubuiBusiness.update({
-        where: { id: params.id },
-        data: { aiBannerUsed: { increment: 1 } }
-      });
-    } else {
-      const r = await prisma.bubuiBusiness.updateMany({
-        where: { id: params.id, aiBannerCredits: { gt: 0 } },
-        data: { aiBannerCredits: { decrement: 1 }, aiBannerUsed: { increment: 1 } }
-      });
-      remainingCredits = Math.max(0, business.aiBannerCredits - (r.count > 0 ? 1 : 0));
-    }
-  } catch (e: any) {
-    console.warn("[bubui ai-banner counter]", e?.message ?? e);
-  }
 
   // ── Almacenamiento ──
-  if (isStorageEnabled()) {
-    try {
-      const buf = Buffer.from(pngBase64, "base64");
-      const key = `bubui/ai-banner/${params.id}/${Date.now()}.png`;
-      await uploadBuffer({ s3Key: key, body: buf, contentType: "image/png" });
-      const url = await signedDownloadUrl(key, 7 * 24 * 3600);
-      return NextResponse.json({ ok: true, url, stored: true, remainingCredits });
-    } catch (e: any) {
-      console.warn("[bubui ai-banner storage]", e?.message ?? e);
-    }
+  if (!isStorageEnabled() || !process.env.STORAGE_PUBLIC_URL) {
+    return NextResponse.json(
+      { error: { code: "storage_unavailable", message: "El almacenamiento permanente del banner no está configurado. No se ha consumido ningún uso." } },
+      { status: 503 }
+    );
+  }
+  let url: string;
+  try {
+    const buf = Buffer.from(pngBase64, "base64");
+    const key = `bubui/ai-banner/${params.id}/${Date.now()}.png`;
+    await uploadBuffer({ s3Key: key, body: buf, contentType: "image/png" });
+    url = await signedDownloadUrl(key);
+  } catch (e: any) {
+    console.error("[bubui ai-banner storage]", e?.message ?? e);
+    return NextResponse.json(
+      { error: { code: "storage_failed", message: "La imagen se generó, pero no se pudo guardar. No se ha consumido ningún uso." } },
+      { status: 502 }
+    );
   }
 
-  return NextResponse.json({
-    ok: true,
-    url: `data:image/png;base64,${pngBase64}`,
-    stored: false,
-    remainingCredits
-  });
+  if (free) {
+    await prisma.bubuiBusiness.update({ where: { id: params.id }, data: { aiBannerUsed: { increment: 1 } } });
+  } else {
+    const consumed = await prisma.bubuiBusiness.updateMany({
+      where: { id: params.id, aiBannerCredits: { gt: 0 } },
+      data: { aiBannerCredits: { decrement: 1 }, aiBannerUsed: { increment: 1 } }
+    });
+    if (consumed.count === 0) {
+      return NextResponse.json({ error: { code: "payment_required", message: "El crédito ya no está disponible.", needsPayment: true } }, { status: 402 });
+    }
+    remainingCredits = Math.max(0, business.aiBannerCredits - 1);
+  }
+  return NextResponse.json({ ok: true, url, stored: true, remainingCredits });
 }

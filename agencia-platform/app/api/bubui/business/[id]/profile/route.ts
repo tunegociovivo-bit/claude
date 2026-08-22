@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { normalizeBusinessPhone } from "@/lib/bubui/business-phone";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,11 @@ const challengeImageUrlSchema = z.string().url().refine((value) => {
   return allowedBases.some((base) => value === base || value.startsWith(`${base}/`));
 }, "La imagen debe haberse subido al almacenamiento de Bubui");
 
+const publicHttpUrl = z.string().trim().max(500).url().refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === "https:" || protocol === "http:";
+}, "El enlace debe empezar por https:// o http://");
+
 const schema = z
   .object({
     description: z.string().max(500).optional().nullable(),
@@ -38,6 +44,8 @@ const schema = z
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     logoUrl: z.string().url().optional().nullable(),
+    coverImageUrl: z.string().url().optional().nullable(),
+    websiteUrl: publicHttpUrl.optional().nullable(),
     challengeImageUrl: challengeImageUrlSchema.optional().nullable(),
     brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
     defaultDiscountPct: z.number().int().min(3).max(MAX_DISCOUNT_PCT).optional(),
@@ -53,11 +61,11 @@ const schema = z
     ppFollowDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     ppPhotoDiscountPct: z.number().int().min(0).max(MAX_DISCOUNT_PCT).optional(),
     googlePlaceId: z.string().trim().max(200).optional().nullable(),
-    instagramUrl: z.string().trim().max(300).optional().nullable(),
-    facebookUrl: z.string().trim().max(300).optional().nullable(),
-    tiktokUrl: z.string().trim().max(300).optional().nullable(),
-    trustpilotUrl: z.string().trim().max(300).optional().nullable(),
-    tripadvisorUrl: z.string().trim().max(300).optional().nullable(),
+    instagramUrl: publicHttpUrl.optional().nullable(),
+    facebookUrl: publicHttpUrl.optional().nullable(),
+    tiktokUrl: publicHttpUrl.optional().nullable(),
+    trustpilotUrl: publicHttpUrl.optional().nullable(),
+    tripadvisorUrl: publicHttpUrl.optional().nullable(),
     mesaReviewPlatform: z.enum(["google", "tripadvisor", "trustpilot", "instagram"]).optional(),
     reviewPushEnabled: z.boolean().optional(),
     postPurchasePushEnabled: z.boolean().optional(),
@@ -135,6 +143,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (data.description === "") data.description = null;
   if (data.address === "") data.address = null;
   if (data.phone === "") data.phone = null;
+  if (data.phone) {
+    const normalizedPhone = normalizeBusinessPhone(data.phone);
+    if (!normalizedPhone) return NextResponse.json({ error: { code: "validation", message: "Introduce un teléfono válido con prefijo internacional." } }, { status: 400 });
+    data.phone = normalizedPhone;
+  }
+  if (data.websiteUrl === "") data.websiteUrl = null;
   if (data.googlePlaceId === "") data.googlePlaceId = null;
   for (const k of ["instagramUrl", "facebookUrl", "tiktokUrl", "trustpilotUrl", "tripadvisorUrl"] as const) {
     if ((data as any)[k] === "") (data as any)[k] = null;
@@ -174,6 +188,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       latitude: updated.latitude,
       longitude: updated.longitude,
       logoUrl: updated.logoUrl,
+      coverImageUrl: updated.coverImageUrl,
+      websiteUrl: updated.websiteUrl,
       challengeImageUrl: updated.challengeImageUrl,
       brandColor: updated.brandColor,
       defaultDiscountPct: updated.defaultDiscountPct,

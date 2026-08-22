@@ -1,0 +1,3 @@
+ALTER TABLE "BubuiBusiness"
+  ADD COLUMN IF NOT EXISTS "coverImageUrl" TEXT,
+  ADD COLUMN IF NOT EXISTS "websiteUrl" TEXT;

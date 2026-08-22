@@ -1,11 +1,15 @@
 name: Bubui challenge follow-ups
-on:
+"on":
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: bubui-challenge-followups
+      cancel-in-progress: false
     steps:
       - name: Notify businesses about challenge conversions
         run: curl --fail --silent --show-error -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://hub.negociovivo.app/api/cron/bubui-challenge-followups

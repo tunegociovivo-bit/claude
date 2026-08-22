@@ -48,32 +48,6 @@ async function placesLookup(query: string): Promise<{ id?: string; website?: str
   }
 }
 
-/** Descarga la web del negocio y extrae enlaces a redes/Trustpilot. */
-async function scrapeSocialLinks(website: string): Promise<Record<string, string>> {
-  const out: Record<string, string> = {};
-  try {
-    const url = /^https?:/.test(website) ? website : `https://${website}`;
-    const resp = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 BubuiBot" }, signal: AbortSignal.timeout(12000) });
-    if (!resp.ok) return out;
-    const html = (await resp.text()).slice(0, 400_000);
-    const grab = (re: RegExp) => {
-      const m = html.match(re);
-      return m ? m[0].replace(/["'<>\\)]+$/, "") : null;
-    };
-    const ig = grab(/https?:\/\/(www\.)?instagram\.com\/[A-Za-z0-9_.\/]+/i);
-    const fb = grab(/https?:\/\/(www\.)?facebook\.com\/[A-Za-z0-9_.\-\/]+/i);
-    const tt = grab(/https?:\/\/(www\.)?tiktok\.com\/@[A-Za-z0-9_.\/]+/i);
-    const tp = grab(/https?:\/\/(www\.)?(es\.)?trustpilot\.com\/review\/[A-Za-z0-9_.\-\/]+/i);
-    const ta = grab(/https?:\/\/(www\.)?tripadvisor\.[a-z.]+\/[A-Za-z0-9_.\-\/]+/i);
-    if (ig) out.instagramUrl = ig;
-    if (fb) out.facebookUrl = fb;
-    if (tt) out.tiktokUrl = tt;
-    if (tp) out.trustpilotUrl = tp;
-    if (ta) out.tripadvisorUrl = ta;
-  } catch {}
-  return out;
-}
-
 const SYSTEM = `Eres un asistente que normaliza los perfiles online de un negocio local español.
 Te paso datos del negocio y enlaces candidatos encontrados en su web. Devuelve SOLO el JSON con
 las URLs definitivas (o null si no hay una razonable). NO inventes perfiles que no encajen con el
@@ -101,7 +75,10 @@ export async function autofillBusinessProfile(input: {
   const query = `${input.name} ${input.city ?? ""} ${input.category ?? ""}`.trim();
   const places = await placesLookup(query);
   const website = input.website || places?.website || null;
-  const scraped = website ? await scrapeSocialLinks(website) : {};
+  // No descargamos URLs arbitrarias desde el servidor: incluso validando DNS,
+  // una web controlada podría usar DNS rebinding. Places aporta la web y la IA
+  // normaliza únicamente candidatos ya conocidos/guardados por el negocio.
+  const scraped: Record<string, string> = {};
 
   const sources: Record<string, string> = {};
   if (places?.id) sources.googlePlaceId = "places";

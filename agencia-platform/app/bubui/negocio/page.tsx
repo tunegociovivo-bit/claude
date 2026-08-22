@@ -1627,6 +1627,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
   async function createDealLink() {
     if (Number(sharePct) < 1) { setDealErr("Pon un descuento de cliente mayor que 0 para crear el enlace."); return; }
     if (!challengeServiceDescription.trim()) { setDealErr("Describe el servicio que recibirá el amigo antes de crear el enlace."); return; }
+    if (challengeServiceMode === "online" && !(business.phone ?? "").trim()) { setDealErr("Añade el teléfono del negocio antes de crear un reto online."); return; }
     setDealBusy(true);
     setDealErr(null);
     try {
@@ -1764,6 +1765,13 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
             <button type="button" onClick={() => setChallengeServiceMode("local")} className={`rounded-xl border-2 p-4 text-sm font-black ${challengeServiceMode === "local" ? "border-pink-600 bg-pink-50 text-pink-700" : "border-black/10"}`}>📍 SERVICIO EN EL LOCAL</button>
             <button type="button" onClick={() => setChallengeServiceMode("online")} className={`rounded-xl border-2 p-4 text-sm font-black ${challengeServiceMode === "online" ? "border-pink-600 bg-pink-50 text-pink-700" : "border-black/10"}`}>💬 SERVICIO ONLINE</button>
           </div>
+          {challengeServiceMode === "online" && !(business.phone ?? "").trim() && (
+            <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
+              <div className="font-black">📱 Añade tu teléfono para crear este reto online</div>
+              <p className="mt-1">Es imprescindible: las personas que acepten el reto te contactarán por WhatsApp en ese número.</p>
+              <a href="#perfil-negocio" className="mt-2 inline-flex rounded-full bg-amber-900 px-4 py-2 text-xs font-bold text-white">Añadir teléfono en mi perfil</a>
+            </div>
+          )}
           <label className="block text-xs">
             <span className="block font-semibold mb-1">Describe claramente el servicio *</span>
             <textarea value={challengeServiceDescription} onChange={(e) => setChallengeServiceDescription(e.target.value)} rows={4} maxLength={1000} placeholder="Ej.: sesión de entrenamiento personal de 60 minutos, valoración inicial y plan adaptado." className="w-full rounded-lg border px-3 py-2" />
@@ -1895,7 +1903,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
             <>
               <button
                 onClick={createDealLink}
-                disabled={dealBusy}
+                disabled={dealBusy || (challengeServiceMode === "online" && !(business.phone ?? "").trim())}
                 className="w-full rounded-full bg-gradient-to-r from-pink-600 to-fuchsia-500 text-white text-sm font-extrabold px-4 py-2.5 shadow disabled:opacity-50"
               >
                 {dealBusy ? "Creando enlace…" : "📲 Crea un enlace ahora para tu cliente y sus amigos"}
@@ -1982,7 +1990,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
       </div>
 
       {status && <p className="text-xs text-emerald-700">{status}</p>}
-      <button onClick={save} disabled={saving} className="bubui-btn w-full text-sm py-2">
+      <button onClick={save} disabled={saving || (challengeServiceMode === "online" && !(business.phone ?? "").trim())} className="bubui-btn w-full text-sm py-2 disabled:opacity-50">
         {saving ? "Guardando…" : "Guardar descuentos"}
       </button>
     </section>
@@ -2201,6 +2209,7 @@ function BookingsPanel({ businessId, token }: { businessId: string; token: strin
 function AutofillProfile({ business, token, onSaved }: { business: any; token: string; onSaved: () => void }) {
   // Tripadvisor solo tiene sentido en restauración/hoteles → según el nicho.
   const FIELDS: { key: string; label: string; ph: string }[] = [
+    { key: "websiteUrl", label: "Página web", ph: "https://tu-negocio.es" },
     { key: "googlePlaceId", label: "Google (Place ID para reseñas)", ph: "ChIJ…" },
     { key: "instagramUrl", label: "Instagram", ph: "https://instagram.com/…" },
     { key: "facebookUrl", label: "Facebook", ph: "https://facebook.com/…" },
@@ -2228,6 +2237,7 @@ function AutofillProfile({ business, token, onSaved }: { business: any; token: s
       const dr = d.draft ?? {};
       setVals((v) => ({
         ...v,
+        websiteUrl: dr.website || v.websiteUrl,
         googlePlaceId: dr.googlePlaceId || v.googlePlaceId,
         instagramUrl: dr.instagramUrl || v.instagramUrl,
         facebookUrl: dr.facebookUrl || v.facebookUrl,
@@ -2257,6 +2267,13 @@ function AutofillProfile({ business, token, onSaved }: { business: any; token: s
     }
   }
   const srcLabel: Record<string, string> = { places: "Google", web: "tu web", ia: "IA (verifica)" };
+  function testUrl(field: string, value: string): string | null {
+    if (field === "googlePlaceId") return value.trim() ? `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(value.trim())}` : null;
+    try {
+      const url = new URL(/^https?:\/\//i.test(value.trim()) ? value.trim() : `https://${value.trim()}`);
+      return ["http:", "https:"].includes(url.protocol) ? url.toString() : null;
+    } catch { return null; }
+  }
 
   return (
     <section className="bubui-card p-5 space-y-3">
@@ -2276,12 +2293,19 @@ function AutofillProfile({ business, token, onSaved }: { business: any; token: s
               {f.label}
               {sources[f.key] && <span className="text-[10px] px-1.5 rounded bg-black/5 text-black/50">{srcLabel[sources[f.key]] ?? sources[f.key]}</span>}
             </span>
-            <input
-              value={vals[f.key]}
-              onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))}
-              placeholder={f.ph}
-              className="mt-1 w-full px-2 py-1.5 border rounded bg-white font-mono text-[12px]"
-            />
+            <div className="mt-1 flex gap-2">
+              <input
+                value={vals[f.key]}
+                onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))}
+                placeholder={f.ph}
+                className="min-w-0 flex-1 px-2 py-1.5 border rounded bg-white font-mono text-[12px]"
+              />
+              {testUrl(f.key, vals[f.key]) && (
+                <a href={testUrl(f.key, vals[f.key])!} target="_blank" rel="noopener noreferrer" className="rounded-lg border px-3 py-1.5 font-bold text-pink-700 hover:bg-pink-50" aria-label={`Comprobar ${f.label}`}>
+                  Probar enlace ↗
+                </a>
+              )}
+            </div>
           </label>
         ))}
       </div>
@@ -2456,7 +2480,7 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
         headers: { Authorization: `Bearer ${token}` },
         body: fd
       });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         if (j?.error?.needsPayment) setNeedsPayment(true);
         setError(j?.error?.message ?? "No se pudo generar");
@@ -2464,8 +2488,8 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
       }
       setUrl(j.url);
       onSaved(); // refresca el contador de usos/créditos
-    } catch {
-      setError("No se pudo generar el banner. Reintenta.");
+    } catch (e: any) {
+      setError(`No se pudo generar el banner. ${e?.message ?? "Reintenta."}`);
     } finally {
       setBusy(false);
     }
@@ -2499,7 +2523,7 @@ function AiPhotoStudio({ business, token, onSaved }: { business: any; token: str
       const r = await fetch(`/api/bubui/business/${business.id}/profile`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ logoUrl: url })
+        body: JSON.stringify({ coverImageUrl: url })
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -3307,6 +3331,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
     latitude: business.latitude ?? "",
     longitude: business.longitude ?? "",
     logoUrl: business.logoUrl ?? "",
+    coverImageUrl: business.coverImageUrl ?? "",
     brandColor: business.brandColor ?? "#FDF2E1",
     purchaseMode: business.purchaseMode ?? "express",
     requireTicket: business.requireTicket ?? false,
@@ -3321,7 +3346,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
   const [status, setStatus] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
   /** Sube la foto de portada y deja su URL en el campo (falta Guardar). */
-  async function uploadCover(file: File) {
+  async function uploadProfileImage(file: File, target: "logoUrl" | "coverImageUrl") {
     setUploading(true);
     setStatus(null);
     try {
@@ -3337,7 +3362,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
         setStatus({ kind: "err", msg: j?.error?.message ?? `Error ${r.status}` });
         return;
       }
-      setForm((f: typeof form) => ({ ...f, logoUrl: j.url }));
+      setForm((f: typeof form) => ({ ...f, [target]: j.url }));
       setStatus({ kind: "ok", msg: "Foto subida. Pulsa «Guardar cambios» para aplicarla." });
     } catch {
       setStatus({ kind: "err", msg: "No se pudo subir la foto. Reintenta." });
@@ -3358,6 +3383,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
       if (form.latitude !== "" && Number(form.latitude) !== business.latitude) payload.latitude = Number(form.latitude);
       if (form.longitude !== "" && Number(form.longitude) !== business.longitude) payload.longitude = Number(form.longitude);
       if (form.logoUrl !== business.logoUrl) payload.logoUrl = form.logoUrl || null;
+      if (form.coverImageUrl !== business.coverImageUrl) payload.coverImageUrl = form.coverImageUrl || null;
       if (form.brandColor !== business.brandColor) payload.brandColor = form.brandColor || null;
       if (form.purchaseMode !== business.purchaseMode) payload.purchaseMode = form.purchaseMode;
       if (form.requireTicket !== (business.requireTicket ?? false)) payload.requireTicket = form.requireTicket;
@@ -3407,7 +3433,7 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
   }
 
   return (
-    <section className="bg-white border rounded-xl p-5 shadow-sm space-y-3">
+    <section id="perfil-negocio" className="bg-white border rounded-xl p-5 shadow-sm space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">✏️ Editar perfil</h3>
         <button onClick={() => setOpen(false)} className="text-xs text-slate-500 hover:underline">Cerrar</button>
@@ -3438,12 +3464,12 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
           />
         </label>
         <label>
-          <span className="block font-medium mb-1">Imagen de portada / logo</span>
+          <span className="block font-medium mb-1">Logo del negocio</span>
           <div className="flex items-center gap-2">
             <input
               value={form.logoUrl}
               onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
-              placeholder="https://… (o sube una foto)"
+              placeholder="https://… (preferiblemente cuadrado)"
               className="flex-1 min-w-0 px-2 py-1.5 border rounded bg-white"
             />
             <label
@@ -3460,18 +3486,30 @@ function ProfileEditor({ business, token, onSaved }: { business: any; token: str
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   e.target.value = "";
-                  if (f) void uploadCover(f);
+                  if (f) void uploadProfileImage(f, "logoUrl");
                 }}
               />
             </label>
           </div>
           {form.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={form.logoUrl} alt="Portada" className="mt-2 w-full max-h-36 object-cover rounded border" />
+            <img src={form.logoUrl} alt="Logo" className="mt-2 h-28 w-28 rounded-xl border object-cover" />
           ) : null}
           <span className="block text-[11px] text-black/50 mt-1">
-            Se muestra como portada de tu ficha pública. Recuerda pulsar «Guardar cambios».
+            Sustituye la inicial del negocio en la app. Recuerda pulsar «Guardar cambios».
           </span>
+        </label>
+        <label>
+          <span className="block font-medium mb-1">Imagen de portada</span>
+          <div className="flex items-center gap-2">
+            <input value={form.coverImageUrl} onChange={(e) => setForm({ ...form, coverImageUrl: e.target.value })} placeholder="https://… (imagen horizontal)" className="flex-1 min-w-0 px-2 py-1.5 border rounded bg-white" />
+            <label className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer ${uploading ? "bg-pink-200 text-pink-500" : "bg-pink-600 text-white hover:bg-pink-700"}`}>
+              {uploading ? "Subiendo…" : "📷 Subir portada"}
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" disabled={uploading} onChange={(e) => { const f=e.target.files?.[0]; e.target.value=""; if(f) void uploadProfileImage(f, "coverImageUrl"); }} />
+            </label>
+          </div>
+          {form.coverImageUrl ? <img src={form.coverImageUrl} alt="Portada" className="mt-2 w-full max-h-36 object-cover rounded border" /> : null}
+          <span className="block text-[11px] text-black/50 mt-1">Se muestra como cabecera horizontal de tu ficha pública.</span>
         </label>
         <label className="sm:col-span-2">
           <span className="block font-medium mb-1">Dirección</span>

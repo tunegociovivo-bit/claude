@@ -4660,6 +4660,10 @@ model BubuiBusiness {
   subvencionProposals        BubuiSubvencionProposal[]
   // Branding mínimo.
   logoUrl                    String?
+  // Portada horizontal separada del logo cuadrado usado como identidad.
+  coverImageUrl              String?
+  // Web publica verificada por el empresario.
+  websiteUrl                 String?
   // Imagen del cupón/reto compartido. Si falta, cliente y portal usan la
   // creatividad Bubui predeterminada incluida en cada superficie.
   challengeImageUrl          String?

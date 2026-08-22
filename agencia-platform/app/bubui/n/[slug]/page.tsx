@@ -79,6 +79,7 @@ async function getBusiness(slug: string) {
       latitude: true,
       longitude: true,
       logoUrl: true,
+      coverImageUrl: true,
       brandColor: true,
       defaultDiscountPct: true,
       crossDiscountPct: true,
@@ -279,8 +280,8 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
           style={{
             aspectRatio: "16 / 9",
             background:
-              business.logoUrl
-                ? `center/cover no-repeat url(${business.logoUrl})`
+              (business.coverImageUrl || business.logoUrl)
+                ? `center/cover no-repeat url(${business.coverImageUrl || business.logoUrl})`
                 : (business.brandColor ?? "linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%)")
           }}
         >
@@ -292,7 +293,7 @@ export default async function BusinessPublicPage({ params }: { params: { slug: s
             -{business.defaultDiscountPct}%
           </div>
           {/* Overlay para legibilidad si hay foto */}
-          {business.logoUrl && (
+          {(business.coverImageUrl || business.logoUrl) && (
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
           )}
         </div>

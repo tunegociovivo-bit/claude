@@ -81,10 +81,10 @@ export async function alertBusiness(
     .create({ data: { businessId, type: args.type, message: args.message } })
     .catch(() => {});
   if (!(await businessWantsPush(businessId, args.type))) return;
-  void sendPushToBubuiBusiness(businessId, {
+  await sendPushToBubuiBusiness(businessId, {
     title: args.pushTitle ?? "Bubui",
     body: args.message,
     link: args.link ?? "/bubui/negocio",
     tag: args.type
-  }).catch(() => {});
+  }).catch(() => ({ sent: 0, removed: 0 }));
 }

@@ -19,7 +19,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
   const b = await prisma.bubuiBusiness.findUnique({
     where: { id: params.id },
-    select: { name: true, city: true, category: true, address: true }
+    select: { name: true, city: true, category: true, address: true, websiteUrl: true }
   });
   if (!b) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
 
@@ -28,7 +28,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     name: b.name,
     city: b.city,
     category: b.category,
-    address: b.address
+    address: b.address,
+    website: b.websiteUrl
   });
 
   // Con { apply: true } (al terminar el alta) persiste lo encontrado SIN pisar
@@ -38,13 +39,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (body?.apply) {
     const current = await prisma.bubuiBusiness.findUnique({
       where: { id: params.id },
-      select: { googlePlaceId: true, instagramUrl: true, facebookUrl: true, tiktokUrl: true, trustpilotUrl: true, tripadvisorUrl: true }
+      select: { websiteUrl: true, phone: true, address: true, googlePlaceId: true, instagramUrl: true, facebookUrl: true, tiktokUrl: true, trustpilotUrl: true, tripadvisorUrl: true }
     });
     const data: any = {};
     const setIfEmpty = (k: keyof typeof draft & string, cur: string | null) => {
       if (!cur && (draft as any)[k]) data[k] = (draft as any)[k];
     };
     setIfEmpty("googlePlaceId", current?.googlePlaceId ?? null);
+    if (!current?.websiteUrl && draft.website) data.websiteUrl = draft.website;
+    if (!current?.phone && draft.phone) data.phone = draft.phone;
+    if (!current?.address && draft.address) data.address = draft.address;
     setIfEmpty("instagramUrl", current?.instagramUrl ?? null);
     setIfEmpty("facebookUrl", current?.facebookUrl ?? null);
     setIfEmpty("tiktokUrl", current?.tiktokUrl ?? null);

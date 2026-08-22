@@ -157,7 +157,7 @@ export async function generateBusinessBanner(opts: {
   // gpt-image-2 es el modelo principal (mejor calidad, el mismo que usa el
   // calendario editorial IA). gpt-image-1 queda de respaldo por si la cuenta
   // no tuviera acceso a gpt-image-2.
-  const MODELS = ["gpt-image-2", "gpt-image-1"];
+  const MODELS = ["gpt-image-1", "gpt-image-2"];
   let resp: Response | null = null;
   let lastErr = "";
   outer: for (const model of MODELS) {
