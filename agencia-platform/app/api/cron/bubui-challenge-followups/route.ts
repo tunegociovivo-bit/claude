@@ -27,13 +27,17 @@ export async function GET(req: NextRequest) {
       const [business, friend, offer] = await Promise.all([
         prisma.bubuiBusiness.findUnique({ where: { id: participant.businessId }, select: { name: true, ownerEmail: true, ownerPhone: true, phone: true, notificationEmail: true, notificationWhatsapp: true } }),
         prisma.bubuiCustomer.findUnique({ where: { id: participant.friendCustomerId }, select: { name: true, phone: true } }),
-        prisma.bubuiOffer.findUnique({ where: { id: participant.offerId }, select: { rewardLabel: true, discountPct: true, challengeServiceDescription: true } })
+        prisma.bubuiOffer.findUnique({ where: { id: participant.offerId }, select: { rewardLabel: true, discountPct: true, challengeServiceDescription: true, challengeServicePrice: true, challengeServiceMode: true, expiresAt: true } })
       ]);
       if (!business) throw new Error("business_not_found");
       const who = friend?.name || friend?.phone || "El nuevo cliente";
       const second = originalStatus === "still_pending";
-      const reviewUrl = `https://hub.negociovivo.app/bubui/negocio?challenge=${encodeURIComponent(participant.offerId)}&friend=${encodeURIComponent(participant.friendCustomerId)}#retos-activos`;
-      const rich = buildChallengeFollowupMessage({ businessName: business.name, friendName: who, challengeTitle: offer?.challengeServiceDescription || offer?.rewardLabel, discountPct: offer?.discountPct, second, reviewUrl });
+      const welcome = await prisma.bubuiOffer.findFirst({
+        where: { customerId: participant.friendCustomerId, businessId: participant.businessId, source: "referral_welcome", triggerBusinessId: `ref:welcome:${participant.offerId}` },
+        select: { discountPct: true, expiresAt: true },
+      });
+      const reviewUrl = `https://hub.negociovivo.app/bubui/negocio?business=${encodeURIComponent(participant.businessId)}&challenge=${encodeURIComponent(participant.offerId)}&friend=${encodeURIComponent(participant.friendCustomerId)}#retos-activos`;
+      const rich = buildChallengeFollowupMessage({ businessName: business.name, friendName: who, challengeTitle: offer?.rewardLabel, serviceDescription: offer?.challengeServiceDescription, serviceMode: offer?.challengeServiceMode, originalPrice: offer?.challengeServicePrice, discountPct: welcome?.discountPct ?? offer?.discountPct, expiresAt: (welcome?.expiresAt ?? offer?.expiresAt)?.toISOString(), second, reviewUrl });
       const message = second
         ? `¿${who} ha contratado ya el servicio del reto? Puedes confirmar, enviarle un recordatorio o darlo por perdido.`
         : `Ha llegado el momento de revisar el alta de ${who}. ¿Ha contratado el servicio con el descuento del reto?`;
@@ -52,7 +56,7 @@ export async function GET(req: NextRequest) {
       await sendPushToBubuiBusiness(participant.businessId, {
         title: "Seguimiento de un reto",
         body: message,
-        link: `/bubui/negocio?challenge=${encodeURIComponent(participant.offerId)}&friend=${encodeURIComponent(participant.friendCustomerId)}#retos-activos`,
+        link: `/bubui/negocio?business=${encodeURIComponent(participant.businessId)}&challenge=${encodeURIComponent(participant.offerId)}&friend=${encodeURIComponent(participant.friendCustomerId)}#retos-activos`,
         tag: `challenge_followup_${participant.id}_${finalStatus}`
       }).catch(() => ({ sent: 0, removed: 0 }));
       const emailTo = business.notificationEmail || business.ownerEmail;

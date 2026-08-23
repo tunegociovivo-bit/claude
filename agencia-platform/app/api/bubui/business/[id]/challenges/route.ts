@@ -55,6 +55,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     where: { offerId: { in: offers.map((offer) => offer.id) } },
     select: { offerId: true, friendCustomerId: true, status: true, nextFollowupAt: true, reminderSentAt: true, contactedAt: true, contactChannel: true, registeredAt: true, decidedAt: true }
   });
+  const welcomeOffers = await prisma.bubuiOffer.findMany({
+    where: {
+      customerId: { in: participants.map((participant) => participant.friendCustomerId) },
+      businessId: params.id,
+      source: "referral_welcome",
+      triggerBusinessId: { in: offers.map((offer) => `ref:welcome:${offer.id}`) },
+    },
+    select: { customerId: true, triggerBusinessId: true, discountPct: true, expiresAt: true },
+  });
 
   const items = await Promise.all(
     offers.map(async (o) => {
@@ -89,6 +98,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         : sharesLeft({ unlockBaseline: o.unlockBaseline, unlockShares: o.unlockShares }, verified);
       const done = o.usesExactReferralTracking ? Math.min(o.unlockShares, verified) : Math.max(0, Math.min(o.unlockShares, verified - o.unlockBaseline));
       const c = cmap.get(o.customerId);
+      const friendDiscounts = welcomeOffers
+        .filter((welcome) => welcome.triggerBusinessId === `ref:welcome:${o.id}`)
+        .map((welcome) => welcome.discountPct);
+      const friendDiscountPct = friendDiscounts[0] ?? null;
       return {
         offerId: o.id,
         customerId: o.customerId,
@@ -96,6 +109,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         phone: c?.phone ?? null,
         discountPct: o.discountPct,
         rewardLabel: o.rewardLabel,
+        serviceDescription: o.challengeServiceDescription,
+        servicePrice: o.challengeServicePrice,
+        serviceMode: o.challengeServiceMode ?? "local",
+        friendDiscountPct,
         need: o.unlockShares,
         done,
         left,
@@ -103,7 +120,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         expiresAt: o.expiresAt.toISOString(),
         createdAt: o.createdAt.toISOString(),
         friends,
-        serviceMode: o.challengeServiceMode ?? "local",
         metrics: challengeConversionMetrics(friends.map((friend) => ({
           mode: o.challengeServiceMode ?? "local", registered: true,
           contacted: friend.timeline.some((event) => event.key === "contacted" && event.state === "complete"),

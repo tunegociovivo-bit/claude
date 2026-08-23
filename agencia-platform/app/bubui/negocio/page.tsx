@@ -14,6 +14,7 @@ import BubuiAlertPrefs from "./BubuiAlertPrefs";
 import BubuiMesaBills from "./BubuiMesaBills";
 import BubuiPendingProofs from "./BubuiPendingProofs";
 import { challengeFriendDomId, parseChallengeFollowupTarget } from "@/lib/bubui/challenge-followup-link";
+import { buildChallengeFollowupDetail } from "@/lib/bubui/challenge-followup-detail";
 
 // `admin: true` marca una sesión de impersonación creada desde el panel de
 // administración (botón "⚙️ Entrar" en Comercios) — muestra el aviso arriba.
@@ -4399,6 +4400,13 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
     return <div className="rounded-xl border border-black/10 p-3 text-sm text-black/50">Cargando retos activos…</div>;
   }
 
+  if (followupTarget && followupTarget.businessId !== businessId) {
+    return <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
+      <div className="font-black">Este seguimiento pertenece a otra ficha empresarial</div>
+      <p className="mt-1">Has abierto el enlace con una empresa distinta iniciada en este navegador. Cierra esta sesión y entra con la ficha que recibió el aviso para ver a la persona, el servicio y responder Sí, No o Todavía no.</p>
+    </div>;
+  }
+
   return (
     <div className="rounded-xl border border-black/10 p-3">
       <div className="flex items-center justify-between gap-2 mb-2">
@@ -4429,8 +4437,24 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
             const complete = c.left === 0;
             const exp = c.expiresAt ? new Date(c.expiresAt) : null;
             const daysLeft = exp ? Math.max(0, Math.ceil((exp.getTime() - Date.now()) / 86_400_000)) : null;
+            const commercial = buildChallengeFollowupDetail({ originalPrice: c.servicePrice, discountPct: c.friendDiscountPct ?? c.discountPct });
+            const focusedFriendId = followupTarget && followupTarget.offerId === c.offerId ? followupTarget.friendId : null;
+            const focusedFriend = focusedFriendId ? c.friends?.find((friend: any) => friend.customerId === focusedFriendId) : null;
             return (
               <div key={c.offerId} className="rounded-lg border border-black/10 p-2.5">
+                {focusedFriend && (
+                  <div className="mb-3 rounded-xl border-2 border-pink-500 bg-gradient-to-br from-pink-50 to-fuchsia-50 p-4 shadow-md">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-pink-700">Seguimiento seleccionado</div>
+                    <div className="mt-1 text-xl font-black">{focusedFriend.name || "Cliente"}</div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-lg bg-white p-3"><div className="text-[10px] font-bold uppercase text-black/45">Servicio solicitado</div><div className="mt-1 font-bold">{c.rewardLabel || c.serviceDescription || "Reto Bubui"}</div>{c.serviceDescription && c.serviceDescription !== c.rewardLabel && <p className="mt-1 text-xs text-black/65">{c.serviceDescription}</p>}</div>
+                      <div className="rounded-lg bg-white p-3"><div className="text-[10px] font-bold uppercase text-black/45">Condiciones</div><div className="mt-1 font-black text-pink-700">{commercial.discountPct}% de descuento</div><div className="mt-1 text-xs">{c.serviceMode === "online" ? "💬 Servicio online" : "📍 Servicio en el local"}{daysLeft != null ? ` · ${daysLeft} días restantes` : ""}</div></div>
+                    </div>
+                    {commercial.originalPrice != null && <div className="mt-2 grid grid-cols-3 gap-2 text-center"><div className="rounded-lg bg-white p-2"><div className="text-[9px] uppercase text-black/45">Precio normal</div><div className="font-bold line-through">{commercial.originalPrice.toFixed(2)} €</div></div><div className="rounded-lg bg-emerald-50 p-2"><div className="text-[9px] uppercase text-emerald-700">Ahorra</div><div className="font-black text-emerald-700">{commercial.savings?.toFixed(2)} €</div></div><div className="rounded-lg bg-pink-600 p-2 text-white"><div className="text-[9px] uppercase text-white/75">Precio final</div><div className="font-black">{commercial.finalPrice?.toFixed(2)} €</div></div></div>}
+                    <p className="mt-3 text-sm font-bold">¿Ha contratado finalmente este servicio con el descuento?</p>
+                    <div className="mt-2 flex flex-wrap gap-2"><button disabled={respondingFriend === focusedFriend.customerId} onClick={() => void answerFriend(c.offerId, focusedFriend.customerId, "yes")} className="rounded-full bg-emerald-600 px-5 py-2 font-black text-white">✅ Sí</button><button disabled={respondingFriend === focusedFriend.customerId} onClick={() => void answerFriend(c.offerId, focusedFriend.customerId, "no")} className="rounded-full bg-rose-100 px-5 py-2 font-black text-rose-700">❌ No</button><button disabled={respondingFriend === focusedFriend.customerId} onClick={() => void answerFriend(c.offerId, focusedFriend.customerId, "later")} className="rounded-full bg-amber-100 px-5 py-2 font-black text-amber-800">⏳ Todavía no</button></div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{c.name || c.phone || "Cliente"}</div>
