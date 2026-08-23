@@ -14,6 +14,16 @@ describe("business detail presentation", () => {
     });
   });
 
+  it("promotes a legacy banner stored in logoUrl to the hero", () => {
+    expect(resolveBusinessHero({
+      coverImageUrl: null,
+      logoUrl: "https://hub.negociovivo.app/api/bubui/banner-image/legacy-banner",
+    })).toEqual({
+      heroUrl: "https://hub.negociovivo.app/api/bubui/banner-image/legacy-banner",
+      logoUrl: null,
+    });
+  });
+
   it("shows a clear discount explanation even for a small discount", () => {
     expect(businessDiscountCopy(2)).toEqual({
       badge: "-2%",
