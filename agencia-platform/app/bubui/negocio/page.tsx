@@ -350,6 +350,10 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [tab, setTab] = useState<"inicio" | "nicho" | "crecer" | "ajustes">("inicio");
+  useEffect(() => {
+    const followup = parseChallengeFollowupTarget(new URLSearchParams(window.location.search));
+    if (followup) setTab(followup.panelTab);
+  }, []);
   // Sub-pestañas dentro de "Crecer" (mucho contenido → lo organizamos).
   const [crecerTab, setCrecerTab] = useState<"captar" | "destacar" | "red" | "analitica" | "fidelizar">("captar");
   // Botón flotante "Anúnciate" — el admin puede apagarlo desde su panel.

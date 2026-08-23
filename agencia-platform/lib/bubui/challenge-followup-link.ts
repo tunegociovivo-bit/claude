@@ -8,5 +8,5 @@ export function parseChallengeFollowupTarget(params: URLSearchParams) {
   const offerId = params.get("challenge");
   const friendId = params.get("friend");
   if (!offerId || !friendId || !SAFE_ID.test(offerId) || !SAFE_ID.test(friendId)) return null;
-  return { offerId, friendId, domId: challengeFriendDomId(offerId, friendId) };
+  return { offerId, friendId, domId: challengeFriendDomId(offerId, friendId), panelTab: "nicho" as const };
 }
