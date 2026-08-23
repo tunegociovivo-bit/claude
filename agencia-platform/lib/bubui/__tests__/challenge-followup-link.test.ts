@@ -3,10 +3,11 @@ import { challengeFriendDomId, parseChallengeFollowupTarget } from "../challenge
 
 describe("challenge follow-up deep link", () => {
   it("resolves the exact challenge and friend from the notification URL", () => {
-    const params = new URLSearchParams("challenge=offer-123&friend=friend-456");
+    const params = new URLSearchParams("business=business-789&challenge=offer-123&friend=friend-456");
     expect(parseChallengeFollowupTarget(params)).toEqual({
       offerId: "offer-123",
       friendId: "friend-456",
+      businessId: "business-789",
       domId: "challenge-friend-offer-123-friend-456",
       panelTab: "nicho",
     });
@@ -14,6 +15,7 @@ describe("challenge follow-up deep link", () => {
 
   it("does not focus a partial or malformed target", () => {
     expect(parseChallengeFollowupTarget(new URLSearchParams("challenge=offer-123"))).toBeNull();
+    expect(parseChallengeFollowupTarget(new URLSearchParams("challenge=offer-123&friend=f"))).toBeNull();
     expect(parseChallengeFollowupTarget(new URLSearchParams("challenge=../x&friend=f"))).toBeNull();
   });
 
