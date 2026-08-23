@@ -15,6 +15,7 @@ import BubuiMesaBills from "./BubuiMesaBills";
 import BubuiPendingProofs from "./BubuiPendingProofs";
 import { challengeFriendDomId, parseChallengeFollowupTarget } from "@/lib/bubui/challenge-followup-link";
 import { buildChallengeFollowupDetail } from "@/lib/bubui/challenge-followup-detail";
+import { challengeNotificationDestination } from "@/lib/bubui/challenge-followup-notification";
 
 // `admin: true` marca una sesión de impersonación creada desde el panel de
 // administración (botón "⚙️ Entrar" en Comercios) — muestra el aviso arriba.
@@ -449,6 +450,15 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   ];
   const cur = tabs.find((t) => t.key === tab) ?? tabs[0];
 
+  function openNotification(notification: any) {
+    const destination = challengeNotificationDestination(notification.type);
+    if (!destination) return;
+    setTab(destination.panelTab);
+    window.setTimeout(() => {
+      document.getElementById(destination.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
   return (
     <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
       <div className="flex items-center justify-between bubui-fade-up">
@@ -526,12 +536,23 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             </button>
           </div>
           <ul className="space-y-1.5">
-            {data.notifications.map((n: any) => (
-              <li key={n.id} className="text-sm text-black/75">
-                {n.message}
-                <span className="text-[11px] text-black/40 ml-1">· {new Date(n.createdAt).toLocaleDateString("es-ES")}</span>
-              </li>
-            ))}
+            {data.notifications.map((n: any) => {
+              const destination = challengeNotificationDestination(n.type);
+              return (
+                <li key={n.id} className="rounded-xl border border-pink-200 bg-white p-3 text-sm text-black/75">
+                  <div>{n.message}<span className="text-[11px] text-black/40 ml-1">· {new Date(n.createdAt).toLocaleDateString("es-ES")}</span></div>
+                  {destination && (
+                    <button
+                      type="button"
+                      onClick={() => openNotification(n)}
+                      className="mt-3 w-full rounded-full bg-pink-600 px-4 py-2.5 font-black text-white shadow-sm"
+                    >
+                      Ver datos y responder ahora
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -4407,8 +4428,14 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
     </div>;
   }
 
+  const pendingFollowups = items.flatMap((challenge) =>
+    (challenge.friends ?? [])
+      .filter((friend: any) => ["awaiting_business", "followup_pending"].includes(friend.status))
+      .map((friend: any) => ({ challenge, friend }))
+  );
+
   return (
-    <div className="rounded-xl border border-black/10 p-3">
+    <div id="retos-activos" className="scroll-mt-24 rounded-xl border border-black/10 p-3">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="font-semibold text-sm">🎯 Retos activos ({items.length})</div>
         <button onClick={() => void load()} className="text-[11px] text-pink-600 font-semibold">↻ Actualizar</button>
@@ -4419,6 +4446,34 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
         </p>
       ) : (
         <div className="space-y-2">
+          {pendingFollowups.length > 0 && (
+            <section className="space-y-3 rounded-2xl border-2 border-pink-500 bg-gradient-to-br from-pink-50 to-fuchsia-50 p-4 shadow-md" aria-label="Respuestas pendientes de retos">
+              <div>
+                <div className="text-xs font-black uppercase tracking-widest text-pink-700">Respuesta pendiente</div>
+                <h3 className="text-lg font-black">Confirma si contrataron el servicio</h3>
+              </div>
+              {pendingFollowups.map(({ challenge, friend }: any) => {
+                const detail = buildChallengeFollowupDetail({ originalPrice: challenge.servicePrice, discountPct: challenge.friendDiscountPct ?? challenge.discountPct });
+                const expires = challenge.expiresAt ? new Date(challenge.expiresAt) : null;
+                const days = expires ? Math.max(0, Math.ceil((expires.getTime() - Date.now()) / 86_400_000)) : null;
+                return (
+                  <article key={`${challenge.offerId}-${friend.customerId}`} className="rounded-xl bg-white p-4 shadow-sm">
+                    <div className="text-xl font-black">{friend.name || "Cliente"}</div>
+                    <div className="mt-2 font-bold">{challenge.rewardLabel || challenge.serviceDescription || "Reto Bubui"}</div>
+                    {challenge.serviceDescription && challenge.serviceDescription !== challenge.rewardLabel && <p className="mt-1 text-sm text-black/65">{challenge.serviceDescription}</p>}
+                    <div className="mt-2 text-sm"><b>{detail.discountPct}% de descuento</b> · {challenge.serviceMode === "online" ? "Servicio online" : "Servicio en el local"}{days != null ? ` · ${days} días restantes` : ""}</div>
+                    {detail.originalPrice != null && <div className="mt-3 grid grid-cols-3 gap-2 text-center"><div className="rounded-lg bg-black/5 p-2"><div className="text-[9px] uppercase">Precio normal</div><div className="font-bold line-through">{detail.originalPrice.toFixed(2)} €</div></div><div className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><div className="text-[9px] uppercase">Ahorra</div><div className="font-black">{detail.savings?.toFixed(2)} €</div></div><div className="rounded-lg bg-pink-600 p-2 text-white"><div className="text-[9px] uppercase">Precio final</div><div className="font-black">{detail.finalPrice?.toFixed(2)} €</div></div></div>}
+                    <p className="mt-4 font-bold">¿Ha contratado finalmente este servicio?</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(challenge.offerId, friend.customerId, "yes")} className="rounded-full bg-emerald-600 px-4 py-3 font-black text-white">✅ Sí</button>
+                      <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(challenge.offerId, friend.customerId, "no")} className="rounded-full bg-rose-100 px-4 py-3 font-black text-rose-700">❌ No</button>
+                      <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(challenge.offerId, friend.customerId, "later")} className="rounded-full bg-amber-100 px-4 py-3 font-black text-amber-800">⏳ Todavía no</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          )}
           {challengeMetrics && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {(["total", "local", "online"] as const).map((mode) => (
