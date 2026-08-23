@@ -8,6 +8,7 @@ describe("challenge follow-up deep link", () => {
       offerId: "offer-123",
       friendId: "friend-456",
       domId: "challenge-friend-offer-123-friend-456",
+      panelTab: "nicho",
     });
   });
 
