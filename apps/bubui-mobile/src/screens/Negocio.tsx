@@ -138,9 +138,6 @@ export function Negocio() {
           ) : (
             <View style={styles.logoFallback}><Text style={styles.logoInitial}>{b.name.trim()[0]?.toUpperCase() || "B"}</Text></View>
           )}
-          {discountCopy && (
-            <View style={styles.tag}><Text style={styles.tagText}>{discountCopy.badge}</Text></View>
-          )}
         </View>
 
         <View style={styles.body}>

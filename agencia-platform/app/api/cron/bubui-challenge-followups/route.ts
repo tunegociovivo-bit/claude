@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       await sendPushToBubuiBusiness(participant.businessId, {
         title: "Seguimiento de un reto",
         body: message,
-        link: "/bubui/negocio#retos-activos",
+        link: `/bubui/negocio?challenge=${encodeURIComponent(participant.offerId)}&friend=${encodeURIComponent(participant.friendCustomerId)}#retos-activos`,
         tag: `challenge_followup_${participant.id}_${finalStatus}`
       }).catch(() => ({ sent: 0, removed: 0 }));
       const emailTo = business.notificationEmail || business.ownerEmail;

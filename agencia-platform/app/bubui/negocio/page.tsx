@@ -13,6 +13,7 @@ import BubuiBusinessPushButton from "./BubuiBusinessPushButton";
 import BubuiAlertPrefs from "./BubuiAlertPrefs";
 import BubuiMesaBills from "./BubuiMesaBills";
 import BubuiPendingProofs from "./BubuiPendingProofs";
+import { challengeFriendDomId, parseChallengeFollowupTarget } from "@/lib/bubui/challenge-followup-link";
 
 // `admin: true` marca una sesión de impersonación creada desde el panel de
 // administración (botón "⚙️ Entrar" en Comercios) — muestra el aviso arriba.
@@ -4306,6 +4307,19 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
   const [remindingId, setRemindingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [respondingFriend, setRespondingFriend] = useState<string | null>(null);
+  const [followupTarget, setFollowupTarget] = useState<ReturnType<typeof parseChallengeFollowupTarget>>(null);
+
+  useEffect(() => {
+    setFollowupTarget(parseChallengeFollowupTarget(new URLSearchParams(window.location.search)));
+  }, []);
+
+  useEffect(() => {
+    if (!followupTarget || items === null) return;
+    const target = document.getElementById(followupTarget.domId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.focus({ preventScroll: true });
+  }, [followupTarget, items]);
 
   async function load() {
     try {
@@ -4453,7 +4467,12 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                     <div className="mb-1 text-[11px] font-bold text-pink-900">Personas dadas de alta con este reto</div>
                     <div className="space-y-1">
                       {c.friends.map((friend: any) => (
-                        <div key={friend.customerId} className="rounded-md border border-pink-100 bg-white p-2 text-[11px]">
+                        <div
+                          key={friend.customerId}
+                          id={challengeFriendDomId(c.offerId, friend.customerId)}
+                          tabIndex={-1}
+                          className={`rounded-md border bg-white p-2 text-[11px] outline-none transition ${followupTarget?.offerId === c.offerId && followupTarget?.friendId === friend.customerId ? "border-pink-500 ring-4 ring-pink-200 shadow-lg" : "border-pink-100"}`}
+                        >
                           <div className="flex items-center justify-between gap-2"><span className="font-semibold">{friend.name || "Sin nombre"}</span><span className="text-black/55">{friend.phone || "Sin teléfono"} · {(friend.redeemed || friend.status === "confirmed") ? "● completado" : "◐ alta completada"}</span></div>
                           {!!friend.timeline?.length && (
                             <div className="mt-2 flex items-start gap-1">

@@ -3,6 +3,13 @@ export type BusinessContactKind = "website" | "instagram" | "facebook" | "tiktok
 type Media = { coverImageUrl?: string | null; logoUrl?: string | null };
 
 export function resolveBusinessHero(media: Media) {
+  const legacyBannerInLogo = !media.coverImageUrl && !!media.logoUrl && (
+    media.logoUrl.includes("/api/bubui/banner-image/") ||
+    media.logoUrl.includes("/bubui/ai-banner/")
+  );
+  if (legacyBannerInLogo) {
+    return { heroUrl: media.logoUrl, logoUrl: null };
+  }
   return { heroUrl: media.coverImageUrl || null, logoUrl: media.logoUrl || null };
 }
 
