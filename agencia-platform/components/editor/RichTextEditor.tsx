@@ -100,38 +100,54 @@ export default function RichTextEditor({
 
   async function insertFiles(files: FileList | File[] | null) {
     if (!editor || !files) return;
+    const accepted = Array.from(files).map((file) => ({
+      file,
+      kind: mediaKindForMime(file.type),
+      uploadId: Math.random().toString(36).slice(2)
+    }));
+    // Clicking the picker moves focus away from TipTap. Keep the original
+    // caret position so uploaded media lands where the user requested it.
+    let insertionPos = editor.state.selection.to;
     setMediaError(null);
-    for (const file of Array.from(files)) {
-      const kind = mediaKindForMime(file.type);
+    setUploads(
+      accepted
+        .filter((item) => item.kind)
+        .map((item) => ({ id: item.uploadId, name: item.file.name, progress: 0 }))
+    );
+    for (const { file, kind, uploadId } of accepted) {
       if (!kind) {
         setMediaError(`Formato no compatible: ${file.name}. Usa JPG, PNG, GIF, WebP, MP4 o WebM.`);
         continue;
       }
-      const id = Math.random().toString(36).slice(2);
-      setUploads((current) => [...current, { id, name: file.name, progress: 0 }]);
       try {
         const uploaded = await uploadFile(file, {
           targetTaskId: media?.taskId,
           purpose: "TASK_DESCRIPTION",
           onProgress: (progress) =>
-            setUploads((current) => current.map((item) => (item.id === id ? { ...item, progress } : item)))
+            setUploads((current) => current.map((item) => (item.id === uploadId ? { ...item, progress } : item)))
         });
         editor
           .chain()
-          .focus()
-          .insertTaskMedia({
-            fileId: uploaded.id,
-            kind,
-            name: uploaded.name,
-            mimeType: uploaded.mimeType,
-            alt: kind === "image" ? uploaded.name : undefined
-          })
-          .insertContent({ type: "paragraph" })
+          .insertContentAt(insertionPos, [
+            {
+              type: "taskMedia",
+              attrs: {
+                fileId: uploaded.id,
+                kind,
+                name: uploaded.name,
+                mimeType: uploaded.mimeType,
+                alt: kind === "image" ? uploaded.name : undefined
+              }
+            },
+            { type: "paragraph" }
+          ])
           .run();
+        // A block atom has nodeSize 1 and the trailing empty paragraph 2.
+        insertionPos += 3;
       } catch (reason: any) {
         setMediaError(reason?.message ?? `No se pudo subir ${file.name}`);
       } finally {
-        setUploads((current) => current.filter((item) => item.id !== id));
+        setUploads((current) => current.filter((item) => item.id !== uploadId));
       }
     }
   }
