@@ -5,7 +5,7 @@ const { authenticateMock, prisma, regenerateDraftMock } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
   regenerateDraftMock: vi.fn(),
   prisma: {
-    metaAdComment: { findFirst: vi.fn(), update: vi.fn() }
+    metaAdComment: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() }
   }
 }));
 
@@ -72,5 +72,25 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
     const response = await call({ action: "regenerate_draft", commentId: "comment-other" });
     expect(response.status).toBe(404);
     expect(regenerateDraftMock).not.toHaveBeenCalled();
+  });
+
+  it("regenera una selección grande en una sola petición sin perder el aislamiento", async () => {
+    const comments = Array.from({ length: 22 }, (_, index) => ({
+      id: `comment-${index + 1}`,
+      workspaceId: "workspace-1",
+      message: `Mensaje ${index + 1}`,
+      feed: { clientName: "Eroski", displayName: "Eroski", campaignName: "Franquicias", aiContext: "Contexto" }
+    }));
+    prisma.metaAdComment.findMany.mockResolvedValue(comments);
+    regenerateDraftMock.mockImplementation(async (_workspaceId: string, comment: any) => `Respuesta ${comment.id}`);
+
+    const response = await call({ action: "regenerate_drafts", commentIds: comments.map((comment) => comment.id) });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, drafts: expect.any(Object), failedIds: [] });
+    expect(prisma.metaAdComment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: comments.map((comment) => comment.id) }, workspaceId: "workspace-1", deletedAt: null }
+    }));
+    expect(regenerateDraftMock).toHaveBeenCalledTimes(22);
   });
 });
