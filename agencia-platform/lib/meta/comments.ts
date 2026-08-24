@@ -232,11 +232,13 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     }
     const authorizedPages = await pageTokens(workspaceId, resolvedConnectionId);
     const instagramMediaByPermalink: InstagramMediaLookup = new Map();
-    let instagramMediaLoaded = false;
-    const loadInstagramMediaLookup = async () => {
-      if (instagramMediaLoaded) return;
-      instagramMediaLoaded = true;
-      for (const [ownerId, token] of authorizedPages.instagram) {
+    const loadedInstagramOwners = new Set<string>();
+    const loadInstagramMediaLookup = async (ownerHint?: string | null) => {
+      const hintedToken = ownerHint ? authorizedPages.instagram.get(ownerHint) : undefined;
+      const owners = hintedToken && ownerHint ? [[ownerHint, hintedToken] as const] : [...authorizedPages.instagram];
+      for (const [ownerId, token] of owners) {
+        if (loadedInstagramOwners.has(ownerId)) continue;
+        loadedInstagramOwners.add(ownerId);
         const media = await graphAll(workspaceId, `${ownerId}/media?fields=id,permalink&limit=100`, token, 5000).catch(() => []);
         for (const item of media) {
           const permalink = normalizedInstagramPermalink(item.permalink);
@@ -272,7 +274,8 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       if (!instagramTarget && creative.instagram_permalink_url) {
-        await loadInstagramMediaLookup();
+        const ownerHint = String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "") || null;
+        await loadInstagramMediaLookup(ownerHint);
         instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       }
       if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
