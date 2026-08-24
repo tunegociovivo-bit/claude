@@ -19,6 +19,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
+import { TASK_MEDIA_MIME_TYPES } from "@/lib/editor/task-media";
+import { taskVisibilityWhere } from "@/lib/api/task-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -34,6 +36,15 @@ export const POST = withApi({ scope: "*" }, async (req: NextRequest, { api }) =>
   const file = form.get("file");
   const targetType = form.get("targetType");
   const targetId = form.get("targetId");
+  const purpose = form.get("purpose");
+
+  if (purpose === "TASK_DESCRIPTION") {
+    const isDraft = targetType === null && targetId === null;
+    const isBoundTask = targetType === "TASK" && typeof targetId === "string" && targetId.trim().length > 0;
+    if (!isDraft && !isBoundTask) {
+      throw new ApiError(400, "invalid_target", "La multimedia debe ser un borrador o pertenecer a una tarea válida");
+    }
+  }
 
   if (!(file instanceof Blob)) {
     throw new ApiError(400, "no_file", "Falta el campo 'file'");
@@ -45,6 +56,17 @@ export const POST = withApi({ scope: "*" }, async (req: NextRequest, { api }) =>
 
   const name = (file as any).name && typeof (file as any).name === "string" ? (file as any).name : "upload";
   const mimeType = file.type || "application/octet-stream";
+  if (purpose === "TASK_DESCRIPTION" && !TASK_MEDIA_MIME_TYPES.has(mimeType)) {
+    throw new ApiError(400, "invalid_media_type", "Solo se permiten JPG, PNG, GIF, WebP, MP4 y WebM en la descripción");
+  }
+  if (purpose === "TASK_DESCRIPTION" && typeof targetId === "string") {
+    const visibility = await taskVisibilityWhere(api.workspaceId, api.userId);
+    const task = await prisma.task.findFirst({
+      where: { id: targetId, workspaceId: api.workspaceId, deletedAt: null, ...(visibility ? { AND: [visibility] } : {}) },
+      select: { id: true }
+    });
+    if (!task) throw new ApiError(404, "task_not_found", "La tarea no existe");
+  }
   const buf = Buffer.from(await file.arrayBuffer());
 
   const s3Key = buildS3Key({

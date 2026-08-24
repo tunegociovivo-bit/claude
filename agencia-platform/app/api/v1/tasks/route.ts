@@ -9,6 +9,7 @@ import { notifyAssignment } from "@/lib/notifications/assignment";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity } from "@/lib/search/embeddings";
 import { textForTask } from "@/lib/search/indexers";
+import { claimTaskMedia, validateTaskMedia } from "@/lib/files/task-media-server";
 
 export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -65,8 +66,13 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   const primaryProject = projectIds?.[0] ?? data.projectId;
   const extra = (projectIds ?? []).slice(1).filter((p) => p && p !== primaryProject);
   const epsMap = extraProjectStatuses ?? {};
-  const task = await prisma.task.create({
-    data: {
+  const task = await prisma.$transaction(async (tx) => {
+    const mediaFiles = await validateTaskMedia(tx, {
+      description: data.description,
+      workspaceId: api.workspaceId,
+      userId: api.userId
+    });
+    const created = await tx.task.create({ data: {
       ...data,
       projectId: primaryProject,
       workspaceId: api.workspaceId,
@@ -92,7 +98,9 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
             }
           }
         : {})
-    } as any
+    } as any });
+    await claimTaskMedia(tx, mediaFiles, created.id);
+    return created;
   });
   // Notificación a los asignados al crear (excluyendo al actor).
   notifyAssignment({

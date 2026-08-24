@@ -8,8 +8,12 @@ import TaskItem from "@tiptap/extension-task-item";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ImagePlus, Loader2, Video, X } from "lucide-react";
 import { SlashCommands } from "./SlashCommands";
+import { TaskMedia } from "./extensions/TaskMedia";
+import { uploadFile } from "@/lib/files/upload-client";
+import { mediaKindForMime } from "@/lib/editor/task-media";
 import { buildMentionSuggestion, type MentionCandidate } from "@/components/forms/mentionSuggestion";
 
 /**
@@ -23,7 +27,9 @@ export default function RichTextEditor({
   placeholder = "Escribe… / para insertar bloques, @ para mencionar.",
   minHeight = 120,
   readOnly = false,
-  mentionCandidates = []
+  mentionCandidates = [],
+  media,
+  onUploadingChange
 }: {
   initialContent?: any;
   onChange?: (content: any) => void;
@@ -31,9 +37,15 @@ export default function RichTextEditor({
   minHeight?: number;
   readOnly?: boolean;
   mentionCandidates?: MentionCandidate[];
+  media?: { enabled: boolean; taskId?: string };
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const candidatesRef = useRef<MentionCandidate[]>(mentionCandidates);
   candidatesRef.current = mentionCandidates;
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const [uploads, setUploads] = useState<Array<{ id: string; name: string; progress: number }>>([]);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const editor = useEditor({
     immediatelyRender: false,
     editable: !readOnly,
@@ -44,6 +56,7 @@ export default function RichTextEditor({
       TaskItem.configure({ nested: true }),
       Link.configure({ openOnClick: true, autolink: true, linkOnPaste: true }),
       Image.configure({ inline: false, allowBase64: false }),
+      TaskMedia,
       SlashCommands,
       Mention.configure({
         HTMLAttributes: { class: "bg-brand-100 text-brand-700 rounded px-1 py-0.5 text-[12px] font-medium" },
@@ -83,7 +96,90 @@ export default function RichTextEditor({
     editor.commands.setContent(incoming, false);
   }, [editor, initialContent]);
 
-  return <EditorContent editor={editor} />;
+  useEffect(() => onUploadingChange?.(uploads.length > 0), [uploads.length, onUploadingChange]);
+
+  async function insertFiles(files: FileList | File[] | null) {
+    if (!editor || !files) return;
+    setMediaError(null);
+    for (const file of Array.from(files)) {
+      const kind = mediaKindForMime(file.type);
+      if (!kind) {
+        setMediaError(`Formato no compatible: ${file.name}. Usa JPG, PNG, GIF, WebP, MP4 o WebM.`);
+        continue;
+      }
+      const id = Math.random().toString(36).slice(2);
+      setUploads((current) => [...current, { id, name: file.name, progress: 0 }]);
+      try {
+        const uploaded = await uploadFile(file, {
+          targetTaskId: media?.taskId,
+          purpose: "TASK_DESCRIPTION",
+          onProgress: (progress) =>
+            setUploads((current) => current.map((item) => (item.id === id ? { ...item, progress } : item)))
+        });
+        editor
+          .chain()
+          .focus()
+          .insertTaskMedia({
+            fileId: uploaded.id,
+            kind,
+            name: uploaded.name,
+            mimeType: uploaded.mimeType,
+            alt: kind === "image" ? uploaded.name : undefined
+          })
+          .insertContent({ type: "paragraph" })
+          .run();
+      } catch (reason: any) {
+        setMediaError(reason?.message ?? `No se pudo subir ${file.name}`);
+      } finally {
+        setUploads((current) => current.filter((item) => item.id !== id));
+      }
+    }
+  }
+
+  return (
+    <div
+      onPaste={(event) => {
+        if (!media?.enabled) return;
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (files.length) {
+          event.preventDefault();
+          void insertFiles(files);
+        }
+      }}
+      onDragOver={(event) => media?.enabled && event.preventDefault()}
+      onDrop={(event) => {
+        if (!media?.enabled || !event.dataTransfer?.files?.length) return;
+        event.preventDefault();
+        void insertFiles(event.dataTransfer.files);
+      }}
+    >
+      <EditorContent editor={editor} />
+      {media?.enabled && !readOnly && (
+        <div className="mt-3 border-t pt-2">
+          <input ref={imageInputRef} type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={(event) => { void insertFiles(event.target.files); event.currentTarget.value = ""; }} />
+          <input ref={videoInputRef} type="file" multiple accept="video/mp4,video/webm" className="hidden" onChange={(event) => { void insertFiles(event.target.files); event.currentTarget.value = ""; }} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploads.length > 0} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+              <ImagePlus className="h-4 w-4" /> Imagen
+            </button>
+            <button type="button" onClick={() => videoInputRef.current?.click()} disabled={uploads.length > 0} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+              <Video className="h-4 w-4" /> Vídeo
+            </button>
+            <span className="text-[11px] text-slate-400">También puedes pegar o arrastrar archivos al punto del texto.</span>
+          </div>
+          {uploads.map((upload) => (
+            <div key={upload.id} className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span className="min-w-0 flex-1 truncate">{upload.name}</span>
+              <div className="h-1.5 w-24 overflow-hidden rounded bg-slate-100"><div className="h-full bg-brand-500" style={{ width: `${upload.progress}%` }} /></div>
+              <span>{upload.progress}%</span>
+            </div>
+          ))}
+          {mediaError && <div className="mt-2 flex items-center gap-1 text-xs text-rose-600"><X className="h-3.5 w-3.5" /> {mediaError}</div>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function parseInitial(content: any) {

@@ -157,6 +157,7 @@ export default function TaskFormModal({
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
   const [meetingOpen, setMeetingOpen] = useState(false);
   const [savingForMeeting, setSavingForMeeting] = useState(false);
+  const [descriptionUploading, setDescriptionUploading] = useState(false);
   // editorKey usa useState (no useRef) para garantizar que React
   // re-renderiza con la key nueva — un useRef.current++ NO triggea
   // render, y el RichTextEditor mantiene su buffer interno con el
@@ -843,11 +844,11 @@ export default function TaskFormModal({
           <button
             type="submit"
             form="task-form"
-            disabled={saving}
+            disabled={saving || descriptionUploading}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
           >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isEdit ? "Guardar" : "Crear tarea"}
+            {(saving || descriptionUploading) && <Loader2 className="h-4 w-4 animate-spin" />}
+            {descriptionUploading ? "Subiendo multimedia…" : isEdit ? "Guardar" : "Crear tarea"}
           </button>
         </>
       }
@@ -953,6 +954,8 @@ export default function TaskFormModal({
                 placeholder="Describe la tarea… / para bloques, @ para mencionar."
                 minHeight={140}
                 mentionCandidates={mentionCandidates}
+                media={{ enabled: true, taskId: currentTask?.id }}
+                onUploadingChange={setDescriptionUploading}
               />
             </div>
           </div>

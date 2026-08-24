@@ -188,7 +188,7 @@ export const taskCreateSchema = z.object({
   // proyecto principal usa `status` global.
   extraProjectStatuses: z.record(z.string(), z.string()).optional(),
   title: z.string().min(1),
-  description: z.string().optional(),
+  description: z.string().max(2_000_000).optional(),
   // Antes era enum cerrado; ahora libre (columnas configurables por workspace).
   status: z.string().min(1).default("TODO"),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM"),

@@ -12,6 +12,7 @@ import { indexEntity, deleteEntityIndex } from "@/lib/search/embeddings";
 import { textForTask } from "@/lib/search/indexers";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 import { commercialLeadCustomData, isLeadTaskCustomData } from "@/lib/leads/task-lead-reference";
+import { claimTaskMedia, detachRemovedTaskMedia, validateTaskMedia } from "@/lib/files/task-media-server";
 
 export const GET = withApi({ scope: "tasks:read" }, async (_req, { params, api }) => {
   const task = await prisma.task.findFirst({
@@ -111,6 +112,15 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
     data.recurrence !== undefined && data.recurrence !== ((prevRecurrence as any)?.recurrence ?? "none");
 
   const result = await prisma.$transaction(async (tx) => {
+    const mediaFiles =
+      data.description !== undefined
+        ? await validateTaskMedia(tx, {
+            description: data.description,
+            workspaceId: api.workspaceId,
+            userId: api.userId,
+            taskId: params.id
+          })
+        : [];
     const upd = await tx.task.updateMany({
       where: { id: params.id, workspaceId: api.workspaceId },
       data: {
@@ -131,6 +141,10 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       } as any
     });
     if (upd.count === 0) return null;
+    if (data.description !== undefined) {
+      await claimTaskMedia(tx, mediaFiles, params.id);
+      await detachRemovedTaskMedia(tx, prevDescription?.description, data.description, params.id);
+    }
     if (assigneeIds) {
       await tx.taskAssignee.deleteMany({ where: { taskId: params.id } });
       await tx.taskAssignee.createMany({
