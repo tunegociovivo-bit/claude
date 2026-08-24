@@ -94,11 +94,33 @@ async function campaignAdsWithAvailableConnection(
 type AuthorizedMetaPages = {
   facebook: Map<string, string>;
   instagram: Map<string, string>;
+  instagramByFacebookPage: Map<string, string>;
   facebookAuthorIds: Set<string>;
   instagramUsernames: Set<string>;
 };
 
 type InstagramMediaLookup = Map<string, { id: string; ownerId: string; token: string }>;
+type InstagramMediaCandidate = { id: string; caption?: string | null; permalink?: string | null; ownerId?: string; token?: string };
+
+function normalizedMetaText(value?: string | null) {
+  return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function matchInstagramMediaForCreative(creative: any, media: InstagramMediaCandidate[]) {
+  const rawMessage = creative.object_story_spec?.video_data?.message
+    ?? creative.object_story_spec?.link_data?.message
+    ?? creative.object_story_spec?.template_data?.message
+    ?? creative.object_story_spec?.photo_data?.caption
+    ?? "";
+  const message = normalizedMetaText(rawMessage);
+  if (message.length < 20) return null;
+  const signature = message.slice(0, Math.min(80, message.length));
+  return media.find((item) => {
+    const caption = normalizedMetaText(item.caption);
+    if (caption.length < 20) return false;
+    return caption.includes(signature) || message.includes(caption.slice(0, Math.min(80, caption.length)));
+  }) ?? null;
+}
 
 function normalizedInstagramPermalink(value?: string | null) {
   if (!value) return null;
@@ -125,9 +147,10 @@ export function resolveInstagramMediaTarget(creative: any, mediaByPermalink: Ins
 
 async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
   const userToken = await readMetaTokenByConnection(workspaceId, connectionId);
-  if (!userToken) return { facebook: new Map(), instagram: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
+  if (!userToken) return { facebook: new Map(), instagram: new Map(), instagramByFacebookPage: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
   const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token,instagram_business_account{id,username}&limit=100", userToken, 1000);
   const facebook = new Map<string, string>(); const instagram = new Map<string, string>();
+  const instagramByFacebookPage = new Map<string, string>();
   const facebookAuthorIds = new Set<string>(); const instagramUsernames = new Set<string>();
   for (const page of pages) {
     if (!page.id || !page.access_token) continue;
@@ -135,10 +158,11 @@ async function pageTokens(workspaceId: string, connectionId?: string | null): Pr
     facebookAuthorIds.add(String(page.id));
     if (page.instagram_business_account?.id) {
       instagram.set(String(page.instagram_business_account.id), String(page.access_token));
+      instagramByFacebookPage.set(String(page.id), String(page.instagram_business_account.id));
       if (page.instagram_business_account.username) instagramUsernames.add(String(page.instagram_business_account.username).toLowerCase());
     }
   }
-  return { facebook, instagram, facebookAuthorIds, instagramUsernames };
+  return { facebook, instagram, instagramByFacebookPage, facebookAuthorIds, instagramUsernames };
 }
 
 export function isOwnMetaComment(comment: { platform?: string; from?: { id?: string | null; name?: string | null } }, pages: Pick<AuthorizedMetaPages, "facebookAuthorIds" | "instagramUsernames">, publicationOwnerId?: string | null) {
@@ -232,6 +256,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     }
     const authorizedPages = await pageTokens(workspaceId, resolvedConnectionId);
     const instagramMediaByPermalink: InstagramMediaLookup = new Map();
+    const instagramMediaByOwner = new Map<string, InstagramMediaCandidate[]>();
     const loadedInstagramOwners = new Set<string>();
     const loadInstagramMediaLookup = async (ownerHint?: string | null) => {
       const hintedToken = ownerHint ? authorizedPages.instagram.get(ownerHint) : undefined;
@@ -239,7 +264,8 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       for (const [ownerId, token] of owners) {
         if (loadedInstagramOwners.has(ownerId)) continue;
         loadedInstagramOwners.add(ownerId);
-        const media = await graphAll(workspaceId, `${ownerId}/media?fields=id,permalink&limit=100`, token, 5000).catch(() => []);
+        const media = await graphAll(workspaceId, `${ownerId}/media?fields=id,permalink,caption,timestamp&limit=100`, token, 5000).catch(() => []);
+        instagramMediaByOwner.set(ownerId, media.map((item: any) => ({ ...item, ownerId, token })));
         for (const item of media) {
           const permalink = normalizedInstagramPermalink(item.permalink);
           if (item.id && permalink) instagramMediaByPermalink.set(permalink, { id: String(item.id), ownerId, token });
@@ -279,10 +305,16 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       const creative = ad?.creative ?? {};
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
-      if (!instagramTarget && creative.instagram_permalink_url) {
-        const ownerHint = String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "") || null;
+      const facebookPageId = String(creative.object_story_spec?.page_id ?? (creative.effective_object_story_id ?? creative.object_story_id ?? "")).split("_")[0];
+      const ownerHint = String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? authorizedPages.instagramByFacebookPage.get(facebookPageId) ?? "") || null;
+      if (!instagramTarget) {
         await loadInstagramMediaLookup(ownerHint);
         instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
+        if (!instagramTarget) {
+          const candidates = ownerHint ? (instagramMediaByOwner.get(ownerHint) ?? []) : [...instagramMediaByOwner.values()].flat();
+          const matched = matchInstagramMediaForCreative(creative, candidates);
+          if (matched?.id && matched.ownerId) instagramTarget = { id: matched.id, ownerId: matched.ownerId, platform: "instagram", token: matched.token };
+        }
       }
       if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
       const targets = [
