@@ -125,6 +125,13 @@ export function matchInstagramMediaForCreative(creative: any, media: InstagramMe
   }) ?? null;
 }
 
+export function fallbackInstagramMediaTargets(media: InstagramMediaCandidate[]) {
+  return [...new Map(media.filter((item) => item.id && item.ownerId).map((item) => [item.id, {
+    id: String(item.id), ownerId: String(item.ownerId), platform: "instagram" as const, token: item.token,
+    adId: null, adName: "Instagram"
+  }])).values()];
+}
+
 function normalizedInstagramPermalink(value?: string | null) {
   if (!value) return null;
   try {
@@ -295,6 +302,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const repliesByCommentId = new Map<string, MetaReply>();
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
+    const fallbackInstagramOwnersUsed = new Set<string>();
     const hydratedAds: any[] = [];
     for (let offset = 0; offset < ads.length; offset += 10) {
       hydratedAds.push(...await Promise.all(ads.slice(offset, offset + 10).map(async (ad: any) => {
@@ -320,10 +328,21 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         }
       }
       if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
+      let instagramTargetsForAd = instagramTarget ? [instagramTarget] : [];
+      if (!instagramTarget && ownerHint && !fallbackInstagramOwnersUsed.has(ownerHint)) {
+        fallbackInstagramOwnersUsed.add(ownerHint);
+        const fallbackFrom = range?.from ?? feed.lastSyncAt ?? new Date(Date.now() - 7 * 86400000);
+        const fallbackTo = range?.to ?? new Date();
+        const recentMedia = (instagramMediaByOwner.get(ownerHint) ?? []).filter((item: any) => {
+          const timestamp = new Date(item.timestamp);
+          return Number.isFinite(timestamp.getTime()) && timestamp >= fallbackFrom && timestamp <= fallbackTo;
+        });
+        instagramTargetsForAd = fallbackInstagramMediaTargets(recentMedia);
+      }
       const targets = [
         (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), ownerId: String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0], platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
-        instagramTarget
-      ].filter(Boolean) as Array<{ id: string; ownerId?: string; platform: "facebook" | "instagram"; token?: string }>;
+        ...instagramTargetsForAd
+      ].filter(Boolean) as Array<{ id: string; ownerId?: string; platform: "facebook" | "instagram"; token?: string; adId?: string | null; adName?: string | null }>;
       if (targets.length === 0) adsWithoutPost++;
       for (const target of targets) {
         if (target.platform === "instagram") instagramTargets++; else facebookTargets++;
@@ -349,7 +368,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           if (ownReply) repliesByCommentId.set(String(comment.id), ownReply);
           const createdAt = new Date(comment.created_time);
           if (range && (createdAt < range.from || createdAt > range.to)) continue;
-          discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: ad.id, adName: ad.name });
+          discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: target.adId === null ? null : ad.id, adName: target.adName ?? ad.name });
         }
       }
     }
