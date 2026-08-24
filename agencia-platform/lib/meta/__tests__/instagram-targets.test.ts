@@ -34,4 +34,10 @@ describe("Instagram comment target discovery", () => {
     ];
     expect(matchInstagramMediaForCreative(creative, media)).toEqual(media[1]);
   });
+
+  it("identifica medios de creatividades dinámicas mediante asset_feed_spec", () => {
+    const creative = { asset_feed_spec: { bodies: [{ text: "20 años formando artistas, ¡y ahora tú puedes ser el siguiente!" }] } };
+    const media = [{ id: "esaem-dynamic", caption: "20 años formando artistas, ¡y ahora tú puedes ser el siguiente! 🎭" }];
+    expect(matchInstagramMediaForCreative(creative, media)).toEqual(media[0]);
+  });
 });
