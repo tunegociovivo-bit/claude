@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
-import { blockMetaCommentAuthor, deleteMetaComment, notifyMetaOperational, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
+import { blockMetaCommentAuthor, deleteMetaComment, notifyMetaOperational, regenerateMetaCommentDraft, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection } from "@/lib/meta/connection";
@@ -21,6 +21,7 @@ const schema = z.discriminatedUnion("action", [
   ,z.object({ action: z.literal("add_alert_email"), email: z.string().trim().email().max(254) })
   ,z.object({ action: z.literal("set_alert_email"), recipientId: z.string().min(1), preference: z.enum(["active", "negativeComments", "allComments", "syncFailures", "publishedReplies"]), value: z.boolean() })
   ,z.object({ action: z.literal("remove_alert_email"), recipientId: z.string().min(1) })
+  ,z.object({ action: z.literal("regenerate_draft"), commentId: z.string().min(1) })
 ]);
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -53,7 +54,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     });
     return NextResponse.json({ items });
   }
-  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
+  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true, campaignName: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
   const feeds = await prisma.metaCommentFeed.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" } });
   const alertRecipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, email: true, active: true, negativeComments: true, allComments: true, syncFailures: true, publishedReplies: true }, orderBy: { email: "asc" } });
   return NextResponse.json({ items, feeds, alertRecipients });
@@ -123,6 +124,16 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     if (!removed.count) throw new ApiError(404, "not_found", "Destinatario no encontrado");
     await auditFromReq(req, api, { action: "meta_comments.alert_email_remove", targetType: "META_COMMENT_ALERT_RECIPIENT", targetId: parsed.data.recipientId });
     return NextResponse.json({ ok: true });
+  }
+  if (parsed.data.action === "regenerate_draft") {
+    const comment = await prisma.metaAdComment.findFirst({
+      where: { id: parsed.data.commentId, workspaceId: api.workspaceId, deletedAt: null },
+      include: { feed: { select: { clientName: true, displayName: true, campaignName: true, aiContext: true } } }
+    });
+    if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
+    const draft = await regenerateMetaCommentDraft(api.workspaceId, comment);
+    await prisma.metaAdComment.update({ where: { id: comment.id }, data: { aiDraft: draft } });
+    return NextResponse.json({ ok: true, draft });
   }
   if (parsed.data.action === "delete_comment" || parsed.data.action === "block_author") {
     const moderation = parsed.data;
