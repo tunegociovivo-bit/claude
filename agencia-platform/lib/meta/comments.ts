@@ -107,18 +107,21 @@ function normalizedMetaText(value?: string | null) {
 }
 
 export function matchInstagramMediaForCreative(creative: any, media: InstagramMediaCandidate[]) {
-  const rawMessage = creative.object_story_spec?.video_data?.message
+  const primaryMessage = creative.object_story_spec?.video_data?.message
     ?? creative.object_story_spec?.link_data?.message
     ?? creative.object_story_spec?.template_data?.message
     ?? creative.object_story_spec?.photo_data?.caption
     ?? "";
-  const message = normalizedMetaText(rawMessage);
-  if (message.length < 20) return null;
-  const signature = message.slice(0, Math.min(80, message.length));
+  const messages = [primaryMessage, ...(creative.asset_feed_spec?.bodies ?? []).map((body: any) => body?.text ?? "")]
+    .map((message) => normalizedMetaText(message)).filter((message) => message.length >= 20);
+  if (!messages.length) return null;
   return media.find((item) => {
     const caption = normalizedMetaText(item.caption);
     if (caption.length < 20) return false;
-    return caption.includes(signature) || message.includes(caption.slice(0, Math.min(80, caption.length)));
+    return messages.some((message) => {
+      const signature = message.slice(0, Math.min(80, message.length));
+      return caption.includes(signature) || message.includes(caption.slice(0, Math.min(80, caption.length)));
+    });
   }) ?? null;
 }
 
@@ -246,7 +249,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
   });
   try {
-    const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec";
+    const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec,asset_feed_spec";
     const resolved = await campaignAdsWithAvailableConnection(workspaceId, campaignId, creativeFields, feed.metaConnectionId);
     const connectionToken = resolved.token;
     const ads = resolved.ads;
