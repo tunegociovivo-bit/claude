@@ -244,6 +244,19 @@ export default function MetaCommentsClient() {
     const targets = action === "reply" ? selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()) : selectedVisible;
     if (!targets.length) { setError("Los comentarios seleccionados no tienen borradores pendientes para publicar."); return; }
     setBusy(`bulk:${action}`); setError(null);
+    if (action === "regenerate_draft") {
+      try {
+        const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "regenerate_drafts", commentIds: targets.map((item) => item.id) }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error?.message ?? "La IA no pudo generar las respuestas");
+        setDrafts((current) => ({ ...current, ...(data.drafts ?? {}) }));
+        const failedIds = Array.isArray(data.failedIds) ? data.failedIds : [];
+        setSelectedCommentIds(new Set(failedIds));
+        if (failedIds.length) setError(`${failedIds.length} de ${targets.length} comentarios no se pudieron regenerar. Permanecen seleccionados para revisarlos.`);
+      } catch (cause: any) { setError(String(cause?.message ?? cause)); }
+      finally { setBusy(null); }
+      return;
+    }
     const failed: string[] = [];
     for (const item of targets) {
       try {
@@ -251,10 +264,9 @@ export default function MetaCommentsClient() {
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? "Operación rechazada");
-        if (action === "regenerate_draft") setDrafts((current) => ({ ...current, [item.id]: data.draft }));
       } catch { failed.push(item.id); }
     }
-    if (action !== "regenerate_draft") await load();
+    await load();
     setSelectedCommentIds(new Set(failed));
     if (failed.length) setError(`${failed.length} de ${targets.length} comentarios no se pudieron procesar. Permanecen seleccionados para revisarlos.`);
     setBusy(null);

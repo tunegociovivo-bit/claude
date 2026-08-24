@@ -22,6 +22,7 @@ const schema = z.discriminatedUnion("action", [
   ,z.object({ action: z.literal("set_alert_email"), recipientId: z.string().min(1), preference: z.enum(["active", "negativeComments", "allComments", "syncFailures", "publishedReplies"]), value: z.boolean() })
   ,z.object({ action: z.literal("remove_alert_email"), recipientId: z.string().min(1) })
   ,z.object({ action: z.literal("regenerate_draft"), commentId: z.string().min(1) })
+  ,z.object({ action: z.literal("regenerate_drafts"), commentIds: z.array(z.string().min(1)).min(1).max(50) })
 ]);
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
@@ -134,6 +135,28 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     const draft = await regenerateMetaCommentDraft(api.workspaceId, comment);
     await prisma.metaAdComment.update({ where: { id: comment.id }, data: { aiDraft: draft } });
     return NextResponse.json({ ok: true, draft });
+  }
+  if (parsed.data.action === "regenerate_drafts") {
+    const commentIds = [...new Set(parsed.data.commentIds)];
+    const comments = await prisma.metaAdComment.findMany({
+      where: { id: { in: commentIds }, workspaceId: api.workspaceId, deletedAt: null },
+      include: { feed: { select: { clientName: true, displayName: true, campaignName: true, aiContext: true } } }
+    });
+    const drafts: Record<string, string> = {};
+    const foundIds = new Set(comments.map((comment) => comment.id));
+    const failedIds = commentIds.filter((id) => !foundIds.has(id));
+    for (let offset = 0; offset < comments.length; offset += 5) {
+      await Promise.all(comments.slice(offset, offset + 5).map(async (comment) => {
+        try {
+          const draft = await regenerateMetaCommentDraft(api.workspaceId, comment);
+          await prisma.metaAdComment.update({ where: { id: comment.id }, data: { aiDraft: draft } });
+          drafts[comment.id] = draft;
+        } catch {
+          failedIds.push(comment.id);
+        }
+      }));
+    }
+    return NextResponse.json({ ok: true, drafts, failedIds });
   }
   if (parsed.data.action === "delete_comment" || parsed.data.action === "block_author") {
     const moderation = parsed.data;
