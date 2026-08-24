@@ -9,7 +9,7 @@ import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
 import { useEffect, useRef, useState } from "react";
-import { ImagePlus, Loader2, Video, X } from "lucide-react";
+import { FolderOpen, ImagePlus, Loader2, Video, X } from "lucide-react";
 import { SlashCommands } from "./SlashCommands";
 import { TaskMedia } from "./extensions/TaskMedia";
 import { uploadFile } from "@/lib/files/upload-client";
@@ -46,6 +46,9 @@ export default function RichTextEditor({
   const videoInputRef = useRef<HTMLInputElement>(null);
   const [uploads, setUploads] = useState<Array<{ id: string; name: string; progress: number }>>([]);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [attachmentMedia, setAttachmentMedia] = useState<Array<{ id: string; name: string; mimeType: string }>>([]);
+  const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
+  const attachmentInsertionPos = useRef<number | null>(null);
   const editor = useEditor({
     immediatelyRender: false,
     editable: !readOnly,
@@ -152,6 +155,37 @@ export default function RichTextEditor({
     }
   }
 
+  async function openAttachmentPicker() {
+    if (!editor || !media?.taskId) return;
+    attachmentInsertionPos.current = editor.state.selection.to;
+    setMediaError(null);
+    try {
+      const response = await fetch(`/api/v1/files?targetType=TASK&targetId=${encodeURIComponent(media.taskId)}`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message ?? "No se pudieron cargar los adjuntos");
+      setAttachmentMedia(
+        (body.items ?? [])
+          .filter((item: any) => mediaKindForMime(item.mimeType))
+          .map((item: any) => ({ id: item.id, name: item.name, mimeType: item.mimeType }))
+      );
+      setAttachmentPickerOpen(true);
+    } catch (reason: any) {
+      setMediaError(reason?.message ?? "No se pudieron cargar los adjuntos");
+    }
+  }
+
+  function insertAttachment(item: { id: string; name: string; mimeType: string }) {
+    if (!editor) return;
+    const kind = mediaKindForMime(item.mimeType);
+    if (!kind) return;
+    const pos = attachmentInsertionPos.current ?? editor.state.selection.to;
+    editor.commands.insertContentAt(pos, [
+      { type: "taskMedia", attrs: { fileId: item.id, kind, name: item.name, mimeType: item.mimeType, alt: kind === "image" ? item.name : undefined } },
+      { type: "paragraph" }
+    ]);
+    setAttachmentPickerOpen(false);
+  }
+
   return (
     <div
       onPaste={(event) => {
@@ -181,8 +215,22 @@ export default function RichTextEditor({
             <button type="button" onClick={() => videoInputRef.current?.click()} disabled={uploads.length > 0} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50">
               <Video className="h-4 w-4" /> Vídeo
             </button>
+            {media.taskId && (
+              <button type="button" onClick={() => void openAttachmentPicker()} disabled={uploads.length > 0} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50">
+                <FolderOpen className="h-4 w-4" /> Desde adjuntos
+              </button>
+            )}
             <span className="text-[11px] text-slate-400">También puedes pegar o arrastrar archivos al punto del texto.</span>
           </div>
+          {attachmentPickerOpen && (
+            <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border bg-white p-2">
+              {attachmentMedia.length ? attachmentMedia.map((item) => (
+                <button key={item.id} type="button" onClick={() => insertAttachment(item)} className="block w-full truncate rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100">
+                  {item.name}
+                </button>
+              )) : <div className="px-2 py-1 text-xs text-slate-400">No hay imágenes o vídeos adjuntos.</div>}
+            </div>
+          )}
           {uploads.map((upload) => (
             <div key={upload.id} className="mt-2 flex items-center gap-2 text-xs text-slate-600">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
