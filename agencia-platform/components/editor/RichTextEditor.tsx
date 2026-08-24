@@ -110,7 +110,7 @@ export default function RichTextEditor({
     }));
     // Clicking the picker moves focus away from TipTap. Keep the original
     // caret position so uploaded media lands where the user requested it.
-    let insertionPos = editor.state.selection.to;
+    let insertionPos = mediaInsertionPosition(editor);
     setMediaError(null);
     setUploads(
       accepted
@@ -157,7 +157,7 @@ export default function RichTextEditor({
 
   async function openAttachmentPicker() {
     if (!editor || !media?.taskId) return;
-    attachmentInsertionPos.current = editor.state.selection.to;
+    attachmentInsertionPos.current = mediaInsertionPosition(editor);
     setMediaError(null);
     try {
       const response = await fetch(`/api/v1/files?targetType=TASK&targetId=${encodeURIComponent(media.taskId)}`);
@@ -265,6 +265,16 @@ function parseInitial(content: any) {
     };
   }
   return content;
+}
+
+/**
+ * Multimedia is a block node. A browser click normally leaves the selection
+ * inside a paragraph, where ProseMirror cannot insert a block atom directly.
+ * Insert immediately after the selected top-level block instead.
+ */
+function mediaInsertionPosition(editor: NonNullable<ReturnType<typeof useEditor>>) {
+  const resolved = editor.state.doc.resolve(editor.state.selection.to);
+  return resolved.depth > 0 ? resolved.after(1) : resolved.pos;
 }
 
 /** Texto plano → nodos TipTap con las URLs (http/https/www) marcadas como
