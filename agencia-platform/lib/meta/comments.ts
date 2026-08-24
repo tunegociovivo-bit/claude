@@ -110,8 +110,8 @@ function normalizedInstagramPermalink(value?: string | null) {
   }
 }
 
-export function shouldHydrateMetaCreative(creative: { id?: string | null; [key: string]: unknown }) {
-  return Boolean(creative.id);
+export function shouldHydrateMetaCreative(creative: { id?: string | null; effective_instagram_story_id?: unknown; source_instagram_media_id?: unknown; instagram_permalink_url?: unknown; [key: string]: unknown }) {
+  return Boolean(creative.id && !creative.effective_instagram_story_id && !creative.source_instagram_media_id && !creative.instagram_permalink_url);
 }
 
 export function resolveInstagramMediaTarget(creative: any, mediaByPermalink: InstagramMediaLookup) {
@@ -266,11 +266,17 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const repliesByCommentId = new Map<string, MetaReply>();
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
-    for (const ad of ads) {
-      let creative = ad?.creative ?? {};
-      if (shouldHydrateMetaCreative(creative)) {
-        creative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => creative);
-      }
+    const hydratedAds: any[] = [];
+    for (let offset = 0; offset < ads.length; offset += 10) {
+      hydratedAds.push(...await Promise.all(ads.slice(offset, offset + 10).map(async (ad: any) => {
+        const creative = ad?.creative ?? {};
+        if (!shouldHydrateMetaCreative(creative)) return ad;
+        const hydratedCreative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => creative);
+        return { ...ad, creative: hydratedCreative };
+      })));
+    }
+    for (const ad of hydratedAds) {
+      const creative = ad?.creative ?? {};
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       if (!instagramTarget && creative.instagram_permalink_url) {
