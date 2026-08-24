@@ -183,7 +183,7 @@ export default function RichTextEditor({
       { type: "taskMedia", attrs: { fileId: item.id, kind, name: item.name, mimeType: item.mimeType, alt: kind === "image" ? item.name : undefined } },
       { type: "paragraph" }
     ]);
-    setAttachmentPickerOpen(false);
+    attachmentInsertionPos.current = pos + 3;
   }
 
   return (
