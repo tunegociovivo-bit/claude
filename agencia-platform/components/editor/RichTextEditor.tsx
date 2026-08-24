@@ -186,6 +186,30 @@ export default function RichTextEditor({
     attachmentInsertionPos.current = pos + 3;
   }
 
+  function autoArrangeAttachments() {
+    if (!editor) return;
+    const existing = new Set<string>();
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "taskMedia" && node.attrs.fileId) existing.add(String(node.attrs.fileId));
+    });
+
+    let inserted = 0;
+    for (const item of attachmentMedia) {
+      if (existing.has(item.id)) continue;
+      const kind = mediaKindForMime(item.mimeType);
+      if (!kind) continue;
+      const match = bestMediaParagraph(editor, item.name);
+      if (!match) continue;
+      editor.commands.insertContentAt(match.after, [
+        { type: "taskMedia", attrs: { fileId: item.id, kind, name: item.name, mimeType: item.mimeType, alt: kind === "image" ? item.name : undefined } },
+        { type: "paragraph" }
+      ]);
+      existing.add(item.id);
+      inserted += 1;
+    }
+    setMediaError(inserted ? null : "No encontré adjuntos nuevos cuyo nombre coincida con los lugares del texto.");
+  }
+
   return (
     <div
       onPaste={(event) => {
@@ -224,6 +248,11 @@ export default function RichTextEditor({
           </div>
           {attachmentPickerOpen && (
             <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border bg-white p-2">
+              {attachmentMedia.length > 0 && (
+                <button type="button" onClick={autoArrangeAttachments} className="mb-1 block w-full rounded bg-brand-50 px-2 py-2 text-left text-xs font-semibold text-brand-700 hover:bg-brand-100">
+                  Organizar automáticamente bajo cada lugar
+                </button>
+              )}
               {attachmentMedia.length ? attachmentMedia.map((item) => (
                 <button key={item.id} type="button" onClick={() => insertAttachment(item)} className="block w-full truncate rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100">
                   {item.name}
@@ -275,6 +304,31 @@ function parseInitial(content: any) {
 function mediaInsertionPosition(editor: NonNullable<ReturnType<typeof useEditor>>) {
   const resolved = editor.state.doc.resolve(editor.state.selection.to);
   return resolved.depth > 0 ? resolved.after(1) : resolved.pos;
+}
+
+function normalizeMediaText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\.(jpe?g|png|gif|webp|mp4|webm)$/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function bestMediaParagraph(editor: NonNullable<ReturnType<typeof useEditor>>, filename: string) {
+  const ignored = new Set(["jpg", "jpeg", "png", "gif", "webp", "tokio", "tokyo", "japon", "japan", "foto", "imagen"]);
+  const wanted = normalizeMediaText(filename).split(" ").filter((token) => token.length > 2 && !ignored.has(token));
+  if (!wanted.length) return null;
+  const matches: Array<{ after: number; score: number }> = [];
+  editor.state.doc.forEach((node, offset) => {
+    const text = normalizeMediaText(node.textContent);
+    if (!text) return;
+    const score = wanted.reduce((total, token) => total + (text.includes(token) ? 1 : 0), 0);
+    if (score > 0) matches.push({ after: offset + node.nodeSize, score });
+  });
+  matches.sort((a, b) => b.score - a.score);
+  return matches[0] ?? null;
 }
 
 /** Texto plano → nodos TipTap con las URLs (http/https/www) marcadas como
