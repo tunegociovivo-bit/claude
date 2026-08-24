@@ -32,6 +32,18 @@ const INFO_BASE = "https://mybusinessbusinessinformation.googleapis.com/v1";
 const V4_BASE = "https://mybusiness.googleapis.com/v4";
 const PERF_BASE = "https://businessprofileperformance.googleapis.com/v1";
 
+const ACCOUNTS_CACHE_FRESH_MS = 5 * 60_000;
+const ACCOUNTS_CACHE_STALE_MS = 60 * 60_000;
+type GmbAccountSummary = {
+  accountId: string;
+  name: string;
+  type: any;
+  role: any;
+  state: any;
+};
+const accountsCache = new Map<string, { value: GmbAccountSummary[]; freshUntil: number; staleUntil: number }>();
+const accountsInflight = new Map<string, Promise<GmbAccountSummary[]>>();
+
 /**
  * Refresca un access_token con las credenciales indicadas. Lanza "GMB_REVOKED"
  * cuando Google responde 400/401 (refresh revocado o permisos caducados).
@@ -85,24 +97,33 @@ async function getAccessToken(workspaceId: string): Promise<string> {
 }
 
 async function gFetch(token: string, url: string, init: RequestInit = {}): Promise<any> {
-  const r = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {})
+  const method = String(init.method ?? "GET").toUpperCase();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(init.headers ?? {})
+      }
+    });
+    if (r.ok) {
+      const ct = r.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) return {};
+      return r.json();
     }
-  });
-  // GMB suele dar 429 al exceder cuota. Devolvemos el body para que
-  // el caller pueda decidir si retry o escalar.
-  if (!r.ok) {
+
     const t = await r.text();
+    if (r.status === 429 && method === "GET" && attempt === 0) {
+      const retryAfter = Number(r.headers.get("retry-after") ?? "1");
+      if (Number.isFinite(retryAfter) && retryAfter >= 0 && retryAfter <= 10) {
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        continue;
+      }
+    }
     throw new Error(`GMB ${r.status} ${url}: ${t.slice(0, 300)}`);
   }
-  // Algunos endpoints (DELETE reply) devuelven 200 con body vacío
-  const ct = r.headers.get("content-type") ?? "";
-  if (!ct.includes("application/json")) return {};
-  return r.json();
+  throw new Error(`GMB 429 ${url}: cuota temporalmente agotada`);
 }
 
 async function resolveLocation(opts: {
@@ -134,17 +155,40 @@ async function resolveLocation(opts: {
 // CUENTAS + UBICACIONES
 // ────────────────────────────────────────────────────────────────────
 
-export async function gmbListAccounts(workspaceId: string) {
-  const token = await getAccessToken(workspaceId);
-  const data = await gFetch(token, `${ACCOUNTS_BASE}/accounts?pageSize=50`);
-  const accounts = (data.accounts ?? []).map((a: any) => ({
-    accountId: String(a.name ?? "").split("/").pop() ?? "",
-    name: a.accountName ?? a.name,
-    type: a.type,
-    role: a.role,
-    state: a.state?.status
-  }));
-  return accounts;
+export async function gmbListAccounts(workspaceId: string): Promise<GmbAccountSummary[]> {
+  const now = Date.now();
+  const cached = accountsCache.get(workspaceId);
+  if (cached && cached.freshUntil > now) return cached.value;
+
+  const running = accountsInflight.get(workspaceId);
+  if (running) return running;
+
+  const request = (async () => {
+    try {
+      const token = await getAccessToken(workspaceId);
+      const data = await gFetch(token, `${ACCOUNTS_BASE}/accounts?pageSize=50`);
+      const accounts: GmbAccountSummary[] = (data.accounts ?? []).map((a: any) => ({
+        accountId: String(a.name ?? "").split("/").pop() ?? "",
+        name: a.accountName ?? a.name,
+        type: a.type,
+        role: a.role,
+        state: a.state?.status
+      }));
+      accountsCache.set(workspaceId, {
+        value: accounts,
+        freshUntil: Date.now() + ACCOUNTS_CACHE_FRESH_MS,
+        staleUntil: Date.now() + ACCOUNTS_CACHE_STALE_MS
+      });
+      return accounts;
+    } catch (error) {
+      if (cached && cached.staleUntil > Date.now()) return cached.value;
+      throw error;
+    } finally {
+      accountsInflight.delete(workspaceId);
+    }
+  })();
+  accountsInflight.set(workspaceId, request);
+  return request;
 }
 
 export async function gmbListLocations(opts: { workspaceId: string; accountId: string }) {
