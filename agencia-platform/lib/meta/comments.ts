@@ -98,6 +98,31 @@ type AuthorizedMetaPages = {
   instagramUsernames: Set<string>;
 };
 
+type InstagramMediaLookup = Map<string, { id: string; ownerId: string; token: string }>;
+
+function normalizedInstagramPermalink(value?: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname.replace(/\/$/, "")}`;
+  } catch {
+    return value.split("?")[0].replace(/\/$/, "");
+  }
+}
+
+export function shouldHydrateMetaCreative(creative: { id?: string | null; [key: string]: unknown }) {
+  return Boolean(creative.id);
+}
+
+export function resolveInstagramMediaTarget(creative: any, mediaByPermalink: InstagramMediaLookup) {
+  const directId = creative.effective_instagram_story_id ?? creative.source_instagram_media_id;
+  const ownerId = String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "");
+  if (directId) return { id: String(directId), ownerId, platform: "instagram" as const, token: undefined as string | undefined };
+  const permalink = normalizedInstagramPermalink(creative.instagram_permalink_url);
+  const resolved = permalink ? mediaByPermalink.get(permalink) : undefined;
+  return resolved ? { ...resolved, platform: "instagram" as const } : null;
+}
+
 async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
   const userToken = await readMetaTokenByConnection(workspaceId, connectionId);
   if (!userToken) return { facebook: new Map(), instagram: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
@@ -206,6 +231,19 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { metaConnectionId: resolvedConnectionId } });
     }
     const authorizedPages = await pageTokens(workspaceId, resolvedConnectionId);
+    const instagramMediaByPermalink: InstagramMediaLookup = new Map();
+    let instagramMediaLoaded = false;
+    const loadInstagramMediaLookup = async () => {
+      if (instagramMediaLoaded) return;
+      instagramMediaLoaded = true;
+      for (const [ownerId, token] of authorizedPages.instagram) {
+        const media = await graphAll(workspaceId, `${ownerId}/media?fields=id,permalink&limit=100`, token, 5000).catch(() => []);
+        for (const item of media) {
+          const permalink = normalizedInstagramPermalink(item.permalink);
+          if (item.id && permalink) instagramMediaByPermalink.set(permalink, { id: String(item.id), ownerId, token });
+        }
+      }
+    };
     const sentReplyRows = await prisma.metaAdComment.findMany({
       where: { workspaceId, externalReplyId: { not: null } },
       select: { externalReplyId: true }
@@ -228,13 +266,19 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
     for (const ad of ads) {
       let creative = ad?.creative ?? {};
-      if (creative.id && !creative.effective_object_story_id && !creative.effective_instagram_story_id) {
+      if (shouldHydrateMetaCreative(creative)) {
         creative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => creative);
       }
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
+      let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
+      if (!instagramTarget && creative.instagram_permalink_url) {
+        await loadInstagramMediaLookup();
+        instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
+      }
+      if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
       const targets = [
         (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), ownerId: String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0], platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
-        (creative.effective_instagram_story_id ?? creative.source_instagram_media_id) ? { id: String(creative.effective_instagram_story_id ?? creative.source_instagram_media_id), ownerId: String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? ""), platform: "instagram", token: authorizedPages.instagram.get(String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "")) } : null
+        instagramTarget
       ].filter(Boolean) as Array<{ id: string; ownerId?: string; platform: "facebook" | "instagram"; token?: string }>;
       if (targets.length === 0) adsWithoutPost++;
       for (const target of targets) {
