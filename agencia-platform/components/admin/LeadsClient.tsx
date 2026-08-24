@@ -9407,37 +9407,6 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
               <input
                 type="checkbox"
-                checked={s.warmupChatEnabled ?? false}
-                onChange={(e) => setField("warmupChatEnabled", e.target.checked)}
-                className="mt-0.5 accent-emerald-600"
-              />
-              <div className="flex-1 text-xs text-emerald-900">
-                <strong className="block text-sm">💬 Calentamiento por conversación entre tus teléfonos</strong>
-                <p className="mt-1">
-                  Los números en warm-up se mandan mensajes cortos y normales <strong>entre tus propios
-                  teléfonos</strong> (horario diurno, poco volumen), para ganar reputación antes de escribir
-                  a desconocidos. Requiere poner el número de cada teléfono.
-                </p>
-              </div>
-            </label>
-            {(s.warmupChatEnabled ?? false) && (
-              <div className="text-xs pl-6">
-                <label>Número del teléfono principal (WhatsApp, formato +34…)
-                  <input
-                    value={s.principalPhone ?? ""}
-                    onChange={(e) => setField("principalPhone", e.target.value)}
-                    placeholder="+34600112233"
-                    className="w-full px-2 py-1 rounded border font-mono"
-                  />
-                </label>
-                <p className="mt-1 text-emerald-700">
-                  Pon también el número (+34…) de cada teléfono extra arriba, en la columna de la derecha de cada canal. Hacen falta al menos 2 números para que “conversen”.
-                </p>
-              </div>
-            )}
-            <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-emerald-200">
-              <input
-                type="checkbox"
                 checked={s.autoRecoveryEnabled ?? true}
                 onChange={(e) => setField("autoRecoveryEnabled", e.target.checked)}
                 className="mt-0.5 accent-emerald-600"

@@ -90,7 +90,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     warmupEnabled: s.warmupEnabled ?? true,
     warmupDays: s.warmupDays ?? 45,
     warmupStartCap: s.warmupStartCap ?? 3,
-    warmupChatEnabled: s.warmupChatEnabled ?? true,
+    // Legacy compatibility only: automatic inter-phone conversations no longer
+    // run. Keep accepting old settings without exposing or enabling the feature.
+    warmupChatEnabled: false,
     principalPhone: s.principalPhone ?? null,
     principalSince: s.principalSince ?? null,
     wahaProxy: s.wahaProxy ?? null,
