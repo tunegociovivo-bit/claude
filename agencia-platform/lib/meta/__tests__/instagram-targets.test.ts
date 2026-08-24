@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchInstagramMediaForCreative, resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
+import { fallbackInstagramMediaTargets, matchInstagramMediaForCreative, resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
 
 describe("Instagram comment target discovery", () => {
   it("rehidrata la creatividad aunque Facebook ya haya devuelto su publicación", () => {
@@ -39,5 +39,10 @@ describe("Instagram comment target discovery", () => {
     const creative = { asset_feed_spec: { bodies: [{ text: "20 años formando artistas, ¡y ahora tú puedes ser el siguiente!" }] } };
     const media = [{ id: "esaem-dynamic", caption: "20 años formando artistas, ¡y ahora tú puedes ser el siguiente! 🎭" }];
     expect(matchInstagramMediaForCreative(creative, media)).toEqual(media[0]);
+  });
+
+  it("usa todos los medios de la cuenta como respaldo sin duplicarlos", () => {
+    const media = [{ id: "m1", ownerId: "ig-1", token: "token" }, { id: "m1", ownerId: "ig-1", token: "token" }, { id: "m2", ownerId: "ig-1", token: "token" }];
+    expect(fallbackInstagramMediaTargets(media).map((item) => item.id)).toEqual(["m1", "m2"]);
   });
 });
