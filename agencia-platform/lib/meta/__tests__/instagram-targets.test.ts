@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
+import { matchInstagramMediaForCreative, resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
 
 describe("Instagram comment target discovery", () => {
   it("rehidrata la creatividad aunque Facebook ya haya devuelto su publicación", () => {
@@ -24,5 +24,14 @@ describe("Instagram comment target discovery", () => {
       ownerId: "ig-account-1",
       platform: "instagram"
     });
+  });
+
+  it("identifica el medio por el texto del anuncio cuando Meta oculta ids y permalink", () => {
+    const creative = { object_story_spec: { video_data: { message: "20 años formando artistas, ¡y ahora tú puedes ser el siguiente!" } } };
+    const media = [
+      { id: "unrelated", caption: "Otro anuncio distinto" },
+      { id: "esaem-media", caption: "20 años formando artistas, ¡y ahora tú puedes ser el siguiente! 🎭 Bachillerato de Artes Escénicas" }
+    ];
+    expect(matchInstagramMediaForCreative(creative, media)).toEqual(media[1]);
   });
 });
