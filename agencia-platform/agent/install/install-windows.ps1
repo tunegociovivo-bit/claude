@@ -23,11 +23,13 @@ $aclGrant = $env:USERNAME + ':(F)'
 if ($LASTEXITCODE -ne 0) { throw "Agent build failed" }
 
 if ($AutoStart) {
-  $taskArgument = '/c cd /d "' + $agentRoot + '" && node --use-system-ca dist/index.js'
-  $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $taskArgument
+  $watchdog = Join-Path $PSScriptRoot "run-agent-watchdog.ps1"
+  $taskArgument = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $watchdog + '" -AgentRoot "' + $agentRoot + '"'
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgument
   $trigger = New-ScheduledTaskTrigger -AtLogOn
-  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
   Register-ScheduledTask -TaskName "NegocioVivoBankAgent" -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+  Start-ScheduledTask -TaskName "NegocioVivoBankAgent"
   Write-Host "Scheduled task NegocioVivoBankAgent installed."
 }
 

@@ -71,6 +71,13 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
     }
     try {
+      const { monitorOfflineBankAgents } = await import("@/lib/facturacion/sepa/agent-watchdog");
+      const result = await monitorOfflineBankAgents();
+      if (result.notified > 0) console.warn(`[in-app-cron] agentes bancarios offline avisados: ${result.notified}`);
+    } catch (e) {
+      console.warn("[in-app-cron] bank-agent-watchdog:", (e as Error).message);
+    }
+    try {
       // Bubui: geocodifica negocios sin coordenadas (1 tanda/día). Idempotente:
       // si no quedan pendientes, no hace nada.
       const bubuiHour = parseInt(process.env.BUBUI_MAINT_HOUR_UTC ?? "4", 10);
