@@ -53,7 +53,7 @@ function isCampaignAccessError(error: unknown): boolean {
 async function campaignAdsWithAvailableConnection(
   workspaceId: string,
   campaignId: string,
-  fields: string,
+  _fields: string,
   preferredConnectionId?: string | null
 ) {
   const connections = await listWorkspaceMetaTokens(workspaceId);
@@ -72,7 +72,10 @@ async function campaignAdsWithAvailableConnection(
     try {
       const ads = await graphAll(
         workspaceId,
-        `${campaignId}/ads?fields=id,name,creative{${fields}}&limit=100`,
+        // Nested creatives make campaign responses large enough for Meta to
+        // reject them with "Please reduce the amount of data". Fetch only the
+        // creative id here and hydrate it below with one bounded request.
+        `${campaignId}/ads?fields=id,name,creative{id}&limit=25`,
         connection.token,
         2000
       );
@@ -89,6 +92,25 @@ async function campaignAdsWithAvailableConnection(
     `Conecta la cuenta que administra su cuenta publicitaria y concede ads_read, ` +
     `pages_read_engagement y pages_manage_engagement.${detail}`
   );
+}
+
+export function metaSyncErrorFingerprint(message: string) {
+  return message
+    .toLowerCase()
+    .replace(/\b\d{8,}\b/g, "<id>")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function shouldNotifyMetaSyncFailure(
+  previous: { lastError?: string | null; lastSyncAt?: Date | null },
+  message: string,
+  now = new Date()
+) {
+  if (!previous.lastError || !previous.lastSyncAt) return true;
+  const sameFailure = metaSyncErrorFingerprint(previous.lastError) === metaSyncErrorFingerprint(message);
+  const sixHoursAgo = now.getTime() - 6 * 60 * 60 * 1000;
+  return !sameFailure || previous.lastSyncAt.getTime() < sixHoursAgo;
 }
 
 type AuthorizedMetaPages = {
@@ -414,7 +436,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: errorMessage } });
-    if (feed.lastError !== errorMessage) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});
+    if (shouldNotifyMetaSyncFailure(feed, errorMessage)) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});
     throw error;
   }
 }
