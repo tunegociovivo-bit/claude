@@ -44,6 +44,21 @@ type GmbAccountSummary = {
 const accountsCache = new Map<string, { value: GmbAccountSummary[]; freshUntil: number; staleUntil: number }>();
 const accountsInflight = new Map<string, Promise<GmbAccountSummary[]>>();
 
+class GmbProjectAccessError extends Error {}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hasZeroQuota(payload: unknown): boolean {
+  if (!isRecord(payload) || !isRecord(payload.error) || !Array.isArray(payload.error.details)) return false;
+  return payload.error.details.some((detail) => {
+    if (!isRecord(detail) || !isRecord(detail.metadata)) return false;
+    const value = detail.metadata.quota_limit_value ?? detail.metadata.quotaLimitValue;
+    return String(value ?? "") === "0";
+  });
+}
+
 /**
  * Refresca un access_token con las credenciales indicadas. Lanza "GMB_REVOKED"
  * cuando Google responde 400/401 (refresh revocado o permisos caducados).
@@ -114,6 +129,19 @@ async function gFetch(token: string, url: string, init: RequestInit = {}): Promi
     }
 
     const t = await r.text();
+    if (r.status === 429) {
+      try {
+        const payload: unknown = JSON.parse(t);
+        if (hasZeroQuota(payload)) {
+          throw new GmbProjectAccessError(
+            "El proyecto de Google Cloud no tiene acceso aprobado a las APIs de Google Business Profile. " +
+            "Solicita Basic API Access para el proyecto asociado a GOOGLE_CLIENT_ID y vuelve a intentarlo.",
+          );
+        }
+      } catch (error) {
+        if (error instanceof GmbProjectAccessError) throw error;
+      }
+    }
     if (r.status === 429 && method === "GET" && attempt === 0) {
       const retryAfter = Number(r.headers.get("retry-after") ?? "1");
       if (Number.isFinite(retryAfter) && retryAfter >= 0 && retryAfter <= 10) {
@@ -166,7 +194,7 @@ export async function gmbListAccounts(workspaceId: string): Promise<GmbAccountSu
   const request = (async () => {
     try {
       const token = await getAccessToken(workspaceId);
-      const data = await gFetch(token, `${ACCOUNTS_BASE}/accounts?pageSize=50`);
+      const data = await gFetch(token, `${ACCOUNTS_BASE}/accounts?pageSize=20`);
       const accounts: GmbAccountSummary[] = (data.accounts ?? []).map((a: any) => ({
         accountId: String(a.name ?? "").split("/").pop() ?? "",
         name: a.accountName ?? a.name,
@@ -181,6 +209,7 @@ export async function gmbListAccounts(workspaceId: string): Promise<GmbAccountSu
       });
       return accounts;
     } catch (error) {
+      if (error instanceof GmbProjectAccessError) throw error;
       if (cached && cached.staleUntil > Date.now()) return cached.value;
       throw error;
     } finally {
