@@ -89,14 +89,9 @@ export function startInAppScheduler(): void {
         if (rat.updated > 0) console.log(`[in-app-cron] bubui google rating: ${rat.updated} actualizadas, ${rat.remaining} pendientes`);
         // Subvenciones: ingesta nocturna del catálogo de convocatorias (BDNS).
         try {
-          const { ingestConvocatorias } = await import("@/lib/subvenciones/bdns");
-          const r = await ingestConvocatorias();
-          console.log(`[in-app-cron] subvenciones: ${r.upserted} convocatorias (${r.fueraDeFoco} fuera de foco)`);
-          const { runSubvencionAlertas, runAgencyOpportunityAlerts } = await import("@/lib/subvenciones/alertas");
-          const a = await runSubvencionAlertas();
-          if (a.enviados > 0) console.log(`[in-app-cron] subvenciones avisos: ${a.enviados}`);
-          const op = await runAgencyOpportunityAlerts();
-          if (op.enviados > 0) console.log(`[in-app-cron] subvenciones oportunidad TOP agencia: ${op.enviados}`);
+          const { runSubvencionesDaily } = await import("@/lib/subvenciones/runner");
+          const result = await runSubvencionesDaily("cron");
+          if (!(result as any).skipped) console.log("[in-app-cron] subvenciones: ejecución diaria completada");
           // Bubui: barre comercios (altas nuevas + re-escaneo semanal) para
           // encontrar subvenciones de su nicho y crear propuestas a revisar.
           const { runBubuiSubvencionScan } = await import("@/lib/bubui/subvenciones");

@@ -1,0 +1,17 @@
+name: Cazador de subvenciones diario
+
+on:
+  schedule:
+    - cron: "20 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ingesta, análisis y avisos
+        run: |
+          curl --fail-with-body --retry 3 --retry-all-errors --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            "https://hub.negociovivo.app/api/cron/subvenciones"

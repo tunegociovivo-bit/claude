@@ -10,6 +10,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson, AIDisabledError } from "@/lib/ai/anthropic";
 import { cnaeForCategory } from "./cnae";
+import { isLowValueBusinessOpportunity, updateSubvencionHealth } from "./operations";
 
 // Id centinela para tratar a la agencia como un "objetivo" más (estados,
 // borradores, avisos) sin tener que crear un Client falso.
@@ -137,7 +138,9 @@ async function analizar(
 
   // Prefiltro regional: estatales + de su provincia/CCAA (o sin región).
   const ccaa = CCAA[prov] ?? "";
+  const profileTokens = new Set(norm(perfil).split(/[^a-z0-9]+/).filter((x) => x.length >= 4));
   const candidates = all
+    .filter((c) => !isLowValueBusinessOpportunity(c))
     .filter((c) => {
       const reg = norm(c.regiones);
       if (!reg) return true;
@@ -146,13 +149,35 @@ async function analizar(
       if (ccaa && reg.includes(ccaa)) return true;
       return false;
     })
-    .slice(0, 40);
+    .map((c) => {
+      const text = norm(`${c.titulo} ${c.finalidad ?? ""} ${c.beneficiarios ?? ""} ${c.sectores ?? ""}`);
+      const overlap = [...profileTokens].filter((t) => text.includes(t)).length;
+      const business = /pyme|autonom|empresa|comercio|digital|marketing|publicidad|comunicacion|web|seo/.test(text) ? 5 : 0;
+      const completeness = [c.beneficiarios, c.finalidad, c.regiones, c.fechaFin, c.urlBases].filter(Boolean).length;
+      const source = /placsp|licit|boja|camara|europa|fondos/.test(norm(c.fuente)) ? 3 : 0;
+      return { c, priority: overlap * 3 + business + completeness + source };
+    })
+    .sort((a, b) => b.priority - a.priority || Number(Boolean(b.c.fechaFin)) - Number(Boolean(a.c.fechaFin)))
+    .slice(0, 60)
+    .map((x) => x.c);
 
   if (candidates.length === 0) return [];
 
   const lista = candidates
     .map((c) => `[${c.id}] ${c.titulo}${c.finalidad ? ` | Finalidad: ${c.finalidad.slice(0, 160)}` : ""}${c.beneficiarios ? ` | Beneficiarios: ${c.beneficiarios.slice(0, 120)}` : ""}${c.regiones ? ` | Región: ${c.regiones.slice(0, 80)}` : ""}${c.fechaFin ? ` | Cierra: ${c.fechaFin.toISOString().slice(0, 10)}` : ""}`)
     .join("\n");
+
+  const feedbackSettings = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const feedbackRows: any[] = Array.isArray((feedbackSettings?.settings as any)?.subvenciones?.feedback)
+    ? (feedbackSettings?.settings as any).subvenciones.feedback.filter((f: any) => f?.clientId === (mode === "agencia" ? AGENCY_ID : cacheKey.split(":").at(-1))).slice(0, 20)
+    : [];
+  const feedbackConvs = feedbackRows.length ? await prisma.subvencionConvocatoria.findMany({
+    where: { id: { in: feedbackRows.map((f) => f.convocatoriaId) } }, select: { id: true, titulo: true }
+  }) : [];
+  const feedbackTitle = new Map(feedbackConvs.map((c) => [c.id, c.titulo]));
+  const feedbackHints = feedbackRows.length
+    ? `\n\nAPRENDIZAJE DEL USUARIO (úsalo como preferencia, sin ignorar requisitos legales):\n${feedbackRows.map((f) => `- ${f.verdict === "interesa" ? "SÍ encaja" : "NO encaja"}: ${feedbackTitle.get(f.convocatoriaId) ?? f.convocatoriaId}${f.reason ? ` · ${f.reason}` : ""}`).join("\n")}`
+    : "";
 
   const system = mode === "agencia"
     ? `Eres experto en subvenciones Y en licitaciones/contratos públicos para empresas en España. Te paso el perfil de una AGENCIA DE MARKETING y una lista de convocatorias abiertas (con su id). Considera DOS tipos de oportunidad para la agencia:
@@ -178,7 +203,7 @@ Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si nin
       workspaceId,
       model: "claude-haiku-4-5-20251001",
       system,
-      user: `${etiqueta}:\n${perfil}\n\nCONVOCATORIAS:\n${lista}`,
+      user: `${etiqueta}:\n${perfil}${feedbackHints}\n\nCONVOCATORIAS:\n${lista}`,
       schema: SCHEMA,
       maxTokens: 1700
     });
@@ -196,8 +221,17 @@ Usa EXACTAMENTE los id que te paso. Ordena por fitScore desc. Máximo 10. Si nin
         };
       });
     matchCache.set(cacheKey, { at: Date.now(), data: result });
+    await updateSubvencionHealth(workspaceId, {
+      lastMatchAt: new Date().toISOString(),
+      matches: result.length,
+      lastError: null
+    }).catch(() => {});
     return result;
   } catch (e) {
+    await updateSubvencionHealth(workspaceId, {
+      lastMatchAt: new Date().toISOString(),
+      lastError: e instanceof Error ? e.message.slice(0, 500) : "Error desconocido al analizar"
+    }).catch(() => {});
     if (e instanceof AIDisabledError) throw new Error("La IA (Anthropic) no está configurada en el workspace.");
     throw e;
   }

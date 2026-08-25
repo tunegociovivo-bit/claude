@@ -15,7 +15,7 @@ const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
 
 const ESTADOS = [
   { v: "", t: "— Estado —" },
@@ -52,6 +52,9 @@ export default function SubvencionesAdmin() {
   const [agencyProfile, setAgencyProfile] = useState("");
   const [showProfile, setShowProfile] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [channelTesting, setChannelTesting] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [digestEnabled, setDigestEnabled] = useState(true);
 
   // Nombre legible del objetivo cuyos resultados se muestran ahora.
   const targetName = clientId === AGENCY_ID ? AGENCY_LABEL : (s?.clients.find((c) => c.id === clientId)?.name ?? "");
@@ -87,10 +90,27 @@ export default function SubvencionesAdmin() {
   async function saveWebhook() {
     setSavingHook(true);
     try {
-      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook, oportWebhookUrl: oportWebhook, whatsappTo: waTo, whatsappSession: waSession }) });
+      await fetch("/api/v1/admin/subvenciones", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookUrl: webhook, oportWebhookUrl: oportWebhook, whatsappTo: waTo, whatsappSession: waSession, digestEnabled }) });
     } finally {
       setSavingHook(false);
     }
+  }
+  async function testChannel(channel: "closing_webhook" | "opportunity_webhook" | "whatsapp") {
+    setChannelTesting(channel); setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/subvenciones/test-channel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel }) });
+      const j = await r.json().catch(() => ({}));
+      setMsg(r.ok ? "✅ Mensaje de prueba enviado correctamente." : `❌ ${j?.error?.message ?? "No se pudo probar el canal"}`);
+    } finally { setChannelTesting(null); }
+  }
+  async function opportunityAction(action: "feedback" | "create_task", convocatoriaId: string, verdict?: "interesa" | "no_encaja") {
+    setActionLoading(`${action}:${convocatoriaId}`); setMsg(null);
+    try {
+      const r = await fetch("/api/v1/admin/subvenciones/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, clientId, convocatoriaId, verdict }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setMsg(action === "create_task" ? "✅ Tarea creada en el proyecto de Subvenciones." : "✅ Preferencia guardada; se utilizará para afinar próximos resultados.");
+      else setMsg(`❌ ${j?.error?.message ?? "No se pudo completar la acción"}`);
+    } finally { setActionLoading(null); }
   }
   async function setEstado(convocatoriaId: string, estado: string) {
     if (!clientId) return;
@@ -107,7 +127,7 @@ export default function SubvencionesAdmin() {
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/subvenciones");
-      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setWaTo(d.whatsappTo ?? ""); setWaSession(d.whatsappSession ?? ""); setAgencyProfile(d.agencyProfile ?? ""); }
+      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setWaTo(d.whatsappTo ?? ""); setWaSession(d.whatsappSession ?? ""); setAgencyProfile(d.agencyProfile ?? ""); setDigestEnabled(d.digestEnabled !== false); }
     } finally {
       setLoading(false);
     }
@@ -186,6 +206,20 @@ export default function SubvencionesAdmin() {
             </div>
           </div>
 
+          <div className={`mt-4 rounded-xl border p-4 ${s.health?.cron?.status === "ok" && !s.health?.lastError ? "border-emerald-200 bg-emerald-50/50" : "border-amber-200 bg-amber-50/60"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-900">Salud de la automatización</h2>
+              <span className={`text-xs font-bold rounded-full px-2 py-1 ${s.health?.cron?.status === "ok" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{s.health?.cron?.status === "ok" ? "Operativa" : s.health?.cron?.status === "stale" ? "Ejecución retrasada" : "Sin ejecución registrada"}</span>
+            </div>
+            <div className="mt-2 grid sm:grid-cols-4 gap-2 text-xs text-slate-600">
+              <div><strong>Última ejecución</strong><br />{s.health?.lastRunAt ? new Date(s.health.lastRunAt).toLocaleString("es-ES") : "Nunca"}</div>
+              <div><strong>Último análisis</strong><br />{s.health?.lastMatchAt ? new Date(s.health.lastMatchAt).toLocaleString("es-ES") : "Nunca"}</div>
+              <div><strong>Coincidencias</strong><br />{s.health?.matches ?? "—"}</div>
+              <div><strong>Avisos enviados</strong><br />{s.health?.notifications ?? "—"}</div>
+            </div>
+            {s.health?.lastError && <p className="mt-2 text-xs text-rose-700"><strong>Último error:</strong> {s.health.lastError}</p>}
+          </div>
+
           {/* OBJETIVO PRINCIPAL: la propia agencia (Negocio Vivo) */}
           <div className="mt-6 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4">
             <div className="flex items-start justify-between gap-2">
@@ -261,6 +295,9 @@ export default function SubvencionesAdmin() {
                           <button onClick={() => verBorrador(m.id, m.titulo)} disabled={borradorLoading === m.id} className="inline-flex items-center gap-1 text-xs rounded border border-brand-300 bg-brand-50 text-brand-700 px-2 py-0.5 hover:bg-brand-100 disabled:opacity-50">
                             {borradorLoading === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "📝"} Borrador IA
                           </button>
+                          <button onClick={() => opportunityAction("feedback", m.id, "interesa")} disabled={!!actionLoading} className="text-xs rounded border border-emerald-300 bg-white text-emerald-700 px-2 py-0.5">👍 Encaja</button>
+                          <button onClick={() => opportunityAction("feedback", m.id, "no_encaja")} disabled={!!actionLoading} className="text-xs rounded border border-slate-300 bg-white text-slate-600 px-2 py-0.5">👎 No encaja</button>
+                          <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
                         </div>
                       </li>
                     ))}
@@ -276,11 +313,13 @@ export default function SubvencionesAdmin() {
               <h2 className="text-sm font-semibold text-slate-800">Avisos de cierre de plazo</h2>
               <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche se avisa de las convocatorias marcadas como <strong>Interesa/En proceso</strong> (de la agencia o de clientes) que cierran en ≤7 días, enviando un webhook a Make (email/WhatsApp).</p>
               <input value={webhook} onChange={(e) => setWebhook(e.target.value)} placeholder="https://hook.eu1.make.com/… (aviso de cierre)" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+              <button onClick={() => testChannel("closing_webhook")} disabled={channelTesting !== null || !webhook} className="mt-1 text-xs text-brand-600 hover:underline disabled:opacity-40">Probar webhook de cierre</button>
             </div>
             <div>
               <h2 className="text-sm font-semibold text-indigo-900 flex items-center gap-1.5"><Target className="h-4 w-4" /> Aviso de oportunidad TOP (agencia)</h2>
               <p className="text-[11px] text-slate-500 mt-0.5 mb-2">Cada noche, la IA cruza el catálogo con el perfil de <strong>Negocio Vivo</strong> y avisa por este webhook de las <strong>subvenciones/licitaciones nuevas con encaje ≥78</strong> (sin repetir).</p>
               <input value={oportWebhook} onChange={(e) => setOportWebhook(e.target.value)} placeholder="https://hook.eu1.make.com/… (oportunidad TOP)" className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
+              <button onClick={() => testChannel("opportunity_webhook")} disabled={channelTesting !== null || !oportWebhook} className="mt-1 text-xs text-brand-600 hover:underline disabled:opacity-40">Probar webhook de oportunidades</button>
             </div>
             <div>
               <h2 className="text-sm font-semibold text-emerald-800 flex items-center gap-1.5">📲 WhatsApp por WAHA (además del email)</h2>
@@ -289,7 +328,9 @@ export default function SubvencionesAdmin() {
                 <input value={waTo} onChange={(e) => setWaTo(e.target.value)} placeholder="Nº destino, ej. 34680167881" className="flex-1 min-w-[180px] px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
                 <input value={waSession} onChange={(e) => setWaSession(e.target.value)} placeholder="Sesión (ej. sonia) — opcional" className="flex-1 min-w-[180px] px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
               </div>
+              <button onClick={() => testChannel("whatsapp")} disabled={channelTesting !== null || !waTo} className="mt-1 text-xs text-emerald-700 hover:underline disabled:opacity-40">Probar WhatsApp</button>
             </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={digestEnabled} onChange={(e) => setDigestEnabled(e.target.checked)} /> Enviar resumen diario con las 5 mejores oportunidades y cierres próximos</label>
             <button onClick={saveWebhook} disabled={savingHook} className="rounded-lg border bg-white hover:bg-slate-50 text-sm px-3 py-2 disabled:opacity-50">{savingHook ? "Guardando…" : "Guardar webhooks"}</button>
           </div>
 
@@ -328,6 +369,8 @@ export default function SubvencionesAdmin() {
           <div className="mt-8">
             <h2 className="text-sm font-semibold text-slate-700 mb-1">Convocatorias abiertas ({s.convocatorias.length})</h2>
             <p className="text-[11px] text-slate-400 mb-2">Fuentes: <strong>BDNS</strong> (estatal+autonómica/local) · <strong>curadas</strong> (Kit Digital, Kit Consulting) · <strong>externas vía Make</strong> (POST a <code>/api/v1/admin/subvenciones/external</code> para BOJA, Cámaras, fondos EU…).</p>
+            {s.sources && <div className="mb-3 flex flex-wrap gap-1.5">{s.sources.map((x) => <span key={x.source} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{x.source}: {x.count}</span>)}</div>}
+            {s.sourceCoverage && <div className="mb-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{s.sourceCoverage.map((x) => <div key={x.source} className={`rounded-lg border px-3 py-2 text-xs ${x.connected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><strong>{x.connected ? "✓" : "!"} {x.label}</strong><span className="block mt-0.5">{x.connected ? `${x.count} registros` : "Pendiente de conectar mediante el endpoint externo"}</span></div>)}</div>}
             {s.convocatorias.length === 0 ? (
               <p className="text-sm text-slate-500">Catálogo vacío. Pulsa <strong>Actualizar convocatorias</strong> para traerlas de la BDNS.</p>
             ) : (

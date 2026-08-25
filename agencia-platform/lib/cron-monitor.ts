@@ -30,6 +30,7 @@ export const CRON_CATALOG: Record<string, { label: string; maxStaleMin: number }
   "leads-health": { label: "NV Leads · salud de WAHA", maxStaleMin: 25 },
   "orchestrator-tick": { label: "Sonia · tick del orquestador (autonomía)", maxStaleMin: 15 },
   "opportunity-hunter": { label: "Opportunity Hunter · señales comerciales", maxStaleMin: 26 * 60 }
+  ,"subvenciones": { label: "Cazador de subvenciones · ingesta y avisos", maxStaleMin: 26 * 60 }
 };
 
 /** Deriva el nombre de cron a partir del path de la request. */

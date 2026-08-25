@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { AGENCY_ID, matchForAgency } from "@/lib/subvenciones/match";
 import { sendText, normalizePhone } from "@/lib/leads/waha";
+import { hasDeliveryChannel, updateSubvencionHealth } from "@/lib/subvenciones/operations";
 
 const DIAS_AVISO = 7;
 // Encaje mínimo (0-100) para avisar de una oportunidad nueva para la agencia.
@@ -38,11 +39,11 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
 
   const workspaces = await prisma.workspace.findMany({ select: { id: true, settings: true } });
   for (const ws of workspaces) {
-    const webhookUrl = (ws.settings as any)?.subvenciones?.webhookUrl?.trim();
-    if (!webhookUrl) continue;
     const svc: any = (ws.settings as any)?.subvenciones ?? {};
+    const webhookUrl: string = (svc.webhookUrl ?? "").trim();
     const waTo: string = (svc.whatsappTo ?? "").trim();
     const waSession: string = (svc.whatsappSession ?? "").trim();
+    if (!hasDeliveryChannel(webhookUrl, waTo)) continue;
 
     const estados = await prisma.subvencionEstado.findMany({
       where: {
@@ -68,10 +69,7 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
       if (c.fechaFin.getTime() < now.getTime() || c.fechaFin.getTime() > limite.getTime()) continue; // solo si cierra dentro de la ventana
       const diasRestantes = Math.ceil((c.fechaFin.getTime() - now.getTime()) / 86_400_000);
       try {
-        await fetch(webhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const payload = {
             tipo: "subvencion_cierra_pronto",
             cliente: e.clientId === AGENCY_ID ? "Negocio Vivo (agencia)" : (clientById.get(e.clientId) ?? e.clientId),
             convocatoria: c.titulo,
@@ -81,9 +79,16 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
             diasRestantes,
             fechaFin: c.fechaFin.toISOString().slice(0, 10),
             urlBases: c.urlBases
-          }),
-          signal: AbortSignal.timeout(12000)
-        });
+        };
+        if (webhookUrl) {
+          const response = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(12000)
+          });
+          if (!response.ok) throw new Error(`Webhook de cierre respondió ${response.status}`);
+        }
         await prisma.subvencionEstado.update({ where: { id: e.id }, data: { notifiedCloseAt: now } });
         enviados++;
         if (waTo) {
@@ -97,6 +102,9 @@ export async function runSubvencionAlertas(): Promise<{ enviados: number }> {
         /* el aviso es best-effort */
       }
     }
+    await updateSubvencionHealth(ws.id, {
+      lastNotificationAt: new Date().toISOString(), notifications: enviados, lastError: null
+    }).catch(() => {});
   }
   return { enviados };
 }
@@ -115,9 +123,9 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
   for (const ws of workspaces) {
     const sv = (ws.settings as any)?.subvenciones ?? {};
     const oportWebhookUrl: string = (sv.oportWebhookUrl ?? "").trim();
-    if (!oportWebhookUrl) continue;
     const waTo: string = (sv.whatsappTo ?? "").trim();
     const waSession: string = (sv.whatsappSession ?? "").trim();
+    if (!hasDeliveryChannel(oportWebhookUrl, waTo)) continue;
 
     let matches;
     try {
@@ -145,10 +153,7 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
       const fuente = (fuenteById.get(m.id) ?? "").toLowerCase();
       const esLicitacion = fuente.includes("placsp") || fuente.includes("licit") || fuente.includes("contrat");
       try {
-        await fetch(oportWebhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const payload = {
             tipo: "oportunidad_top",
             tipoOportunidad: esLicitacion ? "Licitación pública" : "Subvención",
             objetivo: "Negocio Vivo (agencia)",
@@ -160,9 +165,16 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
             motivo: m.motivo,
             requisitos: m.requisitos,
             urlBases: m.urlBases ?? ""
-          }),
-          signal: AbortSignal.timeout(12000)
-        });
+        };
+        if (oportWebhookUrl) {
+          const response = await fetch(oportWebhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(12000)
+          });
+          if (!response.ok) throw new Error(`Webhook TOP respondió ${response.status}`);
+        }
         enviadasOk.push(m.id);
         enviados++;
         if (waTo) {
@@ -184,6 +196,43 @@ export async function runAgencyOpportunityAlerts(): Promise<{ enviados: number }
       settings.subvenciones.notifiedAgencyMatches = memoria;
       await prisma.workspace.update({ where: { id: ws.id }, data: { settings } }).catch(() => {});
     }
+    await updateSubvencionHealth(ws.id, {
+      lastNotificationAt: now.toISOString(), notifications: enviados, matches: top.length, lastError: null
+    }).catch(() => {});
+  }
+  return { enviados };
+}
+
+/** Resumen diario compacto. Se envía una sola vez por día y agrupa las mejores
+ * oportunidades para evitar una lluvia de mensajes individuales. */
+export async function runSubvencionDigest(): Promise<{ enviados: number }> {
+  const date = new Date().toISOString().slice(0, 10);
+  let enviados = 0;
+  const workspaces = await prisma.workspace.findMany({ select: { id: true, settings: true } });
+  for (const ws of workspaces) {
+    const sv: any = (ws.settings as any)?.subvenciones ?? {};
+    if (sv.digestEnabled === false || sv.lastDigestDate === date) continue;
+    const webhook = String(sv.oportWebhookUrl ?? "").trim();
+    const waTo = String(sv.whatsappTo ?? "").trim();
+    if (!webhook && !waTo) continue;
+    let matches;
+    try { matches = (await matchForAgency(ws.id)).slice(0, 5); } catch { continue; }
+    const trackedClosing = await prisma.subvencionEstado.count({
+      where: { workspaceId: ws.id, estado: { in: ["interesa", "en_proceso"] }, convocatoriaId: { in: (await prisma.subvencionConvocatoria.findMany({ where: { abierta: true, fechaFin: { gte: new Date(), lte: new Date(Date.now() + 7 * 86_400_000) } }, select: { id: true } })).map((c) => c.id) } }
+    });
+    const lines = matches.length ? matches.map((m, i) => `${i + 1}. ${m.fitScore}/100 · ${m.titulo}`).join("\n") : "Sin nuevas coincidencias claras.";
+    const text = `📊 *Resumen diario de subvenciones*\n\n${lines}\n\n⏰ En seguimiento y próximas a cerrar: ${trackedClosing}`;
+    try {
+      if (webhook) {
+        const response = await fetch(webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "subvenciones_resumen_diario", fecha: date, oportunidades: matches, cierresProximos: trackedClosing }), signal: AbortSignal.timeout(12000) });
+        if (!response.ok) throw new Error(`Webhook de resumen respondió ${response.status}`);
+      }
+      if (waTo) await sendWhatsAppWaha(ws.id, waTo, text, String(sv.whatsappSession ?? ""));
+      const settings: any = ws.settings ?? {};
+      settings.subvenciones = { ...(settings.subvenciones ?? {}), lastDigestDate: date };
+      await prisma.workspace.update({ where: { id: ws.id }, data: { settings } });
+      enviados++;
+    } catch { /* reintento en la siguiente ejecución */ }
   }
   return { enviados };
 }

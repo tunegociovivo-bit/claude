@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { getAgencyProfile } from "@/lib/subvenciones/match";
+import { CRON_CATALOG } from "@/lib/cron-monitor";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const oportWebhookUrl = (ws?.settings as any)?.subvenciones?.oportWebhookUrl ?? "";
   const whatsappTo = (ws?.settings as any)?.subvenciones?.whatsappTo ?? "";
   const whatsappSession = (ws?.settings as any)?.subvenciones?.whatsappSession ?? "";
+  const digestEnabled = (ws?.settings as any)?.subvenciones?.digestEnabled !== false;
   const { profile: agencyProfile } = await getAgencyProfile(api.workspaceId);
-  const [abiertas, total, ultima, convocatorias, clients] = await Promise.all([
+  const [abiertas, total, ultima, convocatorias, clients, heartbeat, sources] = await Promise.all([
     prisma.subvencionConvocatoria.count({ where: { abierta: true, OR: [{ fechaFin: null }, { fechaFin: { gte: now } }] } }),
     prisma.subvencionConvocatoria.count(),
     prisma.subvencionConvocatoria.findFirst({ orderBy: { updatedAt: "desc" }, select: { updatedAt: true } }),
@@ -30,8 +32,22 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       take: 100,
       select: { id: true, titulo: true, organo: true, regiones: true, importeTotal: true, fechaFin: true, urlBases: true, fuente: true }
     }),
-    prisma.client.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { name: "asc" }, select: { id: true, name: true } })
+    prisma.client.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.cronHeartbeat.findUnique({ where: { name: "subvenciones" } }),
+    prisma.subvencionConvocatoria.groupBy({ by: ["fuente"], _count: { _all: true } })
   ]);
+  const health = (ws?.settings as any)?.subvenciones?.health ?? {};
+  const sourceCount = new Map(sources.map((x) => [x.fuente.toLowerCase(), x._count._all]));
+  const sourceCoverage = [
+    { source: "bdns", label: "BDNS estatal y autonómica" },
+    { source: "curada", label: "Programas curados" },
+    { source: "boja", label: "BOJA · Junta de Andalucía" },
+    { source: "placsp", label: "PLACSP · licitaciones públicas" },
+    { source: "camaras", label: "Cámaras de Comercio" },
+    { source: "fondos-eu", label: "Fondos europeos" }
+  ].map((x) => ({ ...x, count: sourceCount.get(x.source) ?? 0, connected: (sourceCount.get(x.source) ?? 0) > 0 }));
+  const maxStaleMin = CRON_CATALOG.subvenciones.maxStaleMin;
+  const minutesSince = heartbeat ? Math.round((Date.now() - heartbeat.lastRunAt.getTime()) / 60000) : null;
   return NextResponse.json({
     abiertas,
     total,
@@ -42,7 +58,14 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     oportWebhookUrl,
     whatsappTo,
     whatsappSession,
-    agencyProfile
+    digestEnabled,
+    sources: sources.map((x) => ({ source: x.fuente, count: x._count._all })),
+    sourceCoverage,
+    agencyProfile,
+    health: {
+      ...health,
+      cron: { status: !heartbeat ? "never" : minutesSince! > maxStaleMin ? "stale" : "ok", lastRunAt: heartbeat?.lastRunAt ?? null, runs: heartbeat?.runs ?? 0, minutesSince }
+    }
   });
 });
 
@@ -54,6 +77,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     whatsappTo: z.string().max(40).nullable().optional(),
     whatsappSession: z.string().max(60).nullable().optional(),
     agencyProfile: z.string().max(4000).nullable().optional()
+    ,digestEnabled: z.boolean().optional()
   }).safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId } });
@@ -64,6 +88,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   if (parsed.data.whatsappTo !== undefined) settings.subvenciones.whatsappTo = (parsed.data.whatsappTo ?? "").trim();
   if (parsed.data.whatsappSession !== undefined) settings.subvenciones.whatsappSession = (parsed.data.whatsappSession ?? "").trim();
   if (parsed.data.agencyProfile !== undefined) settings.subvenciones.agencyProfile = (parsed.data.agencyProfile ?? "").trim();
+  if (parsed.data.digestEnabled !== undefined) settings.subvenciones.digestEnabled = parsed.data.digestEnabled;
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   return NextResponse.json({ ok: true });
 });
