@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { sendEmail, isEmailEnabled } from "@/lib/integrations/email";
 import { generateApprovalToken, hashToken, safeEqualHex, TOKEN_TTL_MS } from "./token";
+import { canReissueApproval } from "./approval-policy";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
 import { getSantanderProviderStatus } from "./santander-provider";
 import { madridBusinessDayWindow } from "./recency";
@@ -102,7 +103,7 @@ export async function findCandidateInvoices(
 
   // ¿Cuáles ya tienen solicitud? (una query, no N+1)
   const existing = await prisma.sepaRemittanceRequest.findMany({
-    where: { workspaceId, invoiceId: { in: invoices.map((i) => i.id) } },
+    where: { workspaceId, invoiceId: { in: invoices.map((i) => i.id) }, archivedAt: null },
     select: { invoiceId: true }
   });
   const withRequest = new Set(existing.map((e) => e.invoiceId));
@@ -191,12 +192,12 @@ export async function createRequestForInvoice(
   // ¿Ya existe una solicitud para esta factura? (unique companyId+invoiceId)
   const prev = await prisma.sepaRemittanceRequest.findUnique({
     where: { workspaceId_companyId_invoiceId: { workspaceId, companyId: nv.id, invoiceId } },
-    select: { id: true, status: true }
+    select: { id: true, status: true, archivedAt: true }
   });
   if (prev) {
     // Solo re-armamos las caducadas/fallidas (nuevo enlace); el resto es idempotente
     // (una decidida/pendiente/aprobada NO se recrea; una RECHAZADA se respeta).
-    if (prev.status === "EXPIRED" || prev.status === "FAILED") {
+    if (canReissueApproval({ status: prev.status, archived: Boolean(prev.archivedAt) })) {
       await prisma.sepaRemittanceRequest.update({
         where: { id: prev.id },
         data: {
@@ -208,7 +209,14 @@ export async function createRequestForInvoice(
           mandateRef: inv.client?.sepaMandateRef ?? null,
           ibanMasked: inv.client?.sepaIbanMasked ?? null,
           providerStatus: getSantanderProviderStatus(),
-          lastError: null
+          lastError: null,
+          archivedAt: null,
+          archivedById: null,
+          approvedById: null,
+          approvedAt: null,
+          rejectedById: null,
+          rejectedAt: null,
+          rejectReason: null
         }
       });
       await logEvent(prev.id, prev.status, "PENDING_APPROVAL", createdById, "Solicitud re-armada (nuevo enlace)");

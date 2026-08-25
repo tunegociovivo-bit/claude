@@ -109,8 +109,35 @@ export async function createJobForApprovedRequest(workspaceId: string, remittanc
         select: { id: true, companyId: true, invoiceId: true, clientId: true, invoiceNumber: true, clientName: true, amountCents: true, currency: true, mandateRef: true, ibanMasked: true }
       });
       if (!req) return null;
-      const existing = await tx.remittanceJob.findUnique({ where: { remittanceRequestId }, select: { id: true } });
-      if (existing) return { created: false, jobId: existing.id };
+        const existing = await tx.remittanceJob.findUnique({
+          where: { remittanceRequestId },
+          select: { id: true, status: true }
+        });
+        if (existing) {
+          if (canRequeueBankJobStatus(existing.status)) {
+            await tx.remittanceJob.update({
+              where: { id: existing.id },
+              data: {
+                status: "PENDING",
+                invoiceNumber: req.invoiceNumber,
+                clientName: req.clientName,
+                amountCents: req.amountCents,
+                currency: req.currency,
+                mandateRef: req.mandateRef,
+                ibanMasked: req.ibanMasked,
+                claimedByAgentId: null,
+                leaseUntil: null,
+                attempts: 0,
+                lastProgress: null,
+                needsUserReason: null,
+                lastError: null,
+                resultRef: null
+              }
+            });
+            return { created: true, jobId: existing.id, requeued: true };
+          }
+          return { created: false, jobId: existing.id };
+        }
       const job = await tx.remittanceJob.create({
         data: {
         workspaceId,
@@ -371,6 +398,10 @@ const DELETABLE_BANK_JOB_STATUSES = new Set(["PENDING", "NEEDS_USER", "FAILED", 
 
 export function canDeleteBankJobStatus(status: string): boolean {
   return DELETABLE_BANK_JOB_STATUSES.has(status);
+}
+
+export function canRequeueBankJobStatus(status: string): boolean {
+  return status === "CANCELLED";
 }
 
 /** Admin: elimina definitivamente un trabajo inactivo y sus eventos de auditoría. */

@@ -11,3 +11,7 @@ export type SepaApprovalContext = {
 export function requiresExplicitApproval(_context: SepaApprovalContext): true {
   return true;
 }
+
+export function canReissueApproval(input: { status: string; archived: boolean }): boolean {
+  return input.archived || input.status === "EXPIRED" || input.status === "FAILED";
+}
