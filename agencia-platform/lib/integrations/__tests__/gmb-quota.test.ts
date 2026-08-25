@@ -69,9 +69,11 @@ describe("Google Business Profile account quota protection", () => {
   });
 
   it("explains when the Google Cloud project has no GBP API quota", async () => {
+    let accountAttempts = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("oauth2.googleapis.com/token")) return jsonResponse({ access_token: "access" });
+      accountAttempts += 1;
       return jsonResponse(
         {
           error: {
@@ -87,6 +89,34 @@ describe("Google Business Profile account quota protection", () => {
 
     const { gmbListAccounts } = await import("../gmb");
     await expect(gmbListAccounts("ws-no-access")).rejects.toThrow(
+      "El proyecto de Google Cloud no tiene acceso aprobado a las APIs de Google Business Profile",
+    );
+    expect(accountAttempts).toBe(1);
+  });
+
+  it("does not hide a zero-quota project behind stale account data", async () => {
+    const startedAt = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    let accountAttempts = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("oauth2.googleapis.com/token")) return jsonResponse({ access_token: "access" });
+      accountAttempts += 1;
+      if (accountAttempts === 1) {
+        return jsonResponse({ accounts: [{ name: "accounts/789", accountName: "Anterior" }] });
+      }
+      return jsonResponse(
+        { error: { code: 429, details: [{ metadata: { quota_limit_value: "0" } }] } },
+        429,
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { gmbListAccounts } = await import("../gmb");
+    await expect(gmbListAccounts("ws-stale-zero")).resolves.toMatchObject([{ accountId: "789" }]);
+    nowSpy.mockReturnValue(startedAt + 6 * 60_000);
+
+    await expect(gmbListAccounts("ws-stale-zero")).rejects.toThrow(
       "El proyecto de Google Cloud no tiene acceso aprobado a las APIs de Google Business Profile",
     );
   });
