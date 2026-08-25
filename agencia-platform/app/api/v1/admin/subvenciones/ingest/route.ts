@@ -20,9 +20,12 @@ const COOLDOWN_MS = 30 * 60 * 1000;
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const body = (await req.json().catch(() => ({}))) as { daysBack?: number; maxPages?: number; force?: boolean };
-  const workspace = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
+  const [workspace, euFundingCount] = await Promise.all([
+    prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } }),
+    prisma.subvencionConvocatoria.count({ where: { fuente: "fondos-eu" } })
+  ]);
   const retryingFailedSource = String((workspace?.settings as any)?.subvenciones?.health?.lastError ?? "").startsWith("PLACSP:");
-  if (!body.force && !retryingFailedSource) {
+  if (!body.force && !retryingFailedSource && euFundingCount > 0) {
     const last = await prisma.subvencionConvocatoria.findFirst({ orderBy: { updatedAt: "desc" }, select: { updatedAt: true } });
     if (last && Date.now() - last.updatedAt.getTime() < COOLDOWN_MS) {
       const mins = Math.ceil((COOLDOWN_MS - (Date.now() - last.updatedAt.getTime())) / 60000);
