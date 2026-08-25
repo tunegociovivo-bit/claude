@@ -6,7 +6,8 @@
  *     candidatas" para controlar el envío de emails.
  */
 import { prisma } from "@/lib/db/prisma";
-import { approveRequestAutomatically, expireStaleRequests, createRequestsForCandidates } from "./remittance";
+import { expireStaleRequests, createRequestsForCandidates } from "./remittance";
+import { requiresExplicitApproval } from "./approval-policy";
 import { reclaimExpiredLeases, setAgentClaimingEnabled } from "./agent";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 import { madridBusinessDayWindow } from "./recency";
@@ -16,7 +17,6 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
   // Piloto automático por defecto. Las variables a `false` quedan como
   // interruptores de emergencia; la firma bancaria sigue siendo humana.
   const autoScan = process.env.SEPA_AUTO_SCAN !== "false";
-  const autoApprove = process.env.SEPA_AUTO_APPROVE !== "false";
   const report: any[] = [];
   for (const ws of workspaces) {
     const r: any = { workspaceId: ws.id };
@@ -82,12 +82,13 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
           // histórico basado en la fecha fiscal.
           ...(importedIds.length ? { invoiceIds: importedIds } : {})
         });
-        if (autoApprove && importedIds.length) {
-          r.autoApproved = 0;
-          for (const requestId of r.scan.requestIds) {
-            if (await approveRequestAutomatically(ws.id, requestId)) r.autoApproved++;
-          }
-        }
+        // A newly imported invoice may create and email an approval request,
+        // but only an explicit administrator decision may consume its token.
+        r.requiresExplicitApproval = requiresExplicitApproval({
+          source: "HOLDED",
+          importedNow: importedIds.length > 0,
+          legacyAutoApproveFlag: process.env.SEPA_AUTO_APPROVE === "true"
+        });
       } catch (e: any) {
         r.scanError = String(e?.message ?? e);
       }
