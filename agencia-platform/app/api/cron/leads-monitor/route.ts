@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, placeDetails } from "@/lib/leads/google-places";
 import { findProvince } from "@/lib/leads/spain-provinces";
 import { cronAuthOk } from "@/lib/cron-auth";
+import { GET as runFranchiseGrowthRadar } from "../franchise-growth/route";
 
 export const dynamic = "force-dynamic";
 
@@ -146,5 +147,12 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, searchesChecked: checked, newLeads, drops });
+  let franchiseGrowth: any = null;
+  try {
+    const response = await runFranchiseGrowthRadar(req);
+    franchiseGrowth = await response.json();
+  } catch (error: any) {
+    franchiseGrowth = { ok: false, error: String(error?.message ?? error).slice(0, 250) };
+  }
+  return NextResponse.json({ ok: true, searchesChecked: checked, newLeads, drops, franchiseGrowth });
 }

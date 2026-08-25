@@ -3443,6 +3443,7 @@ function TradeFairsView() {
 function FranchisesView() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [pipelineSummary, setPipelineSummary] = useState<Record<string, number>>({});
+  const [franchiseLearning, setFranchiseLearning] = useState<any>(null);
   const [accountBusy, setAccountBusy] = useState<string | null>(null);
   const [brand, setBrand] = useState("");
   const [brandLocation, setBrandLocation] = useState("");
@@ -3460,9 +3461,10 @@ function FranchisesView() {
   const [dirResult, setDirResult] = useState<{ imported: number; withEmail: number; scanned: number; contacts: any[] } | null>(null);
 
   const loadFranchiseAccounts = useCallback(async () => {
-    const r = await fetch("/api/v1/leads/franchises/accounts", { cache: "no-store" });
-    const j = await r.json().catch(() => ({}));
+    const [r, learningResponse] = await Promise.all([fetch("/api/v1/leads/franchises/accounts", { cache: "no-store" }), fetch("/api/v1/leads/franchises/growth", { cache: "no-store" })]);
+    const [j, learning] = await Promise.all([r.json().catch(() => ({})), learningResponse.json().catch(() => ({}))]);
     if (r.ok) { setAccounts(j.items ?? []); setPipelineSummary(j.summary ?? {}); }
+    if (learningResponse.ok) setFranchiseLearning(learning.learning ?? null);
   }, []);
   useEffect(() => { void loadFranchiseAccounts(); }, [loadFranchiseAccounts]);
 
@@ -3511,6 +3513,28 @@ function FranchisesView() {
         }
       }
       await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
+
+  async function refreshFranchiseGrowth(account: any) {
+    const category = account.growth?.category || window.prompt("Categoría para controlar la exclusividad (ej.: gimnasios, supermercados)", "") || undefined;
+    setAccountBusy(account.id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/growth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, category, refreshAudit: !!account.growth }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo actualizar la inteligencia comercial.");
+      else await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
+
+  async function runCadenceAction(account: any, index: number, action: "draft" | "send" | "complete") {
+    if (action === "send" && !window.confirm("Se enviará este seguimiento al decisor y responsables verificados. ¿Continuar?")) return;
+    setAccountBusy(account.id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/cadence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, index, action }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo actualizar la cadencia.");
+      else await loadFranchiseAccounts();
     } finally { setAccountBusy(null); }
   }
 
@@ -3597,10 +3621,12 @@ function FranchisesView() {
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {[["Cuentas", pipelineSummary.total ?? 0], ["Auditadas", pipelineSummary.audited ?? 0], ["Enviadas", pipelineSummary.audit_sent ?? 0], ["Reuniones", pipelineSummary.meeting ?? 0], ["Ganadas", pipelineSummary.won ?? 0]].map(([label, value]) => <div key={String(label)} className="rounded-lg border bg-white p-2"><div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div><div className="text-xl font-bold text-slate-900">{value}</div></div>)}
         </div>
+        {franchiseLearning?.total > 0 && <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-2 text-[11px] text-violet-900">Aprendizaje real sobre {franchiseLearning.total} cuentas: reunión/venta {franchiseLearning.meetingOrWinRate}%{franchiseLearning.bestRole ? ` · cargo que mejor convierte: ${franchiseLearning.bestRole}` : ""}{franchiseLearning.bestSignal ? ` · señal más eficaz: ${franchiseLearning.bestSignal}` : ""}.</div>}
         <div className="mt-4 space-y-2">
           {!accounts.length && <div className="rounded-lg border border-dashed bg-white/70 p-4 text-sm text-slate-500">Aún no hay cuentas de central. Busca o importa marcas y analiza su red.</div>}
           {accounts.map((account) => {
             const audit = account.audit;
+            const growth = account.growth;
             const decisionMaker = account.decisionMakerResearch?.selected;
             const decisionVerified = !!decisionMaker?.sendAllowed;
             return <details key={account.id} className="rounded-lg border bg-white" open={account.stage === "audited"}>
@@ -3617,10 +3643,21 @@ function FranchisesView() {
                   <div className="mt-3 grid gap-2 md:grid-cols-2">{(audit.findings ?? []).slice(0, 6).map((finding: any) => <div key={finding.key} className="rounded-md border p-2"><div className="text-xs font-semibold text-slate-800">{finding.title}</div><div className="text-[11px] text-slate-600">{finding.evidence}</div></div>)}</div>
                   <div className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-950"><strong>{audit.offer.title}</strong><div>{audit.offer.pilot}</div></div>
                 </> : <p className="text-xs text-slate-500">Esta cuenta todavía no tiene una auditoría ampliada. Vuelve a analizar la marca para generarla.</p>}
+                {growth && <div className="mt-3 space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-950">
+                  <div className="flex flex-wrap items-center gap-2"><strong>Prioridad comercial: {growth.opportunity?.score ?? 0}/100</strong><span className="rounded-full bg-white px-2 py-0.5 font-semibold">{growth.opportunity?.tier?.replaceAll("_", " ")}</span>{growth.category && <span>Sector: {growth.category}</span>}</div>
+                  <div>{growth.signals?.length ?? 0} señales verificables · piloto de {growth.pilot?.durationDays} días con {growth.pilot?.interventionLocations} ubicaciones + {growth.pilot?.controlLocations} de control.</div>
+                  {growth.signals?.slice(0, 3).map((signal: any, index: number) => <div key={`${signal.type}-${index}`} className="rounded-md bg-white/80 p-2"><strong>{signal.type.replaceAll("_", " ")}:</strong> {signal.evidence}{signal.sourceUrl && <a href={signal.sourceUrl} target="_blank" rel="noreferrer" className="ml-1 text-indigo-700 underline">fuente</a>}</div>)}
+                  <div>{growth.exclusivity?.allowed ? "✓ Sin conflicto de exclusividad detectado" : `⚠ Conflicto con ${growth.exclusivity?.conflicts?.map((conflict: any) => conflict.client).join(", ")}`}</div>
+                  <div>Cadencia preparada: {growth.cadence?.filter((step: any) => step.status === "pending").length ?? 0} acciones, todas con aprobación y parada al responder.</div>
+                  <details className="rounded-lg border border-violet-200 bg-white/70 p-2"><summary className="cursor-pointer font-semibold">Ver y ejecutar cadencia</summary><div className="mt-2 space-y-2">{growth.cadence?.map((step: any, index: number) => <div key={`${step.day}-${step.channel}`} className="rounded-md border bg-white p-2"><div className="flex flex-wrap items-center gap-2"><strong>Día {step.day} · {step.channel}</strong><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px]">{step.status}</span><span>{step.purpose}</span></div>{step.draft && <div className="mt-2 rounded bg-slate-50 p-2 text-[11px]"><strong>{step.draft.subject}</strong><div className="mt-1 whitespace-pre-wrap">{step.draft.body}</div></div>}<div className="mt-2 flex gap-2">{["pending", "draft_ready"].includes(step.status) && <button onClick={() => void runCadenceAction(account, index, "draft")} className="rounded border px-2 py-1 text-[11px] font-semibold">Generar nuevo borrador</button>}{step.status === "draft_ready" && step.channel === "email" && <button onClick={() => void runCadenceAction(account, index, "send")} className="rounded bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white">Aprobar y enviar</button>}{step.status === "draft_ready" && step.channel === "linkedin" && <button onClick={() => void runCadenceAction(account, index, "complete")} className="rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white">Marcar LinkedIn realizado</button>}</div></div>)}</div></details>
+                  {growth.publicAudit?.token && <a href={`/auditoria/franquicia/${growth.publicAudit.token}`} target="_blank" rel="noreferrer" className="inline-flex font-semibold text-indigo-700 underline">Abrir micrositio privado ↗</a>}
+                  <div className="text-[11px] text-violet-700">Micrositio visto {growth.publicAudit?.views ?? 0} veces{growth.publicAudit?.lastViewedAt ? ` · última visita ${new Date(growth.publicAudit.lastViewedAt).toLocaleString("es-ES")}` : ""}{growth.liveAudit?.changed ? " · hay cambios desde la auditoría anterior" : ""}.</div>
+                </div>}
                 {decisionVerified && Array.isArray(account.decisionMakerResearch?.copies) && account.decisionMakerResearch.copies.length > 0 && <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">Se enviará a <strong>{decisionMaker.email}</strong> y en CCO a {account.decisionMakerResearch.copies.length} responsable(s) adicional(es) verificados: {account.decisionMakerResearch.copies.map((candidate: any) => candidate.email).join(", ")}.</div>}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <select value={account.stage} onChange={(e) => void setAccountStage(account.id, e.target.value)} disabled={accountBusy === account.id} className="rounded-lg border px-2 py-1.5 text-xs">{[["discovered","Descubierta"],["audited","Auditada"],["draft_ready","Borrador listo"],["audit_sent","Auditoría enviada"],["replied","Respondió"],["meeting","Reunión"],["pilot","Piloto"],["proposal","Propuesta"],["won","Ganada"],["lost","Perdida"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
                   <button onClick={() => void researchDecisionMaker(account)} disabled={accountBusy === account.id} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-40">{accountBusy === account.id ? "Investigando…" : decisionVerified ? "Reinvestigar decisor" : "Investigar responsable de marketing"}</button>
+                  <button onClick={() => void refreshFranchiseGrowth(account)} disabled={!account.audit || accountBusy === account.id} className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40">{growth ? "Actualizar señales y auditoría viva" : "Activar motor de crecimiento"}</button>
                   <button title={decisionVerified ? "Enviar al responsable verificado" : "Bloqueado hasta verificar una persona y cargo adecuados"} onClick={() => void sendAccountAudit(account)} disabled={!decisionVerified || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
                   {account.linkedin && <a href={account.linkedin} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-semibold">LinkedIn ↗</a>}
                 </div>

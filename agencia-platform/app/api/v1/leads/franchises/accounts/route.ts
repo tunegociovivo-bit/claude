@@ -29,6 +29,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       directorRole: raw.directorRole ?? null,
       linkedin: raw.linkedin ?? null,
       decisionMakerResearch: raw.decisionMakerResearch ?? null,
+      growth: raw.franchiseGrowth ?? null,
       audit: raw.franchiseAudit ?? null,
       draft: raw.franchiseDraft ?? null,
       reportText: raw.reportText ?? null,
@@ -50,9 +51,13 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   const raw: any = lead.rawData ?? {};
   const now = new Date().toISOString();
   const history = Array.isArray(raw.franchisePipeline?.history) ? raw.franchisePipeline.history : [];
+  const stopCadence = ["replied", "meeting", "pilot", "proposal", "won", "lost"].includes(parsed.data.stage);
+  const cadence = stopCadence && Array.isArray(raw.franchiseGrowth?.cadence)
+    ? raw.franchiseGrowth.cadence.map((step: any) => step.status === "pending" ? { ...step, status: "stopped", stoppedAt: now, stopReason: parsed.data.stage } : step)
+    : raw.franchiseGrowth?.cadence;
   await prisma.lead.update({
     where: { id: parsed.data.id },
-    data: { rawData: { ...raw, franchisePipeline: { ...raw.franchisePipeline, stage: parsed.data.stage, updatedAt: now, history: [...history, { stage: parsed.data.stage, note: parsed.data.note ?? null, at: now }].slice(-100) } } }
+    data: { rawData: { ...raw, franchiseGrowth: raw.franchiseGrowth ? { ...raw.franchiseGrowth, cadence } : undefined, franchisePipeline: { ...raw.franchisePipeline, stage: parsed.data.stage, updatedAt: now, history: [...history, { stage: parsed.data.stage, note: parsed.data.note ?? null, at: now }].slice(-100) } } }
   });
   return NextResponse.json({ ok: true, stage: parsed.data.stage, updatedAt: now });
 });

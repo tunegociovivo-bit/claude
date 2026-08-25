@@ -29,6 +29,7 @@ const PUBLIC_PATHS = [
   "/g/",
   "/v/",
   "/p/",
+  "/auditoria/franquicia/",
   "/api/v1/workspace/public",
   // Healthcheck de Railway (railway.json → healthcheckPath): debe ser público
   // y sin auth para que el probe de despliegue reciba 200. No expone datos
