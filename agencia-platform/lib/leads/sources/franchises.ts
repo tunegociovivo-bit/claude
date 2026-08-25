@@ -18,6 +18,7 @@ import { completeJson } from "@/lib/ai/anthropic";
 import { placesTextSearch, type PlacesResult } from "../google-places";
 import { extractEmailsFromWebsite } from "../email-extract";
 import { apolloFindDecisionMakers, hunterDomainSearch, hunterFindEmail, resolveContactKeys, findMarketingEmailsByDomain } from "../enrich-contacts";
+import { buildFranchiseAudit, type FranchiseAudit } from "../franchise-audit";
 
 // Cargos de marketing/expansión para buscar al DECISOR en la central.
 const MARKETING_TITLES = [
@@ -176,6 +177,11 @@ export type NetworkMetrics = {
   closedPct: number; // % no operativos
   reviewsMin: number;
   reviewsMax: number;
+  ratingStdDev?: number | null;
+  noPhonePct?: number;
+  lowReviewsPct?: number;
+  domainMismatchPct?: number;
+  reviewConcentrationPct?: number;
 };
 
 function computeMetrics(locs: PlacesResult[]): NetworkMetrics {
@@ -294,10 +300,17 @@ export async function analyzeFranchiseNetwork(
   locs = locs.filter((l) => slug(l.name).includes(nslug));
   if (locs.length < 3) return null;
 
-  const metrics = computeMetrics(locs);
-  const report = buildReport(brand, metrics);
   const site = modalWebsite(locs);
   const domain = site ? site.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "") : null;
+  const franchiseAudit: FranchiseAudit = buildFranchiseAudit(brand, locs, { officialDomain: domain });
+  const metrics: NetworkMetrics = { ...computeMetrics(locs), ...franchiseAudit.metrics };
+  const report = [
+    buildReport(brand, metrics),
+    `Índice de riesgo observado: ${franchiseAudit.score}/100 (${franchiseAudit.risk}).`,
+    ...franchiseAudit.findings.map((finding) => `• ${finding.title}: ${finding.evidence}`),
+    `Piloto recomendado: ${franchiseAudit.offer.title}. ${franchiseAudit.offer.pilot}`,
+    franchiseAudit.methodology
+  ].join("\n");
 
   // 1º el DECISOR de marketing (Apollo/Hunter); si no, email genérico de la web.
   const contact: MarketingContact = domain
@@ -345,6 +358,9 @@ export async function analyzeFranchiseNetwork(
       // El informe se muestra en la tarjeta de revisión (campo jobDescription).
       jobDescription: report,
       reportText: report,
+      franchiseAudit,
+      franchisePipeline: { stage: "audited", updatedAt: new Date().toISOString() },
+      franchiseDraft: subject && body ? { subject, body, generatedAt: new Date().toISOString() } : undefined,
       email: email ?? undefined,
       // Copia oculta a TODOS los directivos de marketing localizados.
       bccEmails: bccEmails.length ? bccEmails : undefined,

@@ -203,11 +203,13 @@ export async function sendEmailWithAttachment(opts: {
   subject: string;
   html: string;
   text?: string;
+  workspaceId?: string;
+  from?: string;
+  bcc?: string | string[];
   attachment: { filename: string; content: string | Buffer; contentType: string };
 }): Promise<{ id: string }> {
-  if (!isEmailEnabled()) {
-    throw new Error("Email no configurado. Define RESEND_API_KEY en Railway.");
-  }
+  const { apiKey, from: resolvedFrom } = await getResendConfig(opts.workspaceId);
+  if (!apiKey) throw new Error("Email no configurado. Define RESEND_API_KEY o guarda la clave de Resend en /admin/secretos.");
 
   const contentBase64 =
     typeof opts.attachment.content === "string"
@@ -217,19 +219,21 @@ export async function sendEmailWithAttachment(opts: {
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: getFromAddress(),
+      from: opts.from ?? resolvedFrom,
       to: [opts.to],
+      ...(opts.bcc ? { bcc: Array.isArray(opts.bcc) ? opts.bcc : [opts.bcc] } : {}),
       subject: opts.subject,
       html: opts.html,
       text: opts.text,
       attachments: [
         {
           filename: opts.attachment.filename,
-          content: contentBase64
+          content: contentBase64,
+          content_type: opts.attachment.contentType
         }
       ]
     })

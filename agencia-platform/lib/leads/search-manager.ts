@@ -23,7 +23,7 @@ import { collectFromSource, enrichJobsResults, type LeadSourceKey } from "./sour
 import { offersToLeadResults } from "./sources/jobs";
 import { fetchJobAlertOffers } from "./sources/jobs-inbox";
 import { analyzeFranchiseNetwork } from "./sources/franchises";
-import { startExecOutreach, draftJobsReview, saveReviewDraft } from "./exec-outreach";
+import { startExecOutreach, draftJobsReview } from "./exec-outreach";
 
 /**
  * Arranca la secuencia de email automática para los leads de la fuente "jobs"
@@ -305,23 +305,21 @@ export async function analyzeFranchises(
       let emailed = false;
       // Estado claro para NO insistir: ya contactada (email enviado) / borrador en
       // cola (aún no enviado) / borrador creado ahora / sin email.
-      let status = "no_email";
+      let status = a.email ? "audit_ready" : "no_email";
       let contactedAt: string | null = null;
       if (lead) {
         const already = await prisma.leadExecOutreach.findFirst({
           where: { workspaceId, leadId: lead.id },
           select: { status: true, updatedAt: true }
         });
-        const isSent = ["contacted", "responded", "client"].includes(lead.contactStatus) || (already && already.status !== "pending_review");
+        const isSent = ["contacted", "responded", "client"].includes(lead.contactStatus);
         if (isSent) {
           status = "contacted";
           contactedAt = already?.updatedAt ? already.updatedAt.toISOString() : null;
         } else if (already) {
           status = "draft_pending"; // ya tiene borrador esperando aprobación
         } else if (a.email && a.subject && a.body) {
-          await saveReviewDraft(workspaceId, lead.id, a.email, a.subject, a.body);
-          emailed = true;
-          status = "drafted_now";
+          status = "audit_ready";
         }
       }
       results.push({ brand, sampled: a.metrics.sampled, metrics: a.metrics, emailed, email: a.email, contact: a.contact, status, contactedAt });
@@ -383,7 +381,8 @@ export async function importFranchiseDirectory(
           : undefined,
         directorName: c.contactName ?? undefined,
         directorRole: c.role ?? undefined,
-        contactVerified: !!c.email
+        contactVerified: !!c.email,
+        franchisePipeline: { stage: "discovered", updatedAt: new Date().toISOString() }
       }
     };
     try {

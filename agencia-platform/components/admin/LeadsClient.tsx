@@ -3441,6 +3441,9 @@ function TradeFairsView() {
 }
 
 function FranchisesView() {
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [pipelineSummary, setPipelineSummary] = useState<Record<string, number>>({});
+  const [accountBusy, setAccountBusy] = useState<string | null>(null);
   const [brand, setBrand] = useState("");
   const [brandLocation, setBrandLocation] = useState("");
   const [brandSearching, setBrandSearching] = useState(false);
@@ -3455,6 +3458,35 @@ function FranchisesView() {
   const [diag, setDiag] = useState<{ proposed: number; verified: number; placesErrors: number } | null>(null);
   const [importing, setImporting] = useState(false);
   const [dirResult, setDirResult] = useState<{ imported: number; withEmail: number; scanned: number; contacts: any[] } | null>(null);
+
+  const loadFranchiseAccounts = useCallback(async () => {
+    const r = await fetch("/api/v1/leads/franchises/accounts", { cache: "no-store" });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { setAccounts(j.items ?? []); setPipelineSummary(j.summary ?? {}); }
+  }, []);
+  useEffect(() => { void loadFranchiseAccounts(); }, [loadFranchiseAccounts]);
+
+  async function setAccountStage(id: string, stage: string) {
+    setAccountBusy(id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo actualizar la etapa.");
+      else await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
+
+  async function sendAccountAudit(account: any) {
+    if (!account.email || !account.audit) return;
+    if (!window.confirm(`Se enviará la auditoría visual a ${account.email}. ¿Continuar?`)) return;
+    setAccountBusy(account.id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/send-audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, subject: account.draft?.subject, body: account.draft?.body }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo enviar la auditoría.");
+      else await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
 
   async function searchBrandLocations() {
     if (brand.trim().length < 2) { setErr("Escribe una marca (ej: Alcampo)."); return; }
@@ -3531,6 +3563,41 @@ function FranchisesView() {
 
   return (
     <div className="space-y-4">
+      <section className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><div className="text-base font-bold text-slate-900">Franchise Intelligence · embudo de centrales</div><p className="mt-1 text-xs text-slate-600">Auditorías, evidencias visuales, responsables y seguimiento comercial separados de Empleos.</p></div>
+          <button onClick={() => void loadFranchiseAccounts()} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700">Actualizar</button>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {[["Cuentas", pipelineSummary.total ?? 0], ["Auditadas", pipelineSummary.audited ?? 0], ["Enviadas", pipelineSummary.audit_sent ?? 0], ["Reuniones", pipelineSummary.meeting ?? 0], ["Ganadas", pipelineSummary.won ?? 0]].map(([label, value]) => <div key={String(label)} className="rounded-lg border bg-white p-2"><div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div><div className="text-xl font-bold text-slate-900">{value}</div></div>)}
+        </div>
+        <div className="mt-4 space-y-2">
+          {!accounts.length && <div className="rounded-lg border border-dashed bg-white/70 p-4 text-sm text-slate-500">Aún no hay cuentas de central. Busca o importa marcas y analiza su red.</div>}
+          {accounts.map((account) => {
+            const audit = account.audit;
+            return <details key={account.id} className="rounded-lg border bg-white" open={account.stage === "audited"}>
+              <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 p-3">
+                <div className="min-w-0 flex-1"><div className="font-semibold text-slate-900">{account.brand}</div><div className="text-[11px] text-slate-500">{account.directorName ? `${account.directorName}${account.directorRole ? ` · ${account.directorRole}` : ""}` : "Decisor pendiente"} · {account.email ?? "sin email"}</div></div>
+                {audit && <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${audit.score >= 55 ? "bg-rose-100 text-rose-700" : audit.score >= 30 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>Riesgo {audit.score}/100</span>}
+                <span className="rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700">{account.stage}</span>
+              </summary>
+              <div className="border-t p-3">
+                {audit ? <>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900"><strong>Simulación visual basada en datos observados.</strong> No se presenta como captura literal ni estima ingresos.</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-6">{[["Muestra", audit.metrics.sampled], ["Media", `${audit.metrics.avgRating ?? "—"}★`], ["≤3,5★", `${audit.metrics.lowRatingPct}%`], ["Sin web", `${audit.metrics.noWebsitePct}%`], ["Sin teléfono", `${audit.metrics.noPhonePct}%`], ["Cerradas", `${audit.metrics.closedPct}%`]].map(([label, value]) => <div key={String(label)} className="rounded-md bg-slate-50 p-2"><div className="text-[10px] text-slate-500">{label}</div><div className="font-bold text-slate-900">{value}</div></div>)}</div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">{(audit.findings ?? []).slice(0, 6).map((finding: any) => <div key={finding.key} className="rounded-md border p-2"><div className="text-xs font-semibold text-slate-800">{finding.title}</div><div className="text-[11px] text-slate-600">{finding.evidence}</div></div>)}</div>
+                  <div className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-950"><strong>{audit.offer.title}</strong><div>{audit.offer.pilot}</div></div>
+                </> : <p className="text-xs text-slate-500">Esta cuenta todavía no tiene una auditoría ampliada. Vuelve a analizar la marca para generarla.</p>}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <select value={account.stage} onChange={(e) => void setAccountStage(account.id, e.target.value)} disabled={accountBusy === account.id} className="rounded-lg border px-2 py-1.5 text-xs">{[["discovered","Descubierta"],["audited","Auditada"],["draft_ready","Borrador listo"],["audit_sent","Auditoría enviada"],["replied","Respondió"],["meeting","Reunión"],["pilot","Piloto"],["proposal","Propuesta"],["won","Ganada"],["lost","Perdida"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
+                  <button onClick={() => void sendAccountAudit(account)} disabled={!account.email || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
+                  {account.linkedin && <a href={account.linkedin} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-semibold">LinkedIn ↗</a>}
+                </div>
+              </div>
+            </details>;
+          })}
+        </div>
+      </section>
       <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
         <div className="text-sm font-semibold text-slate-800">🏪 Locales por marca — buscar y contactar cada establecimiento</div>
         <p className="mt-1 text-[11px] text-slate-600">
@@ -3556,8 +3623,8 @@ function FranchisesView() {
         <p className="text-[11px] text-slate-600 mt-1">
           Elige un nicho → la IA propone franquicias reales (verificadas en Google) → seleccionas → analizamos la
           <strong> salud de red</strong> de cada marca (dispersión de valoraciones, fichas sin web, locales invisibles…)
-          y redactamos el <strong>informe + email a la central</strong> ofreciendo gestionar todas sus fichas de forma
-          centralizada. Los emails quedan en <strong>📧 Empleos → cola de revisión</strong> para que los apruebes.
+          y generamos una <strong>auditoría ampliada con evidencia visual</strong>. La revisión, el envío y el seguimiento
+          permanecen en el embudo propio de <strong>Franchise Intelligence</strong>, sin mezclarse con Empleos.
         </p>
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="Nicho (ej: heladerías, ópticas, gimnasios)" className="sm:col-span-2 px-3 py-2 rounded-lg border bg-white text-sm" />
@@ -3660,9 +3727,9 @@ function FranchisesView() {
                     <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
                       ⛔ Ya contactada — no insistir{r.contactedAt ? ` (${new Date(r.contactedAt).toLocaleDateString("es-ES")})` : ""}
                     </span>
-                  ) : r.status === "draft_pending" ? (
+                  ) : r.status === "audit_ready" ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                      📝 Ya tiene borrador en la cola (sin enviar)
+                      📝 Auditoría lista para revisar y enviar
                     </span>
                   ) : r.status === "drafted_now" || r.emailed ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 border border-emerald-300 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
@@ -3691,7 +3758,7 @@ function FranchisesView() {
             ))}
           </div>
           <p className="mt-2 text-[11px] text-slate-500">
-            Los emails redactados están en <strong>📧 Empleos → cola de revisión</strong> (misma cola): ahí los editas, apruebas y envías.
+            Las auditorías y su seguimiento permanecen arriba, en el embudo propio de <strong>Franchise Intelligence</strong>.
           </p>
         </div>
       )}
