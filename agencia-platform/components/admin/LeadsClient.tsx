@@ -3488,6 +3488,32 @@ function FranchisesView() {
     } finally { setAccountBusy(null); }
   }
 
+  async function researchDecisionMaker(account: any) {
+    setAccountBusy(account.id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/research-decision-maker", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo investigar al responsable de marketing.");
+      else await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
+
+  async function researchPendingDecisionMakers() {
+    const pending = accounts.filter((account) => !account.decisionMakerResearch?.selected?.sendAllowed && account.website).slice(0, 10);
+    if (!pending.length) return;
+    setAccountBusy("batch"); setErr(null);
+    try {
+      for (const account of pending) {
+        const r = await fetch("/api/v1/leads/franchises/research-decision-maker", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          setErr(j?.error?.message ?? `No se pudo investigar ${account.brand}.`);
+        }
+      }
+      await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
+
   async function searchBrandLocations() {
     if (brand.trim().length < 2) { setErr("Escribe una marca (ej: Alcampo)."); return; }
     setBrandSearching(true); setErr(null); setBrandResult(null);
@@ -3566,7 +3592,7 @@ function FranchisesView() {
       <section className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><div className="text-base font-bold text-slate-900">Franchise Intelligence · embudo de centrales</div><p className="mt-1 text-xs text-slate-600">Auditorías, evidencias visuales, responsables y seguimiento comercial separados de Empleos.</p></div>
-          <button onClick={() => void loadFranchiseAccounts()} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700">Actualizar</button>
+          <div className="flex flex-wrap gap-2"><button onClick={() => void researchPendingDecisionMakers()} disabled={accountBusy === "batch" || !accounts.some((account) => !account.decisionMakerResearch?.selected?.sendAllowed && account.website)} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === "batch" ? "Investigando 10 centrales…" : "Investigar 10 decisores pendientes"}</button><button onClick={() => void loadFranchiseAccounts()} className="rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700">Actualizar</button></div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {[["Cuentas", pipelineSummary.total ?? 0], ["Auditadas", pipelineSummary.audited ?? 0], ["Enviadas", pipelineSummary.audit_sent ?? 0], ["Reuniones", pipelineSummary.meeting ?? 0], ["Ganadas", pipelineSummary.won ?? 0]].map(([label, value]) => <div key={String(label)} className="rounded-lg border bg-white p-2"><div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div><div className="text-xl font-bold text-slate-900">{value}</div></div>)}
@@ -3575,10 +3601,13 @@ function FranchisesView() {
           {!accounts.length && <div className="rounded-lg border border-dashed bg-white/70 p-4 text-sm text-slate-500">Aún no hay cuentas de central. Busca o importa marcas y analiza su red.</div>}
           {accounts.map((account) => {
             const audit = account.audit;
+            const decisionMaker = account.decisionMakerResearch?.selected;
+            const decisionVerified = !!decisionMaker?.sendAllowed;
             return <details key={account.id} className="rounded-lg border bg-white" open={account.stage === "audited"}>
               <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 p-3">
-                <div className="min-w-0 flex-1"><div className="font-semibold text-slate-900">{account.brand}</div><div className="text-[11px] text-slate-500">{account.directorName ? `${account.directorName}${account.directorRole ? ` · ${account.directorRole}` : ""}` : "Decisor pendiente"} · {account.email ?? "sin email"}</div></div>
+                <div className="min-w-0 flex-1"><div className="font-semibold text-slate-900">{account.brand}</div><div className="text-[11px] text-slate-500">{decisionVerified ? `${decisionMaker.name} · ${decisionMaker.role} · ${decisionMaker.email}` : "Responsable de marketing pendiente de verificar"}</div></div>
                 {audit && <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${audit.score >= 55 ? "bg-rose-100 text-rose-700" : audit.score >= 30 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>Riesgo {audit.score}/100</span>}
+                <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${decisionVerified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{decisionVerified ? `Decisor verificado · ${decisionMaker.score}/100` : "No enviar"}</span>
                 <span className="rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700">{account.stage}</span>
               </summary>
               <div className="border-t p-3">
@@ -3590,7 +3619,8 @@ function FranchisesView() {
                 </> : <p className="text-xs text-slate-500">Esta cuenta todavía no tiene una auditoría ampliada. Vuelve a analizar la marca para generarla.</p>}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <select value={account.stage} onChange={(e) => void setAccountStage(account.id, e.target.value)} disabled={accountBusy === account.id} className="rounded-lg border px-2 py-1.5 text-xs">{[["discovered","Descubierta"],["audited","Auditada"],["draft_ready","Borrador listo"],["audit_sent","Auditoría enviada"],["replied","Respondió"],["meeting","Reunión"],["pilot","Piloto"],["proposal","Propuesta"],["won","Ganada"],["lost","Perdida"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
-                  <button onClick={() => void sendAccountAudit(account)} disabled={!account.email || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
+                  <button onClick={() => void researchDecisionMaker(account)} disabled={accountBusy === account.id} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-40">{accountBusy === account.id ? "Investigando…" : decisionVerified ? "Reinvestigar decisor" : "Investigar responsable de marketing"}</button>
+                  <button title={decisionVerified ? "Enviar al responsable verificado" : "Bloqueado hasta verificar una persona y cargo adecuados"} onClick={() => void sendAccountAudit(account)} disabled={!decisionVerified || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
                   {account.linkedin && <a href={account.linkedin} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-semibold">LinkedIn ↗</a>}
                 </div>
               </div>

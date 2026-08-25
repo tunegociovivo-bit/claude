@@ -28,6 +28,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       directorName: raw.directorName ?? null,
       directorRole: raw.directorRole ?? null,
       linkedin: raw.linkedin ?? null,
+      decisionMakerResearch: raw.decisionMakerResearch ?? null,
       audit: raw.franchiseAudit ?? null,
       draft: raw.franchiseDraft ?? null,
       reportText: raw.reportText ?? null,

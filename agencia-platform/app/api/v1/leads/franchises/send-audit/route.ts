@@ -24,6 +24,10 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   if (!lead) throw new ApiError(404, "not_found", "Cuenta de franquicia no encontrada");
   if (!lead.email) throw new ApiError(400, "missing_email", "La central no tiene un email destinatario");
   const raw: any = lead.rawData ?? {};
+  const selectedDecisionMaker = raw.decisionMakerResearch?.selected;
+  if (!selectedDecisionMaker?.sendAllowed || selectedDecisionMaker.email?.toLowerCase() !== lead.email.toLowerCase()) {
+    throw new ApiError(409, "decision_maker_unverified", "Investiga y verifica primero al responsable de marketing de la central");
+  }
   const audit = raw.franchiseAudit as FranchiseAudit | undefined;
   if (!audit?.metrics) throw new ApiError(400, "missing_audit", "Analiza la red antes de enviar la auditoría");
 

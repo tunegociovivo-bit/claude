@@ -19,6 +19,7 @@ import { placesTextSearch, type PlacesResult } from "../google-places";
 import { extractEmailsFromWebsite } from "../email-extract";
 import { apolloFindDecisionMakers, hunterDomainSearch, hunterFindEmail, resolveContactKeys, findMarketingEmailsByDomain } from "../enrich-contacts";
 import { buildFranchiseAudit, type FranchiseAudit } from "../franchise-audit";
+import { rankFranchiseDecisionMakers } from "../franchise-decision-maker";
 
 // Cargos de marketing/expansión para buscar al DECISOR en la central.
 const MARKETING_TITLES = [
@@ -316,20 +317,27 @@ export async function analyzeFranchiseNetwork(
   const contact: MarketingContact = domain
     ? await findMarketingContact(workspaceId, domain).catch(() => ({ email: null, name: null, role: null, linkedin: null }))
     : { email: null, name: null, role: null, linkedin: null };
-  // TODOS los directivos de marketing (para copia oculta): que llegue al que toca.
-  // Pasamos la MARCA para que Hunter resuelva el dominio corporativo de la central
-  // (las fichas de Google suelen apuntar a franquiciados, Glovo, Instagram…).
+  // Reunimos candidatos, los puntuamos y solo habilitamos un destinatario cuando
+  // existe una persona identificada, con cargo objetivo y correo corporativo.
   const marketingEmails = await findMarketingEmailsByDomain(workspaceId, domain ?? "", 10, brand).catch(() => []);
-  let email: string | null = contact.email ?? marketingEmails[0]?.email ?? null;
-  if (!email && site) {
-    try { const emails = await extractEmailsFromWebsite(site); email = emails[0] ?? null; } catch { email = null; }
+  let websiteFallbackEmail: string | null = null;
+  if (site) {
+    try { websiteFallbackEmail = (await extractEmailsFromWebsite(site))[0] ?? null; } catch { websiteFallbackEmail = null; }
   }
-  // BCC = todos los emails de marketing menos el destinatario principal.
-  const bccEmails = marketingEmails.map((c) => c.email).filter((e) => e.toLowerCase() !== (email ?? "").toLowerCase());
+  const rankedContacts = rankFranchiseDecisionMakers([
+    ...(contact.email ? [{ email: contact.email, name: contact.name, role: contact.role, linkedin: contact.linkedin, source: "apollo_hunter" }] : []),
+    ...marketingEmails,
+    ...(websiteFallbackEmail ? [{ email: websiteFallbackEmail, source: "website", name: null, role: null }] : [])
+  ], domain);
+  const selectedContact = rankedContacts.find((candidate) => candidate.sendAllowed) ?? null;
+  const email: string | null = selectedContact?.email ?? null;
   let subject: string | undefined;
   let body: string | undefined;
   try {
-    const mail = await writeFranchiseEmail(workspaceId, brand, report, contact);
+    const mailContact: MarketingContact = selectedContact
+      ? { email: selectedContact.email, name: selectedContact.name ?? null, role: selectedContact.role ?? null, linkedin: selectedContact.linkedin ?? null }
+      : contact;
+    const mail = await writeFranchiseEmail(workspaceId, brand, report, mailContact);
     subject = mail.subject;
     body = mail.body;
   } catch { /* si la IA falla, se persiste el lead sin borrador */ }
@@ -362,12 +370,15 @@ export async function analyzeFranchiseNetwork(
       franchisePipeline: { stage: "audited", updatedAt: new Date().toISOString() },
       franchiseDraft: subject && body ? { subject, body, generatedAt: new Date().toISOString() } : undefined,
       email: email ?? undefined,
-      // Copia oculta a TODOS los directivos de marketing localizados.
-      bccEmails: bccEmails.length ? bccEmails : undefined,
-      // Decisor de marketing localizado (para el mensaje y el LinkedIn manual).
-      directorName: contact.name ?? marketingEmails[0]?.name ?? undefined,
-      directorRole: contact.role ?? marketingEmails[0]?.role ?? undefined,
-      linkedin: contact.linkedin ?? undefined
+      decisionMakerResearch: {
+        status: selectedContact ? "verified" : "pending",
+        selected: selectedContact,
+        candidates: rankedContacts.slice(0, 10),
+        researchedAt: new Date().toISOString()
+      },
+      directorName: selectedContact?.name ?? undefined,
+      directorRole: selectedContact?.role ?? undefined,
+      linkedin: selectedContact?.linkedin ?? undefined
     }
   };
   return { central, metrics, report, email, contact, subject, body };

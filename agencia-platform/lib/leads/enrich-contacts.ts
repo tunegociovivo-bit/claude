@@ -185,7 +185,7 @@ export async function findMarketingContactByDomain(workspaceId: string, domain: 
   return out;
 }
 
-export type MarketingEmail = { email: string; name: string | null; role: string | null };
+export type MarketingEmail = { email: string; name: string | null; role: string | null; linkedin?: string | null; source?: string | null; providerConfidence?: number | null };
 
 /**
  * Recopila VARIOS emails de directivos de marketing de una empresa por su dominio
@@ -209,7 +209,7 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
       if (cs.domain) workingDomain = cs.domain; // preferimos el dominio resuelto por marca
       for (const p of cs.people.filter((x) => x.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))) {
         const k = p.email.toLowerCase();
-        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null });
+        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null, source: "hunter_company", providerConfidence: p.confidence });
       }
     } catch {}
   }
@@ -219,7 +219,7 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
       const people = await hunterDomainSearch({ domain: workingDomain, apiKey: hunterKey, department: "marketing", limit: 20 });
       for (const p of people.filter((x) => x.email).sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))) {
         const k = p.email.toLowerCase();
-        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null });
+        if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.position || null, source: "hunter_domain", providerConfidence: p.confidence });
       }
     } catch {}
   }
@@ -229,7 +229,7 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
       for (const p of people) {
         if (p.email) {
           const k = p.email.toLowerCase();
-          if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.title || null });
+          if (!byEmail.has(k)) byEmail.set(k, { email: p.email, name: p.name || null, role: p.title || null, linkedin: p.linkedin, source: "apollo" });
           continue;
         }
         // Apollo tiene el NOMBRE pero no el email → lo recuperamos con el
@@ -242,7 +242,7 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
               const v = await hunterFindEmail({ domain: workingDomain, firstName: tokens[0], lastName: tokens[tokens.length - 1], apiKey: hunterKey });
               if (v?.email) {
                 const k = v.email.toLowerCase();
-                if (!byEmail.has(k)) byEmail.set(k, { email: v.email, name: p.name || null, role: p.title || null });
+                if (!byEmail.has(k)) byEmail.set(k, { email: v.email, name: p.name || null, role: p.title || null, linkedin: p.linkedin, source: "apollo_hunter_finder", providerConfidence: v.score });
               }
             } catch {}
           }
