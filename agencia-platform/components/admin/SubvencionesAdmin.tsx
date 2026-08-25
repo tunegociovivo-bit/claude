@@ -142,7 +142,7 @@ export default function SubvencionesAdmin() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
       else if (j.skipped) setMsg(`⏳ ${j.message}`);
-      else setMsg(`✅ ${j.upserted} de BDNS${j.curadas ? ` + ${j.curadas} curadas` : ""}${j.placsp?.upserted ? ` + ${j.placsp.upserted} licitaciones PLACSP` : ""}${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}. Diagnóstico completado sin enviar avisos.`);
+      else setMsg(`✅ ${j.upserted} de BDNS${j.curadas ? ` + ${j.curadas} curadas` : ""}${j.placsp?.upserted ? ` + ${j.placsp.upserted} licitaciones PLACSP` : ""}${j.euFunding?.upserted ? ` + ${j.euFunding.upserted} fondos europeos` : ""}${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}. Diagnóstico completado sin enviar avisos.`);
       await load();
     } finally {
       setIngesting(false);

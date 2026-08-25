@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { unzipSync } from "fflate";
 import { RawConvocatoria, upsertConvocatorias } from "./bdns";
+import { prisma } from "@/lib/db/prisma";
 
 const PLACSP_BASE = "https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643";
-const RELEVANT = /marketing|publicidad|comunicaci[oó]n|dise[nñ]o\s+web|desarrollo\s+web|mantenimiento\s+web|redes\s+sociales|posicionamiento|\bseo\b|\bsem\b|campa[nñ]a|contenido[s]?\s+audiovisual|branding|imagen\s+corporativa/i;
+const RELEVANT = /marketing|publicidad|comunicaci[oó]n\s+(?:institucional|corporativa|publicitaria|digital|social)|estrategia\s+de\s+comunicaci[oó]n|servicios?\s+de\s+comunicaci[oó]n|gabinete\s+de\s+prensa|dise[nñ]o\s+web|desarrollo\s+web|mantenimiento\s+web|redes\s+sociales|posicionamiento|\bseo\b|\bsem\b|campa[nñ]a\s+(?:publicitaria|de\s+publicidad|de\s+comunicaci[oó]n)|contenido[s]?\s+audiovisual|producci[oó]n\s+audiovisual|branding|imagen\s+corporativa/i;
 
 function decodeXml(value: string): string {
   return value.replace(/^<!\[CDATA\[|\]\]>$/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_m, n) => String.fromCodePoint(parseInt(n, 16))).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -31,7 +32,7 @@ export function parsePlacspAtom(xml: string, now = new Date()): RawConvocatoria[
   const result: RawConvocatoria[] = [];
   for (const entry of entries) {
     const title = tag(entry, "title") ?? tag(entry, "ContractFolderID") ?? "Licitación pública";
-    const summary = tag(entry, "summary") ?? tag(entry, "Description") ?? "";
+    const summary = tag(entry, "Description") ?? tag(entry, "summary") ?? "";
     if (!RELEVANT.test(`${title} ${summary}`)) continue;
     const deadline = dateValue(tag(entry, "EndDateTime") ?? tag(entry, "EndDate"));
     if (deadline && deadline.getTime() < now.getTime()) continue;
@@ -60,5 +61,6 @@ export async function ingestPlacspMarketing(date = new Date()): Promise<{ fetche
     relevant.push(...parsePlacspAtom(xml, date));
   }
   const unique = [...new Map(relevant.map((item) => [item.id, item])).values()];
+  if (fetched > 0) await prisma.subvencionConvocatoria.updateMany({ where: { fuente: "placsp", abierta: true }, data: { abierta: false } });
   return { fetched, relevant: unique.length, upserted: await upsertConvocatorias(unique, "placsp") };
 }

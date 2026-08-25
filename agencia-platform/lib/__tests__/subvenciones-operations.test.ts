@@ -30,4 +30,9 @@ describe("cazador de subvenciones", () => {
     const xml = `<feed><entry><id>EXP-OLD</id><title>Servicio de publicidad</title><EndDate>2026-01-01</EndDate></entry></feed>`;
     expect(parsePlacspAtom(xml, new Date("2026-08-25T00:00:00Z"))).toHaveLength(0);
   });
+
+  it("no confunde campañas médicas o redes técnicas con marketing", () => {
+    const xml = `<feed><entry><id>EXP-PRL</id><title>Prevención y vigilancia de la salud</title><Description>Campañas de reconocimientos médicos y red de comunicaciones</Description><EndDate>2026-12-31</EndDate></entry></feed>`;
+    expect(parsePlacspAtom(xml, new Date("2026-08-25T00:00:00Z"))).toHaveLength(0);
+  });
 });
