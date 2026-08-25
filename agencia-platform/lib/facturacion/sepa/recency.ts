@@ -53,3 +53,8 @@ export function madridBusinessDayWindow(now = new Date(), lookbackDays = 0): { s
     end: madridMidnight(endCalendar.getUTCFullYear(), endCalendar.getUTCMonth() + 1, endCalendar.getUTCDate())
   };
 }
+
+/** Ventana segura del escaneo manual: hoy y un único día de recuperación. */
+export function manualSepaScanWindow(now = new Date()): { start: Date; end: Date } {
+  return madridBusinessDayWindow(now, 1);
+}
