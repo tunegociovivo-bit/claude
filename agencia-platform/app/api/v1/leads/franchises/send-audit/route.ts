@@ -39,6 +39,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const out = await sendEmailWithAttachment({
     workspaceId: api.workspaceId,
     to: lead.email,
+    bcc: Array.isArray(raw.decisionMakerResearch?.copies)
+      ? raw.decisionMakerResearch.copies.filter((candidate: any) => candidate?.copyAllowed && candidate?.email).slice(0, 4).map((candidate: any) => candidate.email)
+      : undefined,
     subject,
     html,
     text: body,

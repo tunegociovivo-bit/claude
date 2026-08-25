@@ -12,6 +12,7 @@ export type RankedDecisionMaker = DecisionMakerCandidate & {
   confidence: "high" | "medium" | "low";
   reasons: string[];
   sendAllowed: boolean;
+  copyAllowed: boolean;
 };
 
 const genericMailbox = /^(info|hola|contacto|contact|administracion|central|franquicias|expansion|marketing|comunicacion|ventas|hello|office|general|somos)@/i;
@@ -51,6 +52,7 @@ export function rankFranchiseDecisionMakers(candidates: DecisionMakerCandidate[]
     score = Math.max(0, Math.min(100, score));
     const confidence: RankedDecisionMaker["confidence"] = score >= 70 ? "high" : score >= 45 ? "medium" : "low";
     const sendAllowed = confidence === "high" && !!candidate.name?.trim() && targetRole.test(role) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email);
-    return { ...candidate, score, confidence, reasons, sendAllowed };
+    const copyAllowed = score >= 45 && !!candidate.name?.trim() && targetRole.test(role) && (!domain || emailDomain === domain) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email);
+    return { ...candidate, score, confidence, reasons, sendAllowed, copyAllowed };
   }).sort((a, b) => b.score - a.score);
 }

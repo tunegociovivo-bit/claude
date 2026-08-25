@@ -25,8 +25,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const candidates = await findMarketingEmailsByDomain(api.workspaceId, domain, 20, raw.brand ?? lead.name);
   const ranked = rankFranchiseDecisionMakers(candidates, domain);
   const selected = ranked.find((candidate) => candidate.sendAllowed) ?? null;
+  const copies = selected ? ranked.filter((candidate) => candidate.email !== selected.email && candidate.copyAllowed).slice(0, 4) : [];
   const now = new Date().toISOString();
-  const research = { status: selected ? "verified" : "pending", selected, candidates: ranked.slice(0, 20), researchedAt: now };
+  const research = { status: selected ? "verified" : "pending", selected, copies, candidates: ranked.slice(0, 20), researchedAt: now };
   await prisma.lead.update({
     where: { id: lead.id },
     data: {

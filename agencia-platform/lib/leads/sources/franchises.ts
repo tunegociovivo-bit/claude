@@ -330,6 +330,9 @@ export async function analyzeFranchiseNetwork(
     ...(websiteFallbackEmail ? [{ email: websiteFallbackEmail, source: "website", name: null, role: null }] : [])
   ], domain);
   const selectedContact = rankedContacts.find((candidate) => candidate.sendAllowed) ?? null;
+  const copyContacts = selectedContact
+    ? rankedContacts.filter((candidate) => candidate.email !== selectedContact.email && candidate.copyAllowed).slice(0, 4)
+    : [];
   const email: string | null = selectedContact?.email ?? null;
   let subject: string | undefined;
   let body: string | undefined;
@@ -373,6 +376,7 @@ export async function analyzeFranchiseNetwork(
       decisionMakerResearch: {
         status: selectedContact ? "verified" : "pending",
         selected: selectedContact,
+        copies: copyContacts,
         candidates: rankedContacts.slice(0, 10),
         researchedAt: new Date().toISOString()
       },
