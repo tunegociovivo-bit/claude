@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { madridBusinessDayWindow, startOfMadridBusinessDay } from "../recency";
+import { madridBusinessDayWindow, manualSepaScanWindow, startOfMadridBusinessDay } from "../recency";
 
 describe("startOfMadridBusinessDay", () => {
   it("uses summer time when calculating today's boundary", () => {
@@ -26,5 +26,13 @@ describe("madridBusinessDayWindow", () => {
     const window = madridBusinessDayWindow(new Date("2026-03-29T12:00:00Z"), 1);
     expect(window.start.toISOString()).toBe("2026-03-27T23:00:00.000Z");
     expect(window.end.toISOString()).toBe("2026-03-29T22:00:00.000Z");
+  });
+});
+
+describe("manualSepaScanWindow", () => {
+  it("includes today and yesterday without opening older history", () => {
+    const window = manualSepaScanWindow(new Date("2026-08-25T07:00:00Z"));
+    expect(window.start.toISOString()).toBe("2026-08-23T22:00:00.000Z");
+    expect(window.end.toISOString()).toBe("2026-08-25T22:00:00.000Z");
   });
 });
