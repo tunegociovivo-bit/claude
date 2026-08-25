@@ -38,14 +38,15 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   ]);
   const health = (ws?.settings as any)?.subvenciones?.health ?? {};
   const sourceCount = new Map(sources.map((x) => [x.fuente.toLowerCase(), x._count._all]));
+  const bdnsCount = sourceCount.get("bdns") ?? 0;
   const sourceCoverage = [
-    { source: "bdns", label: "BDNS estatal y autonómica" },
-    { source: "curada", label: "Programas curados" },
-    { source: "boja", label: "BOJA · Junta de Andalucía" },
-    { source: "placsp", label: "PLACSP · licitaciones públicas" },
-    { source: "camaras", label: "Cámaras de Comercio" },
-    { source: "fondos-eu", label: "Fondos europeos" }
-  ].map((x) => ({ ...x, count: sourceCount.get(x.source) ?? 0, connected: (sourceCount.get(x.source) ?? 0) > 0 }));
+    { source: "bdns", label: "BDNS estatal y autonómica", count: bdnsCount, connected: bdnsCount > 0 },
+    { source: "curada", label: "Programas curados", count: sourceCount.get("curada") ?? 0, connected: (sourceCount.get("curada") ?? 0) > 0 },
+    { source: "boja", label: "BOJA · cobertura oficial mediante BDNS", count: bdnsCount, connected: bdnsCount > 0, detail: "Las convocatorias andaluzas publicadas en BOJA se consolidan por su identificador BDNS." },
+    { source: "placsp", label: "PLACSP · licitaciones públicas", count: sourceCount.get("placsp") ?? 0, connected: (sourceCount.get("placsp") ?? 0) > 0 },
+    { source: "camaras", label: "Cámaras de Comercio", count: sourceCount.get("camaras") ?? 0, connected: (sourceCount.get("camaras") ?? 0) > 0, detail: "Requiere una fuente autorizada; su sede impide la automatización." },
+    { source: "fondos-eu", label: "Fondos europeos", count: sourceCount.get("fondos-eu") ?? 0, connected: (sourceCount.get("fondos-eu") ?? 0) > 0 }
+  ];
   const maxStaleMin = CRON_CATALOG.subvenciones.maxStaleMin;
   const minutesSince = heartbeat ? Math.round((Date.now() - heartbeat.lastRunAt.getTime()) / 60000) : null;
   return NextResponse.json({

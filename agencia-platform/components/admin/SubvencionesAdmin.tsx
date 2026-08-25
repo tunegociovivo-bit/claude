@@ -15,7 +15,7 @@ const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean; detail?: string }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
 
 const ESTADOS = [
   { v: "", t: "— Estado —" },
@@ -142,7 +142,7 @@ export default function SubvencionesAdmin() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
       else if (j.skipped) setMsg(`⏳ ${j.message}`);
-      else setMsg(`✅ ${j.upserted} de BDNS${j.curadas ? ` + ${j.curadas} curadas` : ""}${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}.`);
+      else setMsg(`✅ ${j.upserted} de BDNS${j.curadas ? ` + ${j.curadas} curadas` : ""}${j.placsp?.upserted ? ` + ${j.placsp.upserted} licitaciones PLACSP` : ""}${typeof j.fueraDeFoco === "number" ? ` · ${j.fueraDeFoco} descartadas por foco regional` : ""}. Diagnóstico completado sin enviar avisos.`);
       await load();
     } finally {
       setIngesting(false);
@@ -368,9 +368,9 @@ export default function SubvencionesAdmin() {
           {/* Catálogo */}
           <div className="mt-8">
             <h2 className="text-sm font-semibold text-slate-700 mb-1">Convocatorias abiertas ({s.convocatorias.length})</h2>
-            <p className="text-[11px] text-slate-400 mb-2">Fuentes: <strong>BDNS</strong> (estatal+autonómica/local) · <strong>curadas</strong> (Kit Digital, Kit Consulting) · <strong>externas vía Make</strong> (POST a <code>/api/v1/admin/subvenciones/external</code> para BOJA, Cámaras, fondos EU…).</p>
+            <p className="text-[11px] text-slate-400 mb-2">Fuentes: <strong>BDNS</strong> (incluye convocatorias publicadas en BOJA) · <strong>PLACSP oficial</strong> (licitaciones de marketing y servicios digitales) · <strong>curadas</strong> · fuentes autorizadas vía Make.</p>
             {s.sources && <div className="mb-3 flex flex-wrap gap-1.5">{s.sources.map((x) => <span key={x.source} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{x.source}: {x.count}</span>)}</div>}
-            {s.sourceCoverage && <div className="mb-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{s.sourceCoverage.map((x) => <div key={x.source} className={`rounded-lg border px-3 py-2 text-xs ${x.connected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><strong>{x.connected ? "✓" : "!"} {x.label}</strong><span className="block mt-0.5">{x.connected ? `${x.count} registros` : "Pendiente de conectar mediante el endpoint externo"}</span></div>)}</div>}
+            {s.sourceCoverage && <div className="mb-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{s.sourceCoverage.map((x) => <div key={x.source} className={`rounded-lg border px-3 py-2 text-xs ${x.connected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><strong>{x.connected ? "✓" : "!"} {x.label}</strong><span className="block mt-0.5">{x.connected ? `${x.count} registros` : (x.detail ?? "Pendiente de conectar mediante el endpoint externo")}</span>{x.connected && x.detail && <span className="block mt-0.5 opacity-80">{x.detail}</span>}</div>)}</div>}
             {s.convocatorias.length === 0 ? (
               <p className="text-sm text-slate-500">Catálogo vacío. Pulsa <strong>Actualizar convocatorias</strong> para traerlas de la BDNS.</p>
             ) : (
