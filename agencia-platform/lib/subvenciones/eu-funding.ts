@@ -25,9 +25,8 @@ export async function fetchEuFunding(now = new Date()): Promise<RawConvocatoria[
   const query = JSON.stringify({ bool: { must: [{ terms: { type: ["1", "2", "8"] } }, { terms: { status: ["31094501", "31094502"] } }] } });
   const all: RawConvocatoria[] = [];
   for (const search of SEARCHES) {
-    const form = new FormData();
-    form.set("query", query); form.set("pageSize", "100"); form.set("pageNumber", "1"); form.set("language", "en");
-    const response = await fetch(`${ENDPOINT}&text=${encodeURIComponent(search)}`, { method: "POST", body: form, signal: AbortSignal.timeout(45_000) });
+    const form = new URLSearchParams({ query, pageSize: "100", pageNumber: "1", language: "en" });
+    const response = await fetch(`${ENDPOINT}&text=${encodeURIComponent(search)}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form, signal: AbortSignal.timeout(45_000) });
     if (!response.ok) throw new Error(`EU Funding API ${response.status}`);
     const payload: any = await response.json();
     for (const result of payload?.results ?? []) {
