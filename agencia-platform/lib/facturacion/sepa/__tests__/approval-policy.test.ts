@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiresExplicitApproval } from "../approval-policy";
+import { canReissueApproval, requiresExplicitApproval } from "../approval-policy";
 
 describe("SEPA approval policy", () => {
   it("requires an explicit administrator decision for newly imported invoices", () => {
@@ -10,5 +10,15 @@ describe("SEPA approval policy", () => {
     expect(
       requiresExplicitApproval({ source: "HOLDED", importedNow: true, legacyAutoApproveFlag: true })
     ).toBe(true);
+  });
+});
+
+describe("SEPA approval reissue policy", () => {
+  it("allows an archived request to receive a fresh approval link", () => {
+    expect(canReissueApproval({ status: "APPROVED", archived: true })).toBe(true);
+  });
+
+  it("does not replace an active approval link", () => {
+    expect(canReissueApproval({ status: "PENDING_APPROVAL", archived: false })).toBe(false);
   });
 });
