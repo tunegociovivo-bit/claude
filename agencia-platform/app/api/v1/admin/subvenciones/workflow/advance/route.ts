@@ -19,6 +19,7 @@ const REQUIRED_FILES: Record<string, string> = {
   company_tax_card: "tarjeta NIF/CIF", representative_id: "DNI/NIE del representante", incorporation_deed: "escritura y estatutos",
   representation_powers: "poderes de representación", tax_certificate: "certificado de Hacienda", social_security_certificate: "certificado de Seguridad Social"
 };
+const SPECIFIC_DOSSIER_MARKER = "DOSSIER ESPECIFICO DE LICITACION V2";
 
 async function requireAdmin(workspaceId: string, userId?: string) {
   if (!userId) throw new ApiError(401, "unauthorized", "Autenticación requerida");
@@ -35,7 +36,10 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const state: any = task.aiState ?? {}; const automation: any = state.subvencionAutomation ?? {}; const current: any = automation.workflow ?? {};
   const workspace = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
   const profile: any = (workspace?.settings as any)?.subvenciones?.applicationVault ?? {};
-  const vaultFiles = await prisma.file.findMany({ where: { workspaceId: api.workspaceId, targetType: "SUBVENCION_VAULT" }, select: { targetId: true } });
+  const [vaultFiles, applicationFiles] = await Promise.all([
+    prisma.file.findMany({ where: { workspaceId: api.workspaceId, targetType: "SUBVENCION_VAULT" }, select: { targetId: true } }),
+    prisma.file.findMany({ where: { workspaceId: api.workspaceId, targetType: "SUBVENCION_APPLICATION", targetId: task.id }, select: { id: true, name: true } })
+  ]);
   const missingProfile = Object.entries(REQUIRED_PROFILE).filter(([key]) => !String(profile[key] ?? "").trim()).map(([, label]) => label);
   const presentCategories = new Set(vaultFiles.map((file) => file.targetId).filter(Boolean));
   const missingFiles = Object.entries(REQUIRED_FILES).filter(([key]) => !presentCategories.has(key)).map(([, label]) => label);
@@ -50,16 +54,22 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     nextStep = "Adjuntar esos documentos en la Bóveda de solicitudes y volver a continuar.";
   } else {
     let description = task.description ?? "";
-    if (!description.includes("DOSSIER INICIAL GENERADO POR IA") && automation.convocatoriaId) {
+    if (!description.includes(SPECIFIC_DOSSIER_MARKER) && automation.convocatoriaId) {
       const draft = await generarBorrador(api.workspaceId, task.clientId ?? AGENCY_ID, automation.convocatoriaId);
-      description = `${description}\n\n---\n\nDOSSIER INICIAL GENERADO POR IA\n\n${draft}`;
-      workDone = "Elegibilidad y documentación básica verificadas; dossier técnico generado por IA.";
+      description = `${description}\n\n---\n\n${SPECIFIC_DOSSIER_MARKER}\n\n${draft}`;
+      workDone = "Memoria técnica, matriz de cumplimiento, acreditación de experiencia y oferta económica preparadas para revisión.";
     } else workDone = "Elegibilidad, documentación básica y dossier comprobados.";
-    stage = "SIGNATURE";
-    requiresHumanAction = true;
-    blockers = "Pendiente únicamente de revisión final, acceso a la sede y firma/autorización cuando el organismo la solicite.";
-    nextStep = "Revisar el dossier, completar los campos específicos de la sede y solicitar la firma final.";
-    if (current.stage === "SIGNATURE") {
+    if (!applicationFiles.length) {
+      stage = "DOCUMENTS";
+      blockers = "Falta acreditar la experiencia con documentación probatoria real (certificados de buena ejecución, contratos, facturas o referencias verificables).";
+      nextStep = "Adjuntar al menos una acreditación de experiencia comparable y revisar los campos [A COMPLETAR] de la memoria técnica y la oferta económica.";
+    } else {
+      stage = "SIGNATURE";
+      requiresHumanAction = true;
+      blockers = "Pendiente únicamente de revisión final, acceso a la sede y firma/autorización cuando el organismo la solicite.";
+      nextStep = "Revisar la acreditación de experiencia, la matriz técnica y la oferta económica antes de solicitar la firma final.";
+    }
+    if (current.stage === "SIGNATURE" && stage === "SIGNATURE") {
       workDone = "La IA ya ha completado toda la preparacion automatizable. La tramitacion no puede avanzar hasta completar la revision y firma obligatorias en la sede del organismo.";
       nextStep = "Abrir la sede, revisar los campos finales y completar la firma/autorizacion. Despues podra registrarse la presentacion.";
     }

@@ -70,7 +70,7 @@ async function redactar(workspaceId: string, perfil: string, convo: any): Promis
     return await complete({
       workspaceId,
       model: "claude-haiku-4-5-20251001",
-      maxTokens: 1800,
+      maxTokens: 3200,
       feature: "subvencion_borrador",
       system: `Eres consultor experto en subvenciones para pymes/autónomos en España. Redacta un BORRADOR de solicitud en español de España, claro y profesional, con estas secciones (usa encabezados):
 1) Resumen del solicitante.
@@ -78,8 +78,12 @@ async function redactar(workspaceId: string, perfil: string, convo: any): Promis
 3) Memoria/justificación del proyecto (2-3 párrafos, concreta y creíble).
 4) Presupuesto orientativo (conceptos y rangos; deja claro que es estimado).
 5) Documentación necesaria (checklist).
-6) Próximos pasos y plazos.
-Reglas: no inventes datos fiscales ni cifras exactas que no te den (usa rangos/placeholders [a completar]). Sé útil y específico al sector del solicitante. Devuelve solo el borrador.`,
+6) Acreditación de experiencia: tabla de servicios/proyectos comparables, cliente, fechas, alcance y documento probatorio. Si faltan datos, deja cada campo como [DOCUMENTO O DATO A APORTAR], nunca inventes clientes ni resultados.
+7) Memoria técnica: metodología, plan de trabajo, equipo, calendario, entregables, niveles de servicio, indicadores y control de calidad.
+8) Matriz de cumplimiento técnico: requisito, respuesta propuesta, evidencia y estado (cumple/pendiente de validar). No declares que cumple si no consta en la información disponible.
+9) Oferta económica: desglose por partidas, impuestos, total y supuestos. Usa [IMPORTE A APROBAR] cuando no exista una cifra verificada.
+10) Documentación necesaria (checklist), próximos pasos y plazos.
+Reglas: no inventes datos fiscales, experiencia, solvencia, personal, certificaciones, resultados ni cifras exactas que no te den. Usa marcadores [A COMPLETAR] y señala claramente toda evidencia pendiente. Sé útil y específico al sector del solicitante. Devuelve solo el borrador.`,
       user: `SOLICITANTE:\n${perfil}\n\nCONVOCATORIA:\n${conv}`
     });
   } catch (e) {

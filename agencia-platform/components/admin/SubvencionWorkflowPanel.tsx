@@ -9,6 +9,7 @@ const STAGES = [
   ["SUBMITTED", "Presentada"], ["FOLLOWUP", "Seguimiento y subsanaciones"]
 ] as const;
 type StoredFile = { id: string; name: string; url: string | null; category?: string | null; sizeBytes?: number };
+type ReviewItem = { label: string; ready: boolean; detail: string };
 
 const FILE_CATEGORIES: Record<string, string> = {
   company_tax_card: "Tarjeta NIF/CIF", representative_id: "DNI/NIE del representante", incorporation_deed: "Escritura y estatutos",
@@ -18,14 +19,14 @@ const FILE_CATEGORIES: Record<string, string> = {
 export default function SubvencionWorkflowPanel({ taskId, requisitos, urlBases }: { taskId: string; requisitos: string; urlBases?: string | null }) {
   const [stage, setStage] = useState("ELIGIBILITY"); const [nextStep, setNextStep] = useState("");
   const [documentsText, setDocumentsText] = useState(""); const [blockers, setBlockers] = useState("");
-  const [files, setFiles] = useState<StoredFile[]>([]); const [vaultFiles, setVaultFiles] = useState<StoredFile[]>([]); const [generatedText, setGeneratedText] = useState(""); const [loading, setLoading] = useState(true);
+  const [files, setFiles] = useState<StoredFile[]>([]); const [vaultFiles, setVaultFiles] = useState<StoredFile[]>([]); const [generatedText, setGeneratedText] = useState(""); const [reviewChecklist, setReviewChecklist] = useState<ReviewItem[]>([]); const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false); const [uploading, setUploading] = useState(false); const [message, setMessage] = useState("");
   const [advancing, setAdvancing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const defaultDocuments = useMemo(() => [requisitos, "Declaraciones responsables y acreditación de capacidad para contratar", "Propuesta técnica / memoria", "Oferta económica y desglose presupuestario"].filter(Boolean), [requisitos]);
   async function load() {
     setLoading(true); const r = await fetch(`/api/v1/admin/subvenciones/workflow?taskId=${encodeURIComponent(taskId)}`, { cache: "no-store" });
-    if (r.ok) { const d = await r.json(); setStage(d.workflow?.stage ?? "ELIGIBILITY"); setNextStep(d.workflow?.nextStep ?? ""); setDocumentsText((d.workflow?.requiredDocuments?.length ? d.workflow.requiredDocuments : defaultDocuments).join("\n")); setBlockers(d.workflow?.blockers ?? ""); setFiles(d.files ?? []); setVaultFiles(d.vaultFiles ?? []); setGeneratedText(d.generatedText ?? ""); }
+    if (r.ok) { const d = await r.json(); setStage(d.workflow?.stage ?? "ELIGIBILITY"); setNextStep(d.workflow?.nextStep ?? ""); setDocumentsText((d.workflow?.requiredDocuments?.length ? d.workflow.requiredDocuments : defaultDocuments).join("\n")); setBlockers(d.workflow?.blockers ?? ""); setFiles(d.files ?? []); setVaultFiles(d.vaultFiles ?? []); setGeneratedText(d.generatedText ?? ""); setReviewChecklist(d.reviewChecklist ?? []); }
     setLoading(false);
   }
   useEffect(() => { void load(); }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -67,6 +68,7 @@ export default function SubvencionWorkflowPanel({ taskId, requisitos, urlBases }
     <details className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3" open={stage === "SIGNATURE"}>
       <summary className="cursor-pointer text-sm font-semibold text-indigo-950">Revisión completa antes de firmar</summary>
       <p className="mt-1 text-xs text-slate-600">Comprueba aquí todo el material que formará parte del expediente.</p>
+      <div className="mt-3 space-y-1.5">{reviewChecklist.map((item)=><div key={item.label} className={`rounded-lg border p-2 text-xs ${item.ready ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}><div className="flex items-center gap-1.5 font-semibold">{item.ready ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <span className="text-rose-600">✕</span>}{item.label}</div><p className="mt-1 text-slate-600">{item.detail}</p></div>)}</div>
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <section className="rounded-lg border bg-white p-3"><h4 className="text-xs font-semibold text-slate-800">Documentación maestra reutilizada ({vaultFiles.length})</h4>{vaultFiles.length ? <ul className="mt-2 space-y-1.5">{vaultFiles.map((file)=><li key={file.id} className="flex items-center gap-1.5 text-xs"><CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" /><a href={file.url ?? "#"} target="_blank" rel="noreferrer" className="truncate font-medium text-indigo-700 hover:underline">{file.name}</a><span className="ml-auto shrink-0 text-slate-400">{FILE_CATEGORIES[file.category ?? ""] ?? file.category ?? "Documento maestro"}</span></li>)}</ul> : <p className="mt-2 text-xs text-amber-700">No hay documentos maestros disponibles.</p>}</section>
         <section className="rounded-lg border bg-white p-3"><h4 className="text-xs font-semibold text-slate-800">Documentación específica ({files.length})</h4>{files.length ? <ul className="mt-2 space-y-1.5">{files.map((file)=><li key={file.id} className="flex items-center gap-1.5 text-xs"><CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" /><a href={file.url ?? "#"} target="_blank" rel="noreferrer" className="truncate font-medium text-indigo-700 hover:underline">{file.name}</a></li>)}</ul> : <p className="mt-2 text-xs text-slate-500">No se han adjuntado documentos exclusivos de esta solicitud.</p>}</section>

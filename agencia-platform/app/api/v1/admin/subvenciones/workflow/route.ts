@@ -52,7 +52,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     },
     files: await Promise.all(files.map(presentFile)),
     vaultFiles: await Promise.all(vaultFiles.map(presentFile)),
-    generatedText: task.description ?? ""
+    generatedText: task.description ?? "",
+    reviewChecklist: [
+      { label: "Acreditación documental de experiencia comparable", ready: files.length > 0, detail: files.length ? `${files.length} documento(s) específico(s) adjunto(s)` : "Faltan contratos, certificados de buena ejecución, facturas o referencias verificables" },
+      { label: "Memoria técnica y matriz de cumplimiento", ready: (task.description ?? "").includes("DOSSIER ESPECIFICO DE LICITACION V2"), detail: "Debe revisarse contra los pliegos antes de firmar" },
+      { label: "Oferta económica desglosada", ready: (task.description ?? "").includes("DOSSIER ESPECIFICO DE LICITACION V2"), detail: "Los importes marcados [A COMPLETAR] requieren aprobación" }
+    ]
   });
 });
 
