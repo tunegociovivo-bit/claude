@@ -30,6 +30,20 @@ describe("rankFranchiseDecisionMakers", () => {
     expect(best.sendAllowed).toBe(true);
   });
 
+  it("permite un correo corporativo literal aunque su prefijo no sea genérico", () => {
+    const [best] = rankFranchiseDecisionMakers([{ email: "secretaria@marca.es", name: "Contacto corporativo", role: "Correo corporativo publicado por la central", source: "corporate_website_literal", providerConfidence: 80, evidenceUrl: "https://marca.es/aviso-legal" }], "marca.es");
+    expect(best.sendAllowed).toBe(true);
+    expect(best.reasons).toContain("correo publicado literalmente por la empresa");
+  });
+
+  it("mantiene bloqueados soporte y atención al cliente aunque estén publicados", () => {
+    const ranked = rankFranchiseDecisionMakers([
+      { email: "soporte@marca.es", source: "corporate_website_literal", evidenceUrl: "https://marca.es" },
+      { email: "atencioncliente@marca.es", source: "corporate_website_literal", evidenceUrl: "https://marca.es" }
+    ], "marca.es");
+    expect(ranked.every((candidate) => !candidate.sendAllowed)).toBe(true);
+  });
+
   it("penaliza privacidad, soporte y dominios ajenos", () => {
     const ranked = rankFranchiseDecisionMakers([
       { email: "privacy@marca.es", name: "Equipo legal", role: "Legal" },

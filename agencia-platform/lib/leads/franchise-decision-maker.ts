@@ -18,7 +18,7 @@ export type RankedDecisionMaker = DecisionMakerCandidate & {
 
 const genericMailbox = /^(info|hola|contacto|contact|administracion|central|franquicias|expansion|marketing|comunicacion|ventas|hello|office|general|somos)@/i;
 const targetMailbox = /^(franquicias|infofranquicias|franchise|expansion|exporestalia|marketing|comunicacion|brand|prensa|press|info|contacto|contact|hola|hello|central)@/i;
-const wrongDepartment = /^(privacy|privacidad|legal|soporte|support|atencionalcliente|clientes|rrhh|empleo|jobs|prensa)@/i;
+const wrongDepartment = /^(privacy|privacidad|legal|soporte|support|atencion[^@]*|clientes?|rrhh|empleo|jobs|facturacion|billing|compras|proveedores)@/i;
 const targetRole = /(chief marketing officer|\bcmo\b|director(?:a)? de marketing|marketing director|head of marketing|responsable de marketing|marketing manager|brand manager|director(?:a)? de marca|comunicaci[oó]n|growth|expansi[oó]n|franchise development)/i;
 const seniorRole = /(chief|director|head|responsable|manager|vp|vicepresident|gerente)/i;
 
@@ -46,6 +46,8 @@ export function rankFranchiseDecisionMakers(candidates: DecisionMakerCandidate[]
     else if (domain && emailDomain !== domain) { score -= 20; reasons.push("dominio distinto al corporativo"); }
     const functionalMailbox = targetMailbox.test(candidate.email);
     if (functionalMailbox) { score += 65; reasons.push("buzón funcional corporativo"); }
+    const literalCorporateMailbox = candidate.source === "corporate_website_literal" && (!domain || emailDomain === domain);
+    if (literalCorporateMailbox) { score += 45; reasons.push("correo publicado literalmente por la empresa"); }
     if (typeof candidate.providerConfidence === "number") {
       const normalized = Math.max(0, Math.min(100, candidate.providerConfidence));
       score += Math.round(normalized * 0.2);
@@ -58,8 +60,8 @@ export function rankFranchiseDecisionMakers(candidates: DecisionMakerCandidate[]
     const namedDecisionMaker = confidence === "high" && !!candidate.name?.trim() && targetRole.test(role) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email);
     const trustedEvidenceSource = candidate.source === "aef_directory" || candidate.source === "corporate_website_literal";
     const evidencedFunctionalMailbox = functionalMailbox && trustedEvidenceSource && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email);
-    const sendAllowed = namedDecisionMaker || evidencedFunctionalMailbox;
-    const copyAllowed = score >= 45 && !!candidate.name?.trim() && targetRole.test(role) && (!domain || emailDomain === domain) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email);
+    const sendAllowed = namedDecisionMaker || evidencedFunctionalMailbox || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));
+    const copyAllowed = (score >= 45 && !!candidate.name?.trim() && targetRole.test(role) && (!domain || emailDomain === domain) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email)) || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));
     return { ...candidate, score, confidence, reasons, sendAllowed, copyAllowed };
   }).sort((a, b) => b.score - a.score);
 }

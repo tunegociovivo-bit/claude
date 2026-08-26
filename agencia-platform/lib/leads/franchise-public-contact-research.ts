@@ -8,8 +8,7 @@ const relevantLink = /equipo|team|nosotros|about|quienes|empresa|corporate|conta
 const emailPattern = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
 const exactEmailPattern = /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i;
 const usefulFunctionalMailbox = /^(franquicias|infofranquicias|franchise|expansion|exporestalia|marketing|comunicacion|brand|prensa|press)@/i;
-const corporateMailbox = /^(franquicias|infofranquicias|franchise|expansion|exporestalia|marketing|comunicacion|brand|prensa|press|info|contacto|contact|hola|hello|central)@/i;
-const excludedMailbox = /^(privacy|privacidad|legal|soporte|support|rrhh|empleo|jobs|facturacion|billing|compras|proveedores)@/i;
+const excludedMailbox = /^(privacy|privacidad|legal|soporte|support|atencion[^@]*|clientes?|rrhh|empleo|jobs|facturacion|billing|compras|proveedores)@/i;
 
 function safeUrl(value: string): URL | null {
   try {
@@ -79,11 +78,11 @@ export function extractCorporateMailboxes(pages: Array<{ url: string; html: stri
       const email = rawEmail.toLowerCase();
       const emailDomain = email.split("@")[1]?.replace(/^www\./, "");
       const isSpecificDepartment = usefulFunctionalMailbox.test(email);
-      if ((emailDomain !== normalizedDomain && !isSpecificDepartment) || excludedMailbox.test(email) || !corporateMailbox.test(email)) continue;
+      if ((emailDomain !== normalizedDomain && !isSpecificDepartment) || excludedMailbox.test(email)) continue;
       found.set(email, {
         email,
         name: "Contacto corporativo",
-        role: isSpecificDepartment ? "Departamento de marketing, comunicación o expansión" : "Contacto general de la central",
+        role: isSpecificDepartment ? "Departamento de marketing, comunicación o expansión" : "Correo corporativo publicado por la central",
         source: "corporate_website_literal",
         providerConfidence: isSpecificDepartment ? 90 : 80,
         evidenceUrl: page.url
