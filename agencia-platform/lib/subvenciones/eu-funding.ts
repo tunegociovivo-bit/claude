@@ -21,14 +21,33 @@ function date(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+async function searchEuFunding(search: string, query: string): Promise<any> {
+  let lastStatus = 0;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const form = new URLSearchParams({ query, pageSize: "100", pageNumber: "1", language: "en" });
+    const response = await fetch(`${ENDPOINT}&text=${encodeURIComponent(search)}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form, signal: AbortSignal.timeout(45_000) });
+    if (response.ok) return response.json();
+    lastStatus = response.status;
+    if (![404, 408, 429, 500, 502, 503, 504].includes(response.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+  }
+  throw new Error(`EU Funding API ${lastStatus || "sin respuesta"} (${search})`);
+}
+
 export async function fetchEuFunding(now = new Date()): Promise<RawConvocatoria[]> {
   const query = JSON.stringify({ bool: { must: [{ terms: { type: ["1", "2", "8"] } }, { terms: { status: ["31094501", "31094502"] } }] } });
   const all: RawConvocatoria[] = [];
+  const errors: string[] = [];
+  let successfulSearches = 0;
   for (const search of SEARCHES) {
-    const form = new URLSearchParams({ query, pageSize: "100", pageNumber: "1", language: "en" });
-    const response = await fetch(`${ENDPOINT}&text=${encodeURIComponent(search)}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form, signal: AbortSignal.timeout(45_000) });
-    if (!response.ok) throw new Error(`EU Funding API ${response.status}`);
-    const payload: any = await response.json();
+    let payload: any;
+    try {
+      payload = await searchEuFunding(search, query);
+      successfulSearches++;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
     for (const result of payload?.results ?? []) {
       const meta = result?.metadata ?? {};
       const deadline = date(meta.deadlineDate ?? meta.closingDate);
@@ -48,6 +67,7 @@ export async function fetchEuFunding(now = new Date()): Promise<RawConvocatoria[
       });
     }
   }
+  if (successfulSearches === 0) throw new Error(errors.join(" · ") || "EU Funding API sin respuesta");
   return [...new Map(all.map((item) => [item.id, item])).values()];
 }
 
