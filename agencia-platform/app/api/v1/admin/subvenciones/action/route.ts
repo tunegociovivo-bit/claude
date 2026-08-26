@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { createSubvencionTask, saveSubvencionFeedback } from "@/lib/subvenciones/operations";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 180;
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const parsed = z.discriminatedUnion("action", [

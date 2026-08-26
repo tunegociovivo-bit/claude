@@ -23,8 +23,14 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       where: { workspaceId: api.workspaceId, clientId, convocatoriaId: { in: matches.map((m) => m.id) } },
       select: { convocatoriaId: true, estado: true }
     });
+    const titles = matches.map((m) => `Subvención · ${m.titulo}`.slice(0, 240));
+    const tasks = titles.length ? await prisma.task.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null, title: { in: titles } }, select: { id: true, projectId: true, title: true } }) : [];
     const byId = new Map(estados.map((e) => [e.convocatoriaId, e.estado]));
-    const withEstado = matches.map((m) => ({ ...m, estado: byId.get(m.id) ?? null }));
+    const taskByTitle = new Map(tasks.map((task) => [task.title, task]));
+    const withEstado = matches.map((m) => {
+      const task = taskByTitle.get(`Subvención · ${m.titulo}`.slice(0, 240));
+      return { ...m, estado: byId.get(m.id) ?? null, taskId: task?.id ?? null, taskProjectId: task?.projectId ?? null };
+    });
     return NextResponse.json({ ok: true, matches: withEstado });
   } catch (e: any) {
     throw new ApiError(400, "match_error", e?.message ?? "No se pudo cruzar.");

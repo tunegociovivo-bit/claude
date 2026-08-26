@@ -14,7 +14,7 @@ const AGENCY_ID = "__agency__";
 const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
-type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null };
+type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null; taskId?: string | null; taskProjectId?: string | null };
 type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean; detail?: string }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
 
 const ESTADOS = [
@@ -112,7 +112,7 @@ export default function SubvencionesAdmin() {
       if (r.ok) {
         if (action === "create_task" && j.task?.id) {
           setCreatedTasks((current) => ({ ...current, [convocatoriaId]: j.task }));
-          setMsg(j.task.existing ? "ℹ️ La tarea ya existía; puedes abrirla desde el resultado." : "✅ Tarea creada en el proyecto de Subvenciones.");
+          setMsg(j.task.existing ? "ℹ️ El expediente ya existía; puedes abrirlo desde el resultado." : "✅ Expediente autónomo creado con proyecto, fases y dossier inicial.");
         } else setMsg("✅ Preferencia guardada; se utilizará para afinar próximos resultados.");
       }
       else setMsg(`❌ ${j?.error?.message ?? "No se pudo completar la acción"}`);
@@ -166,7 +166,11 @@ export default function SubvencionesAdmin() {
       const r = await fetch(`/api/v1/admin/subvenciones/match?clientId=${encodeURIComponent(target)}${force ? "&refresh=1" : ""}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) setMsg(`❌ ${j?.error?.message ?? "Error"}`);
-      else setMatches(j.matches ?? []);
+      else {
+        const nextMatches: Match[] = j.matches ?? [];
+        setMatches(nextMatches);
+        setCreatedTasks(Object.fromEntries(nextMatches.filter((m) => m.taskId && m.taskProjectId).map((m) => [m.id, { id: m.taskId!, projectId: m.taskProjectId!, existing: true }])));
+      }
     } finally {
       setMatching(false);
     }
@@ -304,7 +308,7 @@ export default function SubvencionesAdmin() {
                           <button onClick={() => opportunityAction("feedback", m.id, "interesa")} disabled={!!actionLoading} className="text-xs rounded border border-emerald-300 bg-white text-emerald-700 px-2 py-0.5">👍 Encaja</button>
                           <button onClick={() => opportunityAction("feedback", m.id, "no_encaja")} disabled={!!actionLoading} className="text-xs rounded border border-slate-300 bg-white text-slate-600 px-2 py-0.5">👎 No encaja</button>
                           {createdTasks[m.id] ? (
-                            <a href={`/tareas?project=${createdTasks[m.id].projectId}&task=${createdTasks[m.id].id}`} className="text-xs rounded bg-emerald-600 text-white px-2 py-1">✓ Tarea creada · Abrir</a>
+                            <a href={`/tareas?project=${createdTasks[m.id].projectId}&task=${createdTasks[m.id].id}`} className="text-xs rounded bg-emerald-600 text-white px-2 py-1">✓ Expediente creado · Abrir</a>
                           ) : (
                             <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
                           )}

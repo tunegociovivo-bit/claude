@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { generarBorrador } from "./borrador";
 const AGENCY_ID = "__agency__";
 
 export type SubvencionHealth = {
@@ -57,19 +58,29 @@ export async function createSubvencionTask(input: {
 }): Promise<{ id: string; projectId: string; existing: boolean }> {
   const convocatoria = await prisma.subvencionConvocatoria.findUnique({ where: { id: input.convocatoriaId } });
   if (!convocatoria) throw new Error("Convocatoria no encontrada");
-  const project = await prisma.project.findFirst({
-    where: { workspaceId: input.workspaceId, deletedAt: null, archived: false, name: { contains: "Subvenciones", mode: "insensitive" } },
-    orderBy: { createdAt: "asc" }
+  const marker = `[subvencion:${input.convocatoriaId}]`;
+  let project = await prisma.project.findFirst({ where: { workspaceId: input.workspaceId, deletedAt: null, description: { contains: marker } } });
+  if (!project) project = await prisma.project.create({
+    data: {
+      workspaceId: input.workspaceId,
+      clientId: input.clientId === AGENCY_ID ? null : input.clientId,
+      name: `Solicitud · ${convocatoria.titulo}`.slice(0, 180),
+      description: `${marker}\nExpediente autónomo generado por el Cazador de Subvenciones.`,
+      emoji: "📑", color: "bg-indigo-500",
+      kanbanColumns: [
+        { id: "PREPARACION", label: "Preparación IA", color: "bg-blue-500", order: 0 },
+        { id: "DOCUMENTACION", label: "Documentación", color: "bg-amber-500", order: 1 },
+        { id: "FIRMA", label: "Firma / autorización", color: "bg-violet-500", order: 2 },
+        { id: "PRESENTADA", label: "Presentada", color: "bg-emerald-500", order: 3 },
+        { id: "RESUELTA", label: "Resuelta", color: "bg-slate-500", order: 4, isDone: true }
+      ]
+    }
   });
-  if (!project) throw new Error("Crea primero un proyecto cuyo nombre contenga “Subvenciones”");
   const taskTitle = `Subvención · ${convocatoria.titulo}`.slice(0, 240);
   const existing = await prisma.task.findFirst({
-    where: { workspaceId: input.workspaceId, projectId: project.id, title: taskTitle, deletedAt: null },
-    select: { id: true, projectId: true }
+    where: { workspaceId: input.workspaceId, title: taskTitle, deletedAt: null },
+    select: { id: true, projectId: true, description: true, aiState: true }
   });
-  if (existing) return { ...existing, existing: true };
-  const cols = Array.isArray(project.kanbanColumns) ? project.kanbanColumns as any[] : [];
-  const status = String(cols.find((c) => !c?.isDone)?.id ?? "TODO");
   const dueDate = convocatoria.fechaFin ?? null;
   const description = [
     `Oportunidad detectada por el Cazador de Subvenciones.`,
@@ -79,14 +90,14 @@ export async function createSubvencionTask(input: {
     convocatoria.urlBases ? `Bases: ${convocatoria.urlBases}` : "",
     "Checklist: validar elegibilidad · confirmar CNAE y ubicación · reunir documentación · preparar memoria y presupuesto · presentar · registrar justificante."
   ].filter(Boolean).join("\n\n");
-  const task = await prisma.task.create({
+  const task = existing ?? await prisma.task.create({
     data: {
       workspaceId: input.workspaceId,
       projectId: project.id,
       clientId: input.clientId === AGENCY_ID ? null : input.clientId,
       title: taskTitle,
       description,
-      status,
+      status: "PREPARACION",
       priority: dueDate && dueDate.getTime() - Date.now() <= 10 * 86_400_000 ? "HIGH" : "MEDIUM",
       dueDate,
       flashTasks: [
@@ -94,15 +105,46 @@ export async function createSubvencionTask(input: {
         { id: "documents", text: "Reunir documentación", done: false },
         { id: "draft", text: "Preparar memoria y presupuesto", done: false },
         { id: "submit", text: "Presentar solicitud", done: false }
-      ]
-    }
+      ],
+      aiState: { subvencionAutomation: { convocatoriaId: input.convocatoriaId, status: "PREPARING", autonomous: true, nextAction: "VERIFY_ELIGIBILITY", requiresHuman: [] } }
+    },
+    select: { id: true, projectId: true, description: true, aiState: true }
   });
+  if (task.projectId !== project.id) {
+    await prisma.taskProject.upsert({ where: { taskId_projectId: { taskId: task.id, projectId: task.projectId } }, create: { taskId: task.id, projectId: task.projectId }, update: {} });
+    await prisma.task.update({ where: { id: task.id }, data: { projectId: project.id, status: "PREPARACION" } });
+  }
+
+  const phases = [
+    ["Validar elegibilidad y requisitos", "PREPARACION"],
+    ["Recopilar documentación administrativa", "DOCUMENTACION"],
+    ["Preparar memoria técnica y presupuesto", "PREPARACION"],
+    ["Completar formularios de la sede electrónica", "PREPARACION"],
+    ["Solicitar únicamente firma o documentación imprescindible", "FIRMA"],
+    ["Presentar y guardar justificante de registro", "PRESENTADA"],
+    ["Controlar subsanaciones y resolución", "PRESENTADA"]
+  ] as const;
+  for (const [title, phase] of phases) {
+    const found = await prisma.task.findFirst({ where: { workspaceId: input.workspaceId, parentId: task.id, title, deletedAt: null }, select: { id: true } });
+    if (!found) await prisma.task.create({ data: { workspaceId: input.workspaceId, projectId: project.id, clientId: input.clientId === AGENCY_ID ? null : input.clientId, parentId: task.id, title, status: phase, priority: "MEDIUM", dueDate } });
+  }
+
+  const state: any = task.aiState ?? {};
+  if (!state?.subvencionAutomation?.draftGeneratedAt) {
+    try {
+      const draft = await generarBorrador(input.workspaceId, input.clientId, input.convocatoriaId);
+      const nextState = { ...state, subvencionAutomation: { ...(state.subvencionAutomation ?? {}), convocatoriaId: input.convocatoriaId, status: "DOSSIER_READY", autonomous: true, nextAction: "COLLECT_DOCUMENTS", requiresHuman: [], draftGeneratedAt: new Date().toISOString() } };
+      await prisma.task.update({ where: { id: task.id }, data: { description: `${description}\n\n---\n\nDOSSIER INICIAL GENERADO POR IA\n\n${draft}`, aiState: nextState } });
+    } catch (error) {
+      await prisma.task.update({ where: { id: task.id }, data: { aiState: { ...state, subvencionAutomation: { ...(state.subvencionAutomation ?? {}), status: "PREPARING", autonomous: true, nextAction: "GENERATE_DOSSIER", lastError: error instanceof Error ? error.message.slice(0, 300) : "No se pudo generar el dossier" } } } }).catch(() => {});
+    }
+  }
   await prisma.subvencionEstado.upsert({
     where: { workspaceId_clientId_convocatoriaId: { workspaceId: input.workspaceId, clientId: input.clientId, convocatoriaId: input.convocatoriaId } },
     create: { workspaceId: input.workspaceId, clientId: input.clientId, convocatoriaId: input.convocatoriaId, estado: "en_proceso" },
     update: { estado: "en_proceso" }
   });
-  return { id: task.id, projectId: project.id, existing: false };
+  return { id: task.id, projectId: project.id, existing: Boolean(existing) };
 }
 
 export function isLowValueBusinessOpportunity(c: {
