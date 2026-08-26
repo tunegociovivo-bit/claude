@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { encryptSecret } from "@/lib/ai/crypto";
-import { ensureBackupFolder, exchangeDriveCode, googleAccountEmail, verifyDriveState } from "@/lib/integrations/google-drive-oauth";
+import { ensureBackupFolder, exchangeDriveCode, googleAccountEmail, verifyDriveState, verifyJobsGmailAccess } from "@/lib/integrations/google-drive-oauth";
 import { getServerSession } from "next-auth";
 import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
     const settings: any = ws?.settings ?? {};
     settings.integrations ??= {};
     if (jobsPurpose) {
+      await verifyJobsGmailAccess(tokens.access_token);
       settings.integrations.googleJobsInbox = { refreshTokenEncrypted: encryptSecret(tokens.refresh_token), accountEmail, connectedAt: new Date().toISOString() };
       settings.leads ??= {};
       settings.leads.jobsInboxUser = accountEmail;

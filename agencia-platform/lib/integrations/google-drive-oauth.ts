@@ -84,3 +84,8 @@ export async function googleAccountEmail(accessToken: string): Promise<string> {
   if (!r.ok) throw new Error(`Google userinfo ${r.status}`);
   return (await r.json()).email;
 }
+
+export async function verifyJobsGmailAccess(accessToken: string): Promise<void> {
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(12_000) });
+  if (!response.ok) throw new Error(`Gmail verification ${response.status}: ${(await response.text()).slice(0, 180)}`);
+}
