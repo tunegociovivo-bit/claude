@@ -3478,6 +3478,21 @@ function FranchisesView() {
     } finally { setAccountBusy(null); }
   }
 
+  async function excludeFranchiseAccount(account: any) {
+    if (!window.confirm(`¿Eliminar ${account.brand} del módulo de franquicias? Se excluirá también de futuras búsquedas y automatizaciones.`)) return;
+    setAccountBusy(account.id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/accounts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: account.id })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo eliminar la franquicia.");
+      else await loadFranchiseAccounts();
+    } finally { setAccountBusy(null); }
+  }
+
   async function sendAccountAudit(account: any) {
     if (!account.email || !account.audit) return;
     if (!window.confirm(`Se enviará la auditoría visual a ${account.email}. ¿Continuar?`)) return;
@@ -3660,6 +3675,7 @@ function FranchisesView() {
                   <button onClick={() => void refreshFranchiseGrowth(account)} disabled={!account.audit || accountBusy === account.id} className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40">{growth ? "Actualizar señales y auditoría viva" : "Activar motor de crecimiento"}</button>
                   <button title={decisionVerified ? "Enviar al responsable verificado" : "Bloqueado hasta verificar una persona y cargo adecuados"} onClick={() => void sendAccountAudit(account)} disabled={!decisionVerified || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
                   {account.linkedin && <a href={account.linkedin} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-semibold">LinkedIn ↗</a>}
+                  <button onClick={() => void excludeFranchiseAccount(account)} disabled={accountBusy === account.id} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-40">Eliminar franquicia</button>
                 </div>
               </div>
             </details>;

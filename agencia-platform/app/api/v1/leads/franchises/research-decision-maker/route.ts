@@ -14,7 +14,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const lead = await prisma.lead.findFirst({
-    where: { id: parsed.data.id, workspaceId: api.workspaceId },
+    where: { id: parsed.data.id, workspaceId: api.workspaceId, contactStatus: { not: "excluded" } },
     select: { id: true, name: true, website: true, rawData: true }
   });
   if (!lead) throw new ApiError(404, "not_found", "Cuenta de franquicia no encontrada");

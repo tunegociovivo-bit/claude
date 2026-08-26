@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   if (!cronAuthOk(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const cutoff = Date.now() - 20 * 60 * 60 * 1000;
   const leads = await prisma.lead.findMany({
-    where: { rawData: { path: ["source"], equals: "franchises" } },
+    where: { contactStatus: { not: "excluded" }, rawData: { path: ["source"], equals: "franchises" } },
     orderBy: { updatedAt: "asc" },
     take: 150,
     select: { id: true, name: true, rawData: true }

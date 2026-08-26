@@ -13,7 +13,7 @@ const emailSchema = { type: "object", properties: { subject: { type: "string" },
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const lead = await prisma.lead.findFirst({ where: { id: parsed.data.id, workspaceId: api.workspaceId }, select: { id: true, name: true, email: true, rawData: true } });
+  const lead = await prisma.lead.findFirst({ where: { id: parsed.data.id, workspaceId: api.workspaceId, contactStatus: { not: "excluded" } }, select: { id: true, name: true, email: true, rawData: true } });
   if (!lead) throw new ApiError(404, "not_found", "Franquicia no encontrada");
   const raw: any = lead.rawData ?? {};
   const cadence = Array.isArray(raw.franchiseGrowth?.cadence) ? [...raw.franchiseGrowth.cadence] : [];

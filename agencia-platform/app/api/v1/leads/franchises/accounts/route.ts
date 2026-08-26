@@ -11,7 +11,7 @@ const stages = ["discovered", "audited", "draft_ready", "audit_sent", "replied",
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const leads = await prisma.lead.findMany({
-    where: { workspaceId: api.workspaceId, rawData: { path: ["source"], equals: "franchises" } },
+    where: { workspaceId: api.workspaceId, contactStatus: { not: "excluded" }, rawData: { path: ["source"], equals: "franchises" } },
     orderBy: [{ updatedAt: "desc" }],
     take: 300,
     select: { id: true, name: true, email: true, website: true, phone: true, contactStatus: true, rawData: true, updatedAt: true }
@@ -60,4 +60,45 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     data: { rawData: { ...raw, franchiseGrowth: raw.franchiseGrowth ? { ...raw.franchiseGrowth, cadence } : undefined, franchisePipeline: { ...raw.franchisePipeline, stage: parsed.data.stage, updatedAt: now, history: [...history, { stage: parsed.data.stage, note: parsed.data.note ?? null, at: now }].slice(-100) } } }
   });
   return NextResponse.json({ ok: true, stage: parsed.data.stage, updatedAt: now });
+});
+
+const deleteSchema = z.object({ id: z.string().min(1), reason: z.string().max(500).optional() });
+
+export const DELETE = withApi({ scope: "*" }, async (req, { api }) => {
+  const parsed = deleteSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  const lead = await prisma.lead.findFirst({
+    where: { id: parsed.data.id, workspaceId: api.workspaceId, rawData: { path: ["source"], equals: "franchises" } },
+    select: { id: true, rawData: true }
+  });
+  if (!lead) throw new ApiError(404, "not_found", "Cuenta de franquicia no encontrada");
+
+  const raw: any = lead.rawData ?? {};
+  const now = new Date().toISOString();
+  const reason = parsed.data.reason?.trim() || "Excluida manualmente desde Franchise Intelligence";
+  const history = Array.isArray(raw.franchisePipeline?.history) ? raw.franchisePipeline.history : [];
+  const cadence = Array.isArray(raw.franchiseGrowth?.cadence)
+    ? raw.franchiseGrowth.cadence.map((step: any) => ["pending", "draft_ready"].includes(step.status)
+      ? { ...step, status: "stopped", stoppedAt: now, stopReason: "excluded" }
+      : step)
+    : raw.franchiseGrowth?.cadence;
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      contactStatus: "excluded",
+      rawData: {
+        ...raw,
+        franchiseExcluded: { at: now, reason },
+        franchiseGrowth: raw.franchiseGrowth ? { ...raw.franchiseGrowth, cadence } : undefined,
+        franchisePipeline: {
+          ...raw.franchisePipeline,
+          stage: "excluded",
+          updatedAt: now,
+          history: [...history, { stage: "excluded", note: reason, at: now }].slice(-100)
+        }
+      }
+    }
+  });
+  return NextResponse.json({ ok: true, excludedAt: now });
 });

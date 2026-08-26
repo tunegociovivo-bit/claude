@@ -14,7 +14,7 @@ const schema = z.object({ id: z.string().min(1), category: z.string().max(120).o
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  const lead = await prisma.lead.findFirst({ where: { id: parsed.data.id, workspaceId: api.workspaceId }, select: { id: true, name: true, province: true, rawData: true } });
+  const lead = await prisma.lead.findFirst({ where: { id: parsed.data.id, workspaceId: api.workspaceId, contactStatus: { not: "excluded" } }, select: { id: true, name: true, province: true, rawData: true } });
   if (!lead) throw new ApiError(404, "not_found", "Franquicia no encontrada");
   let raw: any = lead.rawData ?? {};
   let audit = raw.franchiseAudit;
@@ -63,7 +63,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
 });
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
-  const leads = await prisma.lead.findMany({ where: { workspaceId: api.workspaceId, rawData: { path: ["source"], equals: "franchises" } }, select: { rawData: true } });
+  const leads = await prisma.lead.findMany({ where: { workspaceId: api.workspaceId, contactStatus: { not: "excluded" }, rawData: { path: ["source"], equals: "franchises" } }, select: { rawData: true } });
   const records = leads.map((lead: any) => ({ outcome: lead.rawData?.franchisePipeline?.stage ?? "discovered", role: lead.rawData?.directorRole ?? null, signalTypes: (lead.rawData?.franchiseGrowth?.signals ?? []).map((signal: any) => signal.type) }));
   return NextResponse.json({ learning: summarizeFranchiseLearning(records) });
 });
