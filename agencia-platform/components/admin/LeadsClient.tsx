@@ -3650,6 +3650,14 @@ function FranchisesView() {
                 {audit && <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${audit.score >= 55 ? "bg-rose-100 text-rose-700" : audit.score >= 30 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>Riesgo {audit.score}/100</span>}
                 <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${decisionVerified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{decisionVerified ? `Decisor verificado · ${decisionMaker.score}/100` : "No enviar"}</span>
                 <span className="rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700">{account.stage}</span>
+                <button
+                  type="button"
+                  onClick={(event) => { event.preventDefault(); event.stopPropagation(); void excludeFranchiseAccount(account); }}
+                  disabled={accountBusy === account.id}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-40"
+                >
+                  Eliminar
+                </button>
               </summary>
               <div className="border-t p-3">
                 {audit ? <>
@@ -3675,7 +3683,6 @@ function FranchisesView() {
                   <button onClick={() => void refreshFranchiseGrowth(account)} disabled={!account.audit || accountBusy === account.id} className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40">{growth ? "Actualizar señales y auditoría viva" : "Activar motor de crecimiento"}</button>
                   <button title={decisionVerified ? "Enviar al responsable verificado" : "Bloqueado hasta verificar una persona y cargo adecuados"} onClick={() => void sendAccountAudit(account)} disabled={!decisionVerified || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
                   {account.linkedin && <a href={account.linkedin} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-semibold">LinkedIn ↗</a>}
-                  <button onClick={() => void excludeFranchiseAccount(account)} disabled={accountBusy === account.id} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-40">Eliminar franquicia</button>
                 </div>
               </div>
             </details>;
