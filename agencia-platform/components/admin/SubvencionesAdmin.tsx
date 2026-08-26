@@ -54,6 +54,7 @@ export default function SubvencionesAdmin() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [channelTesting, setChannelTesting] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [createdTasks, setCreatedTasks] = useState<Record<string, { id: string; projectId: string; existing?: boolean }>>({});
   const [digestEnabled, setDigestEnabled] = useState(true);
 
   // Nombre legible del objetivo cuyos resultados se muestran ahora.
@@ -108,7 +109,12 @@ export default function SubvencionesAdmin() {
     try {
       const r = await fetch("/api/v1/admin/subvenciones/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, clientId, convocatoriaId, verdict }) });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) setMsg(action === "create_task" ? "✅ Tarea creada en el proyecto de Subvenciones." : "✅ Preferencia guardada; se utilizará para afinar próximos resultados.");
+      if (r.ok) {
+        if (action === "create_task" && j.task?.id) {
+          setCreatedTasks((current) => ({ ...current, [convocatoriaId]: j.task }));
+          setMsg(j.task.existing ? "ℹ️ La tarea ya existía; puedes abrirla desde el resultado." : "✅ Tarea creada en el proyecto de Subvenciones.");
+        } else setMsg("✅ Preferencia guardada; se utilizará para afinar próximos resultados.");
+      }
       else setMsg(`❌ ${j?.error?.message ?? "No se pudo completar la acción"}`);
     } finally { setActionLoading(null); }
   }
@@ -297,7 +303,11 @@ export default function SubvencionesAdmin() {
                           </button>
                           <button onClick={() => opportunityAction("feedback", m.id, "interesa")} disabled={!!actionLoading} className="text-xs rounded border border-emerald-300 bg-white text-emerald-700 px-2 py-0.5">👍 Encaja</button>
                           <button onClick={() => opportunityAction("feedback", m.id, "no_encaja")} disabled={!!actionLoading} className="text-xs rounded border border-slate-300 bg-white text-slate-600 px-2 py-0.5">👎 No encaja</button>
-                          <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
+                          {createdTasks[m.id] ? (
+                            <a href={`/tareas?project=${createdTasks[m.id].projectId}&task=${createdTasks[m.id].id}`} className="text-xs rounded bg-emerald-600 text-white px-2 py-1">✓ Tarea creada · Abrir</a>
+                          ) : (
+                            <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
+                          )}
                         </div>
                       </li>
                     ))}

@@ -54,7 +54,7 @@ export async function createSubvencionTask(input: {
   clientId: string;
   convocatoriaId: string;
   createdById?: string | null;
-}): Promise<{ id: string; projectId: string }> {
+}): Promise<{ id: string; projectId: string; existing: boolean }> {
   const convocatoria = await prisma.subvencionConvocatoria.findUnique({ where: { id: input.convocatoriaId } });
   if (!convocatoria) throw new Error("Convocatoria no encontrada");
   const project = await prisma.project.findFirst({
@@ -62,6 +62,12 @@ export async function createSubvencionTask(input: {
     orderBy: { createdAt: "asc" }
   });
   if (!project) throw new Error("Crea primero un proyecto cuyo nombre contenga “Subvenciones”");
+  const taskTitle = `Subvención · ${convocatoria.titulo}`.slice(0, 240);
+  const existing = await prisma.task.findFirst({
+    where: { workspaceId: input.workspaceId, projectId: project.id, title: taskTitle, deletedAt: null },
+    select: { id: true, projectId: true }
+  });
+  if (existing) return { ...existing, existing: true };
   const cols = Array.isArray(project.kanbanColumns) ? project.kanbanColumns as any[] : [];
   const status = String(cols.find((c) => !c?.isDone)?.id ?? "TODO");
   const dueDate = convocatoria.fechaFin ?? null;
@@ -78,7 +84,7 @@ export async function createSubvencionTask(input: {
       workspaceId: input.workspaceId,
       projectId: project.id,
       clientId: input.clientId === AGENCY_ID ? null : input.clientId,
-      title: `Subvención · ${convocatoria.titulo}`.slice(0, 240),
+      title: taskTitle,
       description,
       status,
       priority: dueDate && dueDate.getTime() - Date.now() <= 10 * 86_400_000 ? "HIGH" : "MEDIUM",
@@ -96,7 +102,7 @@ export async function createSubvencionTask(input: {
     create: { workspaceId: input.workspaceId, clientId: input.clientId, convocatoriaId: input.convocatoriaId, estado: "en_proceso" },
     update: { estado: "en_proceso" }
   });
-  return { id: task.id, projectId: project.id };
+  return { id: task.id, projectId: project.id, existing: false };
 }
 
 export function isLowValueBusinessOpportunity(c: {
