@@ -127,6 +127,7 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
     setSending(true);
     const form = new FormData();
     form.set("phone", phone);
+    if (leadId) form.set("leadId", leadId);
     form.set("file", attachment);
     if (text.trim()) form.set("caption", text.trim());
     try {

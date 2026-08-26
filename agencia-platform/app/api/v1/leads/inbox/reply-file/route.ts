@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const form = await req.formData().catch(() => null);
   const phone = String(form?.get("phone") ?? "").trim();
+  const leadId = String(form?.get("leadId") ?? "").trim() || null;
   const caption = String(form?.get("caption") ?? "").trim();
   const uploaded = form?.get("file");
   if (!phone || !(uploaded instanceof File)) throw new ApiError(400, "validation_error", "Falta el teléfono o el archivo.");
@@ -18,7 +19,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const validationError = validateWhatsappAttachment(uploaded);
   if (validationError) throw new ApiError(400, "invalid_attachment", validationError);
 
-  const identity = await resolveConversationIdentity(prisma, api.workspaceId, phone, null);
+  const identity = await resolveConversationIdentity(prisma, api.workspaceId, phone, leadId);
   const lastIn = await prisma.leadInboxMessage.findFirst({
     where: { ...conversationWhere(api.workspaceId, identity.phones, identity.leadIds), direction: "in" },
     orderBy: { receivedAt: "desc" },
