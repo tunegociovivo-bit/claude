@@ -188,7 +188,9 @@ const URGENCY_COLORS: Record<string, string> = {
 };
 
 export default function LeadsClient() {
-  const [tab, setTab] = useState<Tab>("leads");
+  // La vista operativa principal es la cola. Los enlaces con ?tab=...
+  // conservan su destino explícito (inbox, empleos, franquicias, etc.).
+  const [tab, setTab] = useState<Tab>("queue");
   // Deep-link: abrir directamente una conversación de WhatsApp desde una tarea
   // creada en el generador de leads (/admin/leads?tab=inbox&phone=…).
   const [deepLinkPhone, setDeepLinkPhone] = useState<string | null>(null);
@@ -197,10 +199,8 @@ export default function LeadsClient() {
     const sp = new URLSearchParams(window.location.search);
     const t = sp.get("tab");
     const phone = sp.get("phone");
-    if (t === "inbox") setTab("inbox");
-    // La notificación "Email listo para revisar" enlaza a ?tab=jobs-review.
-    if (t === "jobs-review") setTab("jobs-review");
-    if (t === "opportunities") setTab("opportunities");
+    const validTabs: Tab[] = ["leads", "opportunities", "searches", "queue", "jobs-review", "franchises", "trade-fairs", "inbox", "sequences", "templates", "exclusions", "analytics", "map", "settings"];
+    if (t && validTabs.includes(t as Tab)) setTab(t as Tab);
     if (t === "leads" && sp.get("search")) setSearchQ(sp.get("search")!);
     if (phone) setDeepLinkPhone(phone);
   }, []);
