@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { ingestConvocatorias } from "./bdns";
 import { runAgencyOpportunityAlerts, runSubvencionAlertas, runSubvencionDigest } from "./alertas";
 import { updateSubvencionHealth } from "./operations";
-import { ingestPlacspMarketing } from "./placsp";
+import { ingestPlacspMarketingSafe } from "./placsp";
 import { ingestEuFunding } from "./eu-funding";
 
 let running: Promise<any> | null = null;
@@ -16,7 +16,7 @@ export async function runSubvencionesDaily(trigger: "cron" | "manual" = "cron", 
     const startedAt = new Date().toISOString();
     try {
       const ingest = await ingestConvocatorias();
-      const placsp = await ingestPlacspMarketing().catch((error) => ({ fetched: 0, relevant: 0, upserted: 0, error: error instanceof Error ? error.message : "Error PLACSP" }));
+      const placsp = await ingestPlacspMarketingSafe().catch((error) => ({ fetched: 0, relevant: 0, upserted: 0, error: error instanceof Error ? error.message : "Error PLACSP" }));
       const euFunding = await ingestEuFunding().catch((error) => ({ fetched: 0, upserted: 0, error: error instanceof Error ? error.message : "Error EU Funding" }));
       const closing = await runSubvencionAlertas();
       const opportunities = await runAgencyOpportunityAlerts();

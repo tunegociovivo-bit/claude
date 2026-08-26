@@ -64,3 +64,13 @@ export async function ingestPlacspMarketing(date = new Date()): Promise<{ fetche
   if (fetched > 0) await prisma.subvencionConvocatoria.updateMany({ where: { fuente: "placsp", abierta: true }, data: { abierta: false } });
   return { fetched, relevant: unique.length, upserted: await upsertConvocatorias(unique, "placsp") };
 }
+
+export async function ingestPlacspMarketingSafe(date = new Date()): Promise<{ fetched: number; relevant: number; upserted: number; cached?: boolean; warning?: string }> {
+  try {
+    return await ingestPlacspMarketing(date);
+  } catch (error) {
+    const cached = await prisma.subvencionConvocatoria.count({ where: { fuente: "placsp" } });
+    if (cached > 0) return { fetched: cached, relevant: cached, upserted: 0, cached: true, warning: error instanceof Error ? error.message : String(error) };
+    throw error;
+  }
+}

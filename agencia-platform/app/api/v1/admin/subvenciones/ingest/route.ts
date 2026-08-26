@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { ingestConvocatorias } from "@/lib/subvenciones/bdns";
-import { ingestPlacspMarketing } from "@/lib/subvenciones/placsp";
+import { ingestPlacspMarketingSafe } from "@/lib/subvenciones/placsp";
 import { updateSubvencionHealth } from "@/lib/subvenciones/operations";
 import { ingestEuFunding } from "@/lib/subvenciones/eu-funding";
 
@@ -34,7 +34,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   }
   try {
     const res = await ingestConvocatorias({ daysBack: body.daysBack, maxPages: body.maxPages });
-    const placsp = await ingestPlacspMarketing().catch((error) => ({ fetched: 0, relevant: 0, upserted: 0, error: error instanceof Error ? error.message : "Error PLACSP" }));
+    const placsp = await ingestPlacspMarketingSafe().catch((error) => ({ fetched: 0, relevant: 0, upserted: 0, error: error instanceof Error ? error.message : "Error PLACSP" }));
     const euFunding = await ingestEuFunding().catch((error) => ({ fetched: 0, upserted: 0, error: error instanceof Error ? error.message : "Error EU Funding" }));
     const timestamp = new Date().toISOString();
     const sourceError = ["error" in placsp ? `PLACSP: ${placsp.error}` : "", "error" in euFunding ? `EU: ${euFunding.error}` : ""].filter(Boolean).join(" · ").slice(0, 500) || null;
