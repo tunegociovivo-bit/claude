@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { findMarketingEmailsByDomain } from "@/lib/leads/enrich-contacts";
 import { rankFranchiseDecisionMakers } from "@/lib/leads/franchise-decision-maker";
+import { researchCorporateWebsite, researchPublicWeb } from "@/lib/leads/franchise-public-contact-research";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +23,30 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const domain = String(lead.website ?? raw.website ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
   if (!domain) throw new ApiError(400, "missing_domain", "No hay un dominio corporativo con el que investigar al decisor");
 
-  const candidates = await findMarketingEmailsByDomain(api.workspaceId, domain, 20, raw.brand ?? lead.name);
+  const brand = raw.brand ?? lead.name;
+  const [providerCandidates, websiteCandidates, publicWebCandidates] = await Promise.all([
+    findMarketingEmailsByDomain(api.workspaceId, domain, 20, brand),
+    researchCorporateWebsite(api.workspaceId, brand, lead.website ?? raw.website ?? domain),
+    researchPublicWeb(api.workspaceId, brand, domain)
+  ]);
+  const candidates = [...providerCandidates, ...websiteCandidates, ...publicWebCandidates]
+    .filter((candidate, index, list) => list.findIndex((item) => item.email.toLowerCase() === candidate.email.toLowerCase()) === index);
   const ranked = rankFranchiseDecisionMakers(candidates, domain);
   const selected = ranked.find((candidate) => candidate.sendAllowed) ?? null;
   const copies = selected ? ranked.filter((candidate) => candidate.email !== selected.email && candidate.copyAllowed).slice(0, 4) : [];
   const now = new Date().toISOString();
-  const research = { status: selected ? "verified" : "pending", selected, copies, candidates: ranked.slice(0, 20), researchedAt: now };
+  const research = {
+    status: selected ? "verified" : "pending",
+    selected,
+    copies,
+    candidates: ranked.slice(0, 20),
+    sources: {
+      apolloHunter: providerCandidates.length,
+      corporateWebsite: websiteCandidates.length,
+      publicWeb: publicWebCandidates.length
+    },
+    researchedAt: now
+  };
   await prisma.lead.update({
     where: { id: lead.id },
     data: {

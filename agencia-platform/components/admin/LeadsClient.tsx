@@ -3508,7 +3508,7 @@ function FranchisesView() {
 
   async function researchDecisionMaker(account: any) {
     setAccountBusy(account.id); setErr(null);
-    setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: true, text: "Investigando en Apollo y Hunter…" } }));
+    setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: true, text: "Investigando proveedores, web corporativa y fuentes públicas…" } }));
     try {
       const r = await fetch("/api/v1/leads/franchises/research-decision-maker", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
       const j = await r.json().catch(() => ({}));
@@ -3523,7 +3523,7 @@ function FranchisesView() {
           ? `Contacto verificado: ${research.selected.name} · ${research.selected.role} · ${research.selected.email}`
           : candidates.length > 0
             ? `Se encontraron ${candidates.length} contacto(s), pero ninguno cumple todavía los requisitos para un envío seguro.`
-            : "Apollo y Hunter no encontraron un responsable de marketing identificable para este dominio.";
+            : "No se encontró un responsable verificable en Apollo, Hunter, la web corporativa ni la búsqueda web pública.";
         setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: !!research?.selected, text } }));
         await loadFranchiseAccounts();
       }
