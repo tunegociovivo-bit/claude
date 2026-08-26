@@ -15,17 +15,22 @@ async function graph(workspaceId: string, path: string, init?: RequestInit, expl
   const token = explicitToken ?? await readWorkspaceMetaToken(workspaceId);
   if (!token) throw new Error("No hay conexión Meta activa en el workspace.");
   const separator = path.includes("?") ? "&" : "?";
-  const response = await fetch(`${GRAPH}/${path}${separator}access_token=${encodeURIComponent(token)}`, { ...init, cache: "no-store" });
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new MetaGraphError(
+  const url = `${GRAPH}/${path}${separator}access_token=${encodeURIComponent(token)}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(url, { ...init, cache: "no-store" });
+    const json = await response.json().catch(() => ({}));
+    if (response.ok) return json;
+    const error = new MetaGraphError(
       `Meta ${response.status} en ${path.split("?")[0]}: ${json?.error?.message ?? "error desconocido"}`,
       response.status,
       path.split("?")[0],
       typeof json?.error?.code === "number" ? json.error.code : undefined
     );
+    const transient = response.status === 429 || response.status >= 500;
+    if (!transient || attempt === 2) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 400 * (2 ** attempt)));
   }
-  return json;
+  throw new Error("Meta no respondió después de varios intentos.");
 }
 
 async function graphAll(workspaceId: string, path: string, explicitToken?: string, maxItems = 5000): Promise<any[]> {
@@ -184,7 +189,10 @@ export function resolveInstagramMediaTarget(creative: any, mediaByPermalink: Ins
 async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
   const userToken = await readMetaTokenByConnection(workspaceId, connectionId);
   if (!userToken) return { facebook: new Map(), instagram: new Map(), instagramByFacebookPage: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
-  const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token,instagram_business_account{id,username}&limit=100", userToken, 1000);
+  // Meta puede rechazar con HTTP 500 una expansión anidada grande en me/accounts.
+  // Primero obtenemos solo páginas/tokens en páginas pequeñas y luego hidratamos
+  // Instagram por página en lotes acotados.
+  const pages = await graphAll(workspaceId, "me/accounts?fields=id,access_token&limit=25", userToken, 1000);
   const facebook = new Map<string, string>(); const instagram = new Map<string, string>();
   const instagramByFacebookPage = new Map<string, string>();
   const facebookAuthorIds = new Set<string>(); const instagramUsernames = new Set<string>();
@@ -192,10 +200,20 @@ async function pageTokens(workspaceId: string, connectionId?: string | null): Pr
     if (!page.id || !page.access_token) continue;
     facebook.set(String(page.id), String(page.access_token));
     facebookAuthorIds.add(String(page.id));
-    if (page.instagram_business_account?.id) {
-      instagram.set(String(page.instagram_business_account.id), String(page.access_token));
-      instagramByFacebookPage.set(String(page.id), String(page.instagram_business_account.id));
-      if (page.instagram_business_account.username) instagramUsernames.add(String(page.instagram_business_account.username).toLowerCase());
+  }
+  for (let offset = 0; offset < pages.length; offset += 5) {
+    const details = await Promise.all(pages.slice(offset, offset + 5).map(async (page) => {
+      if (!page.id || !page.access_token) return null;
+      const detail = await graph(workspaceId, `${page.id}?fields=instagram_business_account{id,username}`, undefined, page.access_token).catch(() => null);
+      return detail ? { page, instagramAccount: detail.instagram_business_account } : null;
+    }));
+    for (const detail of details) {
+      if (!detail?.instagramAccount?.id) continue;
+      const pageId = String(detail.page.id);
+      const accountId = String(detail.instagramAccount.id);
+      instagram.set(accountId, String(detail.page.access_token));
+      instagramByFacebookPage.set(pageId, accountId);
+      if (detail.instagramAccount.username) instagramUsernames.add(String(detail.instagramAccount.username).toLowerCase());
     }
   }
   return { facebook, instagram, instagramByFacebookPage, facebookAuthorIds, instagramUsernames };
