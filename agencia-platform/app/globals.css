@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Keep file pickers automation- and keyboard-accessible while preserving the
+   existing custom upload button appearance. */
+label:has(> input[type="file"].hidden) {
+  position: relative;
+  overflow: hidden;
+}
+
+label > input[type="file"].hidden {
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  cursor: pointer;
+  opacity: 0;
+}
+
 /* redeploy: refresca el build en producción (sin cambios de estilo) 2026-06-02 */
 
 :root {
