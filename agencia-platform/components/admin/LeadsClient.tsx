@@ -3445,6 +3445,7 @@ function FranchisesView() {
   const [pipelineSummary, setPipelineSummary] = useState<Record<string, number>>({});
   const [franchiseLearning, setFranchiseLearning] = useState<any>(null);
   const [accountBusy, setAccountBusy] = useState<string | null>(null);
+  const [accountNotices, setAccountNotices] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [brand, setBrand] = useState("");
   const [brandLocation, setBrandLocation] = useState("");
   const [brandSearching, setBrandSearching] = useState(false);
@@ -3507,11 +3508,25 @@ function FranchisesView() {
 
   async function researchDecisionMaker(account: any) {
     setAccountBusy(account.id); setErr(null);
+    setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: true, text: "Investigando en Apollo y Hunter…" } }));
     try {
       const r = await fetch("/api/v1/leads/franchises/research-decision-maker", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) setErr(j?.error?.message ?? "No se pudo investigar al responsable de marketing.");
-      else await loadFranchiseAccounts();
+      if (!r.ok) {
+        const message = j?.error?.message ?? "No se pudo investigar al responsable de marketing.";
+        setErr(message);
+        setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: false, text: message } }));
+      } else {
+        const research = j?.research;
+        const candidates = Array.isArray(research?.candidates) ? research.candidates : [];
+        const text = research?.selected
+          ? `Contacto verificado: ${research.selected.name} · ${research.selected.role} · ${research.selected.email}`
+          : candidates.length > 0
+            ? `Se encontraron ${candidates.length} contacto(s), pero ninguno cumple todavía los requisitos para un envío seguro.`
+            : "Apollo y Hunter no encontraron un responsable de marketing identificable para este dominio.";
+        setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: !!research?.selected, text } }));
+        await loadFranchiseAccounts();
+      }
     } finally { setAccountBusy(null); }
   }
 
@@ -3644,9 +3659,15 @@ function FranchisesView() {
             const growth = account.growth;
             const decisionMaker = account.decisionMakerResearch?.selected;
             const decisionVerified = !!decisionMaker?.sendAllowed;
+            const researchCandidates = Array.isArray(account.decisionMakerResearch?.candidates) ? account.decisionMakerResearch.candidates.length : 0;
+            const researchSubtitle = decisionVerified
+              ? `${decisionMaker.name} · ${decisionMaker.role} · ${decisionMaker.email}`
+              : account.decisionMakerResearch?.researchedAt
+                ? `Investigado ${new Date(account.decisionMakerResearch.researchedAt).toLocaleString("es-ES")} · ${researchCandidates} candidatos · ninguno verificable`
+                : "Responsable de marketing pendiente de investigar";
             return <details key={account.id} className="rounded-lg border bg-white" open={account.stage === "audited"}>
               <summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 p-3">
-                <div className="min-w-0 flex-1"><div className="font-semibold text-slate-900">{account.brand}</div><div className="text-[11px] text-slate-500">{decisionVerified ? `${decisionMaker.name} · ${decisionMaker.role} · ${decisionMaker.email}` : "Responsable de marketing pendiente de verificar"}</div></div>
+                <div className="min-w-0 flex-1"><div className="font-semibold text-slate-900">{account.brand}</div><div className="text-[11px] text-slate-500">{researchSubtitle}</div></div>
                 {audit && <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${audit.score >= 55 ? "bg-rose-100 text-rose-700" : audit.score >= 30 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>Riesgo {audit.score}/100</span>}
                 <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${decisionVerified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{decisionVerified ? `Decisor verificado · ${decisionMaker.score}/100` : "No enviar"}</span>
                 <span className="rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700">{account.stage}</span>
@@ -3660,6 +3681,7 @@ function FranchisesView() {
                 </button>
               </summary>
               <div className="border-t p-3">
+                {accountNotices[account.id] && <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${accountNotices[account.id].ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{accountNotices[account.id].text}</div>}
                 {audit ? <>
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900"><strong>Simulación visual basada en datos observados.</strong> No se presenta como captura literal ni estima ingresos.</div>
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-6">{[["Muestra", audit.metrics.sampled], ["Media", `${audit.metrics.avgRating ?? "—"}★`], ["≤3,5★", `${audit.metrics.lowRatingPct}%`], ["Sin web", `${audit.metrics.noWebsitePct}%`], ["Sin teléfono", `${audit.metrics.noPhonePct}%`], ["Cerradas", `${audit.metrics.closedPct}%`]].map(([label, value]) => <div key={String(label)} className="rounded-md bg-slate-50 p-2"><div className="text-[10px] text-slate-500">{label}</div><div className="font-bold text-slate-900">{value}</div></div>)}</div>
