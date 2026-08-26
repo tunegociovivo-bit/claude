@@ -3226,6 +3226,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
       if (!r.ok) { setMsg({ kind: "err", text: j?.error?.message ?? "Error al probar la conexión." }); return; }
       if (!j.ok) { setMsg({ kind: "err", text: j.error ?? "No conecta." }); return; }
       setMsg({ kind: "ok", text: `✅ Conecta. ${j.unseen ?? 0} correo(s) sin leer · ${j.jobUnseen ?? 0} de portales de empleo pendientes de procesar.${j.recovery === "imap" ? " · Google no respondió; recuperación IMAP operativa." : ""}` });
+      await load();
     } finally { setTesting(false); }
   }
 
@@ -3269,6 +3270,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
         <div className="grid grid-cols-2 gap-2">
           <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Correo del buzón (usuario IMAP)" className="col-span-2 px-2 py-1 rounded border border-slate-300 text-sm" />
           <input value={pass} onChange={(e) => setPass(e.target.value)} type="password" placeholder={cfg?.jobsInboxConfigured ? "Contraseña de aplicación (•••• guardada)" : "Contraseña de aplicación"} className="col-span-2 px-2 py-1 rounded border border-slate-300 text-sm" />
+          <p className="col-span-2 text-[11px] text-amber-700">No uses la contraseña normal de Gmail. IMAP necesita una <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="font-semibold underline">contraseña de aplicación de Google de 16 caracteres</a>.</p>
           <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="Host IMAP" className="px-2 py-1 rounded border border-slate-300 text-sm" />
           <input value={port} onChange={(e) => setPort(Number(e.target.value) || 993)} type="number" placeholder="Puerto" className="px-2 py-1 rounded border border-slate-300 text-sm" />
         </div>

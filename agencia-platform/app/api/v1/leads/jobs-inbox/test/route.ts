@@ -10,6 +10,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { testJobsInbox } from "@/lib/leads/sources/jobs-inbox";
+import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -31,5 +32,12 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     port: parsed.data.port,
     forceStoredImap: parsed.data.storedImap
   });
+  const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
+  const settings: any = ws?.settings ?? {};
+  settings.leads ??= {};
+  settings.leads.jobsInboxLastRun = new Date().toISOString();
+  settings.leads.jobsInboxLastError = res.ok ? null : (res.error ?? "No se pudo conectar con el buzón.");
+  settings.leads.jobsInboxRecoveryMode = res.ok && (parsed.data.storedImap || res.recovery === "imap") ? "imap" : null;
+  await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   return NextResponse.json(res);
 });

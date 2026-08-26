@@ -103,7 +103,7 @@ export async function testJobsInbox(
   try {
     await withTimeout(client.connect(), 15000, "IMAP");
   } catch (e: any) {
-    const failure = describeJobsInboxFailure(e);
+    const failure = describeJobsInboxFailure(e, "imap");
     return { ok: false, error: failure.message, errorCode: failure.code } as any;
   }
   try {
@@ -241,7 +241,7 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
   try {
     await withTimeout(client.connect(), 15000, "IMAP");
   } catch (e: any) {
-    return { offers, emails, error: describeJobsInboxFailure(e).message };
+    return { offers, emails, error: describeJobsInboxFailure(e, "imap").message };
   }
 
   try {
