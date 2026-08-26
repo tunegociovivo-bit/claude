@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { summarizeFranchisePipeline } from "@/lib/leads/franchise-audit";
+import { removeEscapedNewlineEmailArtifacts } from "@/lib/leads/sources/franchise-directory";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,11 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   });
   const items = leads.map((lead) => {
     const raw: any = lead.rawData ?? {};
+    const decisionMakerResearch = raw.decisionMakerResearch ?? null;
+    if (decisionMakerResearch && Array.isArray(decisionMakerResearch.candidates)) {
+      const allowedEmails = new Set(removeEscapedNewlineEmailArtifacts(decisionMakerResearch.candidates.map((candidate: any) => candidate.email).filter(Boolean)).map((email) => email.toLowerCase()));
+      decisionMakerResearch.candidates = decisionMakerResearch.candidates.filter((candidate: any) => allowedEmails.has(candidate.email?.toLowerCase()));
+    }
     return {
       id: lead.id,
       brand: raw.brand ?? lead.name,
@@ -28,7 +34,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       directorName: raw.directorName ?? null,
       directorRole: raw.directorRole ?? null,
       linkedin: raw.linkedin ?? null,
-      decisionMakerResearch: raw.decisionMakerResearch ?? null,
+      decisionMakerResearch,
       growth: raw.franchiseGrowth ?? null,
       audit: raw.franchiseAudit ?? null,
       draft: raw.franchiseDraft ?? null,

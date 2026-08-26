@@ -47,9 +47,20 @@ export function extractFichaEmails(rawHtml: string): string[] {
     if (DIRECTORY_DOMAINS.some((d) => dom === d || dom.endsWith("." + d))) return; // email del portal → fuera
     set.add(e);
   };
-  for (const m of rawHtml.matchAll(/mailto:([^"'?>\s]+)/gi)) add(m[1]);
-  for (const m of rawHtml.matchAll(EMAIL_RE)) add(m[0]);
-  return [...set];
+  const searchableHtml = rawHtml.replace(/\\[nr](?=[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})/gi, " ");
+  for (const m of searchableHtml.matchAll(/mailto:([^"'?>\s]+)/gi)) add(m[1]);
+  for (const m of searchableHtml.matchAll(EMAIL_RE)) add(m[0]);
+  return removeEscapedNewlineEmailArtifacts([...set]);
+}
+
+/** Elimina falsos correos creados al pegar la `n` o `r` de `\n`/`\r` al
+ * principio de una dirección que también aparece correctamente. */
+export function removeEscapedNewlineEmailArtifacts(emails: string[]): string[] {
+  const normalized = new Set(emails.map((email) => email.toLowerCase()));
+  return emails.filter((email) => {
+    const lower = email.toLowerCase();
+    return !/^[nr][a-z0-9]/.test(lower) || !normalized.has(lower.slice(1));
+  });
 }
 
 /** Elige el mejor email (dominio corporativo + buzón de expansión/marketing). */
