@@ -17,7 +17,7 @@ const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
 type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null; taskId?: string | null; taskProjectId?: string | null; taskAutomated?: boolean };
-type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean; detail?: string }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
+type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; savedAgencyMatches?: Match[]; savedAgencySearchAt?: string | null; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean; detail?: string }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
 
 const ESTADOS = [
   { v: "", t: "— Estado —" },
@@ -135,7 +135,7 @@ export default function SubvencionesAdmin() {
     setLoading(true);
     try {
       const r = await fetch("/api/v1/admin/subvenciones");
-      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setWaTo(d.whatsappTo ?? ""); setWaSession(d.whatsappSession ?? ""); setAgencyProfile(d.agencyProfile ?? ""); setDigestEnabled(d.digestEnabled !== false); }
+      if (r.ok) { const d = await r.json(); setS(d); setWebhook(d.webhookUrl ?? ""); setOportWebhook(d.oportWebhookUrl ?? ""); setWaTo(d.whatsappTo ?? ""); setWaSession(d.whatsappSession ?? ""); setAgencyProfile(d.agencyProfile ?? ""); setDigestEnabled(d.digestEnabled !== false); if (Array.isArray(d.savedAgencyMatches) && d.savedAgencySearchAt) { const restored: Match[] = d.savedAgencyMatches; setClientId(AGENCY_ID); setMatches(restored); setCreatedTasks(Object.fromEntries(restored.filter((m) => m.taskId && m.taskProjectId && m.taskAutomated).map((m) => [m.id, { id: m.taskId!, projectId: m.taskProjectId!, existing: true }]))); } }
     } finally {
       setLoading(false);
     }

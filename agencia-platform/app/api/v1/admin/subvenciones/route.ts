@@ -21,6 +21,10 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const whatsappTo = (ws?.settings as any)?.subvenciones?.whatsappTo ?? "";
   const whatsappSession = (ws?.settings as any)?.subvenciones?.whatsappSession ?? "";
   const digestEnabled = (ws?.settings as any)?.subvenciones?.digestEnabled !== false;
+  const savedAgencySearch = (ws?.settings as any)?.subvenciones?.savedAgencySearch;
+  const savedAgencyMatches = Array.isArray(savedAgencySearch?.matches)
+    ? savedAgencySearch.matches.filter((match: any) => !match?.fechaFin || new Date(match.fechaFin).getTime() >= now.getTime())
+    : [];
   const { profile: agencyProfile } = await getAgencyProfile(api.workspaceId);
   const [abiertas, total, ultima, convocatorias, clients, heartbeat, sources] = await Promise.all([
     prisma.subvencionConvocatoria.count({ where: { abierta: true, OR: [{ fechaFin: null }, { fechaFin: { gte: now } }] } }),
@@ -60,6 +64,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     whatsappTo,
     whatsappSession,
     digestEnabled,
+    savedAgencyMatches,
+    savedAgencySearchAt: typeof savedAgencySearch?.savedAt === "string" ? savedAgencySearch.savedAt : null,
     sources: sources.map((x) => ({ source: x.fuente, count: x._count._all })),
     sourceCoverage,
     agencyProfile,

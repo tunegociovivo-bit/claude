@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { matchForClient } from "@/lib/subvenciones/match";
+import { AGENCY_ID, matchForClient } from "@/lib/subvenciones/match";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -31,6 +31,16 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       const task = taskByTitle.get(`Subvención · ${m.titulo}`.slice(0, 240));
       return { ...m, estado: byId.get(m.id) ?? null, taskId: task?.id ?? null, taskProjectId: task?.projectId ?? null, taskAutomated: Boolean((task?.aiState as any)?.subvencionAutomation) };
     });
+    if (clientId === AGENCY_ID) {
+      const workspace = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
+      const settings: any = workspace?.settings ?? {};
+      settings.subvenciones = settings.subvenciones ?? {};
+      settings.subvenciones.savedAgencySearch = {
+        savedAt: new Date().toISOString(),
+        matches: JSON.parse(JSON.stringify(withEstado))
+      };
+      await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
+    }
     return NextResponse.json({ ok: true, matches: withEstado });
   } catch (e: any) {
     throw new ApiError(400, "match_error", e?.message ?? "No se pudo cruzar.");
