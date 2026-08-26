@@ -311,7 +311,7 @@ export default function SubvencionesAdmin() {
                           <button onClick={() => opportunityAction("feedback", m.id, "interesa")} disabled={!!actionLoading} className="text-xs rounded border border-emerald-300 bg-white text-emerald-700 px-2 py-0.5">👍 Encaja</button>
                           <button onClick={() => opportunityAction("feedback", m.id, "no_encaja")} disabled={!!actionLoading} className="text-xs rounded border border-slate-300 bg-white text-slate-600 px-2 py-0.5">👎 No encaja</button>
                           {createdTasks[m.id] || (m.taskId && m.taskProjectId) ? (
-                            <a href={`/tareas?project=${createdTasks[m.id]?.projectId ?? m.taskProjectId}&task=${createdTasks[m.id]?.id ?? m.taskId}`} className="text-xs rounded bg-emerald-600 text-white px-2 py-1">Continuar tramitación · Abrir expediente</a>
+                            <a href={`/tareas?project=${createdTasks[m.id]?.projectId ?? m.taskProjectId}&task=${createdTasks[m.id]?.id ?? m.taskId}`} className="text-xs rounded border border-slate-300 bg-white text-slate-700 px-2 py-1">Abrir expediente</a>
                           ) : (
                             <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
                           )}
