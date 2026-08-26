@@ -8483,7 +8483,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
         )}
       </Modal>
     );
-  async function save(channelsOverride?: unknown): Promise<boolean> {
+  async function save(channelsOverride?: unknown, recoveryOverride?: Record<string, any>): Promise<boolean> {
     setSaving(true);
     setError(null);
     const body: any = {
@@ -8510,7 +8510,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       minCoolDownDaysPerRecipient: s.minCoolDownDaysPerRecipient,
       maxNewChatsPerDay: s.maxNewChatsPerDay,
       recoveryMode: !!s.recoveryMode,
-      recoveryByChannel: s.recoveryByChannel ?? {},
+      recoveryByChannel: recoveryOverride ?? s.recoveryByChannel ?? {},
       recoveryDurationDays: s.recoveryDurationDays,
       warmupEnabled: s.warmupEnabled,
       warmupDays: s.warmupDays,
@@ -8614,9 +8614,11 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     const label = channel.label?.trim() || channel.name?.trim() || `#${i + 1}`;
     if (!confirm(`¿Eliminar el canal "${label}" de la configuración?\n\nSe conservará el historial de mensajes.`)) return;
     const nextChannels = (s.channels ?? []).filter((_: any, idx: number) => idx !== i);
-    setField("channels", nextChannels);
-    const ok = await save(nextChannels);
-    if (!ok) setField("channels", s.channels ?? []);
+    const nextRecovery = { ...(s.recoveryByChannel ?? {}) };
+    if (channel.name) delete nextRecovery[channel.name];
+    setS({ ...s, channels: nextChannels, recoveryByChannel: nextRecovery });
+    const ok = await save(nextChannels, nextRecovery);
+    if (!ok) setS(s);
   }
   async function loadHealth() {
     setLoadingHealth(true);
