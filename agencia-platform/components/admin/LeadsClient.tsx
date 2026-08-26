@@ -3199,9 +3199,17 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
       if (pass.trim()) body.jobsInboxPassword = pass.trim();
       const r = await fetch("/api/v1/leads/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!r.ok) { const j = await r.json().catch(() => ({})); setMsg({ kind: "err", text: j?.error?.message ?? "No se pudo guardar." }); return; }
+      if (pass.trim()) {
+        const verification = await fetch("/api/v1/leads/jobs-inbox/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storedImap: true }) });
+        const result = await verification.json().catch(() => ({}));
+        if (!verification.ok || !result.ok) {
+          setMsg({ kind: "err", text: result?.error?.message ?? result?.error ?? "La contraseña se guardó, pero no se pudo verificar desde la copia persistida." });
+          return;
+        }
+      }
       setPass("");
-      setMsg({ kind: "ok", text: "Guardado." });
-      void load();
+      setMsg({ kind: "ok", text: "Guardado y verificado desde la copia persistida." });
+      await load();
     } finally { setSaving(false); }
   }
 
@@ -3571,6 +3579,23 @@ function FranchisesView() {
     } finally { setAccountBusy(null); }
   }
 
+  async function reanalyzeFranchise(account: any) {
+    setAccountBusy(account.id); setErr(null);
+    setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: true, text: "Analizando ubicaciones y generando la auditoría ampliada…" } }));
+    try {
+      const r = await fetch("/api/v1/leads/franchises/reanalyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const message = j?.error?.message ?? "No se pudo generar la auditoría ampliada.";
+        setErr(message);
+        setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: false, text: message } }));
+      } else {
+        setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: true, text: "Auditoría ampliada actualizada correctamente." } }));
+        await loadFranchiseAccounts();
+      }
+    } finally { setAccountBusy(null); }
+  }
+
   async function runCadenceAction(account: any, index: number, action: "draft" | "send" | "complete") {
     if (action === "send" && !window.confirm("Se enviará este seguimiento al decisor y responsables verificados. ¿Continuar?")) return;
     setAccountBusy(account.id); setErr(null);
@@ -3701,7 +3726,7 @@ function FranchisesView() {
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-6">{[["Muestra", audit.metrics.sampled], ["Media", `${audit.metrics.avgRating ?? "—"}★`], ["≤3,5★", `${audit.metrics.lowRatingPct}%`], ["Sin web", `${audit.metrics.noWebsitePct}%`], ["Sin teléfono", `${audit.metrics.noPhonePct}%`], ["Cerradas", `${audit.metrics.closedPct}%`]].map(([label, value]) => <div key={String(label)} className="rounded-md bg-slate-50 p-2"><div className="text-[10px] text-slate-500">{label}</div><div className="font-bold text-slate-900">{value}</div></div>)}</div>
                   <div className="mt-3 grid gap-2 md:grid-cols-2">{(audit.findings ?? []).slice(0, 6).map((finding: any) => <div key={finding.key} className="rounded-md border p-2"><div className="text-xs font-semibold text-slate-800">{finding.title}</div><div className="text-[11px] text-slate-600">{finding.evidence}</div></div>)}</div>
                   <div className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs text-indigo-950"><strong>{audit.offer.title}</strong><div>{audit.offer.pilot}</div></div>
-                </> : <p className="text-xs text-slate-500">Esta cuenta todavía no tiene una auditoría ampliada. Vuelve a analizar la marca para generarla.</p>}
+                </> : <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500"><span>Esta cuenta todavía no tiene una auditoría ampliada.</span><button onClick={() => void reanalyzeFranchise(account)} disabled={accountBusy === account.id} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 font-semibold text-indigo-700 disabled:opacity-40">{accountBusy === account.id ? "Analizando…" : "Generar auditoría ampliada"}</button></div>}
                 {growth && <div className="mt-3 space-y-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-950">
                   <div className="flex flex-wrap items-center gap-2"><strong>Prioridad comercial: {growth.opportunity?.score ?? 0}/100</strong><span className="rounded-full bg-white px-2 py-0.5 font-semibold">{growth.opportunity?.tier?.replaceAll("_", " ")}</span>{growth.category && <span>Sector: {growth.category}</span>}</div>
                   <div>{growth.signals?.length ?? 0} señales verificables · piloto de {growth.pilot?.durationDays} días con {growth.pilot?.interventionLocations} ubicaciones + {growth.pilot?.controlLocations} de control.</div>
@@ -3717,6 +3742,7 @@ function FranchisesView() {
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <select value={account.stage} onChange={(e) => void setAccountStage(account.id, e.target.value)} disabled={accountBusy === account.id} className="rounded-lg border px-2 py-1.5 text-xs">{[["discovered","Descubierta"],["audited","Auditada"],["draft_ready","Borrador listo"],["audit_sent","Auditoría enviada"],["replied","Respondió"],["meeting","Reunión"],["pilot","Piloto"],["proposal","Propuesta"],["won","Ganada"],["lost","Perdida"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
                   <button onClick={() => void researchDecisionMaker(account)} disabled={accountBusy === account.id} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-40">{accountBusy === account.id ? "Investigando…" : decisionVerified ? "Reinvestigar decisor" : "Investigar responsable de marketing"}</button>
+                  <button onClick={() => void reanalyzeFranchise(account)} disabled={accountBusy === account.id} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 disabled:opacity-40">{accountBusy === account.id ? "Analizando…" : account.audit ? "Actualizar auditoría" : "Generar auditoría"}</button>
                   <button onClick={() => void refreshFranchiseGrowth(account)} disabled={!account.audit || accountBusy === account.id} className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-40">{growth ? "Actualizar señales y auditoría viva" : "Activar motor de crecimiento"}</button>
                   <button title={decisionVerified ? "Enviar al responsable verificado" : "Bloqueado hasta verificar una persona y cargo adecuados"} onClick={() => void sendAccountAudit(account)} disabled={!decisionVerified || !account.audit || accountBusy === account.id} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">{accountBusy === account.id ? "Procesando…" : "Enviar auditoría visual"}</button>
                   {account.linkedin && <a href={account.linkedin} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-1.5 text-xs font-semibold">LinkedIn ↗</a>}

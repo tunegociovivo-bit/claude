@@ -17,7 +17,8 @@ const schema = z.object({
   user: z.string().max(200).optional(),
   password: z.string().max(400).optional(),
   host: z.string().max(120).optional(),
-  port: z.number().int().min(1).max(65535).optional()
+  port: z.number().int().min(1).max(65535).optional(),
+  storedImap: z.boolean().optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
@@ -27,7 +28,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     user: parsed.data.user,
     pass: parsed.data.password,
     host: parsed.data.host,
-    port: parsed.data.port
+    port: parsed.data.port,
+    forceStoredImap: parsed.data.storedImap
   });
   return NextResponse.json(res);
 });

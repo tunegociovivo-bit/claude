@@ -14,7 +14,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { encryptSecret } from "@/lib/ai/crypto";
+import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -312,6 +312,9 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     s.jobsInboxEnabled = false;
   } else if (typeof parsed.data.jobsInboxPassword === "string" && parsed.data.jobsInboxPassword.trim()) {
     s.jobsInboxPassEnc = encryptSecret(parsed.data.jobsInboxPassword.trim());
+    if (decryptSecret(s.jobsInboxPassEnc) !== parsed.data.jobsInboxPassword.trim()) {
+      throw new ApiError(500, "jobs_inbox_secret_not_persistable", "No se ha podido verificar la contraseña cifrada. No se ha guardado ningún cambio.");
+    }
   }
   if (parsed.data.clearHunterApiKey) {
     delete s.hunterApiKeyEnc;
@@ -450,5 +453,5 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     s.webhookToken = randomBytes(24).toString("hex");
   }
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
-  return NextResponse.json({ ok: true, webhookToken: s.webhookToken });
+  return NextResponse.json({ ok: true, webhookToken: s.webhookToken, jobsInboxConfigured: !!s.jobsInboxPassEnc });
 });

@@ -67,10 +67,10 @@ export async function getJobsInboxConfig(workspaceId: string): Promise<JobsInbox
  */
 export async function testJobsInbox(
   workspaceId: string,
-  override?: { host?: string; port?: number; user?: string; pass?: string }
+  override?: { host?: string; port?: number; user?: string; pass?: string; forceStoredImap?: boolean }
 ): Promise<{ ok: boolean; error?: string; unseen?: number; jobUnseen?: number; recovery?: "imap" }> {
   let googleFailure: string | null = null;
-  if (!override?.pass && await googleJobsInboxConnected(workspaceId)) {
+  if (!override?.pass && !override?.forceStoredImap && await googleJobsInboxConnected(workspaceId)) {
     try {
       const result = await testGoogleJobsInbox(workspaceId);
       if (result.ok) return { ok: true, unseen: result.unseen, jobUnseen: result.unseen };
