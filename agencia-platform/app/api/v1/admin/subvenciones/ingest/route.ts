@@ -24,7 +24,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } }),
     prisma.subvencionConvocatoria.count({ where: { fuente: "fondos-eu" } })
   ]);
-  const retryingFailedSource = String((workspace?.settings as any)?.subvenciones?.health?.lastError ?? "").startsWith("PLACSP:");
+  const retryingFailedSource = /(?:PLACSP|EU):/.test(String((workspace?.settings as any)?.subvenciones?.health?.lastError ?? ""));
   if (!body.force && !retryingFailedSource && euFundingCount > 0) {
     const last = await prisma.subvencionConvocatoria.findFirst({ orderBy: { updatedAt: "desc" }, select: { updatedAt: true } });
     if (last && Date.now() - last.updatedAt.getTime() < COOLDOWN_MS) {

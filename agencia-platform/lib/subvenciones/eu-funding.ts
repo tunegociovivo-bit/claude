@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { RawConvocatoria, upsertConvocatorias } from "./bdns";
+import { prisma } from "@/lib/db/prisma";
 
 const ENDPOINT = "https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA";
 const SEARCHES = ["digital transformation", "artificial intelligence", "marketing communication"];
@@ -71,7 +72,13 @@ export async function fetchEuFunding(now = new Date()): Promise<RawConvocatoria[
   return [...new Map(all.map((item) => [item.id, item])).values()];
 }
 
-export async function ingestEuFunding(): Promise<{ fetched: number; upserted: number }> {
-  const rows = await fetchEuFunding();
-  return { fetched: rows.length, upserted: await upsertConvocatorias(rows, "fondos-eu") };
+export async function ingestEuFunding(): Promise<{ fetched: number; upserted: number; cached?: boolean; warning?: string }> {
+  try {
+    const rows = await fetchEuFunding();
+    return { fetched: rows.length, upserted: await upsertConvocatorias(rows, "fondos-eu") };
+  } catch (error) {
+    const cached = await prisma.subvencionConvocatoria.count({ where: { fuente: "fondos-eu" } });
+    if (cached > 0) return { fetched: cached, upserted: 0, cached: true, warning: error instanceof Error ? error.message : String(error) };
+    throw error;
+  }
 }
