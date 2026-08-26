@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hasDeliveryChannel, isLowValueBusinessOpportunity } from "../subvenciones/operations";
 import { parsePlacspAtom } from "../subvenciones/placsp";
+import { isCamaraComercioConvocatoria } from "../subvenciones/bdns";
 
 describe("cazador de subvenciones", () => {
   it("permite WhatsApp aunque no exista webhook de Make", () => {
@@ -34,5 +35,21 @@ describe("cazador de subvenciones", () => {
   it("no confunde campañas médicas o redes técnicas con marketing", () => {
     const xml = `<feed><entry><id>EXP-PRL</id><title>Prevención y vigilancia de la salud</title><Description>Campañas de reconocimientos médicos y red de comunicaciones</Description><EndDate>2026-12-31</EndDate></entry></feed>`;
     expect(parsePlacspAtom(xml, new Date("2026-08-25T00:00:00Z"))).toHaveLength(0);
+  });
+
+  it("clasifica ayudas oficiales de una Cámara de Comercio", () => {
+    expect(isCamaraComercioConvocatoria({
+      titulo: "Convocatoria Pyme Digital 2026",
+      organo: "Cámara Oficial de Comercio, Industria y Navegación de Málaga",
+      finalidad: "Transformación digital de pymes"
+    })).toBe(true);
+  });
+
+  it("no clasifica como cameral una ayuda general para pymes", () => {
+    expect(isCamaraComercioConvocatoria({
+      titulo: "Ayudas para la digitalización de pymes",
+      organo: "Consejería de Economía",
+      finalidad: "Modernización empresarial"
+    })).toBe(false);
   });
 });

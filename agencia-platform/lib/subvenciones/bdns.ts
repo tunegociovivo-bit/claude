@@ -70,6 +70,12 @@ export type RawConvocatoria = {
   raw: any;
 };
 
+/** Clasifica ayudas de la red cameral obtenidas por la API pública de BDNS. */
+export function isCamaraComercioConvocatoria(c: Pick<RawConvocatoria, "titulo" | "organo" | "finalidad">): boolean {
+  const text = nrm(`${c.titulo} ${c.organo ?? ""} ${c.finalidad ?? ""}`);
+  return /\bcamara(?:s)? (?:oficial(?:es)? )?(?:de |del )?(?:comercio|industria|navegacion)\b|\bcamara(?:s)? de comercio\b|\bcameral(?:es)?\b/.test(text);
+}
+
 /** Descarga convocatorias recientes y devuelve las ABIERTAS (plazo no vencido). */
 export async function fetchOpenConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<RawConvocatoria[]> {
   const daysBack = Math.max(7, Math.min(opts?.daysBack ?? 120, 365));
@@ -191,16 +197,34 @@ export async function upsertConvocatorias(list: RawConvocatoria[], fuente: strin
 }
 
 /** Ingiere/actualiza el catálogo de convocatorias abiertas (BDNS + curadas). */
-export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<{ fetched: number; upserted: number; fueraDeFoco: number; curadas: number }> {
+export async function ingestConvocatorias(opts?: { daysBack?: number; maxPages?: number }): Promise<{ fetched: number; upserted: number; fueraDeFoco: number; curadas: number; camaras: number }> {
   const list = await fetchOpenConvocatorias(opts);
   const enFoco = list.filter((c) => inFocus(c.regiones));
   const fueraDeFoco = list.length - enFoco.length;
-  const upserted = await upsertConvocatorias(enFoco, "bdns");
+  const camarasList = enFoco.filter(isCamaraComercioConvocatoria);
+  const bdnsList = enFoco.filter((c) => !isCamaraComercioConvocatoria(c));
+  const bdnsUpserted = await upsertConvocatorias(bdnsList, "bdns");
+  const camarasUpserted = await upsertConvocatorias(camarasList, "camaras");
+  // Reclasifica lo ya almacenado antes de habilitar esta cobertura.
+  const migrated = await prisma.subvencionConvocatoria.updateMany({
+    where: {
+      fuente: "bdns",
+      OR: [
+        { titulo: { contains: "Cámara de Comercio", mode: "insensitive" } },
+        { titulo: { contains: "Cámara Oficial", mode: "insensitive" } },
+        { titulo: { contains: "cameral", mode: "insensitive" } },
+        { organo: { contains: "Cámara de Comercio", mode: "insensitive" } },
+        { organo: { contains: "Cámara Oficial", mode: "insensitive" } }
+      ]
+    },
+    data: { fuente: "camaras" }
+  });
+  const upserted = bdnsUpserted + camarasUpserted;
   const curadas = await upsertConvocatorias(CURATED, "curada");
   // Marcar como cerradas las que ya vencieron (las curadas sin fecha no se tocan).
   await prisma.subvencionConvocatoria.updateMany({
     where: { abierta: true, fechaFin: { lt: new Date() } },
     data: { abierta: false }
   });
-  return { fetched: list.length, upserted, fueraDeFoco, curadas };
+  return { fetched: list.length, upserted, fueraDeFoco, curadas, camaras: camarasUpserted + migrated.count };
 }
