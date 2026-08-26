@@ -21,10 +21,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   });
   if (!lead) throw new ApiError(404, "not_found", "Cuenta de franquicia no encontrada");
   const raw: any = lead.rawData ?? {};
-  const domain = String(lead.website ?? raw.website ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-  if (!domain) throw new ApiError(400, "missing_domain", "No hay un dominio corporativo con el que investigar al decisor");
-
   const brand = raw.brand ?? lead.name;
+  const domain = String(lead.website ?? raw.website ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
   const aefContact = await researchAefBrand(api.workspaceId, brand).catch(() => null);
   const aefCandidates = aefContact?.emails?.length
     ? aefContact.emails.map((email) => ({
@@ -37,7 +35,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       }))
     : [];
   const relatedDomains = [...new Set([
-    domain,
+    ...(domain ? [domain] : []),
     ...aefCandidates.map((candidate) => candidate.email.split("@")[1]).filter(Boolean),
     ...(aefContact?.corporateWeb ? [String(aefContact.corporateWeb).replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]] : [])
   ])].filter((value) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)).slice(0, 3);
@@ -52,10 +50,12 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   }));
   const providerCandidates = perDomainResults.flatMap((result) => result.providers);
   const websiteCandidates = perDomainResults.flatMap((result) => result.website);
-  const publicWebCandidates = perDomainResults.flatMap((result) => result.publicWeb);
+  const publicWebCandidates = perDomainResults.length
+    ? perDomainResults.flatMap((result) => result.publicWeb)
+    : await researchPublicWeb(api.workspaceId, brand, "dominio corporativo pendiente").catch(() => []);
   const candidates = [...aefCandidates, ...providerCandidates, ...websiteCandidates, ...publicWebCandidates]
     .filter((candidate, index, list) => list.findIndex((item) => item.email.toLowerCase() === candidate.email.toLowerCase()) === index);
-  const ranked = rankFranchiseDecisionMakers(candidates, domain);
+  const ranked = rankFranchiseDecisionMakers(candidates, domain || relatedDomains[0] || "");
   const selected = ranked.find((candidate) => candidate.sendAllowed) ?? null;
   const copies = selected ? ranked.filter((candidate) => candidate.email !== selected.email && candidate.copyAllowed).slice(0, 4) : [];
   const now = new Date().toISOString();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { rankFranchiseDecisionMakers } from "../franchise-decision-maker";
+import { extractCorporateMailboxes } from "../franchise-public-contact-research";
 
 describe("rankFranchiseDecisionMakers", () => {
   it("prioriza a una directora de marketing con email corporativo verificado", () => {
@@ -16,12 +17,17 @@ describe("rankFranchiseDecisionMakers", () => {
   it("acepta un buzón funcional publicado con evidencia sectorial", () => {
     const [best] = rankFranchiseDecisionMakers([{ email: "exporestalia@gruporestalia.com", name: "ExpoRestalia", role: "Expansión y franquicias", source: "aef_directory", providerConfidence: 85, evidenceUrl: "https://www.aefranquicia.es/ensenas/100-montaditos/" }], "100montaditos.com");
     expect(best.sendAllowed).toBe(true);
-    expect(best.reasons).toContain("buzón funcional de marketing/expansión");
+    expect(best.reasons).toContain("buzón funcional corporativo");
   });
 
   it("no habilita envíos a buzones funcionales propuestos solo por una IA", () => {
     const [best] = rankFranchiseDecisionMakers([{ email: "marketing@empresa-ajena.com", name: "Departamento", role: "Marketing", source: "perplexity_public_web", providerConfidence: 90, evidenceUrl: "https://example.com" }], "marca.es");
     expect(best.sendAllowed).toBe(false);
+  });
+
+  it("permite continuar con el contacto general publicado en la web corporativa", () => {
+    const [best] = rankFranchiseDecisionMakers([{ email: "info@marca.es", name: "Contacto corporativo", role: "Contacto general de la central", source: "corporate_website_literal", providerConfidence: 80, evidenceUrl: "https://marca.es/contacto" }], "marca.es");
+    expect(best.sendAllowed).toBe(true);
   });
 
   it("penaliza privacidad, soporte y dominios ajenos", () => {
@@ -41,5 +47,13 @@ describe("rankFranchiseDecisionMakers", () => {
     ], "marca.es");
     expect(ranked.find((candidate) => candidate.email === "luis@marca.es")?.copyAllowed).toBe(true);
     expect(ranked.find((candidate) => candidate.email === "info@marca.es")?.copyAllowed).toBe(false);
+  });
+});
+
+describe("extractCorporateMailboxes", () => {
+  it("extrae contactos accionables del dominio y excluye departamentos incorrectos", () => {
+    const contacts = extractCorporateMailboxes([{ url: "https://marca.es/contacto", html: "info@marca.es marketing@marca.es legal@marca.es info@otra.es" }], "marca.es");
+    expect(contacts.map((contact) => contact.email)).toEqual(["info@marca.es", "marketing@marca.es"]);
+    expect(contacts.every((contact) => contact.evidenceUrl === "https://marca.es/contacto")).toBe(true);
   });
 });

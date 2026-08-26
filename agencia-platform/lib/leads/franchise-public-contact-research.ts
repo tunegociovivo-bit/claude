@@ -4,10 +4,12 @@ import type { MarketingEmail } from "./enrich-contacts";
 
 export type PublicMarketingContact = MarketingEmail & { evidenceUrl?: string | null };
 
-const relevantLink = /equipo|team|nosotros|about|quienes|empresa|corporate|contact|prensa|press|comunicacion|marketing|directorio|organigrama/i;
+const relevantLink = /equipo|team|nosotros|about|quienes|empresa|corporate|contact|prensa|press|comunicacion|marketing|directorio|organigrama|franqui|expansi|aviso|legal|privacidad/i;
 const emailPattern = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
 const exactEmailPattern = /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i;
 const usefulFunctionalMailbox = /^(franquicias|infofranquicias|franchise|expansion|exporestalia|marketing|comunicacion|brand|prensa|press)@/i;
+const corporateMailbox = /^(franquicias|infofranquicias|franchise|expansion|exporestalia|marketing|comunicacion|brand|prensa|press|info|contacto|contact|hola|hello|central)@/i;
+const excludedMailbox = /^(privacy|privacidad|legal|soporte|support|rrhh|empleo|jobs|facturacion|billing|compras|proveedores)@/i;
 
 function safeUrl(value: string): URL | null {
   try {
@@ -67,6 +69,30 @@ function internalResearchLinks(html: string, base: URL): string[] {
   return [...links];
 }
 
+export function extractCorporateMailboxes(pages: Array<{ url: string; html: string }>, corporateDomain: string): PublicMarketingContact[] {
+  const normalizedDomain = corporateDomain.replace(/^www\./, "").toLowerCase();
+  const found = new Map<string, PublicMarketingContact>();
+  for (const page of pages) {
+    const emails = page.html.match(emailPattern) ?? [];
+    emailPattern.lastIndex = 0;
+    for (const rawEmail of emails) {
+      const email = rawEmail.toLowerCase();
+      const emailDomain = email.split("@")[1]?.replace(/^www\./, "");
+      const isSpecificDepartment = usefulFunctionalMailbox.test(email);
+      if ((emailDomain !== normalizedDomain && !isSpecificDepartment) || excludedMailbox.test(email) || !corporateMailbox.test(email)) continue;
+      found.set(email, {
+        email,
+        name: "Contacto corporativo",
+        role: isSpecificDepartment ? "Departamento de marketing, comunicación o expansión" : "Contacto general de la central",
+        source: "corporate_website_literal",
+        providerConfidence: isSpecificDepartment ? 90 : 80,
+        evidenceUrl: page.url
+      });
+    }
+  }
+  return [...found.values()];
+}
+
 const resultSchema = {
   type: "object",
   properties: {
@@ -110,12 +136,13 @@ export async function researchCorporateWebsite(workspaceId: string, brand: strin
   if (!home) return [];
   const urls = internalResearchLinks(home, base);
   const pages = await Promise.all(urls.map(async (url) => ({ url, html: url === base.origin ? home : await readHtml(url) })));
+  const directMailboxes = extractCorporateMailboxes(pages, base.hostname);
   const evidence = pages
     .filter((page) => page.html)
     .map((page) => `FUENTE: ${page.url}\n${visibleText(page.html).slice(0, 12_000)}`)
     .join("\n\n")
     .slice(0, 55_000);
-  if (!evidence || !(evidence.match(emailPattern) ?? []).length) return [];
+  if (!evidence || !(evidence.match(emailPattern) ?? []).length) return directMailboxes;
   emailPattern.lastIndex = 0;
   try {
     const result = await completeJson<any>({
@@ -126,8 +153,9 @@ export async function researchCorporateWebsite(workspaceId: string, brand: strin
       schema: resultSchema,
       maxTokens: 1400
     });
-    return cleanContacts(Array.isArray(result?.contacts) ? result.contacts : [], "corporate_website");
-  } catch { return []; }
+    const aiContacts = cleanContacts(Array.isArray(result?.contacts) ? result.contacts : [], "corporate_website");
+    return [...directMailboxes, ...aiContacts].filter((candidate, index, list) => list.findIndex((item) => item.email === candidate.email) === index);
+  } catch { return directMailboxes; }
 }
 
 function parseJsonObject(text: string): any {
