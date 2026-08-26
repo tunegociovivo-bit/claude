@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, CheckCircle2, FileText, Loader2, Paperclip, Save, Trash2 } from "lucide-react";
+import { Bot, CheckCircle2, ExternalLink, FileText, Loader2, Paperclip, Save, Trash2 } from "lucide-react";
 
 const STAGES = [
   ["DETECTED", "Oportunidad detectada"], ["ELIGIBILITY", "Validando requisitos"], ["DOCUMENTS", "Recopilando documentación"],
@@ -10,7 +10,7 @@ const STAGES = [
 ] as const;
 type StoredFile = { id: string; name: string; url: string | null };
 
-export default function SubvencionWorkflowPanel({ taskId, requisitos }: { taskId: string; requisitos: string }) {
+export default function SubvencionWorkflowPanel({ taskId, requisitos, urlBases }: { taskId: string; requisitos: string; urlBases?: string | null }) {
   const [stage, setStage] = useState("ELIGIBILITY"); const [nextStep, setNextStep] = useState("");
   const [documentsText, setDocumentsText] = useState(""); const [blockers, setBlockers] = useState("");
   const [files, setFiles] = useState<StoredFile[]>([]); const [loading, setLoading] = useState(true);
@@ -59,6 +59,7 @@ export default function SubvencionWorkflowPanel({ taskId, requisitos }: { taskId
     <div className="rounded-lg border bg-slate-50 p-2.5"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-slate-700">Documentos de esta solicitud</span><label className="inline-flex cursor-pointer items-center gap-1 rounded border bg-white px-2 py-1 text-xs"><Paperclip className="h-3 w-3" />{uploading ? "Subiendo…" : "Adjuntar"}<input ref={inputRef} type="file" multiple className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip" onChange={(e)=>void upload(e.target.files)} /></label></div>
       {files.length ? <div className="mt-2 flex flex-wrap gap-1.5">{files.map((file)=><span key={file.id} className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-xs"><CheckCircle2 className="h-3 w-3 text-emerald-600" /><a href={file.url ?? "#"} target="_blank" rel="noreferrer" className="max-w-[260px] truncate hover:underline">{file.name}</a><button onClick={()=>void remove(file.id)} title="Eliminar"><Trash2 className="h-3 w-3 text-rose-500" /></button></span>)}</div> : <p className="mt-2 flex items-center gap-1 text-xs text-slate-400"><FileText className="h-3 w-3" />Aún no hay documentos específicos adjuntos.</p>}
     </div>
-    <div className="flex flex-wrap items-center gap-2"><button onClick={()=>void advance()} disabled={advancing} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{advancing?<Loader2 className="h-3 w-3 animate-spin"/>:<Bot className="h-3 w-3"/>}Continuar tramitación IA</button><button onClick={()=>void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">{saving?<Loader2 className="h-3 w-3 animate-spin"/>:<Save className="h-3 w-3"/>}Guardar seguimiento</button>{message&&<span className="basis-full text-xs text-slate-600">{message}</span>}</div>
+    {stage === "SIGNATURE" && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950"><strong>Intervención obligatoria pendiente</strong><p className="mt-1">La IA ya ha preparado y comprobado el expediente. Para avanzar es necesario revisar los campos finales y completar la firma o autorización en la sede del organismo.</p>{urlBases && <a href={urlBases} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 rounded-lg bg-amber-700 px-3 py-1.5 font-semibold text-white"><ExternalLink className="h-3 w-3" />Abrir sede y completar firma</a>}</div>}
+    <div className="flex flex-wrap items-center gap-2"><button onClick={()=>void advance()} disabled={advancing} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{advancing?<Loader2 className="h-3 w-3 animate-spin"/>:<Bot className="h-3 w-3"/>}{stage === "SIGNATURE" ? "Comprobar estado de tramitación" : "Continuar tramitación IA"}</button><button onClick={()=>void save()} disabled={saving} className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs text-indigo-700 disabled:opacity-50">{saving?<Loader2 className="h-3 w-3 animate-spin"/>:<Save className="h-3 w-3"/>}Guardar seguimiento</button>{message&&<span className="basis-full rounded bg-slate-50 p-2 text-xs text-slate-700">{message}</span>}</div>
   </div>;
 }

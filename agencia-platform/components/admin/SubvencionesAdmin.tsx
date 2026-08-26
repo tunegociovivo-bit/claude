@@ -316,7 +316,7 @@ export default function SubvencionesAdmin() {
                             <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
                           )}
                         </div>
-                        {(createdTasks[m.id]?.id || m.taskId) && <SubvencionWorkflowPanel taskId={createdTasks[m.id]?.id ?? m.taskId!} requisitos={m.requisitos} />}
+                        {(createdTasks[m.id]?.id || m.taskId) && <SubvencionWorkflowPanel taskId={createdTasks[m.id]?.id ?? m.taskId!} requisitos={m.requisitos} urlBases={m.urlBases} />}
                       </li>
                     ))}
                   </ul>

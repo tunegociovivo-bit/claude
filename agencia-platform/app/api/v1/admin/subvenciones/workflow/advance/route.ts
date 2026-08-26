@@ -41,6 +41,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const missingFiles = Object.entries(REQUIRED_FILES).filter(([key]) => !presentCategories.has(key)).map(([, label]) => label);
   let stage = "ELIGIBILITY"; let nextStep = ""; let blockers = ""; let workDone = "Validación automática completada.";
 
+  let requiresHumanAction = false;
   if (missingProfile.length) {
     blockers = `Faltan datos maestros: ${missingProfile.join(", ")}.`;
     nextStep = "Completar los datos indicados en la Bóveda de solicitudes y volver a pulsar Continuar tramitación IA.";
@@ -55,12 +56,17 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       workDone = "Elegibilidad y documentación básica verificadas; dossier técnico generado por IA.";
     } else workDone = "Elegibilidad, documentación básica y dossier comprobados.";
     stage = "SIGNATURE";
+    requiresHumanAction = true;
     blockers = "Pendiente únicamente de revisión final, acceso a la sede y firma/autorización cuando el organismo la solicite.";
     nextStep = "Revisar el dossier, completar los campos específicos de la sede y solicitar la firma final.";
+    if (current.stage === "SIGNATURE") {
+      workDone = "La IA ya ha completado toda la preparacion automatizable. La tramitacion no puede avanzar hasta completar la revision y firma obligatorias en la sede del organismo.";
+      nextStep = "Abrir la sede, revisar los campos finales y completar la firma/autorizacion. Despues podra registrarse la presentacion.";
+    }
     await prisma.task.update({ where: { id: task.id }, data: { description } });
   }
   const workflow = { ...current, stage, nextStep, blockers, lastAutomaticRunAt: new Date().toISOString(), lastAutomaticResult: workDone, updatedBy: api.userId };
   const taskStatus = stage === "DOCUMENTS" ? "DOCUMENTACION" : stage === "SIGNATURE" ? "FIRMA" : "PREPARACION";
   await prisma.task.update({ where: { id: task.id }, data: { status: taskStatus, aiState: { ...state, subvencionAutomation: { ...automation, workflow } } } });
-  return NextResponse.json({ ok: true, workflow, workDone, missingProfile, missingFiles });
+  return NextResponse.json({ ok: true, workflow, workDone, missingProfile, missingFiles, requiresHumanAction });
 });
