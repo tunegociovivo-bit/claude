@@ -19,7 +19,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const targetType = url.searchParams.get("targetType") ?? undefined;
   const targetId = url.searchParams.get("targetId") ?? undefined;
 
-  if (targetType === "SUBVENCION_VAULT") await requireVaultAdmin(api.workspaceId, api.userId);
+  if (targetType === "SUBVENCION_VAULT" || targetType === "SUBVENCION_APPLICATION") await requireVaultAdmin(api.workspaceId, api.userId);
 
   const where: any = { workspaceId: api.workspaceId };
   if (targetType) where.targetType = targetType;

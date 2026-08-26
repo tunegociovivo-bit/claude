@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { Loader2, RefreshCw, Landmark, Search, ExternalLink, Target } from "lucide-react";
 import SubvencionApplicationVault from "@/components/admin/SubvencionApplicationVault";
+import SubvencionWorkflowPanel from "@/components/admin/SubvencionWorkflowPanel";
 
 // Objetivo "agencia" (Negocio Vivo): id centinela compartido con el backend.
 const AGENCY_ID = "__agency__";
@@ -315,6 +316,7 @@ export default function SubvencionesAdmin() {
                             <button onClick={() => opportunityAction("create_task", m.id)} disabled={!!actionLoading} className="text-xs rounded bg-indigo-600 text-white px-2 py-1 disabled:opacity-50">Crear proyecto de solicitud</button>
                           )}
                         </div>
+                        {(createdTasks[m.id]?.id || m.taskId) && <SubvencionWorkflowPanel taskId={createdTasks[m.id]?.id ?? m.taskId!} requisitos={m.requisitos} />}
                       </li>
                     ))}
                   </ul>
