@@ -16,6 +16,7 @@ import { reconciliationRetryDecision, parseSantanderMovementText, parseSepaRecei
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
+import { remittanceRetryDecision } from "../src/santander/retry.js";
 
 let passed = 0;
 let failed = 0;
@@ -116,6 +117,12 @@ async function main() {
   ok("no rellena la pantalla completa si falta el usuario cifrado", decideLoginAction({ ...safeLogin, visibleKeyFields: 9, rememberedUser: false, hasStoredUsername: false }) === "PAUSE");
   ok("detecta el rechazo explícito de credenciales", hasLoginCredentialError("Lo sentimos. Las credenciales introducidas no son correctas."));
   ok("no confunde una sesión caducada con credenciales rechazadas", !hasLoginCredentialError("Tu sesión ha sido cerrada por inactividad"));
+  const transientCredentialFailure = "Santander ha rechazado el usuario o la clave local. Vuelve a guardar las credenciales antes de reintentar para evitar bloquear el acceso.";
+  ok("reintenta un primer rechazo aparente de credenciales", remittanceRetryDecision(transientCredentialFailure, 1, 3) === "RETRY");
+  ok("reintenta un segundo rechazo aparente de credenciales", remittanceRetryDecision(transientCredentialFailure, 2, 3) === "RETRY");
+  ok("pausa tras agotar tres intentos de acceso", remittanceRetryDecision(transientCredentialFailure, 3, 3) === "PAUSE");
+  ok("no repite OTP o confirmación móvil", remittanceRetryDecision("Santander solicita OTP o confirmación móvil", 1, 3) === "PAUSE");
+  ok("no repite discrepancias bancarias", remittanceRetryDecision("Discrepancia de importe entre portal y autorizado", 1, 3) === "PAUSE");
   ok("los botones coinciden exactamente aunque Santander cambie las mayúsculas", exactRoleNamePattern("Aceptar").test("ACEPTAR"));
   ok("el cotejo de botones no acepta texto adicional", !exactRoleNamePattern("Aceptar").test("Aceptar y firmar"));
   ok("reconoce la portada autenticada oficial", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/posglobal", safeLogin.allowedOrigin));
