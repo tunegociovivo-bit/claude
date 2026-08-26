@@ -51,7 +51,7 @@ function isCampaignAccessError(error: unknown): boolean {
 }
 
 export function isSkippableMetaCommentTargetError(error: { status?: number; message?: string } | null | undefined) {
-  return error?.status === 400 && /unsupported request\s*-\s*method type:\s*get/i.test(error.message ?? "");
+  return error?.status === 400 && /unsupported(?:\s+get)?\s+request(?:\s*-\s*method type:\s*get)?/i.test(error.message ?? "");
 }
 
 async function campaignAdsWithAvailableConnection(
