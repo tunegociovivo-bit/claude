@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // LIMITACIÓN — cooldown: no se puede actualizar más de 1 vez cada 30 min
-// (evita martillear la BDNS). Se salta con ?force=1.
+// (evita martillear la BDNS). El botón manual envía `force: true` en el body.
 const COOLDOWN_MS = 30 * 60 * 1000;
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
