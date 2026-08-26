@@ -11,10 +11,11 @@
 import type { AgentConfig } from "./config.js";
 import type { Logger } from "./logger.js";
 import { HubClient, type ClaimedJob } from "./hub-client.js";
-import type { SantanderAdapter, AdapterHooks, AuthorizedJob } from "./santander/types.js";
+import type { SantanderAdapter, AdapterHooks, AuthorizedJob, StepOutcome } from "./santander/types.js";
 import { MockSantanderAdapter } from "./santander/mock.js";
 import { LiveSantanderAdapter } from "./santander/live.js";
 import { reconciliationRetryDecision, SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
+import { remittanceRetryDecision, remittanceRetryDelayMs } from "./santander/retry.js";
 
 export class Runner {
   private stopped = false;
@@ -112,23 +113,41 @@ export class Runner {
       ibanMasked: job.ibanMasked, santanderTemplate: job.santanderTemplate
     };
 
-    const adapter = this.makeAdapter();
-    const hooks: AdapterHooks = {
+    const hooks: Omit<AdapterHooks, "onNeedsUser"> = {
       onProgress: async (state, progress) => {
         this.log.debug(`[${job.jobId}] ${state}: ${progress}`);
         try { await this.hub.progress(job.jobId, "RUNNING", { progress: `${state}: ${progress}` }); }
         catch (e: any) { this.log.warn(`No se pudo reportar progreso: ${e?.message ?? e}`); }
       },
-      onNeedsUser: async (reason) => {
-        this.log.warn(`[${job.jobId}] NEEDS_USER: ${reason}`);
-        try { await this.hub.progress(job.jobId, "NEEDS_USER", { reason }); }
-        catch (e: any) { this.log.warn(`No se pudo reportar pausa: ${e?.message ?? e}`); }
-      },
       log: (m) => this.log.debug(`[${job.jobId}] ${m}`)
     };
 
     try {
-      const outcome = await adapter.run(authorized, hooks);
+      const maxAttempts = 3;
+      let outcome: StepOutcome = { kind: "FAILED", error: "No se inició la automatización bancaria" };
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const adapter = this.makeAdapter();
+        let pausedReason = "";
+        try {
+          outcome = await adapter.run(authorized, {
+            ...hooks,
+            onNeedsUser: async (reason) => { pausedReason = reason; }
+          });
+        } finally {
+          try { await adapter.close(); } catch { /* ignore */ }
+        }
+        if (outcome.kind !== "NEEDS_USER") break;
+        const reason = pausedReason || outcome.reason;
+        if (remittanceRetryDecision(reason, attempt, maxAttempts) !== "RETRY") {
+          this.log.warn(`[${job.jobId}] NEEDS_USER: ${reason}`);
+          await this.hub.progress(job.jobId, "NEEDS_USER", { reason });
+          break;
+        }
+        const delayMs = remittanceRetryDelayMs(attempt);
+        this.log.warn(`[${job.jobId}] Fallo transitorio de acceso; reintento ${attempt + 1}/${maxAttempts} en ${delayMs / 1000}s.`);
+        await this.hub.progress(job.jobId, "RUNNING", { progress: `Reintentando acceso a Santander (${attempt + 1}/${maxAttempts})` });
+        await sleep(delayMs, () => this.stopped);
+      }
       switch (outcome.kind) {
         case "PREPARED":
           // Doble barrera: el HUB volverá a exigir verifiedPendingSignature=true.
@@ -149,9 +168,7 @@ export class Runner {
     } catch (e: any) {
       this.log.error(`[${job.jobId}] Error no controlado: ${e?.message ?? e}`);
       try { await this.hub.completeFailed(job.jobId, `Error del agente: ${e?.message ?? e}`); } catch { /* ignore */ }
-    } finally {
-      try { await adapter.close(); } catch { /* ignore */ }
-    }
+    } finally { /* cada intento libera su conexión CDP */ }
   }
 }
 
