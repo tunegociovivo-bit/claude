@@ -50,6 +50,10 @@ function isCampaignAccessError(error: unknown): boolean {
   return error instanceof MetaGraphError && (error.status === 400 || error.status === 403);
 }
 
+export function isSkippableMetaCommentTargetError(error: { status?: number; message?: string } | null | undefined) {
+  return error?.status === 400 && /unsupported request\s*-\s*method type:\s*get/i.test(error.message ?? "");
+}
+
 async function campaignAdsWithAvailableConnection(
   workspaceId: string,
   campaignId: string,
@@ -323,7 +327,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const discovered: any[] = [];
     const repliesByCommentId = new Map<string, MetaReply>();
     const ownExternalIds = new Set<string>(sentReplyIds);
-    let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0;
+    let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0; let unsupportedTargets = 0;
     const fallbackInstagramOwnersUsed = new Set<string>();
     const hydratedAds: any[] = [];
     for (let offset = 0; offset < ads.length; offset += 10) {
@@ -372,7 +376,15 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           ? "id,text,username,timestamp,replies.limit(100){id,text,username,timestamp}"
           : "id,message,from{id,name},created_time,parent{id},comments.limit(100){id,message,from{id,name},created_time}";
         const filter = target.platform === "facebook" ? "&filter=stream" : "";
-        const comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
+        let comments: any[];
+        try {
+          comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
+        } catch (error: any) {
+          if (!isSkippableMetaCommentTargetError(error)) throw error;
+          unsupportedTargets++;
+          console.warn(`[meta-comments] Meta no permite consultar comentarios del objetivo ${target.platform}:${target.id}; se omite y continúa la campaña.`);
+          continue;
+        }
         for (const raw of comments) {
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
           comment.platform = target.platform;
@@ -432,7 +444,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     }
     await Promise.allSettled(notificationJobs);
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: null } });
-    return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost } };
+    return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: errorMessage } });
