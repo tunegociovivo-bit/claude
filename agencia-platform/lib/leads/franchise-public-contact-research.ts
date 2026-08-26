@@ -184,6 +184,13 @@ export async function researchPublicWeb(workspaceId: string, brand: string, doma
     if (!response.ok) return [];
     const json: any = await response.json().catch(() => null);
     const parsed = parseJsonObject(json?.choices?.[0]?.message?.content ?? "");
-    return cleanContacts(Array.isArray(parsed?.contacts) ? parsed.contacts : [], "perplexity_public_web");
+    const proposed = cleanContacts(Array.isArray(parsed?.contacts) ? parsed.contacts : [], "perplexity_public_web");
+    const verified = await Promise.all(proposed.map(async (candidate): Promise<PublicMarketingContact | null> => {
+      if (!candidate.evidenceUrl) return null;
+      const evidenceHtml = await readHtml(candidate.evidenceUrl);
+      if (!evidenceHtml || !evidenceHtml.toLowerCase().includes(candidate.email.toLowerCase())) return null;
+      return { ...candidate, source: "public_web_literal", providerConfidence: 85 };
+    }));
+    return verified.filter((candidate): candidate is PublicMarketingContact => !!candidate);
   } catch { return []; }
 }

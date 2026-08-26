@@ -58,7 +58,7 @@ export function rankFranchiseDecisionMakers(candidates: DecisionMakerCandidate[]
     score = Math.max(0, Math.min(100, score));
     const confidence: RankedDecisionMaker["confidence"] = score >= 70 ? "high" : score >= 45 ? "medium" : "low";
     const namedDecisionMaker = confidence === "high" && !!candidate.name?.trim() && targetRole.test(role) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email);
-    const trustedEvidenceSource = candidate.source === "aef_directory" || candidate.source === "corporate_website_literal";
+    const trustedEvidenceSource = candidate.source === "aef_directory" || candidate.source === "corporate_website_literal" || candidate.source === "public_web_literal";
     const evidencedFunctionalMailbox = functionalMailbox && trustedEvidenceSource && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email);
     const sendAllowed = namedDecisionMaker || evidencedFunctionalMailbox || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));
     const copyAllowed = (score >= 45 && !!candidate.name?.trim() && targetRole.test(role) && (!domain || emailDomain === domain) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email)) || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));

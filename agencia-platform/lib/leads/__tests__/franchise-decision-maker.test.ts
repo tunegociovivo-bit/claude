@@ -25,6 +25,11 @@ describe("rankFranchiseDecisionMakers", () => {
     expect(best.sendAllowed).toBe(false);
   });
 
+  it("acepta un buzón funcional verificado literalmente en una fuente pública", () => {
+    const [best] = rankFranchiseDecisionMakers([{ email: "comunicacion@grupo.es", name: "Comunicación", role: "Comunicación corporativa", source: "public_web_literal", providerConfidence: 85, evidenceUrl: "https://grupo.es/prensa" }], "marca.es");
+    expect(best.sendAllowed).toBe(true);
+  });
+
   it("permite continuar con el contacto general publicado en la web corporativa", () => {
     const [best] = rankFranchiseDecisionMakers([{ email: "info@marca.es", name: "Contacto corporativo", role: "Contacto general de la central", source: "corporate_website_literal", providerConfidence: 80, evidenceUrl: "https://marca.es/contacto" }], "marca.es");
     expect(best.sendAllowed).toBe(true);
