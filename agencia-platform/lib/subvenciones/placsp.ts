@@ -48,7 +48,7 @@ export async function ingestPlacspMarketing(date = new Date()): Promise<{ fetche
   const yearMonth = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
   // PLACSP genera un ZIP mensual voluminoso y su servidor público suele responder
   // con lentitud. Dejamos margen dentro del maxDuration=300 de la ruta.
-  const response = await fetch(`${PLACSP_BASE}/licitacionesPerfilesContratanteCompleto3_${yearMonth}.zip`, { signal: AbortSignal.timeout(270_000) });
+  const response = await fetch(`${PLACSP_BASE}/licitacionesPerfilesContratanteCompleto3_${yearMonth}.zip`, { signal: AbortSignal.timeout(120_000) });
   if (!response.ok) throw new Error(`PLACSP ${response.status}`);
   const files = unzipSync(new Uint8Array(await response.arrayBuffer()));
   const decoder = new TextDecoder("utf-8");
