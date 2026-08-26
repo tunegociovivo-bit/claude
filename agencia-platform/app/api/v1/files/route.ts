@@ -19,6 +19,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const targetType = url.searchParams.get("targetType") ?? undefined;
   const targetId = url.searchParams.get("targetId") ?? undefined;
 
+  if (targetType === "SUBVENCION_VAULT") await requireVaultAdmin(api.workspaceId, api.userId);
+
   const where: any = { workspaceId: api.workspaceId };
   if (targetType) where.targetType = targetType;
   if (targetId) where.targetId = targetId;
@@ -50,6 +52,15 @@ async function resolveFileUrl(s3Key: string): Promise<string | null> {
   }
   if (!isStorageEnabled()) return null;
   return signedDownloadUrl(s3Key);
+}
+
+async function requireVaultAdmin(workspaceId: string, userId?: string) {
+  if (!userId) throw new ApiError(401, "unauthorized", "Autenticación requerida");
+  const membership = await prisma.membership.findFirst({
+    where: { workspaceId, userId },
+    select: { role: true }
+  });
+  if (membership?.role !== "ADMIN") throw new ApiError(403, "forbidden", "Acceso restringido a administradores");
 }
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {

@@ -38,6 +38,16 @@ export const POST = withApi({ scope: "*" }, async (req: NextRequest, { api }) =>
   const targetId = form.get("targetId");
   const purpose = form.get("purpose");
 
+  if (targetType === "SUBVENCION_VAULT") {
+    const membership = await prisma.membership.findFirst({
+      where: { workspaceId: api.workspaceId, userId: api.userId },
+      select: { role: true }
+    });
+    if (membership?.role !== "ADMIN") {
+      throw new ApiError(403, "forbidden", "Solo los administradores pueden subir documentos a la bóveda");
+    }
+  }
+
   if (purpose === "TASK_DESCRIPTION") {
     const isDraft = targetType === null && targetId === null;
     const isBoundTask = targetType === "TASK" && typeof targetId === "string" && targetId.trim().length > 0;

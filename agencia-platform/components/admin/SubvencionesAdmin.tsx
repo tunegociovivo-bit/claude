@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { Loader2, RefreshCw, Landmark, Search, ExternalLink, Target } from "lucide-react";
+import SubvencionApplicationVault from "@/components/admin/SubvencionApplicationVault";
 
 // Objetivo "agencia" (Negocio Vivo): id centinela compartido con el backend.
 const AGENCY_ID = "__agency__";
@@ -200,6 +201,7 @@ export default function SubvencionesAdmin() {
           </button>
         }
       />
+      <SubvencionApplicationVault />
 
       {loading ? (
         <div className="grid place-items-center py-16 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>

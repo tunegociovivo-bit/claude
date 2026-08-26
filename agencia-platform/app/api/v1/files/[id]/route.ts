@@ -10,6 +10,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
     where: { id: params.id, workspaceId: api.workspaceId }
   });
   if (!file) throw new ApiError(404, "not_found", "Archivo no encontrado");
+  if (file.targetType === "SUBVENCION_VAULT") await requireVaultAdmin(api.workspaceId, api.userId);
   if (file.targetType === "TASK" && !file.targetId) throw new ApiError(404, "not_found", "Archivo no encontrado");
   if (!file.targetType && file.uploadedBy !== api.userId) throw new ApiError(404, "not_found", "Archivo no encontrado");
   if (file.targetType === "TASK" && file.targetId) {
@@ -31,6 +32,7 @@ export const DELETE = withApi({ scope: "*" }, async (_req, { params, api }) => {
     where: { id: params.id, workspaceId: api.workspaceId }
   });
   if (!file) throw new ApiError(404, "not_found", "Archivo no encontrado");
+  if (file.targetType === "SUBVENCION_VAULT") await requireVaultAdmin(api.workspaceId, api.userId);
 
   if (file.targetType === "TASK" && file.targetId) {
     const visibility = await taskVisibilityWhere(api.workspaceId, api.userId);
@@ -61,3 +63,12 @@ export const DELETE = withApi({ scope: "*" }, async (_req, { params, api }) => {
   await prisma.file.delete({ where: { id: file.id } });
   return NextResponse.json({ ok: true });
 });
+
+async function requireVaultAdmin(workspaceId: string, userId?: string) {
+  if (!userId) throw new ApiError(401, "unauthorized", "Autenticación requerida");
+  const membership = await prisma.membership.findFirst({
+    where: { workspaceId, userId },
+    select: { role: true }
+  });
+  if (membership?.role !== "ADMIN") throw new ApiError(403, "forbidden", "Acceso restringido a administradores");
+}
