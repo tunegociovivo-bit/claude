@@ -3530,6 +3530,19 @@ function FranchisesView() {
     } finally { setAccountBusy(null); }
   }
 
+  async function selectDecisionMakerCandidate(account: any, candidate: any) {
+    setAccountBusy(account.id); setErr(null);
+    try {
+      const r = await fetch("/api/v1/leads/franchises/select-decision-maker", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, email: candidate.email }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErr(j?.error?.message ?? "No se pudo seleccionar el contacto.");
+      else {
+        setAccountNotices((previous) => ({ ...previous, [account.id]: { ok: true, text: `Contacto elegido para el embudo: ${candidate.email}` } }));
+        await loadFranchiseAccounts();
+      }
+    } finally { setAccountBusy(null); }
+  }
+
   async function researchPendingDecisionMakers() {
     const pending = accounts.filter((account) => !account.decisionMakerResearch?.selected?.sendAllowed && account.website).slice(0, 10);
     if (!pending.length) return;
@@ -3699,6 +3712,7 @@ function FranchisesView() {
                   <div className="text-[11px] text-violet-700">Micrositio visto {growth.publicAudit?.views ?? 0} veces{growth.publicAudit?.lastViewedAt ? ` · última visita ${new Date(growth.publicAudit.lastViewedAt).toLocaleString("es-ES")}` : ""}{growth.liveAudit?.changed ? " · hay cambios desde la auditoría anterior" : ""}.</div>
                 </div>}
                 {decisionVerified && Array.isArray(account.decisionMakerResearch?.copies) && account.decisionMakerResearch.copies.length > 0 && <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">Se enviará a <strong>{decisionMaker.email}</strong> y en CCO a {account.decisionMakerResearch.copies.length} responsable(s) adicional(es) verificados: {account.decisionMakerResearch.copies.map((candidate: any) => candidate.email).join(", ")}.</div>}
+                {!decisionVerified && Array.isArray(account.decisionMakerResearch?.candidates) && account.decisionMakerResearch.candidates.length > 0 && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><div className="font-semibold">Contactos encontrados para revisión</div><div className="mt-2 space-y-2">{account.decisionMakerResearch.candidates.slice(0, 8).map((candidate: any) => <div key={candidate.email} className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-white p-2"><div className="min-w-0 flex-1"><div className="break-all font-semibold">{candidate.email}</div><div className="text-[10px] text-slate-600">{candidate.name || "Sin nombre"} · {candidate.role || "Cargo no identificado"} · {candidate.source || "fuente desconocida"} · {candidate.score ?? 0}/100</div></div><button onClick={() => void selectDecisionMakerCandidate(account, candidate)} disabled={accountBusy === account.id} className="rounded-md bg-amber-600 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40">Usar este contacto</button>{candidate.evidenceUrl && <a href={candidate.evidenceUrl} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-indigo-700 underline">Ver fuente</a>}</div>)}</div><div className="mt-2 text-[10px]">La selección manual permite continuar el embudo, pero no convierte el contacto en responsable nominal verificado.</div></div>}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <select value={account.stage} onChange={(e) => void setAccountStage(account.id, e.target.value)} disabled={accountBusy === account.id} className="rounded-lg border px-2 py-1.5 text-xs">{[["discovered","Descubierta"],["audited","Auditada"],["draft_ready","Borrador listo"],["audit_sent","Auditoría enviada"],["replied","Respondió"],["meeting","Reunión"],["pilot","Piloto"],["proposal","Propuesta"],["won","Ganada"],["lost","Perdida"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
                   <button onClick={() => void researchDecisionMaker(account)} disabled={accountBusy === account.id} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 disabled:opacity-40">{accountBusy === account.id ? "Investigando…" : decisionVerified ? "Reinvestigar decisor" : "Investigar responsable de marketing"}</button>
