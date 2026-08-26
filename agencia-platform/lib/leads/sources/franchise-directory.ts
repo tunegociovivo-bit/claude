@@ -289,3 +289,24 @@ export async function crawlFranchiseDirectories(
   contacts.sort((a, b) => (a.email ? 0 : 1) - (b.email ? 0 : 1));
   return { contacts, scanned, errors, perDirectory };
 }
+
+function brandSlug(brand: string): string {
+  return brand.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/&/g, " y ").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/** Investigación dirigida en AEF para una marca concreta, conservando la URL
+ * exacta que prueba de dónde salió cada contacto. */
+export async function researchAefBrand(workspaceId: string, brand: string): Promise<DirectoryContact | null> {
+  const slug = brandSlug(brand);
+  if (!slug) return null;
+  const variants = [...new Set([slug, slug.replace(/^cerveceria-/, ""), slug.replace(/-espana$/, "")])];
+  for (const candidate of variants) {
+    const url = `https://www.aefranquicia.es/ensenas/${candidate}/`;
+    const html = await fetchHtml(url, workspaceId, false);
+    if (!html) continue;
+    const contact = await extractContact(workspaceId, html, url, "AEF");
+    const resolvedSlug = contact ? brandSlug(contact.brand) : "";
+    if (contact && (resolvedSlug === slug || resolvedSlug === candidate)) return contact;
+  }
+  return null;
+}

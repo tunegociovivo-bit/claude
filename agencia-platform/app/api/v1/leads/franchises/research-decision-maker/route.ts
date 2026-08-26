@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { findMarketingEmailsByDomain } from "@/lib/leads/enrich-contacts";
 import { rankFranchiseDecisionMakers } from "@/lib/leads/franchise-decision-maker";
 import { researchCorporateWebsite, researchPublicWeb } from "@/lib/leads/franchise-public-contact-research";
+import { researchAefBrand } from "@/lib/leads/sources/franchise-directory";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +25,35 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   if (!domain) throw new ApiError(400, "missing_domain", "No hay un dominio corporativo con el que investigar al decisor");
 
   const brand = raw.brand ?? lead.name;
-  const [providerCandidates, websiteCandidates, publicWebCandidates] = await Promise.all([
-    findMarketingEmailsByDomain(api.workspaceId, domain, 20, brand),
-    researchCorporateWebsite(api.workspaceId, brand, lead.website ?? raw.website ?? domain),
-    researchPublicWeb(api.workspaceId, brand, domain)
-  ]);
-  const candidates = [...providerCandidates, ...websiteCandidates, ...publicWebCandidates]
+  const aefContact = await researchAefBrand(api.workspaceId, brand).catch(() => null);
+  const aefCandidates = aefContact?.emails?.length
+    ? aefContact.emails.map((email) => ({
+        email,
+        name: aefContact.contactName || "Departamento de franquicias",
+        role: aefContact.role || "Contacto de franquicias publicado por AEF",
+        source: "aef_directory",
+        providerConfidence: 85,
+        evidenceUrl: aefContact.sourceUrl
+      }))
+    : [];
+  const relatedDomains = [...new Set([
+    domain,
+    ...aefCandidates.map((candidate) => candidate.email.split("@")[1]).filter(Boolean),
+    ...(aefContact?.corporateWeb ? [String(aefContact.corporateWeb).replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]] : [])
+  ])].filter((value) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value)).slice(0, 3);
+  const relatedCompany = aefCandidates[0]?.email.split("@")[1]?.split(".")[0] || brand;
+  const perDomainResults = await Promise.all(relatedDomains.map(async (relatedDomain) => {
+    const [providers, website, publicWeb] = await Promise.all([
+      findMarketingEmailsByDomain(api.workspaceId, relatedDomain, 20, relatedCompany).catch(() => []),
+      researchCorporateWebsite(api.workspaceId, relatedCompany, `https://${relatedDomain}`).catch(() => []),
+      researchPublicWeb(api.workspaceId, `${brand} ${relatedCompany}`, relatedDomain).catch(() => [])
+    ]);
+    return { providers, website, publicWeb };
+  }));
+  const providerCandidates = perDomainResults.flatMap((result) => result.providers);
+  const websiteCandidates = perDomainResults.flatMap((result) => result.website);
+  const publicWebCandidates = perDomainResults.flatMap((result) => result.publicWeb);
+  const candidates = [...aefCandidates, ...providerCandidates, ...websiteCandidates, ...publicWebCandidates]
     .filter((candidate, index, list) => list.findIndex((item) => item.email.toLowerCase() === candidate.email.toLowerCase()) === index);
   const ranked = rankFranchiseDecisionMakers(candidates, domain);
   const selected = ranked.find((candidate) => candidate.sendAllowed) ?? null;
@@ -42,8 +66,10 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     candidates: ranked.slice(0, 20),
     sources: {
       apolloHunter: providerCandidates.length,
+      aef: aefCandidates.length,
       corporateWebsite: websiteCandidates.length,
-      publicWeb: publicWebCandidates.length
+      publicWeb: publicWebCandidates.length,
+      relatedDomains
     },
     researchedAt: now
   };

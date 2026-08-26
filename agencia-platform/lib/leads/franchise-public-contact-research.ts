@@ -7,6 +7,7 @@ export type PublicMarketingContact = MarketingEmail & { evidenceUrl?: string | n
 const relevantLink = /equipo|team|nosotros|about|quienes|empresa|corporate|contact|prensa|press|comunicacion|marketing|directorio|organigrama/i;
 const emailPattern = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
 const exactEmailPattern = /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i;
+const usefulFunctionalMailbox = /^(franquicias|infofranquicias|franchise|expansion|exporestalia|marketing|comunicacion|brand|prensa|press)@/i;
 
 function safeUrl(value: string): URL | null {
   try {
@@ -94,8 +95,11 @@ function cleanContacts(items: any[], source: string): PublicMarketingContact[] {
     const email = typeof item?.email === "string" ? item.email.trim().toLowerCase() : "";
     const role = typeof item?.role === "string" ? item.role.trim() : "";
     const name = typeof item?.name === "string" ? item.name.trim() : "";
-    if (!exactEmailPattern.test(email) || !name || !role || !/marketing|marca|brand|comunicaci|growth|expansi/i.test(role)) return [];
-    return [{ email, name, role, linkedin: item.linkedin || null, source, providerConfidence: 70, evidenceUrl: item.evidenceUrl || null }];
+    const evidenceUrl = typeof item?.evidenceUrl === "string" ? item.evidenceUrl.trim() : "";
+    const functional = usefulFunctionalMailbox.test(email);
+    const namedRelevantContact = !!name && !!role && /marketing|marca|brand|comunicaci|growth|expansi|franqui/i.test(role);
+    if (!exactEmailPattern.test(email) || !evidenceUrl || (!namedRelevantContact && !functional)) return [];
+    return [{ email, name: name || "Departamento corporativo", role: role || "Contacto funcional de marketing o expansión", linkedin: item.linkedin || null, source, providerConfidence: functional ? 80 : 70, evidenceUrl }];
   });
 }
 
@@ -146,7 +150,7 @@ export async function researchPublicWeb(workspaceId: string, brand: string, doma
         model: "sonar",
         temperature: 0,
         max_tokens: 1400,
-        messages: [{ role: "user", content: `Investiga fuentes públicas actuales para localizar responsables de marketing, marca, comunicación, growth o expansión de la franquicia "${brand}" (${domain}). Devuelve SOLO JSON {"contacts":[{"name":string|null,"role":string|null,"email":string|null,"linkedin":string|null,"evidenceUrl":string|null}]}. Incluye únicamente personas con nombre, cargo y email publicados de forma explícita; no deduzcas ni inventes emails.` }]
+        messages: [{ role: "user", content: `Investiga fuentes públicas actuales para localizar responsables o contactos funcionales de marketing, marca, comunicación, growth, expansión o franquicias de "${brand}" (${domain}). Primero resuelve su grupo matriz, operador y razón social. Busca en webs oficiales, asociaciones de franquicias, fichas AEF, ferias y congresos, notas de prensa, medios sectoriales, entrevistas, ponentes, PDFs y catálogos profesionales. Devuelve SOLO JSON {"contacts":[{"name":string|null,"role":string|null,"email":string|null,"linkedin":string|null,"evidenceUrl":string|null}]}. Acepta buzones funcionales publicados de esos departamentos aunque no tengan nombre personal. Cada resultado debe incluir la URL exacta que publica el email. No deduzcas patrones ni inventes emails.` }]
       }),
       signal: AbortSignal.timeout(25_000)
     });

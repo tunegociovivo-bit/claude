@@ -13,6 +13,17 @@ describe("rankFranchiseDecisionMakers", () => {
     expect(best.sendAllowed).toBe(false);
   });
 
+  it("acepta un buzón funcional publicado con evidencia sectorial", () => {
+    const [best] = rankFranchiseDecisionMakers([{ email: "exporestalia@gruporestalia.com", name: "ExpoRestalia", role: "Expansión y franquicias", source: "aef_directory", providerConfidence: 85, evidenceUrl: "https://www.aefranquicia.es/ensenas/100-montaditos/" }], "100montaditos.com");
+    expect(best.sendAllowed).toBe(true);
+    expect(best.reasons).toContain("buzón funcional de marketing/expansión");
+  });
+
+  it("no habilita envíos a buzones funcionales propuestos solo por una IA", () => {
+    const [best] = rankFranchiseDecisionMakers([{ email: "marketing@empresa-ajena.com", name: "Departamento", role: "Marketing", source: "perplexity_public_web", providerConfidence: 90, evidenceUrl: "https://example.com" }], "marca.es");
+    expect(best.sendAllowed).toBe(false);
+  });
+
   it("penaliza privacidad, soporte y dominios ajenos", () => {
     const ranked = rankFranchiseDecisionMakers([
       { email: "privacy@marca.es", name: "Equipo legal", role: "Legal" },
