@@ -20,6 +20,11 @@ describe("rankFranchiseDecisionMakers", () => {
     expect(best.reasons).toContain("buzón funcional corporativo");
   });
 
+  it("acepta el contacto nominal que una ficha AEF publica para la franquicia", () => {
+    const [best] = rankFranchiseDecisionMakers([{ email: "interesados@nacex.com", name: "Xavier Calvo", role: "Contacto de franquicias publicado por AEF", source: "aef_directory", providerConfidence: 85, evidenceUrl: "https://www.aefranquicia.es/ensenas/nacex/" }], "nacex.com");
+    expect(best.sendAllowed).toBe(true);
+  });
+
   it("no habilita envíos a buzones funcionales propuestos solo por una IA", () => {
     const [best] = rankFranchiseDecisionMakers([{ email: "marketing@empresa-ajena.com", name: "Departamento", role: "Marketing", source: "perplexity_public_web", providerConfidence: 90, evidenceUrl: "https://example.com" }], "marca.es");
     expect(best.sendAllowed).toBe(false);

@@ -60,7 +60,8 @@ export function rankFranchiseDecisionMakers(candidates: DecisionMakerCandidate[]
     const namedDecisionMaker = confidence === "high" && !!candidate.name?.trim() && targetRole.test(role) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email);
     const trustedEvidenceSource = candidate.source === "aef_directory" || candidate.source === "corporate_website_literal" || candidate.source === "public_web_literal";
     const evidencedFunctionalMailbox = functionalMailbox && trustedEvidenceSource && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email);
-    const sendAllowed = namedDecisionMaker || evidencedFunctionalMailbox || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));
+    const publishedDirectoryContact = candidate.source === "aef_directory" && !!candidate.evidenceUrl && !!candidate.name?.trim() && !!candidate.role?.trim() && !wrongDepartment.test(candidate.email);
+    const sendAllowed = namedDecisionMaker || evidencedFunctionalMailbox || publishedDirectoryContact || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));
     const copyAllowed = (score >= 45 && !!candidate.name?.trim() && targetRole.test(role) && (!domain || emailDomain === domain) && !genericMailbox.test(candidate.email) && !wrongDepartment.test(candidate.email)) || (literalCorporateMailbox && !!candidate.evidenceUrl && !wrongDepartment.test(candidate.email));
     return { ...candidate, score, confidence, reasons, sendAllowed, copyAllowed };
   }).sort((a, b) => b.score - a.score);
