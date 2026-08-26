@@ -3217,7 +3217,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setMsg({ kind: "err", text: j?.error?.message ?? "Error al probar la conexión." }); return; }
       if (!j.ok) { setMsg({ kind: "err", text: j.error ?? "No conecta." }); return; }
-      setMsg({ kind: "ok", text: `✅ Conecta. ${j.unseen ?? 0} correo(s) sin leer · ${j.jobUnseen ?? 0} de portales de empleo pendientes de procesar.` });
+      setMsg({ kind: "ok", text: `✅ Conecta. ${j.unseen ?? 0} correo(s) sin leer · ${j.jobUnseen ?? 0} de portales de empleo pendientes de procesar.${j.recovery === "imap" ? " · Google no respondió; recuperación IMAP operativa." : ""}` });
     } finally { setTesting(false); }
   }
 
@@ -3229,7 +3229,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setMsg({ kind: "err", text: j?.error?.message ?? "Error al revisar el buzón." }); return; }
       if (j.error) { setMsg({ kind: "err", text: j.error }); return; }
-      setMsg({ kind: "ok", text: `Revisado: ${j.emails} email(s) de alerta · ${j.offers} oferta(s) · ${j.ingested} empresa(s) nueva(s).` });
+      setMsg({ kind: "ok", text: `Revisado: ${j.emails} email(s) de alerta · ${j.offers} oferta(s) · ${j.ingested} empresa(s) nueva(s).${j.recovery === "imap" ? " · Recuperación automática IMAP activa." : ""}` });
       onIngested();
       void load();
     } finally { setIngesting(false); }
@@ -3279,6 +3279,7 @@ function JobsInboxConfig({ onIngested }: { onIngested: () => void }) {
             {ingesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "📥"} Revisar alertas ahora
           </button>
           {cfg?.jobsInboxLastRun && <span className="text-[11px] text-slate-400">Última: {new Date(cfg.jobsInboxLastRun).toLocaleString("es-ES")}</span>}
+          {cfg?.jobsInboxRecoveryMode === "imap" && <span className="text-[11px] font-semibold text-amber-700">Recuperación IMAP activa</span>}
         </div>
         {msg && <div className={"text-[11px] " + (msg.kind === "ok" ? "text-emerald-700" : "text-rose-700")}>{msg.text}</div>}
       </div>

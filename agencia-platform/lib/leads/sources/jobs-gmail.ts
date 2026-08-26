@@ -10,16 +10,20 @@ async function accessToken(workspaceId: string): Promise<string | null> {
   if (!enc) return null;
   const refreshToken = decryptSecret(enc);
   if (!refreshToken) return null;
-  const response = await fetch(GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID ?? "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      refresh_token: refreshToken,
-      grant_type: "refresh_token"
-    })
-  });
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await fetch(GOOGLE_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID ?? "", client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "", refresh_token: refreshToken, grant_type: "refresh_token" }),
+        signal: AbortSignal.timeout(12_000)
+      });
+      if (response.ok || ![429, 500, 502, 503, 504].includes(response.status)) break;
+    } catch { response = null; }
+    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+  if (!response) throw new Error("Google no respondió al renovar la conexión del buzón.");
   if (!response.ok) throw Object.assign(new Error("Google ha rechazado la conexión del buzón."), { authenticationFailed: response.status === 400 || response.status === 401 });
   return (await response.json()).access_token;
 }

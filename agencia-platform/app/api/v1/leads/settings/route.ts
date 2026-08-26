@@ -114,6 +114,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     jobsGoogleConnected: !!(ws?.settings as any)?.integrations?.googleJobsInbox?.refreshTokenEncrypted,
     jobsGoogleEmail: (ws?.settings as any)?.integrations?.googleJobsInbox?.accountEmail ?? null,
     jobsInboxLastRun: s.jobsInboxLastRun ?? null,
+    jobsInboxRecoveryMode: s.jobsInboxRecoveryMode ?? null,
+    jobsInboxLastError: s.jobsInboxLastError ?? null,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",

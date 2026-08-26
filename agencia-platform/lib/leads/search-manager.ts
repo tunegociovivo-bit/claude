@@ -101,16 +101,29 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
  * contacto y arranca la revisión de emails — todo SIN gastar créditos de scraping.
  * Idempotente: los emails se marcan leídos y los leads se deduplican por empresa.
  */
+async function stampJobsInboxRun(workspaceId: string, recovery?: "imap", error?: string): Promise<void> {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+    const settings: any = ws?.settings ?? {};
+    settings.leads = settings.leads ?? {};
+    settings.leads.jobsInboxLastRun = new Date().toISOString();
+    settings.leads.jobsInboxRecoveryMode = recovery ?? null;
+    settings.leads.jobsInboxLastError = error ?? null;
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
+  } catch {}
+}
+
 export async function ingestJobsInbox(
   workspaceId: string
-): Promise<{ emails: number; offers: number; ingested: number; error?: string }> {
-  const { offers, emails, error } = await fetchJobAlertOffers(workspaceId);
-  if (error && offers.length === 0) return { emails, offers: 0, ingested: 0, error };
+): Promise<{ emails: number; offers: number; ingested: number; error?: string; recovery?: "imap" }> {
+  const { offers, emails, error, recovery } = await fetchJobAlertOffers(workspaceId);
+  await stampJobsInboxRun(workspaceId, recovery, error);
+  if (error && offers.length === 0) return { emails, offers: 0, ingested: 0, error, recovery };
 
   // Ofertas → leads (filtra puestos de marketing/IA + dedup por empresa) y
   // enriquece teléfono/web/email (Places + web), igual que el scraper.
   const mapped = offersToLeadResults(offers);
-  if (mapped.length === 0) return { emails, offers: offers.length, ingested: 0, error };
+  if (mapped.length === 0) return { emails, offers: offers.length, ingested: 0, error, recovery };
   const enriched = await enrichJobsResults(workspaceId, mapped);
 
   // Contenedor de búsqueda persistente para los leads de la bandeja.
@@ -161,16 +174,7 @@ export async function ingestJobsInbox(
     console.error("[jobs-inbox] startJobsOutreach error:", err);
   }
 
-  // Sella la última ejecución (para mostrarla en Ajustes).
-  try {
-    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
-    const settings: any = ws?.settings ?? {};
-    settings.leads = settings.leads ?? {};
-    settings.leads.jobsInboxLastRun = new Date().toISOString();
-    await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
-  } catch {}
-
-  return { emails, offers: offers.length, ingested, error };
+  return { emails, offers: offers.length, ingested, error, recovery };
 }
 
 /**

@@ -68,13 +68,15 @@ export async function getJobsInboxConfig(workspaceId: string): Promise<JobsInbox
 export async function testJobsInbox(
   workspaceId: string,
   override?: { host?: string; port?: number; user?: string; pass?: string }
-): Promise<{ ok: boolean; error?: string; unseen?: number; jobUnseen?: number }> {
+): Promise<{ ok: boolean; error?: string; unseen?: number; jobUnseen?: number; recovery?: "imap" }> {
+  let googleFailure: string | null = null;
   if (!override?.pass && await googleJobsInboxConnected(workspaceId)) {
     try {
       const result = await testGoogleJobsInbox(workspaceId);
-      return result.ok ? { ok: true, unseen: result.unseen, jobUnseen: result.unseen } : { ok: false, error: "Vuelve a conectar la cuenta de Google." };
+      if (result.ok) return { ok: true, unseen: result.unseen, jobUnseen: result.unseen };
+      googleFailure = "Vuelve a conectar la cuenta de Google.";
     } catch (error: any) {
-      return { ok: false, error: describeJobsInboxFailure(error).message };
+      googleFailure = describeJobsInboxFailure(error).message;
     }
   }
   let cfg = await getJobsInboxConfig(workspaceId);
@@ -87,7 +89,7 @@ export async function testJobsInbox(
       enabled: cfg?.enabled ?? false
     };
   }
-  if (!cfg) return { ok: false, error: "Buzón no configurado. Guarda el correo y la contraseña de aplicación primero." };
+  if (!cfg) return { ok: false, error: googleFailure ?? "Buzón no configurado. Guarda el correo y la contraseña de aplicación primero." };
 
   const { ImapFlow } = await import("imapflow");
   const client = new ImapFlow({
@@ -115,7 +117,7 @@ export async function testJobsInbox(
         const fromAddr = ((msg.envelope as any)?.from ?? []).map((a: any) => a.address ?? "").join(",").toLowerCase();
         if (isJobAlertSender(fromAddr)) jobUnseen++;
       }
-      return { ok: true, unseen: uids.length, jobUnseen };
+      return { ok: true, unseen: uids.length, jobUnseen, recovery: googleFailure ? "imap" : undefined };
     } finally {
       lock.release();
     }
@@ -200,7 +202,8 @@ async function extractOffers(workspaceId: string, email: { from: string; subject
  * empleo, extrae sus ofertas con IA y marca esos emails como leídos. Devuelve las
  * ofertas encontradas + cuántos emails se procesaron.
  */
-export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers: RawOffer[]; emails: number; error?: string }> {
+export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers: RawOffer[]; emails: number; error?: string; recovery?: "imap" }> {
+  let googleFailure: string | null = null;
   if (await googleJobsInboxConnected(workspaceId)) {
     const offers: RawOffer[] = [];
     let emails = 0;
@@ -218,12 +221,10 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
         await markGoogleMessageRead(workspaceId, message.id);
       }
       return { offers, emails };
-    } catch (error: any) {
-      return { offers, emails, error: describeJobsInboxFailure(error).message };
-    }
+    } catch (error: any) { googleFailure = describeJobsInboxFailure(error).message; }
   }
   const cfg = await getJobsInboxConfig(workspaceId);
-  if (!cfg) return { offers: [], emails: 0, error: "Buzón de alertas no configurado (Ajustes → Bandeja de alertas)." };
+  if (!cfg) return { offers: [], emails: 0, error: googleFailure ?? "Buzón de alertas no configurado (Ajustes → Bandeja de alertas)." };
 
   const { ImapFlow } = await import("imapflow");
   const client = new ImapFlow({
@@ -279,5 +280,5 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
     await client.logout().catch(() => {});
   }
 
-  return { offers, emails };
+  return { offers, emails, recovery: googleFailure ? "imap" : undefined };
 }
