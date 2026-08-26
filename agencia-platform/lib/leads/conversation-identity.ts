@@ -1,4 +1,5 @@
 import { realPhoneFromMeta } from "./lid";
+import { normalizePhone } from "./waha";
 
 type ConversationDb = {
   leadInboxMessage: { findMany(args: any): Promise<any[]> };
@@ -17,12 +18,22 @@ export async function resolveConversationIdentity(
   explicitLeadId?: string | null
 ): Promise<{ phones: string[]; leadIds: string[] }> {
   const phones = new Set<string>([phone]);
+  const normalizedInput = normalizePhone(phone);
+  if (normalizedInput) phones.add(normalizedInput);
   const leadIds = new Set<string>();
   if (explicitLeadId) leadIds.add(explicitLeadId);
 
   const addMessage = (m: any) => {
-    if (m.phoneNormalized) phones.add(String(m.phoneNormalized));
-    if (m.fromPhone) phones.add(String(m.fromPhone));
+    if (m.phoneNormalized) {
+      phones.add(String(m.phoneNormalized));
+      const normalized = normalizePhone(String(m.phoneNormalized));
+      if (normalized) phones.add(normalized);
+    }
+    if (m.fromPhone) {
+      phones.add(String(m.fromPhone));
+      const normalized = normalizePhone(String(m.fromPhone));
+      if (normalized) phones.add(normalized);
+    }
     if (m.leadId) leadIds.add(String(m.leadId));
     const realPhone = realPhoneFromMeta(m.meta);
     if (realPhone) phones.add(realPhone);
@@ -33,7 +44,7 @@ export async function resolveConversationIdentity(
   };
 
   const seed = await db.leadInboxMessage.findMany({
-    where: { workspaceId, OR: [{ phoneNormalized: phone }, { fromPhone: phone }] },
+    where: { workspaceId, OR: [{ phoneNormalized: { in: [...phones] } }, { fromPhone: { in: [...phones] } }] },
     select: { phoneNormalized: true, fromPhone: true, leadId: true, meta: true }
   });
   seed.forEach(addMessage);

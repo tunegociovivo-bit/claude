@@ -32,6 +32,15 @@ describe("task lead conversation reference", () => {
     ).toEqual({ leadId: "live-lead", phone: "34600999888" });
   });
 
+  it("combines a live phone with the lead id persisted in the task", () => {
+    expect(
+      taskLeadReference(
+        { phone: "+34 688 95 09 56" },
+        { source: "lead-commercial-handoff", leadId: "stored-lead", leadPhone: "688950956" },
+      ),
+    ).toEqual({ leadId: "stored-lead", phone: "+34 688 95 09 56" });
+  });
+
   it("does not expose a conversation for unrelated task custom data", () => {
     expect(taskLeadReference(null, { source: "manual", leadPhone: "34600111222" })).toBeNull();
   });

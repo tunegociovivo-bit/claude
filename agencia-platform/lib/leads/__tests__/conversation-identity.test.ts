@@ -39,6 +39,17 @@ describe("resolveConversationIdentity", () => {
     expect(result.phones).toContain("34600999888");
   });
 
+  it("busca también la variante E.164 cuando la tarea guarda el teléfono con espacios", async () => {
+    const findInbox = vi.fn().mockResolvedValue([]);
+    const findMeta = vi.fn().mockResolvedValue([]);
+    await resolveConversationIdentity({
+      leadInboxMessage: { findMany: findInbox }, leadConversationMeta: { findMany: findMeta }
+    } as any, "w1", "+34 688 95 09 56");
+    expect(findInbox).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: expect.arrayContaining([{ phoneNormalized: { in: expect.arrayContaining(["34688950956"]) } }]) })
+    }));
+  });
+
   it("une el LID con el teléfono real incluido por NOWEB en remoteJidAlt", async () => {
     const findInbox = vi.fn().mockResolvedValueOnce([
       {

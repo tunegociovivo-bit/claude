@@ -35,7 +35,12 @@ export function taskLeadReference(
 ): { phone: string; leadId: string | null } | null {
   const livePhone = nonEmptyString(leadMeta?.phone);
   if (livePhone) {
-    return { phone: livePhone, leadId: nonEmptyString(leadMeta?.leadId) };
+    // La tarjeta puede traer un teléfono actualizado pero omitir el leadId.
+    // Conservamos entonces el identificador persistido en customData para que
+    // las respuestas encuentren el hilo aunque el teléfono cambie de formato,
+    // de prefijo o de alias LID.
+    const storedLeadId = isLeadTaskCustomData(customData) ? nonEmptyString(customData?.leadId) : null;
+    return { phone: livePhone, leadId: nonEmptyString(leadMeta?.leadId) ?? storedLeadId };
   }
 
   if (!isLeadTaskCustomData(customData)) return null;
