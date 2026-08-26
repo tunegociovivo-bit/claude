@@ -14,7 +14,7 @@ const AGENCY_ID = "__agency__";
 const AGENCY_LABEL = "Negocio Vivo (agencia)";
 
 type Convo = { id: string; titulo: string; organo: string | null; regiones: string | null; importeTotal: number | null; fechaFin: string | null; urlBases: string | null; fuente?: string };
-type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null; taskId?: string | null; taskProjectId?: string | null };
+type Match = Convo & { fitScore: number; motivo: string; requisitos: string; estado?: string | null; taskId?: string | null; taskProjectId?: string | null; taskAutomated?: boolean };
 type Status = { abiertas: number; total: number; ultimaActualizacion: string | null; convocatorias: Convo[]; clients: { id: string; name: string }[]; webhookUrl?: string; oportWebhookUrl?: string; whatsappTo?: string; whatsappSession?: string; agencyProfile?: string; digestEnabled?: boolean; sources?: { source: string; count: number }[]; sourceCoverage?: { source: string; label: string; count: number; connected: boolean; detail?: string }[]; health?: { lastRunAt?: string; lastIngestAt?: string; lastMatchAt?: string; lastNotificationAt?: string; lastError?: string | null; ingested?: number; matches?: number; notifications?: number; trigger?: string; cron?: { status: "ok" | "stale" | "never"; lastRunAt: string | null; runs: number; minutesSince: number | null } } };
 
 const ESTADOS = [
@@ -169,7 +169,7 @@ export default function SubvencionesAdmin() {
       else {
         const nextMatches: Match[] = j.matches ?? [];
         setMatches(nextMatches);
-        setCreatedTasks(Object.fromEntries(nextMatches.filter((m) => m.taskId && m.taskProjectId).map((m) => [m.id, { id: m.taskId!, projectId: m.taskProjectId!, existing: true }])));
+        setCreatedTasks(Object.fromEntries(nextMatches.filter((m) => m.taskId && m.taskProjectId && m.taskAutomated).map((m) => [m.id, { id: m.taskId!, projectId: m.taskProjectId!, existing: true }])));
       }
     } finally {
       setMatching(false);

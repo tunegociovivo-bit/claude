@@ -24,12 +24,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       select: { convocatoriaId: true, estado: true }
     });
     const titles = matches.map((m) => `Subvención · ${m.titulo}`.slice(0, 240));
-    const tasks = titles.length ? await prisma.task.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null, title: { in: titles } }, select: { id: true, projectId: true, title: true } }) : [];
+    const tasks = titles.length ? await prisma.task.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null, title: { in: titles } }, select: { id: true, projectId: true, title: true, aiState: true } }) : [];
     const byId = new Map(estados.map((e) => [e.convocatoriaId, e.estado]));
     const taskByTitle = new Map(tasks.map((task) => [task.title, task]));
     const withEstado = matches.map((m) => {
       const task = taskByTitle.get(`Subvención · ${m.titulo}`.slice(0, 240));
-      return { ...m, estado: byId.get(m.id) ?? null, taskId: task?.id ?? null, taskProjectId: task?.projectId ?? null };
+      return { ...m, estado: byId.get(m.id) ?? null, taskId: task?.id ?? null, taskProjectId: task?.projectId ?? null, taskAutomated: Boolean((task?.aiState as any)?.subvencionAutomation) };
     });
     return NextResponse.json({ ok: true, matches: withEstado });
   } catch (e: any) {
