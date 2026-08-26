@@ -8483,7 +8483,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
         )}
       </Modal>
     );
-  async function save(): Promise<boolean> {
+  async function save(channelsOverride?: unknown): Promise<boolean> {
     setSaving(true);
     setError(null);
     const body: any = {
@@ -8526,7 +8526,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       blockLinksInFirstMessage: s.blockLinksInFirstMessage,
       replyRateGuardEnabled: s.replyRateGuardEnabled,
       followupTaskEnabled: s.followupTaskEnabled,
-      channels: Array.isArray(s.channels) ? s.channels : []
+      channels: Array.isArray(channelsOverride) ? channelsOverride : (Array.isArray(s.channels) ? s.channels : [])
     };
     // La clave de Google SOLO se guarda si parece real (AIza…). Esto evita el
     // bug de que el autocompletado del navegador/gestor de contraseñas rellene
@@ -8608,8 +8608,15 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
     arr[i] = { ...arr[i], ...patch };
     setField("channels", arr);
   }
-  function removeChannel(i: number) {
-    setField("channels", (s.channels ?? []).filter((_: any, idx: number) => idx !== i));
+  async function removeChannel(i: number) {
+    const channel = (s.channels ?? [])[i];
+    if (!channel) return;
+    const label = channel.label?.trim() || channel.name?.trim() || `#${i + 1}`;
+    if (!confirm(`¿Eliminar el canal "${label}" de la configuración?\n\nSe conservará el historial de mensajes.`)) return;
+    const nextChannels = (s.channels ?? []).filter((_: any, idx: number) => idx !== i);
+    setField("channels", nextChannels);
+    const ok = await save(nextChannels);
+    if (!ok) setField("channels", s.channels ?? []);
   }
   async function loadHealth() {
     setLoadingHealth(true);
