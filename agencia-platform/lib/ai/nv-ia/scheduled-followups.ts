@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { processRunInBackground } from "./process-run";
+import { zonedTimeToUtc } from "./future-instructions/temporal";
 
 const RECENT_RUN_MS = 24 * 60 * 60 * 1000;
 const RECOVERY_WINDOW_MS = 6 * 60 * 60 * 1000;
@@ -13,6 +14,21 @@ export function alignDueDateToExplicitWeekday(dueDate: Date, text: string): Date
     .map((delta) => new Date(dueDate.getTime() + delta * 86_400_000))
     .filter((date) => date.getUTCDay() === found[0]);
   return candidates.sort((a, b) => Math.abs(a.getTime() - dueDate.getTime()) - Math.abs(b.getTime() - dueDate.getTime()))[0] ?? dueDate;
+}
+
+/** Corrige el error típico de guardar una hora española como si ya fuera UTC. */
+export function alignDueDateToExplicitSpainTime(dueDate: Date, text: string): Date {
+  const times = [...text.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)].map((m) => `${m[1].padStart(2, "0")}:${m[2]}`);
+  const unique = [...new Set(times)];
+  if (unique.length !== 1) return dueDate;
+  const [hour, minute] = unique[0].split(":").map(Number);
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  });
+  if (formatter.format(dueDate) === unique[0]) return dueDate;
+  // Solo corregimos cuando el modelo copió literalmente HH:MM en UTC.
+  if (dueDate.getUTCHours() !== hour || dueDate.getUTCMinutes() !== minute) return dueDate;
+  return zonedTimeToUtc(dueDate.getUTCFullYear(), dueDate.getUTCMonth() + 1, dueDate.getUTCDate(), hour, minute, "Europe/Madrid");
 }
 
 /** Dispara una task 🔁 vencida una sola vez, incluso si cron/timer/poll coinciden. */
@@ -84,7 +100,9 @@ export async function repairFutureScheduledFollowupDates(limit = 50): Promise<nu
   let repaired = 0;
   for (const task of tasks) {
     if (!task.dueDate) continue;
-    const corrected = alignDueDateToExplicitWeekday(task.dueDate, `${task.title}\n${task.description ?? ""}`);
+    const text = `${task.title}\n${task.description ?? ""}`;
+    const weekdayAligned = alignDueDateToExplicitWeekday(task.dueDate, text);
+    const corrected = alignDueDateToExplicitSpainTime(weekdayAligned, text);
     if (corrected.getTime() === task.dueDate.getTime()) continue;
     await prisma.task.update({ where: { id: task.id }, data: { dueDate: corrected } });
     repaired++;
