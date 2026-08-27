@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { processRunInBackground } from "./process-run";
 
 const RECENT_RUN_MS = 24 * 60 * 60 * 1000;
+const RECOVERY_WINDOW_MS = 6 * 60 * 60 * 1000;
 const WEEKDAYS: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miércoles: 3, miercoles: 3, jueves: 4, viernes: 5, sábado: 6, sabado: 6 };
 
 /** Corrige contradicciones obvias como «viernes 29» cuando el 29 es sábado. */
@@ -22,7 +23,12 @@ export async function triggerScheduledFollowup(taskId: string): Promise<string |
     `;
     if (!lock[0]?.locked) return null;
     const task = await tx.task.findFirst({
-      where: { id: taskId, title: { startsWith: "🔁 " }, dueDate: { lte: new Date() }, status: { notIn: ["DONE", "CANCELLED"] as any } },
+      where: {
+        id: taskId,
+        title: { startsWith: "🔁 " },
+        dueDate: { gte: new Date(Date.now() - RECOVERY_WINDOW_MS), lte: new Date() },
+        status: { notIn: ["DONE", "CANCELLED"] as any }
+      },
       select: { id: true, workspaceId: true, dueDate: true }
     });
     if (!task) return null;
@@ -56,7 +62,11 @@ export async function triggerScheduledFollowup(taskId: string): Promise<string |
 /** Recupera followups vencidos. Lo usan el cron y el polling autenticado. */
 export async function triggerDueScheduledFollowups(limit = 50): Promise<string[]> {
   const due = await prisma.task.findMany({
-    where: { title: { startsWith: "🔁 " }, dueDate: { lte: new Date() }, status: { notIn: ["DONE", "CANCELLED"] as any } },
+    where: {
+      title: { startsWith: "🔁 " },
+      dueDate: { gte: new Date(Date.now() - RECOVERY_WINDOW_MS), lte: new Date() },
+      status: { notIn: ["DONE", "CANCELLED"] as any }
+    },
     select: { id: true },
     take: limit
   });
