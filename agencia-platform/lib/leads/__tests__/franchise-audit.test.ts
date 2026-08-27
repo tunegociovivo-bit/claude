@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildFranchiseAudit,
   buildFranchiseAuditSvg,
+  buildFranchiseCommercialNarrative,
   selectFranchiseOffer,
   summarizeFranchisePipeline
 } from "../franchise-audit";
@@ -36,6 +37,15 @@ describe("franchise audit", () => {
     expect(svg).not.toContain("Marca <Demo>");
     expect(svg).toContain("Establecimientos prioritarios");
     expect(svg).toContain("Plan recomendado de 60 días");
+    expect(svg).toContain("POR QUÉ ESTO IMPORTA A LA CENTRAL");
+    expect(svg).toContain("QUIERO EL DIAGNÓSTICO");
+  });
+
+  it("translates metrics into pains and concrete deliverables without inventing revenue", () => {
+    const narrative = buildFranchiseCommercialNarrative(buildFranchiseAudit("Marca", locations, { officialDomain: "marca.es" }));
+    expect(narrative.pains).toHaveLength(3);
+    expect(narrative.deliverables).toContain("Cuadro de control por ubicación");
+    expect(JSON.stringify(narrative)).not.toMatch(/€|ingresos estimados/i);
   });
 
   it("selects an offer from the strongest measured problem", () => {
