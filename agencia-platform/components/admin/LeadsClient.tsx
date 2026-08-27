@@ -3125,11 +3125,13 @@ function QueueLiveStatus() {
           ↻ Actualizar
         </button>
       </div>
-      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
         {[
           ["Enviados hoy", `${d.counters?.sentToday ?? 0} mensajes`],
           ["Programados para hoy", `${d.queue?.scheduledToday ?? 0} mensajes`],
-          ["Límite máximo diario", `${d.settings?.dailyLimitEffective ?? "?"} mensajes`],
+          ["Tope total diario", `${d.settings?.dailyLimitEffective ?? "?"} mensajes`],
+          ["Chats nuevos hoy", `${d.counters?.newChatsToday ?? 0} / ${d.settings?.maxNewChatsPerDay ?? "?"}`],
+          ["Aplazados automáticamente", `${(d.queue?.deferredByNewChatCap ?? 0) + (d.queue?.deferredByWarmupCap ?? 0)} mensajes`],
           ["Próximo envío", nextSend],
           ["Pendientes en cola", `${d.queue?.queued ?? 0} (${d.queue?.dueNow ?? 0} listos ahora)`],
           ["Números conectados", `${connected} / ${totalSess}`]

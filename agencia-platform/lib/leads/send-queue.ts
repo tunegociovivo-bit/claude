@@ -39,6 +39,10 @@ const SESSION_DOWN_RE = /not\s*working|SCAN_QR|STARTING|STOPPED|FAILED|session.*
  * dispararía ráfagas (justo lo que provoca baneos).
  */
 export const SENT_STATUSES = ["sent", "delivered", "read"];
+export const NEW_CHAT_CAP_DEFERRED_REASON =
+  "Aplazado automáticamente: todos los números alcanzaron el tope seguro de conversaciones nuevas del día.";
+export const WARMUP_CAP_DEFERRED_REASON =
+  "Aplazado automáticamente: los números disponibles alcanzaron su tope de calentamiento del día.";
 
 export type QueueChannelCapacity = {
   instanceName: string | null;
@@ -878,6 +882,8 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     sending: number;
     failed: number;
     blockedLink: number;
+    deferredByNewChatCap: number;
+    deferredByWarmupCap: number;
     nextScheduledAt: string | null;
     nextScheduledAtISO: string | null;
   };
@@ -902,13 +908,15 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
   ]);
 
   const todayRange = madridDayRange(now);
-  const [queuedTotal, dueNow, scheduledToday, sendingCount, failedCount, blockedLinkCount, nextMsg] = await Promise.all([
+  const [queuedTotal, dueNow, scheduledToday, sendingCount, failedCount, blockedLinkCount, deferredByNewChatCap, deferredByWarmupCap, nextMsg] = await Promise.all([
     prisma.leadMessage.count({ where: { workspaceId, status: "queued" } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "queued", scheduledAt: { lte: now } } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "queued", scheduledAt: { gte: todayRange.from, lt: todayRange.to } } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "sending" } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "failed" } }),
     prisma.leadMessage.count({ where: { workspaceId, status: "blocked_link" } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "queued", lastError: NEW_CHAT_CAP_DEFERRED_REASON } }),
+    prisma.leadMessage.count({ where: { workspaceId, status: "queued", lastError: WARMUP_CAP_DEFERRED_REASON } }),
     prisma.leadMessage.findFirst({
       where: { workspaceId, status: "queued" },
       orderBy: { scheduledAt: "asc" },
@@ -1048,8 +1056,13 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     verdict = "No hay mensajes en cola.";
     detail = "Encola mensajes desde la lista de leads o una búsqueda.";
   } else if (dueNow === 0) {
-    verdict = "Todos los mensajes están programados para MÁS TARDE.";
-    detail = `Hay ${future} en cola, el próximo el ${nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : "?"}. Pulsa "Reprogramar cola" para adelantarlos a ahora.`;
+    if (deferredByNewChatCap > 0 || deferredByWarmupCap > 0) {
+      verdict = "La cola alcanzó los topes seguros de apertura de conversaciones.";
+      detail = `${deferredByNewChatCap + deferredByWarmupCap} mensajes se aplazaron automáticamente (${deferredByNewChatCap} por conversaciones nuevas y ${deferredByWarmupCap} por calentamiento). No fallaron: el próximo está previsto para ${nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : "?"}.`;
+    } else {
+      verdict = "Todos los mensajes están programados para MÁS TARDE.";
+      detail = `Hay ${future} en cola, el próximo el ${nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : "?"}. Pulsa "Reprogramar cola" para adelantarlos a ahora.`;
+    }
   } else {
     // Hay vencidos: mira si TODOS los de la muestra están bloqueados y por qué.
     const blockers = sample.filter((s) => s.blocker !== "listo para enviar");
@@ -1126,6 +1139,8 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
       sending: sendingCount,
       failed: failedCount,
       blockedLink: blockedLinkCount,
+      deferredByNewChatCap,
+      deferredByWarmupCap,
       nextScheduledAt: nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toLocaleString("es-ES", { timeZone: TZ }) : null,
       nextScheduledAtISO: nextMsg?.scheduledAt ? new Date(nextMsg.scheduledAt).toISOString() : null
     },
@@ -1351,7 +1366,10 @@ export async function processQueueTick(workspaceId: string): Promise<{
     const mp = getMadridParts(now);
     const tomorrow9 = new Date(madridWallToDate(mp.year, mp.month, mp.day, 9, 0).getTime() + 24 * 60 * 60 * 1000);
     await prisma.leadMessage
-      .updateMany({ where: { id: { in: toDefer }, workspaceId }, data: { scheduledAt: tomorrow9 } })
+      .updateMany({
+        where: { id: { in: toDefer }, workspaceId },
+        data: { scheduledAt: tomorrow9, lastError: NEW_CHAT_CAP_DEFERRED_REASON }
+      })
       .catch(() => {});
   }
 
@@ -1564,7 +1582,10 @@ export async function sendMessageById(
       const next = new Date();
       next.setDate(next.getDate() + 1);
       next.setHours(9, 0, 0, 0);
-      await prisma.leadMessage.update({ where: { id: msg.id }, data: { status: "queued", scheduledAt: next } });
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: { status: "queued", scheduledAt: next, lastError: WARMUP_CAP_DEFERRED_REASON }
+      });
       return { processed: false, error: "warmup_cap_deferred" };
     }
     if (rr && "reassignTo" in rr) {
@@ -1681,7 +1702,8 @@ export async function sendMessageById(
               status: "queued",
               scheduledAt: new Date(nowMs + finalSettings.sendDelayMinSec * 1000),
               sendingStartedAt: null,
-              sendAttempts: { decrement: 1 }
+              sendAttempts: { decrement: 1 },
+              lastError: newChatBlocked ? NEW_CHAT_CAP_DEFERRED_REASON : msg.lastError
             }
           });
           return { processed: false, messageId: msg.id, error: "recovery_channel_limit" };
