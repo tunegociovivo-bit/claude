@@ -59,6 +59,10 @@ export function isSkippableMetaCommentTargetError(error: { status?: number; mess
   return error?.status === 400 && /unsupported(?:\s+get)?\s+request(?:\s*-\s*method type:\s*get)?/i.test(error.message ?? "");
 }
 
+export function isMetaApplicationRateLimitError(error: { status?: number; code?: number; message?: string } | null | undefined) {
+  return error?.code === 4 || /application request limit reached/i.test(error?.message ?? "");
+}
+
 async function campaignAdsWithAvailableConnection(
   workspaceId: string,
   campaignId: string,
@@ -133,6 +137,11 @@ type AuthorizedMetaPages = {
 type InstagramMediaLookup = Map<string, { id: string; ownerId: string; token: string }>;
 type InstagramMediaCandidate = { id: string; caption?: string | null; permalink?: string | null; ownerId?: string; token?: string };
 
+const PAGE_TOKEN_CACHE_TTL_MS = 30 * 60_000;
+const PAGE_TOKEN_STALE_TTL_MS = 24 * 60 * 60_000;
+const pageTokenCache = new Map<string, { value: AuthorizedMetaPages; fetchedAt: number }>();
+const pageTokenInflight = new Map<string, Promise<AuthorizedMetaPages>>();
+
 function normalizedMetaText(value?: string | null) {
   return (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -186,7 +195,7 @@ export function resolveInstagramMediaTarget(creative: any, mediaByPermalink: Ins
   return resolved ? { ...resolved, platform: "instagram" as const } : null;
 }
 
-async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
+async function loadPageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
   const userToken = await readMetaTokenByConnection(workspaceId, connectionId);
   if (!userToken) return { facebook: new Map(), instagram: new Map(), instagramByFacebookPage: new Map(), facebookAuthorIds: new Set(), instagramUsernames: new Set() };
   // Meta puede rechazar con HTTP 500 una expansión anidada grande en me/accounts.
@@ -217,6 +226,30 @@ async function pageTokens(workspaceId: string, connectionId?: string | null): Pr
     }
   }
   return { facebook, instagram, instagramByFacebookPage, facebookAuthorIds, instagramUsernames };
+}
+
+async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
+  const key = `${workspaceId}:${connectionId ?? "default"}`;
+  const now = Date.now();
+  const cached = pageTokenCache.get(key);
+  if (cached && now - cached.fetchedAt < PAGE_TOKEN_CACHE_TTL_MS) return cached.value;
+  const pending = pageTokenInflight.get(key);
+  if (pending) return pending;
+
+  const request = loadPageTokens(workspaceId, connectionId)
+    .then((value) => {
+      pageTokenCache.set(key, { value, fetchedAt: Date.now() });
+      return value;
+    })
+    .catch((error) => {
+      // Un límite temporal de Meta no debe inutilizar todas las campañas si ya
+      // disponemos de un catálogo reciente y válido de páginas/tokens.
+      if (cached && now - cached.fetchedAt < PAGE_TOKEN_STALE_TTL_MS) return cached.value;
+      throw error;
+    })
+    .finally(() => pageTokenInflight.delete(key));
+  pageTokenInflight.set(key, request);
+  return request;
 }
 
 export function isOwnMetaComment(comment: { platform?: string; from?: { id?: string | null; name?: string | null } }, pages: Pick<AuthorizedMetaPages, "facebookAuthorIds" | "instagramUsernames">, publicationOwnerId?: string | null) {
@@ -465,6 +498,13 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
+    if (isMetaApplicationRateLimitError(error)) {
+      await prisma.metaCommentFeed.update({
+        where: { id: feed.id },
+        data: { lastError: "Sincronización aplazada automáticamente: Meta ha alcanzado temporalmente su límite de aplicación." }
+      });
+      return { discovered: 0, created: 0, remaining: 0, deferred: true, diagnostics: { ads: 0, facebookTargets: 0, instagramTargets: 0, adsWithoutPost: 0, unsupportedTargets: 0 } };
+    }
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: errorMessage } });
     if (shouldNotifyMetaSyncFailure(feed, errorMessage)) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});
     throw error;
@@ -506,6 +546,7 @@ export async function syncAllActiveMetaCommentFeeds() {
   for (const feed of feeds) {
     try { created += (await syncMetaCampaignComments(feed.workspaceId, feed.campaignId, feed.clientName)).created; }
     catch { failed++; }
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return { feeds: feeds.length, created, failed };
 }
