@@ -22,6 +22,7 @@ import { extractEscalationFromLog } from "@/lib/ai/nv-ia/escalate";
 import { getEscalationStatus } from "@/lib/ai/nv-ia/escalate-status";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 import { repairFutureScheduledFollowupDates, triggerDueScheduledFollowups } from "@/lib/ai/nv-ia/scheduled-followups";
+import { planFutureInstructions } from "@/lib/ai/nv-ia/future-instructions";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,31 @@ async function handler(api: any, ids: string[]) {
   if (ids.length === 0) {
     const aiUserId = await getAiUserId(api.workspaceId);
     return NextResponse.json({ items: [], aiUserId: aiUserId ?? null });
+  }
+  // Reparación única para confirmaciones legacy falsas («programados 2» pero
+  // solo se creó una task). Persiste el plan real y elimina el followup huérfano.
+  const suspectRuns = await prisma.aiAgentRun.findMany({
+    where: {
+      workspaceId: api.workspaceId,
+      taskId: { in: ids },
+      requesterId: { not: null },
+      createdAt: { gte: new Date(Date.now() - 2 * 60 * 60_000) },
+      summary: { contains: "Programad", mode: "insensitive" }
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    select: { taskId: true, requesterId: true }
+  });
+  for (const suspect of suspectRuns) {
+    if (!suspect.requesterId) continue;
+    const comment = await prisma.comment.findFirst({
+      where: { workspaceId: api.workspaceId, targetType: "TASK", targetId: suspect.taskId, authorId: suspect.requesterId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, body: true }
+    });
+    if (!comment?.body) continue;
+    const prior = await prisma.soniaScheduledInstruction.findFirst({ where: { workspaceId: api.workspaceId, commentId: comment.id }, select: { id: true } });
+    if (!prior) await planFutureInstructions({ workspaceId: api.workspaceId, taskId: suspect.taskId, commentId: comment.id, commentText: comment.body });
   }
 
   // Primera pasada: metadata SIN el campo log. El log es Json que

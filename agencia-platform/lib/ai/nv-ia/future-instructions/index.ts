@@ -149,6 +149,26 @@ export async function planFutureInstructions(opts: {
 
   const plan = buildPlan(extraction, nowUtc, timeZone);
 
+  // Si un run/reintento llega poco después de una hora de HOY (por ejemplo,
+  // falló el activador de las 17:50), recuperamos la entrega en un minuto en
+  // vez de moverla a mañana o exigir que el usuario vuelva a redactarla.
+  const recoveredProblems = new Set<number>();
+  plan.problems.forEach((problem, index) => {
+    if (problem.resolved.reason !== "past" || problem.action.when?.dayWord !== "hoy" || !problem.resolved.proposedUtc) return;
+    const missedAt = new Date(problem.resolved.proposedUtc.getTime() - 86_400_000);
+    const lateness = nowUtc.getTime() - missedAt.getTime();
+    if (lateness < 0 || lateness > 2 * 60 * 60_000) return;
+    const atUtc = new Date(nowUtc.getTime() + 60_000);
+    plan.toSchedule.push({
+      action: problem.action,
+      resolved: { ok: true, atUtc, wallClock: formatWallClock(atUtc, timeZone), timeZone }
+    });
+    recoveredProblems.add(index);
+  });
+  if (recoveredProblems.size > 0) {
+    plan.problems = plan.problems.filter((_, index) => !recoveredProblems.has(index));
+  }
+
   // Capacidades: si alguna acción es WhatsApp, comprobamos que el workspace
   // tenga el proveedor configurado — si no, se avisa AL PROGRAMAR (nunca
   // prometer un envío automático imposible).
@@ -169,6 +189,36 @@ export async function planFutureInstructions(opts: {
     where: { id: opts.taskId, workspaceId: opts.workspaceId },
     select: { projectId: true, title: true }
   });
+
+  // Retira followups legacy no auditados que el agente pudiera haber creado
+  // mientras afirmaba erróneamente que el plan estaba completo. Solo afecta a
+  // tasks posteriores al comentario, enlazadas a este origen y aún sin run.
+  const originComment = await prisma.comment.findUnique({ where: { id: opts.commentId }, select: { createdAt: true } });
+  if (originComment) {
+    const legacy = await prisma.task.findMany({
+      where: {
+        workspaceId: opts.workspaceId,
+        title: { startsWith: "🔁 " },
+        description: { contains: opts.taskId },
+        createdAt: { gte: originComment.createdAt }
+      } as any,
+      select: { id: true }
+    });
+    if (legacy.length > 0) {
+      const tracked = await prisma.soniaScheduledInstruction.findMany({
+        where: { followupTaskId: { in: legacy.map((task) => task.id) } },
+        select: { followupTaskId: true }
+      });
+      const trackedIds = new Set(tracked.map((row) => row.followupTaskId).filter(Boolean));
+      const runs = await prisma.aiAgentRun.findMany({
+        where: { taskId: { in: legacy.map((task) => task.id) } },
+        select: { taskId: true }
+      });
+      const runTaskIds = new Set(runs.map((run) => run.taskId));
+      const removable = legacy.map((task) => task.id).filter((id) => !trackedIds.has(id) && !runTaskIds.has(id));
+      if (removable.length > 0) await prisma.task.deleteMany({ where: { id: { in: removable } } });
+    }
+  }
 
   let scheduled = 0;
   for (const item of plan.toSchedule) {

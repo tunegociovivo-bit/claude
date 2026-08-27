@@ -23,6 +23,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { executeAgentRun, loadAgentConfig } from "@/lib/ai/nv-ia/runner";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
+import { planFutureInstructions } from "@/lib/ai/nv-ia/future-instructions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
@@ -47,6 +48,34 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
       "ai_agent_not_configured",
       "Sonia no está configurada en este workspace. Ve a /admin/nv-ia y pulsa 'Inicializar'."
     );
+  }
+
+  // «Pedir a Sonia» usa primero el planificador persistente. No dejamos que
+  // el agente afirme que creó N followups si no existen realmente en BD.
+  const latestRequest = await prisma.comment.findFirst({
+    where: { workspaceId: api.workspaceId, targetType: "TASK", targetId: params.id, authorId: api.userId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, body: true }
+  });
+  if (latestRequest?.body) {
+    const planned = await planFutureInstructions({
+      workspaceId: api.workspaceId,
+      taskId: params.id,
+      commentId: latestRequest.id,
+      commentText: latestRequest.body
+    });
+    if (planned && !planned.immediateWork && (planned.scheduled > 0 || planned.problems > 0 || planned.alreadyProcessed)) {
+      return NextResponse.json({
+        ok: true,
+        planned: true,
+        scheduled: planned.scheduled,
+        problems: planned.problems,
+        alreadyProcessed: planned.alreadyProcessed,
+        message: planned.alreadyProcessed
+          ? "La petición futura ya estaba persistida; no se ha duplicado."
+          : `Plan persistido y validado: ${planned.scheduled} ejecución(es) programada(s).`
+      });
+    }
   }
 
   const url = new URL(req.url);
