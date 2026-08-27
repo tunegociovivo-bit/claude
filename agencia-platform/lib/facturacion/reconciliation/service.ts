@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement } from "./matching";
 import { sendEmail } from "@/lib/integrations/email";
+import { profileForForcedReconciliation } from "./state";
 
 export const NEGOCIO_VIVO_RECONCILIATION_START = new Date("2026-08-09T22:00:00.000Z");
 
@@ -490,9 +492,9 @@ export async function reconciliationDashboard(workspaceId: string) {
 }
 
 export async function requestReconciliation(workspaceId: string) {
-  await ensureReconciliationConfig(workspaceId);
+  const config = await ensureReconciliationConfig(workspaceId);
   return prisma.bankReconciliationConfig.update({
     where: { workspaceId },
-    data: { lastSyncAt: null, lastError: null }
+    data: { lastSyncAt: null, lastError: null, profile: profileForForcedReconciliation(config.profile) as Prisma.InputJsonValue }
   });
 }
