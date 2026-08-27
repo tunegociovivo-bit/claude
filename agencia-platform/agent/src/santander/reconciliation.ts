@@ -35,6 +35,9 @@ export type ReconciliationRetryDecision = "RUN" | "WAIT" | "EXHAUSTED";
 
 export function reconciliationRetryDecision(now: Date, lastAttemptAt: Date | null, failedAttempts: number, timeZone = "Europe/Madrid", retryMinutes = 30): ReconciliationRetryDecision {
   if (!Number.isFinite(now.getTime())) return "WAIT";
+  // El botón «Forzar resincronización» reinicia el contador. Debe prevalecer
+  // sobre el enfriamiento de un fallo anterior para arrancar inmediatamente.
+  if (failedAttempts <= 0) return "RUN";
   if (!lastAttemptAt || !Number.isFinite(lastAttemptAt.getTime())) return "RUN";
   const current = localParts(now, timeZone);
   const last = localParts(lastAttemptAt, timeZone);
