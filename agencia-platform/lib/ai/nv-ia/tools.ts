@@ -3577,6 +3577,33 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { error: "email destinatario inválido" };
     if (subject.length > 200) return { error: "subject demasiado largo (>200)" };
     if (body.length > 12000) return { error: "body demasiado largo (>12000)" };
+    const external = !/@negociovivo\.com$/i.test(to);
+    if (external) {
+      const run = await prisma.aiAgentRun.findUnique({
+        where: { id: ctx.runId },
+        select: { requesterId: true, createdAt: true }
+      });
+      const latestRequest = run?.requesterId
+        ? await prisma.comment.findFirst({
+            where: {
+              workspaceId: ctx.workspaceId,
+              targetType: "TASK",
+              targetId: ctx.taskId,
+              authorId: run.requesterId,
+              createdAt: { gte: new Date(run.createdAt.getTime() - 5 * 60 * 1000) }
+            },
+            orderBy: { createdAt: "desc" },
+            select: { body: true }
+          })
+        : null;
+      const authorizationText = latestRequest?.body ?? "";
+      const explicitlyRequested = /\b(email|e-mail|correo|env[ií]a(?:r)?|manda(?:r)?)\b/i.test(authorizationText);
+      if (!explicitlyRequested) {
+        return {
+          error: "EMAIL EXTERNO BLOQUEADO: el encargo actual no contiene una petición explícita del administrador para preparar o enviar este correo. Limítate a recomendar la acción en un comentario."
+        };
+      }
+    }
     // body → html simple (párrafos por doble salto, <br> por simple)
     const html = body
       .split(/\n\n+/)
@@ -7637,6 +7664,12 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         return { error: "Email no configurado. Define RESEND_API_KEY en el workspace." };
       }
       const to = Array.isArray(input?.to) ? input.to.map(String) : String(input?.to ?? "");
+      const recipients = Array.isArray(to) ? to : [to];
+      if (!recipients.length || recipients.some((email) => !/@negociovivo\.com$/i.test(email.trim()))) {
+        return {
+          error: "ENVÍO EXTERNO BLOQUEADO: los emails externos nunca se envían directamente. Crea draft_email únicamente si el administrador lo ha pedido expresamente; después requerirá su aprobación."
+        };
+      }
       const subject = String(input?.subject ?? "");
       const html = String(input?.html ?? "");
       const text = input?.text ? String(input.text) : undefined;

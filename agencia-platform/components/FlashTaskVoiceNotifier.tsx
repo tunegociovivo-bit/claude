@@ -113,7 +113,9 @@ export default function FlashTaskVoiceNotifier() {
         setPending(p);
         setDrafts(p.drafts ?? []);
         setBlocked(bl);
-        setSelected(new Set((p.drafts ?? []).map((d) => d.id))); // todas marcadas por defecto
+        // Consentimiento positivo: ninguna acción externa nace marcada.
+        // El administrador debe seleccionar expresamente qué desea ejecutar.
+        setSelected(new Set());
         announce(p);
       } catch {
         /* silencio */
@@ -257,6 +259,8 @@ export default function FlashTaskVoiceNotifier() {
               ? "Procesando…"
               : drafts.length === 0
               ? "Entendido"
+              : selected.size === 0
+              ? "Rechazar todo"
               : selected.size === drafts.length
               ? "Aprobar todo"
               : `Aprobar (${selected.size})`}
