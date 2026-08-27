@@ -1019,6 +1019,13 @@ export async function executeAgentRun(opts: {
         select: { body: true, createdAt: true }
       });
       const isFreshRequest = !!latestRequest && !!run && Math.abs(run.createdAt.getTime() - latestRequest.createdAt.getTime()) <= 15 * 60_000;
+      if (isFreshRequest && latestRequest?.body) {
+        // get_task_context compacta historiales largos. En tareas con muchos
+        // comentarios eso puede dejar fuera justo el comentario que disparó
+        // el run. Inyectamos el original íntegro y autoritativo para que Sonia
+        // nunca pida al usuario repetir una instrucción que ya está en BD.
+        initialContent += `\n\n## PETICIÓN MÁS RECIENTE DEL USUARIO (TEXTO ÍNTEGRO Y AUTORITATIVO)\n<latest_user_request>\n${latestRequest.body}\n</latest_user_request>\nEste texto NO está truncado. Interprétalo directamente. No pidas que se repita ni que se detallen datos que ya aparecen aquí.`;
+      }
       deferExecutionUntilScheduled = isFreshRequest && hasFutureExecutionIntent(latestRequest?.body ?? "");
       if (deferExecutionUntilScheduled) {
         initialContent += `\n\n## BLOQUEO TEMPORAL OBLIGATORIO\nLa última petición contiene una o varias ejecuciones futuras. Este run sirve EXCLUSIVAMENTE para crear schedule_followup; NO ejecutes ahora, NO consultes APIs y NO generes entregables.\n\nREGLAS DE INTERPRETACIÓN:\n1. Divide el texto por días/fechas y crea un followup autocontenido para cada entrega. Copia en su description el rango de datos, destinatario, canal, archivos e instrucción de autoenvío.\n2. Nunca programes en el pasado ni adelantes una acción. Si en la misma entrega la hora de envío ya pasó o es anterior a la hora de generación (por ejemplo: hoy generar 17:20 y enviar 9:00), genera Y envía juntos a la hora futura de generación: 17:20.\n3. Si un día futuro solo tiene hora de envío (por ejemplo: viernes enviar a las 9:00), genera el entregable y envíalo en ese mismo followup a las 9:00.\n4. Si generación y envío son dos horas futuras coherentes del mismo día, programa el trabajo completo para culminar en la hora de envío; no crees un envío separado incapaz de acceder al archivo.\n5. Para WhatsApp/archivo/voz o llamada al +34680167881, indica expresamente: «destinatario personal autorizado; ejecutar sin aprobación». Cualquier otro número mantiene aprobación.\nDespués informa con una lista exacta de fecha, hora, rango y canal, y termina.`;
