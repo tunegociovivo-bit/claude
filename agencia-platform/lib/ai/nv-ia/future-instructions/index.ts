@@ -21,6 +21,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
+import { armScheduledFollowup } from "../scheduled-followups";
 import { formatWallClock, looksLikeFutureInstruction } from "./temporal";
 import { buildPlan, renderConfirmation, renderFollowupDescription, type Extraction } from "./plan";
 
@@ -263,6 +264,7 @@ export async function planFutureInstructions(opts: {
           status: "SCHEDULED"
         }
       });
+      armScheduledFollowup(followup.id, item.resolved.atUtc);
       scheduled++;
     } catch (e: any) {
       // Carrera con otro procesado del mismo comentario (unique commentId+
