@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embeddedInvoiceContactName } from "../holded-sync";
+import { embeddedInvoiceContactEmail, embeddedInvoiceContactName } from "../holded-sync";
 
 describe("embeddedInvoiceContactName", () => {
   it("reads the standard Holded contactName field", () => {
@@ -20,5 +20,12 @@ describe("embeddedInvoiceContactName", () => {
 
   it("falls back to the nested trade name", () => {
     expect(embeddedInvoiceContactName({ contact: { name: "", tradeName: "Nombre comercial" } })).toBe("Nombre comercial");
+  });
+});
+
+describe("embeddedInvoiceContactEmail", () => {
+  it("reads the recipient email embedded in a Holded document", () => {
+    expect(embeddedInvoiceContactEmail({ contact: { email: "tantrausuaya@gmail.com" } }))
+      .toBe("tantrausuaya@gmail.com");
   });
 });
