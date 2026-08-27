@@ -5,6 +5,7 @@
  * todo testeable con tsx (scripts/test-sonia-schedule.ts).
  */
 import { maskPhone, resolveWhen, type ResolvedWhen, type WhenSpec } from "./temporal";
+import { isTrustedOwnerPhone } from "../trusted-recipient";
 
 export type ExtractedAction = {
   /** Qué hay que hacer, autocontenido ("generar informe de leads y enviarlo"). */
@@ -111,9 +112,13 @@ export function renderFollowupDescription(opts: {
     `**Qué hacer ahora (es el momento acordado):** ${action.summary}`,
     action.dataRange ? `**Rango de datos pedido:** ${action.dataRange}` : null,
     action.channel ? `**Canal de entrega:** ${action.channel}${action.recipient ? ` → ${action.recipient}` : ""}` : null,
+    action.channel === "whatsapp" && isTrustedOwnerPhone(action.recipient)
+      ? `**Autorización:** destinatario personal del administrador; enviar automáticamente sin aprobación.`
+      : null,
     ``,
     `**Contexto completo:** lee la tarea original ${opts.originTaskId} (título, descripción, comentarios y adjuntos) antes de generar nada — el informe debe seguir el mismo formato que los anteriores de esa tarea.`,
     `Programado desde el comentario ${opts.commentId}; instante acordado: ${opts.item.resolved.wallClock}.`,
+    `La fecha y hora resueltas de esta descripción son AUTORITATIVAS. No vuelvas a interpretar ni adelantar las horas contradictorias del texto original.`,
     ``,
     `Instrucción original del usuario:`,
     `«${opts.sourceText.slice(0, 1500)}»`,

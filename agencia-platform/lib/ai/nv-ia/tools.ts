@@ -78,6 +78,7 @@ import {
   updateRange as sheetsUpdateRange
 } from "@/lib/integrations/google-sheets";
 import { uploadAttachmentForTask } from "@/lib/files/sonia-upload";
+import { isTrustedOwnerPhone } from "./trusted-recipient";
 import { markdownToHtmlBody, wrapAsReportHtml } from "@/lib/files/markdown-html";
 import type { AiAgentConfig } from "./types";
 
@@ -283,7 +284,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "draft_whatsapp",
     description:
-      "Redacta un mensaje de WhatsApp PARA QUE LO APRUEBE UN HUMANO antes de enviarlo. NO se envía automáticamente. Úsalo para mensajes breves a clientes con su teléfono ya conocido. El mensaje aparece en /admin/nv-ia/drafts.",
+      "Redacta un mensaje de WhatsApp para aprobación. EXCEPCIÓN: si el destinatario exacto es +34680167881, se autoaprueba y envía inmediatamente porque es el teléfono personal autorizado del administrador. Para cualquier otro número queda pendiente en /admin/nv-ia/drafts.",
     input_schema: {
       type: "object",
       properties: {
@@ -303,7 +304,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "draft_whatsapp_voice",
     description:
-      "Redacta una NOTA DE VOZ de WhatsApp PARA QUE LA APRUEBE UN HUMANO antes de enviarla. NO se envía automáticamente. Al aprobarse, el texto se convierte a audio con la voz de la marca (ElevenLabs) y se envía como nota de voz. Úsalo cuando quieras responder con audio en lugar de texto (p.ej. el cliente mandó una nota de voz). Aparece en /admin/nv-ia/drafts. Requiere ElevenLabs configurado.",
+      "Redacta una NOTA DE VOZ de WhatsApp para aprobación. Al aprobarse, se convierte a audio con ElevenLabs. EXCEPCIÓN: al número exacto +34680167881 se autoaprueba y envía; cualquier otro queda pendiente. Requiere ElevenLabs configurado.",
     input_schema: {
       type: "object",
       properties: {
@@ -323,7 +324,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "draft_whatsapp_file",
     description:
-      "Prepara el envío de un ARCHIVO NATIVO por WhatsApp para aprobación humana. Usa primero list_task_files y pasa el fileId exacto. Al aprobarse, el archivo se descarga de R2 y se envía como documento real (PDF, XLSX, DOCX, ZIP, etc.), no como enlace temporal.",
+      "Prepara el envío de un ARCHIVO NATIVO por WhatsApp. Usa primero list_task_files y pasa el fileId exacto. Al número exacto +34680167881 se autoaprueba y envía sin intervención; cualquier otro número queda pendiente. Se envía como documento real, no como enlace temporal.",
     input_schema: {
       type: "object",
       properties: {
@@ -2929,7 +2930,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "draft_phone_call",
     description:
-      "PROPONE una LLAMADA TELEFÓNICA (agente de voz Sonia vía Vapi): crea un BORRADOR que queda PENDIENTE de aprobación del usuario. NO llama hasta que el usuario dé el OK (en la tarjeta de avisos o en /admin/nv-ia/drafts). Úsala para ENCARGOS llegados por llamada/nota (reservar mesa o cita, contactar con un negocio/proveedor, pedir/confirmar información). Confirma el número (búscalo con web_search si hace falta) y mete en 'goal' TODOS los datos (qué pedir, fecha, hora, nº de personas, a nombre de quién, alternativas). Tras crear el borrador, explica en el resumen qué propones; el usuario decide.",
+      "PROPONE una LLAMADA TELEFÓNICA (agente de voz Sonia vía Vapi). Para cualquier número queda pendiente de aprobación, salvo el número personal exacto +34680167881, que está autorizado para autoaprobar e iniciar la llamada. Incluye en goal todos los datos necesarios.",
     input_schema: {
       type: "object",
       properties: {
@@ -3302,6 +3303,36 @@ async function maybeAutoApproveDraft(
     } catch (e: any) {
       console.warn("[nv-ia auto-approve internal] fail:", e?.message ?? e);
       // Caemos al flujo normal de aprobación manual.
+    }
+  }
+
+  // Excepción personal y de alcance mínimo: David ha autorizado expresamente
+  // WhatsApp (texto, voz y archivos) y llamadas a SU número. La coincidencia
+  // debe ser exacta tras normalizar; ningún otro teléfono hereda esta regla.
+  if (kind === "WHATSAPP" || kind === "PHONE_CALL") {
+    try {
+      const draft = await prisma.aiDraft.findUnique({
+        where: { id: draftId },
+        select: { payload: true }
+      });
+      const payload: any = draft?.payload ?? {};
+      const targetPhone = kind === "WHATSAPP" ? payload.phoneNormalized : payload.toNumber;
+      if (isTrustedOwnerPhone(targetPhone)) {
+        await prisma.aiDraft.update({
+          where: { id: draftId },
+          data: {
+            status: "APPROVED",
+            reviewedById: ctx.config.userId,
+            reviewedAt: new Date(),
+            reviewerNote: "Auto-aprobado: teléfono personal autorizado por el administrador"
+          }
+        });
+        const { executeDraft } = await import("./execute-draft");
+        const result = await executeDraft(draftId);
+        return { autoApproved: true, executionResult: result };
+      }
+    } catch (e: any) {
+      console.warn("[nv-ia auto-approve trusted phone] fail:", e?.message ?? e);
     }
   }
 
@@ -7747,12 +7778,15 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           payload: { toNumber, goal, ...(customerName ? { customerName } : {}) }
         }
       });
-      // Las llamadas SIEMPRE requieren OK humano: no se auto-aprueban.
+      const auto = await maybeAutoApproveDraft(draft.id, "PHONE_CALL", ctx);
       return {
         ok: true,
         draftId: draft.id,
-        message:
-          "Borrador de LLAMADA creado. Queda PENDIENTE de aprobación: la llamada NO se hará hasta que el usuario lo apruebe (en la tarjeta de avisos o en /admin/nv-ia/drafts)."
+        autoApproved: auto.autoApproved,
+        executionResult: auto.executionResult,
+        message: auto.autoApproved
+          ? "Llamada al teléfono personal autorizado iniciada sin aprobación manual."
+          : "Borrador de LLAMADA creado. Queda PENDIENTE de aprobación: la llamada NO se hará hasta que el usuario lo apruebe (en la tarjeta de avisos o en /admin/nv-ia/drafts)."
       };
     } catch (e: any) {
       return { error: `draft_phone_call: ${e?.message ?? e}` };

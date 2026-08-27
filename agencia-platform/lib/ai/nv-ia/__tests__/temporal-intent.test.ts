@@ -6,6 +6,10 @@ describe("hasFutureExecutionIntent", () => {
 
   it("detecta una ejecución prevista para más tarde hoy", () => {
     expect(hasFutureExecutionIntent("Quiero que hoy a las 16:40 me lo generes", now)).toBe(true);
+    expect(hasFutureExecutionIntent(
+      "Quiero que hoy a las 17:20 lo generes y lo mandes por WhatsApp a las 9:00; el viernes a las 9:00 repite",
+      now
+    )).toBe(true);
   });
 
   it("no aplaza una hora de hoy que ya ha pasado", () => {

@@ -71,6 +71,10 @@ Reglas estrictas:
 - NO resuelvas fechas relativas a fechas absolutas: devuelve la expresión troceada en "when" (dayWord/weekday/dateIso/inAmount+inUnit/time) y el texto original en when.raw. La resolución la hace el sistema, no tú.
 - "when.time" en formato 24h "HH:MM". "when.weekday" en minúsculas ("jueves"). "when.dateIso" SOLO si el usuario dio fecha absoluta (usa el año en curso si no lo dijo; si dio día y mes, "YYYY-MM-DD").
 - Cada instante distinto = una acción distinta (aunque compartan frase).
+- EXCEPCIÓN IMPORTANTE: generar un archivo y enviar ESE MISMO archivo son una sola entrega, no dos acciones aisladas. El summary debe ordenar generar + enviar y conservar el rango y destinatario.
+- Para esa entrega combinada, usa la hora de envío si es posterior y viable. Si la hora de envío ya pasó o es anterior a la hora de generación indicada en la misma cláusula (ej.: hoy generar 17:20 y enviar 9:00), usa la hora FUTURA de generación para hacer ambas cosas juntas. Nunca programes el envío en el pasado ni antes de que exista el archivo.
+- Un día/fecha mencionado aplica a toda su cláusula hasta la siguiente conjunción que introduzca otro día (ej.: «hoy ... y el viernes ...» son dos entregas).
+- Si una cláusula futura dice generar un rango y enviarlo a una hora, aunque no dé otra hora de generación, genera y envía en el mismo followup a la hora de envío.
 - "summary" debe ser AUTOCONTENIDO: leyéndolo solo, otra persona sabría exactamente qué generar/enviar sin ver el comentario original. Incluye el rango de datos y el destinatario dentro del summary además de en sus campos.
 - "dataRange": el rango de datos/fechas del CONTENIDO pedido (no confundir con el momento de ejecución).
 - "recipient": tal cual lo escribió el usuario (teléfono, email…).

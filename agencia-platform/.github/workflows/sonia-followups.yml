@@ -1,0 +1,16 @@
+name: Ejecutar tareas programadas de Sonia
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Despertar ejecuciones vencidas
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_CRON_TOKEN }}" \
+            https://hub.negociovivo.app/api/v1/internal/sonia-followup-cron
