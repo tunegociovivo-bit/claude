@@ -269,7 +269,24 @@ DIRECTIVO para ofrecer sus servicios. Redacta un EMAIL frío B2B:
   un equipo propio de IA para analítica, para la toma de decisiones en campañas de pago y para implantar
   sistemas que mejoran sus procesos y les facilitan el trabajo del día a día. La idea a transmitir: por
   el coste (o menos) de un empleado, obtienen un equipo y una tecnología que una sola persona no puede dar.
-- No inventes datos, cifras, clientes ni precios concretos. Devuelve SOLO el JSON {subject, body}.`;
+- PRUEBA SOCIAL OBLIGATORIA: integra en una frase natural que ya gestionamos el marketing de grandes
+  organizaciones como Eroski, Vegalsa, Caprabo y ESAEM (Escuela de Arte Dramático de Antonio Banderas).
+  Deben aparecer las cuatro referencias, sin convertirlas en una lista, sin exagerar resultados y sin
+  afirmar que pertenecen al mismo grupo. Si el email está en inglés, traduce la explicación de ESAEM.
+- No inventes otros datos, cifras, clientes ni precios concretos. Devuelve SOLO el JSON {subject, body}.`;
+
+const JOBS_SOCIAL_PROOF_NAMES = ["eroski", "vegalsa", "caprabo", "esaem"] as const;
+
+/** Garantiza que la prueba social pedida esté presente aunque el LLM omita una referencia. */
+export function ensureJobsSocialProof(body: string, lang: "en" | "es"): string {
+  const normalized = body.toLocaleLowerCase("es");
+  if (JOBS_SOCIAL_PROOF_NAMES.every((name) => normalized.includes(name))) return body;
+  const proof =
+    lang === "en"
+      ? "We already manage marketing for major organisations such as Eroski, Vegalsa, Caprabo and ESAEM (Antonio Banderas' School of Dramatic Arts), bringing proven processes to each new project."
+      : "Ya gestionamos el marketing de grandes organizaciones como Eroski, Vegalsa, Caprabo y ESAEM (Escuela de Arte Dramático de Antonio Banderas), por lo que incorporamos procesos contrastados desde el inicio.";
+  return `${body.trim()}\n\n${proof}`;
+}
 
 /**
  * Detecta si la oferta está en inglés o en español (heurística por palabras
@@ -310,7 +327,7 @@ async function writeEmail(opts: { workspaceId: string; company: string; sector?:
     lang === "en"
       ? "IDIOMA OBLIGATORIO: la oferta está en INGLÉS → escribe TODO el email (subject y body) EN INGLÉS, con registro profesional. No uses español."
       : "IDIOMA OBLIGATORIO: escribe TODO el email (asunto y cuerpo) en ESPAÑOL de España.";
-  return completeJson<{ subject: string; body: string }>({
+  const mail = await completeJson<{ subject: string; body: string }>({
     workspaceId: opts.workspaceId,
     model: "claude-haiku-4-5-20251001",
     system: EMAIL_SYSTEM,
@@ -318,6 +335,7 @@ async function writeEmail(opts: { workspaceId: string; company: string; sector?:
     schema: EMAIL_SCHEMA,
     maxTokens: 650
   });
+  return { ...mail, body: ensureJobsSocialProof(mail.body, lang) };
 }
 
 function emailHtml(body: string): string {
@@ -479,6 +497,22 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       lead: { select: { name: true, category: true, website: true, phone: true, rawData: true } }
     }
   });
+  // Migración perezosa y acotada: los borradores de Empleos que ya estaban en
+  // revisión antes de esta mejora también deben mostrar/enviar la prueba social.
+  const normalizedBodies = new Map<string, string>();
+  await Promise.all(
+    rows.map(async (row) => {
+      const rd: any = row.lead?.rawData ?? {};
+      const isJobsDraft = rd?.source === "jobs" || typeof rd?.jobTitle === "string" || typeof rd?.jobUrl === "string";
+      if (!isJobsDraft || !row.draftBody) return;
+      const lang = detectOfferLang(`${rd?.jobTitle ?? ""}. ${rd?.jobDescription ?? ""}`);
+      const body = ensureJobsSocialProof(row.draftBody, lang);
+      normalizedBodies.set(row.id, body);
+      if (body !== row.draftBody) {
+        await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { draftBody: body } });
+      }
+    })
+  );
   return rows.map((r) => {
     const rd: any = r.lead?.rawData ?? {};
     return {
@@ -486,7 +520,7 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       leadId: r.leadId,
       email: r.email,
       subject: r.draftSubject,
-      body: r.draftBody,
+      body: normalizedBodies.get(r.id) ?? r.draftBody,
       company: r.lead?.name ?? "",
       category: r.lead?.category ?? null,
       website: r.lead?.website ?? null,
