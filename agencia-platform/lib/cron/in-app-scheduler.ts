@@ -71,6 +71,15 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
     }
     try {
+      // Backstop local para Holded + solicitudes SEPA. GitHub Actions puede
+      // retrasar los schedules; este tick corre dentro del proceso persistente
+      // de Railway. Todo el ciclo es idempotente por factura/solicitud.
+      const { runSepaCronAllWorkspaces } = await import("@/lib/facturacion/sepa/cron");
+      await runSepaCronAllWorkspaces();
+    } catch (e) {
+      console.warn("[in-app-cron] holded/sepa:", (e as Error).message);
+    }
+    try {
       const { monitorOfflineBankAgents } = await import("@/lib/facturacion/sepa/agent-watchdog");
       const result = await monitorOfflineBankAgents();
       if (result.notified > 0) console.warn(`[in-app-cron] agentes bancarios offline avisados: ${result.notified}`);
