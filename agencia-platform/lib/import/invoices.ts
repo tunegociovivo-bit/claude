@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { computeTotals, type InvoiceLine } from "@/lib/invoicing/core";
 import { snapshotIssuer, snapshotClient } from "@/lib/invoicing/persist";
-import { pickHeaderRow, norm, normTaxId, nameTokens, nameSimilarity, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
+import { pickHeaderRow, norm, normEmail, normTaxId, nameTokens, nameSimilarity, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
 import { tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type InvoiceInput = {
@@ -10,6 +10,7 @@ export type InvoiceInput = {
   date?: string; // ISO
   clientName?: string;
   clientTaxId?: string;
+  clientEmail?: string;
   concept?: string;
   baseCents?: number;
   taxRate?: number;
@@ -249,17 +250,21 @@ function buildLine(input: InvoiceInput): InvoiceLine {
 export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput[]): Promise<InvoicePlanItem[]> {
   const clients = await prisma.client.findMany({
     where: { workspaceId, deletedAt: null },
-    select: { id: true, name: true, taxId: true }
+    select: { id: true, name: true, taxId: true, email: true }
   });
   const byTax = new Map<string, (typeof clients)[number] | null>();
   const byName = new Map<string, (typeof clients)[number] | null>();
+  const byEmail = new Map<string, (typeof clients)[number] | null>();
   for (const c of clients) {
     const t = normTaxId(c.taxId);
     if (t) byTax.set(t, byTax.has(t) ? null : c);
     const normalizedName = norm(c.name);
     byName.set(normalizedName, byName.has(normalizedName) ? null : c);
+    const email = normEmail(c.email);
+    if (email) byEmail.set(email, byEmail.has(email) ? null : c);
   }
   const tokenizedClients = clients.map((client) => ({ client, tokens: nameTokens(client.name) }));
+  const clientsById = new Map(clients.map((client) => [client.id, client]));
 
   const existingNumbers = new Set(
     (
@@ -269,6 +274,25 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
       })
     ).map((i) => i.number!.toLowerCase())
   );
+  // Holded factura con la razón social, mientras el HUB puede conocer al
+  // mismo cliente por su nombre comercial. Una factura enlazada manualmente
+  // constituye una alias verificable y permite resolver las siguientes
+  // recurrencias sin introducir equivalencias globales ni aproximaciones.
+  const linkedInvoiceAliases = await prisma.invoice.findMany({
+    where: { workspaceId, clientId: { not: null }, deletedAt: null },
+    select: {
+      clientId: true,
+      clientSnapshot: true
+    }
+  });
+  const byHistoricalAlias = new Map<string, (typeof clients)[number] | null>();
+  for (const invoice of linkedInvoiceAliases) {
+    const alias = norm(String((invoice.clientSnapshot as any)?.name ?? ""));
+    const client = invoice.clientId ? clientsById.get(invoice.clientId) : null;
+    if (!alias || !client) continue;
+    const previous = byHistoricalAlias.get(alias);
+    byHistoricalAlias.set(alias, previous && previous.id !== client.id ? null : client);
+  }
 
   const seenInFile = new Set<string>();
   const items: InvoicePlanItem[] = [];
@@ -278,7 +302,12 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
     const currency = input.currency || "EUR";
 
     const tax = normTaxId(input.clientTaxId);
-    let match = (tax && byTax.get(tax)) || (input.clientName ? byName.get(norm(input.clientName)) : null) || null;
+    const email = normEmail(input.clientEmail);
+    let match = (tax && byTax.get(tax))
+      || (email && byEmail.get(email))
+      || (input.clientName ? byName.get(norm(input.clientName)) : null)
+      || (input.clientName ? byHistoricalAlias.get(norm(input.clientName)) : null)
+      || null;
     if (!match && input.clientName) {
       const inputTokens = nameTokens(input.clientName);
       let best: { client: (typeof clients)[number]; score: number } | null = null;

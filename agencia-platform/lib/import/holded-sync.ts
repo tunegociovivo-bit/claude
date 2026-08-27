@@ -32,6 +32,10 @@ export function embeddedInvoiceContactName(invoice: any): string {
   return firstNonEmpty(invoice?.contactName, invoice?.contactname) || contactNameFrom(invoice?.contact);
 }
 
+export function embeddedInvoiceContactEmail(invoice: any): string {
+  return firstNonEmpty(invoice?.contactEmail, invoice?.contactemail, invoice?.email, invoice?.contact?.email);
+}
+
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const output = new Array<R>(items.length);
   let next = 0;
@@ -116,17 +120,26 @@ export async function holdedInvoicesAsInputs(
     endTimestamp: options.endTimestamp,
     sort: "created-desc"
   });
-  const missingName = invoices.some((invoice) => !embeddedInvoiceContactName(invoice));
-  const contacts = missingName ? await holdedListContacts({ workspaceId, limit: 5000 }).catch(() => []) : [];
+  // La razón social de Holded puede no coincidir con el nombre comercial
+  // del HUB. El email exacto del contacto es la clave estable para enlazarlos.
+  const contacts = await holdedListContacts({ workspaceId, limit: 5000 }).catch(() => []);
   const contactsById = new Map(contacts.map((contact) => [String(contact.id), contact]));
   let detailFetches = 0;
   const MAX_INVOICE_DETAILS = 250;
   const enriched = await mapWithConcurrency(invoices, 10, async (invoice) => {
     const embeddedName = embeddedInvoiceContactName(invoice);
-    if (embeddedName) return { ...invoice, contactName: embeddedName };
     const listedContactId = invoiceContactId(invoice);
-    const listedContactName = contactNameFrom(contactsById.get(listedContactId));
-    if (listedContactName) return { ...invoice, contactName: listedContactName };
+    const listedContact = contactsById.get(listedContactId);
+    const listedContactName = contactNameFrom(listedContact);
+    const embeddedEmail = embeddedInvoiceContactEmail(invoice);
+    const listedContactEmail = firstNonEmpty(listedContact?.email);
+    if (embeddedName || listedContactName) {
+      return {
+        ...invoice,
+        contactName: embeddedName || listedContactName,
+        contactEmail: embeddedEmail || listedContactEmail || undefined
+      };
+    }
     if (detailFetches >= MAX_INVOICE_DETAILS) return invoice;
     detailFetches++;
     try {
@@ -137,7 +150,8 @@ export async function holdedInvoicesAsInputs(
       if (!contactId) return { ...invoice, ...detail };
       const contact = contactsById.get(contactId) ?? await holdedGetContact(workspaceId, contactId);
       const contactName = contactNameFrom(contact);
-      return { ...invoice, ...detail, contactName: contactName || undefined } as HoldedInvoice;
+      const contactEmail = embeddedInvoiceContactEmail(detail) || firstNonEmpty(contact?.email);
+      return { ...invoice, ...detail, contactName: contactName || undefined, contactEmail: contactEmail || undefined } as HoldedInvoice;
     } catch {
       // La ausencia de nombre no debe impedir importar la factura. La siguiente
       // sincronización volverá a intentar completar el dato.
@@ -152,6 +166,7 @@ export async function holdedInvoicesAsInputs(
       number: i.docNumber || undefined,
       date: i.date ? new Date(i.date * 1000).toISOString() : undefined,
       clientName: i.contactName || undefined,
+      clientEmail: embeddedInvoiceContactEmail(i) || undefined,
       concept: i.desc || undefined,
       totalCents,
       taxRate: 0,

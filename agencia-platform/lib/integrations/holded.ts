@@ -66,6 +66,7 @@ async function holdedFetch<T = any>(
 export type HoldedInvoice = {
   id: string;
   contactName?: string;
+  contactEmail?: string;
   contact?: string;
   desc?: string;
   date?: number; // unix
