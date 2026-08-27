@@ -3,6 +3,7 @@ import {
   buildFranchiseAudit,
   buildFranchiseAuditSvg,
   buildFranchiseCommercialNarrative,
+  buildFranchiseWeakPointSummary,
   selectFranchiseOffer,
   summarizeFranchisePipeline
 } from "../franchise-audit";
@@ -46,6 +47,16 @@ describe("franchise audit", () => {
     expect(narrative.pains).toHaveLength(3);
     expect(narrative.deliverables).toContain("Cuadro de control por ubicación");
     expect(JSON.stringify(narrative)).not.toMatch(/€|ingresos estimados/i);
+  });
+
+  it("puts the three strongest measured weak points in the audit header", () => {
+    const audit = buildFranchiseAudit("Marca", locations, { officialDomain: "marca.es" });
+    const summary = buildFranchiseWeakPointSummary(audit);
+
+    expect(summary).toHaveLength(3);
+    expect(summary.join(" ")).toContain("diferencia entre centros");
+    expect(buildFranchiseAuditSvg(audit)).toContain("PUNTOS DÉBILES A ATACAR");
+    summary.forEach((point) => expect(buildFranchiseAuditSvg(audit)).toContain(point));
   });
 
   it("selects an offer from the strongest measured problem", () => {
