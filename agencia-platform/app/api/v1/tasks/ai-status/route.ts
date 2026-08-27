@@ -21,6 +21,7 @@ import { withApi } from "@/lib/api/handler";
 import { extractEscalationFromLog } from "@/lib/ai/nv-ia/escalate";
 import { getEscalationStatus } from "@/lib/ai/nv-ia/escalate-status";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
+import { repairFutureScheduledFollowupDates, triggerDueScheduledFollowups } from "@/lib/ai/nv-ia/scheduled-followups";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,14 @@ async function getAiUserId(workspaceId: string): Promise<string | null> {
  * querystrings grandes — pasaba en workspaces con >300 tasks).
  */
 async function handler(api: any, ids: string[]) {
+  // El polling del tablero actúa también como segunda red de seguridad para
+  // followups vencidos. Así se recuperan aunque GitHub Actions se retrase.
+  await triggerDueScheduledFollowups(20).catch((e) =>
+    console.warn("[ai-status] trigger due followups:", e?.message ?? e)
+  );
+  await repairFutureScheduledFollowupDates(20).catch((e) =>
+    console.warn("[ai-status] repair followup dates:", e?.message ?? e)
+  );
   ids = ids.slice(0, 1000);
   if (ids.length === 0) {
     const aiUserId = await getAiUserId(api.workspaceId);

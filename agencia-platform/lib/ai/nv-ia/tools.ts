@@ -7517,8 +7517,11 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       const title = String(input?.title ?? "").trim();
       const whenIso = String(input?.whenIso ?? "").trim();
       if (!title) return { error: "title vacío" };
-      const dueDate = new Date(whenIso);
+      let dueDate = new Date(whenIso);
       if (Number.isNaN(dueDate.getTime())) return { error: "whenIso inválido" };
+      const description = typeof input?.description === "string" ? input.description : "";
+      const { alignDueDateToExplicitWeekday, armScheduledFollowup } = await import("./scheduled-followups");
+      dueDate = alignDueDateToExplicitWeekday(dueDate, `${title}\n${description}`);
       if (dueDate.getTime() <= Date.now() + 30_000) {
         return { error: "whenIso debe estar en el futuro; no se puede crear un followup inmediato o vencido" };
       }
@@ -7539,9 +7542,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
         data: {
           workspaceId: ctx.workspaceId,
           title: `🔁 ${title}`,
-          description:
-            (typeof input?.description === "string" ? input.description : "") +
-            `\n\n_(Auto-creada por Sonia como seguimiento de la task ${ctx.taskId})_`,
+          description: description + `\n\n_(Auto-creada por Sonia como seguimiento de la task ${ctx.taskId})_`,
           status: "TODO",
           priority: "MEDIUM",
           projectId,
@@ -7549,6 +7550,7 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           dueDate
         } as any
       });
+      armScheduledFollowup(task.id, dueDate);
       return {
         ok: true,
         taskId: task.id,

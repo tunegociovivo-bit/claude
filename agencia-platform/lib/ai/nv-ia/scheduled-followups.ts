@@ -1,0 +1,90 @@
+import { prisma } from "@/lib/db/prisma";
+import { processRunInBackground } from "./process-run";
+
+const RECENT_RUN_MS = 24 * 60 * 60 * 1000;
+const WEEKDAYS: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miércoles: 3, miercoles: 3, jueves: 4, viernes: 5, sábado: 6, sabado: 6 };
+
+/** Corrige contradicciones obvias como «viernes 29» cuando el 29 es sábado. */
+export function alignDueDateToExplicitWeekday(dueDate: Date, text: string): Date {
+  const found = [...new Set(Object.entries(WEEKDAYS).filter(([name]) => new RegExp(`\\b${name}\\b`, "i").test(text)).map(([, day]) => day))];
+  if (found.length !== 1 || dueDate.getUTCDay() === found[0]) return dueDate;
+  const candidates = [-3, -2, -1, 1, 2, 3]
+    .map((delta) => new Date(dueDate.getTime() + delta * 86_400_000))
+    .filter((date) => date.getUTCDay() === found[0]);
+  return candidates.sort((a, b) => Math.abs(a.getTime() - dueDate.getTime()) - Math.abs(b.getTime() - dueDate.getTime()))[0] ?? dueDate;
+}
+
+/** Dispara una task 🔁 vencida una sola vez, incluso si cron/timer/poll coinciden. */
+export async function triggerScheduledFollowup(taskId: string): Promise<string | null> {
+  const run = await prisma.$transaction(async (tx) => {
+    const lock = await tx.$queryRaw<Array<{ locked: boolean }>>`
+      SELECT pg_try_advisory_xact_lock(hashtext(${taskId})) AS locked
+    `;
+    if (!lock[0]?.locked) return null;
+    const task = await tx.task.findFirst({
+      where: { id: taskId, title: { startsWith: "🔁 " }, dueDate: { lte: new Date() }, status: { notIn: ["DONE", "CANCELLED"] as any } },
+      select: { id: true, workspaceId: true, dueDate: true }
+    });
+    if (!task) return null;
+    const recent = await tx.aiAgentRun.findFirst({
+      where: { taskId, createdAt: { gte: new Date(Date.now() - RECENT_RUN_MS) } },
+      select: { id: true }
+    });
+    if (recent) return null;
+    return tx.aiAgentRun.create({
+      data: {
+        workspaceId: task.workspaceId,
+        taskId,
+        status: "PENDING",
+        trigger: "SCHEDULED" as any,
+        triggerContext: `Followup programado por Sonia para ${task.dueDate?.toISOString()}.`
+      },
+      select: { id: true }
+    });
+  });
+  if (!run) return null;
+  await prisma.soniaScheduledInstruction
+    .updateMany({
+      where: { followupTaskId: taskId },
+      data: { status: "TRIGGERED", triggeredAt: new Date(), attempts: { increment: 1 } }
+    })
+    .catch(() => undefined);
+  void processRunInBackground(run.id);
+  return run.id;
+}
+
+/** Recupera followups vencidos. Lo usan el cron y el polling autenticado. */
+export async function triggerDueScheduledFollowups(limit = 50): Promise<string[]> {
+  const due = await prisma.task.findMany({
+    where: { title: { startsWith: "🔁 " }, dueDate: { lte: new Date() }, status: { notIn: ["DONE", "CANCELLED"] as any } },
+    select: { id: true },
+    take: limit
+  });
+  const results = await Promise.all(due.map((task) => triggerScheduledFollowup(task.id)));
+  return results.filter((id): id is string => !!id);
+}
+
+/** Repara followups futuros creados con un día de semana incompatible. */
+export async function repairFutureScheduledFollowupDates(limit = 50): Promise<number> {
+  const tasks = await prisma.task.findMany({
+    where: { title: { startsWith: "🔁 " }, dueDate: { gt: new Date() }, status: { notIn: ["DONE", "CANCELLED"] as any } },
+    select: { id: true, title: true, description: true, dueDate: true },
+    take: limit
+  });
+  let repaired = 0;
+  for (const task of tasks) {
+    if (!task.dueDate) continue;
+    const corrected = alignDueDateToExplicitWeekday(task.dueDate, `${task.title}\n${task.description ?? ""}`);
+    if (corrected.getTime() === task.dueDate.getTime()) continue;
+    await prisma.task.update({ where: { id: task.id }, data: { dueDate: corrected } });
+    repaired++;
+  }
+  return repaired;
+}
+
+/** Ejecución casi exacta para encargos próximos; el cron sigue siendo respaldo durable. */
+export function armScheduledFollowup(taskId: string, dueDate: Date): void {
+  const delay = dueDate.getTime() - Date.now();
+  if (delay <= 0 || delay > 24 * 60 * 60 * 1000) return;
+  setTimeout(() => void triggerScheduledFollowup(taskId).catch((e) => console.warn("[sonia followup timer]", e)), delay + 250);
+}
