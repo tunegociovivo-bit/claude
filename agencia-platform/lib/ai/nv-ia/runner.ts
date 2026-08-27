@@ -28,6 +28,7 @@ import {
   loadStoredAdhocCredentials,
   persistAdhocCredentials
 } from "./adhoc-credentials";
+import { hasFutureExecutionIntent } from "./temporal-intent";
 
 /**
  * Resuelve las credenciales ad-hoc disponibles para este run:
@@ -963,6 +964,7 @@ export async function executeAgentRun(opts: {
   let summary: string | null = null;
   let completed = false;
   let reflexionsDone = 0;
+  let deferExecutionUntilScheduled = false;
 
   const client = await getAnthropicForWorkspace(workspaceId);
 
@@ -996,6 +998,36 @@ export async function executeAgentRun(opts: {
   // Mensaje inicial — adaptado al tipo de trigger. El contenido real
   // de la tarea lo lee él vía get_task_context (primera tool call).
   let initialContent = buildInitialMessage(taskId, trigger, triggerContext);
+
+  // GUARDIA TEMPORAL: una petición con hora futura debe crear followups, no
+  // empezar a trabajar en el mismo run. Se usa el último comentario del
+  // requester porque es el texto que acaba de disparar el encargo manual.
+  if (trigger === "MANUAL" || trigger === "MENTION") {
+    try {
+      const run = await prisma.aiAgentRun.findUnique({
+        where: { id: runId },
+        select: { requesterId: true, createdAt: true }
+      });
+      const latestRequest = await prisma.comment.findFirst({
+        where: {
+          workspaceId,
+          targetType: "TASK",
+          targetId: taskId,
+          ...(run?.requesterId ? { authorId: run.requesterId } : {})
+        },
+        orderBy: { createdAt: "desc" },
+        select: { body: true, createdAt: true }
+      });
+      const isFreshRequest = !!latestRequest && !!run && Math.abs(run.createdAt.getTime() - latestRequest.createdAt.getTime()) <= 15 * 60_000;
+      deferExecutionUntilScheduled = isFreshRequest && hasFutureExecutionIntent(latestRequest?.body ?? "");
+      if (deferExecutionUntilScheduled) {
+        initialContent += `\n\n## BLOQUEO TEMPORAL OBLIGATORIO\nLa última petición contiene una hora futura. Este run sirve EXCLUSIVAMENTE para crear uno o varios schedule_followup. NO ejecutes ahora la tarea, NO consultes APIs del encargo y NO generes entregables. Separa cada momento futuro en su propio followup, con instrucciones completas. Si una hora indicada para hoy ya ha pasado pero existe otra hora futura explícita, usa la futura; nunca adelantes una acción. Después informa de las fechas programadas y termina.`;
+        log.push({ type: "info", ts: nowIso(), text: "Guardia temporal activa: ejecución aplazada hasta followup" });
+      }
+    } catch (error) {
+      console.warn("[sonia] temporal intent guard:", (error as Error).message);
+    }
+  }
   if (Object.keys(adhocCredentials).length > 0) {
     // Avisamos al modelo de qué KEYs de credenciales temporales están
     // ya cargadas, sin revelar valores. Las tools las usarán
@@ -1409,6 +1441,7 @@ export async function executeAgentRun(opts: {
           "add_comment",
           "create_subtask",
           "assign_task",
+          "schedule_followup",
           "close_deal",
           "update_task_status"
         ]);
@@ -1602,7 +1635,13 @@ export async function executeAgentRun(opts: {
           // cuando HUB_AUTONOMY_SHADOW está off.
           maybeRecordAutonomyShadow(prisma, { workspaceId: ctx.workspaceId, action: tu.name, input: tu.input });
           const gateMode = toolGateMode();
-          if (danger && gateMode === "enforce") {
+          const temporalAllowed = new Set(["get_task_context", "schedule_followup", "add_comment", "mark_complete"]);
+          if (deferExecutionUntilScheduled && !temporalAllowed.has(tu.name)) {
+            output = {
+              error: `Acción '${tu.name}' bloqueada: la petición contiene una hora futura. Crea schedule_followup y no ejecutes el encargo ahora.`
+            };
+            isError = true;
+          } else if (danger && gateMode === "enforce") {
             output = blockedToolResult(tu.name, danger);
             isError = true;
           } else {

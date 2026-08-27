@@ -7488,6 +7488,9 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       if (!title) return { error: "title vacío" };
       const dueDate = new Date(whenIso);
       if (Number.isNaN(dueDate.getTime())) return { error: "whenIso inválido" };
+      if (dueDate.getTime() <= Date.now() + 30_000) {
+        return { error: "whenIso debe estar en el futuro; no se puede crear un followup inmediato o vencido" };
+      }
 
       // Si hay clientId, encadenamos el cliente al proyecto IA del workspace
       // (asumimos que ya está creado — si no, la task se crea sin project).
