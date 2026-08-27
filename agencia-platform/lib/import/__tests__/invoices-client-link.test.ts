@@ -26,7 +26,7 @@ const input = (clientName: string) => ({
 
 describe("invoice client linking", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     prismaMock.invoice.findMany.mockResolvedValue([{ number: "FAC-TEST" }]);
   });
 
@@ -53,6 +53,27 @@ describe("invoice client linking", () => {
 
     expect(plan.clientMatchId).toBeUndefined();
     expect(plan.clientUnmatched).toBe(true);
+  });
+
+  it("reuses a unique historical invoice alias for a recurring Holded customer", async () => {
+    prismaMock.client.findMany.mockResolvedValue([
+      { id: "tantra", name: "TANTRA USUAYA", taxId: null }
+    ]);
+    prismaMock.invoice.findMany
+      .mockResolvedValueOnce([{ number: "FAC-003043" }])
+      .mockResolvedValueOnce([
+        {
+          clientId: "tantra",
+          clientSnapshot: { name: "Masajes posoperatorios S.L" },
+          client: { id: "tantra", name: "TANTRA USUAYA" }
+        }
+      ]);
+
+    const [plan] = await buildInvoicePlan("ws", [input("Masajes posoperatorios S.L")]);
+
+    expect(plan.clientMatchId).toBe("tantra");
+    expect(plan.clientMatchName).toBe("TANTRA USUAYA");
+    expect(plan.clientUnmatched).toBe(false);
   });
 
   it("uses an optimistic tenant-scoped guard and preserves an existing snapshot", async () => {
