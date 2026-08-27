@@ -17,6 +17,7 @@ import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 import { remittanceRetryDecision } from "../src/santander/retry.js";
+import { existingInstanceBlocksStart } from "../src/single-instance.js";
 
 let passed = 0;
 let failed = 0;
@@ -58,6 +59,11 @@ async function runScenario(anomaly: MockAnomaly, opts?: any) {
 }
 
 async function main() {
+  console.log("Instancia única del agente:");
+  ok("bloquea una segunda copia si el PID anterior sigue activo", existingInstanceBlocksStart(1234, 5678, true));
+  ok("permite sustituir un bloqueo huérfano", !existingInstanceBlocksStart(1234, 5678, false));
+  ok("no se bloquea a sí mismo", !existingInstanceBlocksStart(5678, 5678, true));
+
   console.log("Conciliación de cobros:");
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
