@@ -891,6 +891,17 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
   sample: { phone: string; channel: string; blocker: string }[];
 }> {
   const settings = await getSendSettings(workspaceId);
+  // El agregado legacy multiplicaba la configuración base por el número de
+  // sesiones, pero ignoraba que algunas pueden estar en recuperación/warm-up.
+  // Sumamos los topes efectivos de CADA canal para mostrar la capacidad real.
+  const activeChannels = (await getLeadChannels(workspaceId)).filter((channel) => channel.active !== false);
+  const perChannelSettings = await Promise.all([
+    getSendSettings(workspaceId, null),
+    ...activeChannels.map((channel) => getSendSettings(workspaceId, channel.name))
+  ]);
+  const effectiveDailyLimit = perChannelSettings.reduce((sum, item) => sum + item.dailyLimit, 0);
+  const effectiveHourlyLimit = perChannelSettings.reduce((sum, item) => sum + item.maxPerHour, 0);
+  const effectiveNewChatLimit = perChannelSettings.reduce((sum, item) => sum + item.maxNewChatsPerDay, 0);
   const now = new Date();
   const mp = getMadridParts(now);
   const nowStr = `${String(mp.day).padStart(2, "0")}/${String(mp.month).padStart(2, "0")} ${String(mp.hour).padStart(2, "0")}:${String(mp.minute).padStart(2, "0")} (Madrid)`;
@@ -1043,12 +1054,12 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
   } else if (!anyConnected) {
     verdict = "Ningún número de WhatsApp está conectado.";
     detail = `Sesiones: ${sessions.map((s) => `${s.name} (${s.status})`).join(", ")}. Reconecta al menos una en Ajustes → Conectar (escanear QR).`;
-  } else if (sentToday >= settings.dailyLimit) {
+  } else if (sentToday >= effectiveDailyLimit) {
     verdict = "Tope diario alcanzado.";
-    detail = `Ya se han enviado ${sentToday}/${settings.dailyLimit} hoy. Reanuda mañana o sube el tope en Ajustes.`;
-  } else if (sentLastHour >= settings.maxPerHour) {
+    detail = `Ya se han enviado ${sentToday}/${effectiveDailyLimit} hoy. Reanuda mañana o sube el tope en Ajustes.`;
+  } else if (sentLastHour >= effectiveHourlyLimit) {
     verdict = "Tope por hora alcanzado.";
-    detail = `${sentLastHour}/${settings.maxPerHour} en la última hora. Se reanuda en cuanto pase la hora.`;
+    detail = `${sentLastHour}/${effectiveHourlyLimit} en la última hora. Se reanuda en cuanto pase la hora.`;
   } else if (lastSent?.sentAt && (now.getTime() - lastSent.sentAt.getTime()) / 1000 < settings.sendDelayMinSec) {
     verdict = "Esperando la cadencia mínima entre envíos.";
     detail = `Faltan unos segundos desde el último envío (delay mínimo ${settings.sendDelayMinSec}s).`;
@@ -1097,8 +1108,8 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     health = "idle";
   } else if (
     !insideWindow ||
-    sentToday >= settings.dailyLimit ||
-    sentLastHour >= settings.maxPerHour ||
+    sentToday >= effectiveDailyLimit ||
+    sentLastHour >= effectiveHourlyLimit ||
     dueNow === 0
   ) {
     health = "waiting";
@@ -1115,10 +1126,10 @@ export async function diagnoseQueue(workspaceId: string): Promise<{
     settings: {
       sendEnabled: settings.sendEnabled,
       sendPaused: settings.sendPaused,
-      dailyLimitEffective: settings.dailyLimit,
-      maxPerHour: settings.maxPerHour,
+      dailyLimitEffective: effectiveDailyLimit,
+      maxPerHour: effectiveHourlyLimit,
       cooldownDays,
-      maxNewChatsPerDay: settings.maxNewChatsPerDay,
+      maxNewChatsPerDay: effectiveNewChatLimit,
       window: `${settings.sendWindowStart}–${settings.sendWindowEnd}`,
       sendOnWeekends: settings.sendOnWeekends,
       recoveryMode: settings.recoveryMode,
