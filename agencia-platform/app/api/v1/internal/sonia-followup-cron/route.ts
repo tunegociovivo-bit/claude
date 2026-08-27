@@ -76,6 +76,14 @@ export async function POST(req: NextRequest) {
       }
     });
     fired.push({ taskId: t.id, runId: run.id, title: t.title });
+    // Si esta task 🔁 nació del planificador de instrucciones futuras, deja
+    // constancia auditable del disparo (estado + intentos + timestamp).
+    await prisma.soniaScheduledInstruction
+      .updateMany({
+        where: { followupTaskId: t.id },
+        data: { status: "TRIGGERED", triggeredAt: now, attempts: { increment: 1 } }
+      })
+      .catch(() => undefined);
     processRunInBackground(run.id);
   }
 

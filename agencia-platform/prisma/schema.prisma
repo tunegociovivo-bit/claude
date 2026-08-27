@@ -246,6 +246,7 @@ model Workspace {
   metaLeadAttributions       MetaLeadAttribution[]
   metaOptimizationProposals  MetaOptimizationProposal[]
   aiAgentRuns                AiAgentRun[]
+  soniaScheduledInstructions SoniaScheduledInstruction[]
   aiDrafts                   AiDraft[]
   aiOrchestrations           AiOrchestration[]
   aiRunSteps                 AiRunStep[]
@@ -2526,6 +2527,39 @@ enum AiAgentRunStatus {
   SUCCEEDED // terminó OK, resumen disponible
   FAILED // error fatal (timeout, tokens, exception)
   REQUIRES_HUMAN // la IA pidió ayuda — la tarea queda en mano del user
+}
+
+// Registro auditable de instrucciones FUTURAS detectadas en comentarios de
+// tareas ("mañana a las 9 mándame el informe por WhatsApp…"). Cada fila = una
+// acción con su instante. La EJECUCIÓN reutiliza la primitiva existente: se
+// crea una task «🔁» con dueDate (followupTaskId) que el cron
+// /api/v1/internal/sonia-followup-cron convierte en AiAgentRun al vencer; al
+// dispararse, el cron marca aquí TRIGGERED (attempts++). status:
+// SCHEDULED | TRIGGERED | NEEDS_CLARIFICATION (ambigua/pasada — no se ejecuta
+// nada hasta que el humano aclare) | CANCELLED. Idempotencia: unique por
+// (commentId, scheduledAt) — reprocesar el mismo comentario no duplica.
+model SoniaScheduledInstruction {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  taskId         String // tarea original donde se escribió el comentario
+  commentId      String
+  followupTaskId String?   @unique // task 🔁 creada (null si NEEDS_CLARIFICATION)
+  sourceText     String    @db.Text
+  timezone       String
+  scheduledAt    DateTime
+  payload        Json // acción normalizada: summary, dataRange, channel, recipient, when, wallClock
+  status         String    @default("SCHEDULED")
+  attempts       Int       @default(0)
+  lastError      String?   @db.Text
+  triggeredAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, scheduledAt])
+  @@index([workspaceId, status])
+  @@index([taskId])
 }
 
 // Φ5 — Asistencia en vivo durante videollamadas. La extensión Chrome

@@ -16,6 +16,7 @@
     "db:reset": "prisma migrate reset --force",
     "openapi": "tsx scripts/build-openapi.ts",
     "cron:tick": "tsx scripts/cron-tick.ts",
+    "test:sonia-schedule": "tsx scripts/test-sonia-schedule.ts",
     "bubui:stripe-setup": "node scripts/bubui-stripe-setup.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

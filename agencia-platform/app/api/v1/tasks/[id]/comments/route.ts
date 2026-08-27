@@ -112,16 +112,51 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
       /@sonia\b/i.test(plainBody) ||
       /@nv[\s-]?ia\b/i.test(plainBody);
     if (aiUserId && mentionsAi && api.userId !== aiUserId) {
-      const newRun = await prisma.aiAgentRun.create({
-        data: {
-          workspaceId: api.workspaceId,
-          taskId: params.id,
-          requesterId: api.userId,
-          status: "PENDING",
-          trigger: "MENTION"
+      // En segundo plano para no retrasar el POST del comentario: primero el
+      // planificador de instrucciones FUTURAS ("mañana a las 9 mándame…"). Si
+      // TODO el comentario es futuro, se programa y NO se ejecuta nada ahora;
+      // si hay trabajo inmediato (o el planificador no aplica/falla), se crea
+      // el run como siempre — con nota de lo ya programado para no duplicarlo.
+      const workspaceId = api.workspaceId;
+      const requesterId = api.userId;
+      const taskId = params.id;
+      const commentId = comment.id;
+      const commentText = bodyString;
+      void (async () => {
+        let triggerContext: string | null = null;
+        try {
+          const { planFutureInstructions } = await import("@/lib/ai/nv-ia/future-instructions");
+          const plan = await planFutureInstructions({ workspaceId, taskId, commentId, commentText });
+          if (plan && !plan.alreadyProcessed && (plan.scheduled > 0 || plan.problems > 0)) {
+            if (!plan.immediateWork) {
+              // Comentario 100% futuro: ya está programado y confirmado en la
+              // tarea. Nada que ejecutar ahora.
+              return;
+            }
+            triggerContext =
+              `AVISO DEL PLANIFICADOR: las partes con fecha/hora futura de este comentario YA están programadas ` +
+              `(${plan.scheduled} ejecución(es) creadas como tasks 🔁${plan.problems ? `, ${plan.problems} pendientes de aclaración` : ""}). ` +
+              `NO las ejecutes ni las reprogrames. Ocúpate SOLO del trabajo inmediato: ${plan.immediateWork}`;
+          }
+        } catch (e) {
+          console.warn("[nv-ia] future-instructions planner failed (sigo con run normal):", (e as Error).message);
         }
-      });
-      processRunInBackground(newRun.id);
+        try {
+          const newRun = await prisma.aiAgentRun.create({
+            data: {
+              workspaceId,
+              taskId,
+              requesterId,
+              status: "PENDING",
+              trigger: "MENTION",
+              ...(triggerContext ? { triggerContext } : {})
+            }
+          });
+          processRunInBackground(newRun.id);
+        } catch (e) {
+          console.warn("[nv-ia] mention run create failed:", (e as Error).message);
+        }
+      })();
     }
   } catch (e) {
     console.warn("[nv-ia] mention hook failed:", (e as Error).message);
