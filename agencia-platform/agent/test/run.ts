@@ -76,6 +76,8 @@ async function main() {
     reconciliationRetryDecision(new Date("2026-08-11T08:20:00Z"), new Date("2026-08-11T08:00:00Z"), 1, "Europe/Madrid") === "WAIT");
   ok("reintenta la conciliación al cumplirse 30 minutos",
     reconciliationRetryDecision(new Date("2026-08-11T08:30:00Z"), new Date("2026-08-11T08:00:00Z"), 1, "Europe/Madrid") === "RUN");
+  ok("una resincronización forzada arranca inmediatamente al reiniciar el contador",
+    reconciliationRetryDecision(new Date("2026-08-11T08:05:00Z"), new Date("2026-08-11T08:00:00Z"), 0, "Europe/Madrid") === "RUN");
   ok("detiene los reintentos tras tres fallos para evitar bucles",
     reconciliationRetryDecision(new Date("2026-08-11T10:00:00Z"), new Date("2026-08-11T09:00:00Z"), 3, "Europe/Madrid") === "EXHAUSTED");
   ok("reinicia el ciclo de intentos al día siguiente",
