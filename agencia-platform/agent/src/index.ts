@@ -10,12 +10,14 @@
  * credenciales del banco. Tú inicias sesión y firmas; el agente solo prepara.
  */
 import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { Logger } from "./logger.js";
 import { Runner } from "./runner.js";
 import { HubClient } from "./hub-client.js";
+import { acquireSingleInstance } from "./single-instance.js";
 
 function pkgVersion(): string {
   try {
@@ -69,11 +71,16 @@ async function main() {
     return;
   }
 
+  const lock = acquireSingleInstance(join(process.env.LOCALAPPDATA || tmpdir(), "NegocioVivoBankAgent", "agent.lock"));
+  if (!lock) {
+    log.warn("Ya existe otra instancia del agente bancario; esta copia no se iniciará.");
+    return;
+  }
   const runner = new Runner(cfg, log);
-  const shutdown = () => { log.info("Deteniendo agente…"); runner.stop(); setTimeout(() => process.exit(0), 1500); };
+  const shutdown = () => { log.info("Deteniendo agente…"); runner.stop(); lock.release(); setTimeout(() => process.exit(0), 1500); };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-  await runner.start();
+  try { await runner.start(); } finally { lock.release(); }
 }
 
 void main();
