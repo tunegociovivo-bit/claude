@@ -24,6 +24,8 @@ describe("franchise audit", () => {
     expect(audit.metrics.closedPct).toBe(25);
     expect(audit.score).toBeGreaterThanOrEqual(60);
     expect(audit.findings.every((finding) => finding.evidence.length > 0)).toBe(true);
+    expect(audit.priorityLocations?.[0]).toMatchObject({ name: "Marca Este", rating: 2.9 });
+    expect(audit.priorityLocations?.[0].issues).toContain("Estado no operativo");
   });
 
   it("labels visual evidence as a simulation and escapes the brand", () => {
@@ -32,6 +34,8 @@ describe("franchise audit", () => {
     expect(svg).toContain("SIMULACIÓN VISUAL BASADA EN DATOS OBSERVADOS");
     expect(svg).toContain("Marca &lt;Demo&gt;");
     expect(svg).not.toContain("Marca <Demo>");
+    expect(svg).toContain("Establecimientos prioritarios");
+    expect(svg).toContain("Plan recomendado de 60 días");
   });
 
   it("selects an offer from the strongest measured problem", () => {
