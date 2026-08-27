@@ -76,6 +76,23 @@ describe("invoice client linking", () => {
     expect(plan.clientUnmatched).toBe(false);
   });
 
+  it("links different commercial and legal names by an exact customer email", async () => {
+    prismaMock.client.findMany.mockResolvedValue([
+      { id: "tantra", name: "TANTRA USUAYA", taxId: null, email: "tantrausuaya@gmail.com" }
+    ]);
+    prismaMock.invoice.findMany
+      .mockResolvedValueOnce([{ number: "FAC-003043" }])
+      .mockResolvedValueOnce([]);
+
+    const [plan] = await buildInvoicePlan("ws", [{
+      ...input("Masajes posoperatorios S.L"),
+      clientEmail: "TANTRAUSUAYA@gmail.com"
+    }]);
+
+    expect(plan.clientMatchId).toBe("tantra");
+    expect(plan.clientUnmatched).toBe(false);
+  });
+
   it("uses an optimistic tenant-scoped guard and preserves an existing snapshot", async () => {
     const updatedAt = new Date("2026-08-10T10:00:00Z");
     prismaMock.client.findMany.mockResolvedValue([{ id: "maype", name: "MAYPE COPIADORAS", taxId: null }]);
