@@ -3597,7 +3597,10 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
           })
         : null;
       const authorizationText = latestRequest?.body ?? "";
-      const explicitlyRequested = /\b(email|e-mail|correo|env[ií]a(?:r)?|manda(?:r)?)\b/i.test(authorizationText);
+      const mentionsEmailChannel = /\b(email|e-mail|correo)\b/i.test(authorizationText);
+      const mentionsExactRecipient = authorizationText.toLowerCase().includes(to.toLowerCase());
+      const containsSendVerb = /\b(env[ií]a(?:r)?|manda(?:r)?)\b/i.test(authorizationText);
+      const explicitlyRequested = mentionsEmailChannel || (mentionsExactRecipient && containsSendVerb);
       if (!explicitlyRequested) {
         return {
           error: "EMAIL EXTERNO BLOQUEADO: el encargo actual no contiene una petición explícita del administrador para preparar o enviar este correo. Limítate a recomendar la acción en un comentario."
