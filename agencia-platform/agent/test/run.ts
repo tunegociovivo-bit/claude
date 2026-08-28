@@ -91,8 +91,10 @@ async function main() {
     try { await browserValueOr(async () => { throw new Error("locator.allInnerTexts: Frame was detached"); }, []); }
     catch { detachedWasRethrown = true; }
     ok("no convierte un iframe desconectado en una lista vacía", detachedWasRethrown);
-    ok("mantiene el fallback para un estado opcional no relacionado con el iframe",
-      (await browserValueOr(async () => { throw new Error("element not found"); }, ["fallback"]))[0] === "fallback");
+    let genericBrowserFailureWasRethrown = false;
+    try { await browserValueOr(async () => { throw new Error("execution context was destroyed"); }, ["fallback"]); }
+    catch { genericBrowserFailureWasRethrown = true; }
+    ok("no convierte otros fallos del navegador en ausencia de datos", genericBrowserFailureWasRethrown);
 
     let clicks = 0;
     let escaped = 0;
