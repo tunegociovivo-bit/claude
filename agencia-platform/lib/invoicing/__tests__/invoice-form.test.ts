@@ -7,6 +7,7 @@ import {
   formatInvoiceNumberPreview,
   invoiceRecipientEmail,
   invoiceTaxLabel,
+  recurringOccurrenceSchedule,
 } from "../invoice-form";
 
 describe("invoice form defaults", () => {
@@ -28,6 +29,19 @@ describe("invoice form defaults", () => {
     ["2024-02-29", "YEARS", 1, "2025-02-28"],
   ] as const)("supports recurring invoices by %s", (date, unit, every, expected) => {
     expect(addInvoiceInterval(date, unit, every)).toBe(expected);
+  });
+});
+
+describe("recurring invoice catch-up", () => {
+  it("returns every missed daily occurrence instead of silently skipping invoices", () => {
+    const schedule = recurringOccurrenceSchedule("2026-08-01", "2026-08-04", "DAYS", 1);
+    expect(schedule.dueDates).toEqual(["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"]);
+    expect(schedule.nextRunAt).toBe("2026-08-05");
+  });
+
+  it("keeps the issue year of an overdue occurrence", () => {
+    const schedule = recurringOccurrenceSchedule("2026-12-31", "2027-01-02", "YEARS", 1);
+    expect(schedule.dueDates[0]?.slice(0, 4)).toBe("2026");
   });
 });
 
