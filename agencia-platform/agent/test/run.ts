@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { browserValueOr, clickAfterDismissingModal, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { browserValueOr, clickAfterDismissingModal, FrameRefreshRequiredError, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -86,6 +86,16 @@ async function main() {
       async (frame) => frame.ready
     );
     ok("reintenta también si el iframe se desconecta mientras se adquiere", acquiredAfterDetach && acquisitionAttempts === 2);
+
+    let recoveredAfterSafeReload = 0;
+    const resultAfterSafeReload = await runWithRefreshedFrame(
+      async () => ({ generation: ++recoveredAfterSafeReload }),
+      async (frame) => {
+        if (frame.generation === 1) throw new FrameRefreshRequiredError("diálogo bloqueante recargado");
+        return frame.generation;
+      }
+    );
+    ok("reanuda la consulta tras recargar un diálogo bloqueante persistente", resultAfterSafeReload === 2 && recoveredAfterSafeReload === 2);
 
     let detachedWasRethrown = false;
     try { await browserValueOr(async () => { throw new Error("locator.allInnerTexts: Frame was detached"); }, []); }
