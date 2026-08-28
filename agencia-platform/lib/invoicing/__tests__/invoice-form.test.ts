@@ -3,6 +3,7 @@ import {
   addInvoicePaymentDays,
   automationStatus,
   formatInvoiceNumberPreview,
+  invoiceRecipientEmail,
 } from "../invoice-form";
 
 describe("invoice form defaults", () => {
@@ -12,6 +13,16 @@ describe("invoice form defaults", () => {
 
   it("handles month and year changes without timezone drift", () => {
     expect(addInvoicePaymentDays("2026-12-15", 30)).toBe("2027-01-14");
+  });
+});
+
+describe("automatic invoice delivery", () => {
+  it("uses the email frozen in the client snapshot", () => {
+    expect(invoiceRecipientEmail({ email: " facturas@cliente.es " })).toBe("facturas@cliente.es");
+  });
+
+  it("refuses to mark a delivery when the client has no email", () => {
+    expect(() => invoiceRecipientEmail({ email: null })).toThrow(/email/i);
   });
 });
 
