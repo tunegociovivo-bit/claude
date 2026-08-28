@@ -590,7 +590,8 @@ export async function metaAdsDownloadLeads(opts: {
   const accessToken = await resolveMetaTokenForObject(
     opts.workspaceId,
     sourceObjectId,
-    opts.adhoc
+    opts.adhoc,
+    opts.signal
   );
 
   // 1) Resolver las "fuentes" de leads. Si es campaignId o adsetId,
