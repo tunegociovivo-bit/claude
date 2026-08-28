@@ -203,10 +203,11 @@ export class SantanderReconciliationReader {
             reference: `Remesa SEPA ${remittance.remittanceNumber} · ${remittance.status}`,
             remittanceNumber: remittance.remittanceNumber
           });
-          let opened = false;
-          try {
-          const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
-          await clickAfterDismissingModal(page, row.getByRole("button"), () => this.dismissBlockingModal(page, frame));
+            let opened = false;
+            try {
+            const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
+            await this.dismissBlockingModal(page, frame);
+            await clickAfterDismissingModal(page, row.getByRole("button"), () => this.dismissBlockingModal(page, frame));
           opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await browserValueOr(() => receipts.isVisible(), false)) continue;
@@ -405,8 +406,19 @@ export class SantanderReconciliationReader {
   private async dismissBlockingModal(page: any, frame: any): Promise<void> {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
-    const modal = frame.locator(".modal:visible").first();
-    if (!await browserValueOr(() => modal.isVisible(), false)) return;
+    const modals = frame.locator(".modal");
+    let modal: any = null;
+    for (let index = await modals.count() - 1; index >= 0; index--) {
+      const candidate = modals.nth(index);
+      const blocksPointer = await candidate.evaluate((element: Element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden"
+          && style.pointerEvents !== "none" && rect.width > 0 && rect.height > 0;
+      }).catch(() => false);
+      if (blocksPointer) { modal = candidate; break; }
+    }
+    if (!modal) return;
 
     const semanticClose = modal.getByRole("button", { name: /^(Cerrar|Close|Volver)$/i });
     const structuralClose = modal.locator('button.close, [data-dismiss="modal"], button[aria-label*="cerrar" i], button[title*="cerrar" i]');
