@@ -42,7 +42,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       }, { isolationLevel: "Serializable" });
       break;
     } catch (error: any) {
-      if (error?.code !== "P2034" || attempt === 2) throw error;
+      if ((error?.code !== "P2034" && error?.code !== "P2002") || attempt === 2) throw error;
     }
   }
   if (currentNext > next) {
