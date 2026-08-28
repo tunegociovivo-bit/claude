@@ -4,6 +4,7 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import PageHeader from "@/components/PageHeader";
 import FacturacionClient from "@/components/FacturacionClient";
+import { completeRixusIssuerProfile } from "@/lib/invoicing/rixus";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,8 @@ export default async function FacturacionPage() {
 
   const me = await prisma.membership.findFirst({ where: { userId, workspaceId } });
   if (!me || me.role !== "ADMIN") redirect("/");
+
+  await completeRixusIssuerProfile(workspaceId);
 
   const [clients, issuers, recImported, recActive] = await Promise.all([
     prisma.client.findMany({

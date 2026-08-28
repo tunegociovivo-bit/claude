@@ -85,8 +85,8 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
       const qty = Number(ln.quantity) || 0;
       const amounts = computeInvoiceLineAmounts(ln);
       return `<tr>
-        <td class="desc">${esc(ln.concept || ln.description)}</td>
-        <td class="desc">${esc(ln.description)}</td>
+        <td class="concept">${esc(ln.concept || ln.description)}</td>
+        <td class="description">${esc(ln.description || "—")}</td>
         <td class="num">${formatMoney(ln.unitPriceCents, cur)}</td>
         <td class="num">${qty.toLocaleString("es-ES")}</td>
         <td class="num">${formatMoney(amounts.subtotalCents, cur)}</td>
@@ -133,12 +133,13 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   .party h3 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: #6b7280; }
   .party .pname { font-weight: 700; font-size: 13px; }
   .party div { font-size: 11px; color: #374151; }
-  table.lines { width: 100%; border-collapse: collapse; margin-top: 22px; }
-  table.lines thead th { background: ${accent}; color: #fff; text-align: left; padding: 8px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+  table.lines { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 22px; }
+  table.lines thead th { background: ${accent}; color: #fff; text-align: left; padding: 7px 5px; font-size: 8px; text-transform: uppercase; letter-spacing: .2px; }
   table.lines thead th.num, table.lines td.num { text-align: right; }
-  table.lines tbody td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  table.lines tbody td { padding: 7px 5px; border-bottom: 1px solid #e5e7eb; vertical-align: top; font-size: 9px; overflow-wrap: anywhere; }
   table.lines tbody tr:nth-child(even) { background: #f9fafb; }
-  td.desc { width: 46%; }
+  td.concept { font-weight: 600; }
+  td.description { color: #4b5563; }
   .totals { margin-top: 16px; display: flex; justify-content: flex-end; }
   .totals table { border-collapse: collapse; min-width: 280px; }
   .totals td { padding: 5px 10px; font-size: 12px; }
@@ -186,6 +187,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
     </div>
 
     <table class="lines">
+      <colgroup><col style="width:17%"><col style="width:25%"><col style="width:12%"><col style="width:9%"><col style="width:12%"><col style="width:13%"><col style="width:12%"></colgroup>
       <thead>
         <tr>
           <th>Concepto</th>

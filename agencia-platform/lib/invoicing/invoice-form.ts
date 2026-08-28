@@ -1,5 +1,18 @@
 export type InvoiceAutomationWorkflow = "DRAFT" | "APPROVE" | "SEND";
 
+export const RIXUS_ISSUER_PROFILE = {
+  name: "RIXUS SOLUTIONS",
+  legalName: "RIXUS SOLUTIONS LLC",
+  taxId: "37-2141153",
+  address: "407 LINCOLN RD STE 12-N",
+  postalCode: "33139",
+  city: "MIAMI BEACH",
+  province: "FLORIDA",
+  countryCode: "USA",
+  personType: "J",
+  residenceType: "E"
+} as const;
+
 export function addInvoicePaymentDays(issueDate: string, days = 30): string {
   const [year, month, day] = issueDate.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -44,6 +57,20 @@ export function automationStatus(workflow: InvoiceAutomationWorkflow): "DRAFT" |
   if (workflow === "SEND") return "SENT";
   if (workflow === "APPROVE") return "ISSUED";
   return "DRAFT";
+}
+
+export function mergeInvoiceClients<T extends { id: string; name: string }>(clients: T[], client: T): T[] {
+  const byId = new Map(clients.map((item) => [item.id, item]));
+  byId.set(client.id, client);
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+export function normalizeInitialInvoiceSequence(value: string | number): number {
+  const sequence = Number(value);
+  if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 9_999_999_999) {
+    throw new Error("El número inicial debe ser un entero entre 1 y 9.999.999.999");
+  }
+  return sequence;
 }
 
 export function formatInvoiceNumberPreview(series: string, year: number, next: number): string {

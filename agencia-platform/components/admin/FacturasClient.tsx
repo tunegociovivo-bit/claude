@@ -23,6 +23,9 @@ import {
   automationStatus,
   invoiceTaxLabel,
   normalizeCustomInvoiceNumber,
+  mergeInvoiceClients,
+  normalizeInitialInvoiceSequence,
+  RIXUS_ISSUER_PROFILE,
   type InvoiceRecurrenceUnit,
   type InvoiceAutomationWorkflow
 } from "@/lib/invoicing/invoice-form";
@@ -117,10 +120,16 @@ export default function FacturasClient({
   /** Se llama tras (re)cargar la lista de facturas (crear/editar/borrar). */
   onInvoicesChanged?: () => void;
 }) {
+  const [availableClients, setAvailableClients] = useState<ClientLite[]>(clients);
+  useEffect(() => setAvailableClients((current) => {
+    let merged = current;
+    for (const client of clients) merged = mergeInvoiceClients(merged, client);
+    return merged;
+  }), [clients]);
   const editorClients =
     clientFilterIds && clientFilterIds.length > 0
-      ? clients.filter((c) => clientFilterIds.includes(c.id))
-      : clients;
+      ? availableClients.filter((c) => clientFilterIds.includes(c.id) || !clients.some((original) => original.id === c.id))
+      : availableClients;
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers ?? []);
   const [loading, setLoading] = useState(true);
@@ -414,6 +423,7 @@ export default function FacturasClient({
           issuers={issuers}
           invoices={invoices}
           lockedIssuerId={lockedIssuerId}
+          onClientCreated={(client) => setAvailableClients((current) => mergeInvoiceClients(current, client))}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -450,6 +460,7 @@ function InvoiceFormModal({
   issuers,
   invoices,
   lockedIssuerId,
+  onClientCreated,
   onClose,
   onSaved
 }: {
@@ -458,6 +469,7 @@ function InvoiceFormModal({
   issuers: Issuer[];
   invoices: InvoiceRow[];
   lockedIssuerId?: string;
+  onClientCreated: (client: ClientLite) => void;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -480,6 +492,7 @@ function InvoiceFormModal({
   const [dueDateManuallyChanged, setDueDateManuallyChanged] = useState(false);
   const [nextNumber, setNextNumber] = useState("Calculando…");
   const [customNumber, setCustomNumber] = useState("");
+  const [initialSequence, setInitialSequence] = useState("");
   const [automationWorkflow, setAutomationWorkflow] = useState<InvoiceAutomationWorkflow>("DRAFT");
   const [creationKey] = useState(() => crypto.randomUUID());
   const [deliveryFailed, setDeliveryFailed] = useState(false);
@@ -589,17 +602,38 @@ function InvoiceFormModal({
     }
     const created = await response.json();
     const lite = { id: created.id, name: created.name, taxId: created.taxId ?? null, email: created.email ?? null, billingEmail: created.billingEmail ?? null };
-    setFormClients((current) => [...current, lite].sort((a, b) => a.name.localeCompare(b.name, "es")));
+    setFormClients((current) => mergeInvoiceClients(current, lite));
+    onClientCreated(lite);
     setClientId(created.id);
     setCreatingClient(false);
     setNewClient({ name: "", taxId: "", email: "", billingEmail: "", useBillingEmail: false, fiscalAddress: "" });
     router.refresh();
   }
 
+  async function setInitialInvoiceNumber() {
+    let next: number;
+    try {
+      next = normalizeInitialInvoiceSequence(initialSequence);
+    } catch (error: any) {
+      return alert(error?.message ?? "Número inicial inválido");
+    }
+    const series = defaultSeriesForType(type);
+    const year = Number(issueDate.slice(0, 4)) || new Date().getFullYear();
+    const response = await fetch("/api/v1/invoices/next-number", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ series, year, next })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) return alert(body?.error?.message ?? "No se pudo establecer el número inicial");
+    setNextNumber(body.number);
+    setInitialSequence("");
+  }
+
   async function save(issue?: boolean) {
     if (!clientId) return alert("Selecciona un cliente");
     if (!issuerId) return alert("Selecciona una empresa emisora (créala en 'Emisores')");
-    if (lines.some((l) => !l.description.trim())) return alert("Todas las líneas necesitan descripción");
+    if (lines.some((l) => !l.concept?.trim() && !l.description.trim())) return alert("Cada línea necesita al menos un concepto o una descripción");
     if (useBillingEmail && !billingEmail.trim()) return alert("Indica el correo alternativo de facturación");
 
     const finalStatus = isEdit
@@ -627,7 +661,7 @@ function InvoiceFormModal({
       terms: terms || null,
       lines: lines.map((l) => ({
         concept: l.concept?.trim() || undefined,
-        description: l.description,
+        description: l.description.trim(),
         quantity: Number(l.quantity) || 0,
         unitPriceCents: Math.round(Number(l.unitPriceCents) || 0),
         taxRate: Number(l.taxRate) || 0,
@@ -734,6 +768,14 @@ function InvoiceFormModal({
                   <label className="block text-xs text-blue-700 mb-1">N.º de factura actual (editable)</label>
                   <input value={customNumber} onChange={(e) => setCustomNumber(e.target.value)} placeholder={isEdit ? "Sin número" : nextNumber} className={inputCls} />
                   <p className="mt-1 text-[11px] text-blue-700">{isEdit ? "Solo puede cambiarse mientras sea borrador." : `Si lo dejas vacío se usará ${nextNumber}.`} No se admiten números duplicados.</p>
+                  {!isEdit && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-blue-200 pt-2">
+                      <label className="text-xs font-medium text-blue-800">Número correlativo inicial</label>
+                      <input type="number" min={1} step={1} value={initialSequence} onChange={(e) => setInitialSequence(e.target.value)} placeholder="Ej. 3001" className="w-32 rounded-lg border px-2 py-1 text-sm" />
+                      <button type="button" onClick={() => void setInitialInvoiceNumber()} disabled={!initialSequence} className="rounded-lg border border-blue-300 bg-white px-3 py-1 text-xs font-medium text-blue-800 disabled:opacity-40">Establecer desde aquí</button>
+                      <span className="text-[11px] text-blue-700">Las siguientes facturas continuarán automáticamente; nunca se permite retroceder.</span>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="col-span-2">
@@ -1041,18 +1083,14 @@ function IssuersModal({
   }
 
   function loadRixusPreset() {
+    const existing = issuers.find(
+      (issuer) => issuer.taxId === RIXUS_ISSUER_PROFILE.taxId || /rixus solutions/i.test(issuer.name)
+    );
     setForm((current) => ({
       ...current,
-      name: "RIXUS SOLUTIONS",
-      legalName: "RIXUS SOLUTIONS LLC",
-      taxId: "37-2141153",
-      address: "407 LINCOLN RD STE 12-N",
-      postalCode: "33139",
-      city: "MIAMI BEACH",
-      province: "FLORIDA",
-      countryCode: "USA",
-      personType: "J",
-      residenceType: "E"
+      ...existing,
+      ...RIXUS_ISSUER_PROFILE,
+      isDefault: true
     }));
   }
 
