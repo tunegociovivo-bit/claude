@@ -16,6 +16,31 @@ const invoice = {
 };
 
 describe("invoice rendering", () => {
+  it("renders Rixus USD invoices entirely in English", () => {
+    const html = buildInvoiceHtml(invoice);
+    expect(html).toContain('lang="en"');
+    expect(html).toContain("INVOICE");
+    expect(html).toContain("ISSUE DATE:");
+    expect(html).toContain("DUE DATE:");
+    expect(html).toContain("BILL TO");
+    expect(html).toContain("DESCRIPTION");
+    expect(html).toContain("UNIT PRICE");
+    expect(html).toContain("QUANTITY");
+    expect(html).toContain("TAXES");
+    expect(html).toContain("PAYMENT METHOD");
+    expect(html).not.toContain("Factura");
+    expect(html).not.toContain("Facturar a");
+    expect(html).not.toContain("Forma de pago");
+  });
+
+  it("keeps Rixus EUR invoices in Spanish", () => {
+    const html = buildInvoiceHtml({ ...invoice, currency: "EUR" });
+    expect(html).toContain('lang="es"');
+    expect(html).toContain("Factura");
+    expect(html).toContain("Facturar a");
+    expect(html).toContain("Forma de pago");
+  });
+
   it("shows only one compact value in the tax column", () => {
     const html = buildInvoiceHtml(invoice);
     expect(html).toContain(">Tax 0%</td>");

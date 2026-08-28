@@ -14,6 +14,7 @@ import {
   normalizeInitialInvoiceSequence,
   nextInvoiceSequenceFromNumbers,
 } from "../invoice-form";
+import { defaultSeriesForIssuer } from "../core";
 
 describe("invoice form defaults", () => {
   it("sets the due date 30 calendar days after the issue date", () => {
@@ -108,6 +109,12 @@ describe("automatic invoice workflow", () => {
 });
 
 describe("invoice number preview", () => {
+  it("uses INV for normal invoices issued by Rixus", () => {
+    expect(defaultSeriesForIssuer("NORMAL", { name: "Rixus Solutions L.L.C." })).toBe("INV");
+    expect(defaultSeriesForIssuer("NORMAL", { legalName: "RIXUS SOLUTIONS LLC" })).toBe("INV");
+    expect(defaultSeriesForIssuer("NORMAL", { name: "Negocio Vivo S.C.A." })).toBe("FAC");
+  });
+
   it("shows the next number using the legal series and year", () => {
     expect(formatInvoiceNumberPreview("FAC", 2026, 44)).toBe("FAC-2026-0044");
   });
