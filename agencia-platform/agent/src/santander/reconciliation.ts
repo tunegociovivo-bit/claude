@@ -46,14 +46,17 @@ export async function browserValueOr<T>(operation: () => Promise<T>, fallback: T
   }
 }
 
-export async function clickAfterDismissingModal(page: any, locator: any): Promise<void> {
+export async function clickAfterDismissingModal(page: any, locator: any, dismissModal?: () => Promise<void>): Promise<void> {
   try {
     await locator.click({ timeout: 8000 });
   } catch (error) {
     const message = String(error);
     if (!/(?:modal[\s\S]*intercepts pointer events|intercepts pointer events[\s\S]*modal)/i.test(message)) throw error;
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
+    if (dismissModal) await dismissModal();
+    else {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    }
     await locator.click({ timeout: 8000 });
   }
 }
@@ -208,7 +211,7 @@ export class SantanderReconciliationReader {
           let opened = false;
           try {
           const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
-          await clickAfterDismissingModal(page, row.getByRole("button"));
+          await clickAfterDismissingModal(page, row.getByRole("button"), () => this.dismissBlockingModal(page, frame));
           opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await browserValueOr(() => receipts.isVisible(), false)) continue;
@@ -402,6 +405,22 @@ export class SantanderReconciliationReader {
       await page.waitForTimeout(300);
     }
     return null;
+  }
+
+  private async dismissBlockingModal(page: any, frame: any): Promise<void> {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    const modal = frame.locator(".modal:visible").first();
+    if (!await browserValueOr(() => modal.isVisible(), false)) return;
+
+    const semanticClose = modal.getByRole("button", { name: /^(Cerrar|Close|Volver)$/i });
+    const structuralClose = modal.locator('button.close, [data-dismiss="modal"], button[aria-label*="cerrar" i], button[title*="cerrar" i]');
+    if (await semanticClose.count() > 0) await semanticClose.first().click({ force: true });
+    else if (await structuralClose.count() > 0) await structuralClose.first().click({ force: true });
+    else throw new Error("Santander dejó un diálogo bloqueante sin un control seguro para cerrarlo");
+
+    await page.waitForTimeout(300);
+    if (await browserValueOr(() => modal.isVisible(), false)) throw new Error("Santander no cerró el diálogo de la remesa anterior");
   }
 
   private async scanAccountMovements(page: any, startsAt: Date): Promise<BrowserMovement[]> {
