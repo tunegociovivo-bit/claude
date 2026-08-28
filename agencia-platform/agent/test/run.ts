@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -65,6 +65,17 @@ async function main() {
   ok("no se bloquea a sí mismo", !existingInstanceBlocksStart(5678, 5678, true));
 
   console.log("Conciliación de cobros:");
+  {
+    let acquired = 0;
+    const result = await runWithRefreshedFrame(
+      async () => ({ generation: ++acquired }),
+      async (frame) => {
+        if (frame.generation === 1) throw new Error("locator.count: Frame was detached");
+        return frame.generation;
+      }
+    );
+    ok("recupera el iframe cuando Santander lo reemplaza", result === 2 && acquired === 2);
+  }
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
   ok("lee un cargo Santander para registrarlo como gasto", parseSantanderMovementText("10/08/2026 COMISIÓN -12,00 EUR")?.amountCents === -1200);
