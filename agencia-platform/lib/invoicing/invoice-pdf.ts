@@ -19,6 +19,11 @@ function imageBuffer(value?: string | null): Buffer | null {
   return match ? Buffer.from(match[1], "base64") : null;
 }
 
+export function invoiceTableDescription(description: string): { table: string; appendix: string | null } {
+  if (description.length <= 400) return { table: description, appendix: null };
+  return { table: `${description.slice(0, 360).trimEnd()}… (ver detalle completo)`, appendix: description };
+}
+
 export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> {
   const document = new PDFDocument({ size: "A4", margin: 42, info: { Title: `${TYPE_LABEL[invoice.type as InvoiceType] ?? "Factura"} ${invoice.number ?? ""}` } });
   const chunks: Buffer[] = [];
@@ -52,9 +57,12 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
     y += 24;
   };
   drawTableHeader();
+  const appendices: Array<{ concept: string; description: string }> = [];
   for (const line of invoice.lines) {
     const amounts = computeInvoiceLineAmounts(line);
-    const values = [line.concept || line.description, line.description || "—", formatMoney(line.unitPriceCents, invoice.currency), String(line.quantity), formatMoney(amounts.subtotalCents, invoice.currency), invoiceTaxLabel(line.taxRate, invoice.currency), formatMoney(amounts.totalCents, invoice.currency)];
+    const renderedDescription = invoiceTableDescription(line.description || "");
+    if (renderedDescription.appendix) appendices.push({ concept: line.concept || "Línea", description: renderedDescription.appendix });
+    const values = [line.concept || line.description, renderedDescription.table || "—", formatMoney(line.unitPriceCents, invoice.currency), String(line.quantity), formatMoney(amounts.subtotalCents, invoice.currency), invoiceTaxLabel(line.taxRate, invoice.currency), formatMoney(amounts.totalCents, invoice.currency)];
     document.font("Helvetica").fontSize(7.5);
     const rowHeight = Math.max(30, ...values.map((value, index) => document.heightOfString(String(value), { width: widths[index] - 7 }) + 14));
     if (y + rowHeight > 760) { document.addPage(); y = 42; drawTableHeader(); }
@@ -73,7 +81,22 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
   y += 55;
   document.roundedRect(42, y, 511, 44, 6).fill("#F3F4F6");
   document.fillColor("#6B7280").font("Helvetica-Bold").fontSize(8).text("FORMA DE PAGO", 54, y + 9);
-  document.fillColor("#111827").font("Helvetica").fontSize(10).text(PAYMENT_METHOD_LABEL[invoice.paymentMethod as PaymentMethod] ?? invoice.paymentMethod, 54, y + 23);
+  const paymentText = `${PAYMENT_METHOD_LABEL[invoice.paymentMethod as PaymentMethod] ?? invoice.paymentMethod}${(invoice.paymentMethod === "TRANSFER" || invoice.paymentMethod === "REMITTANCE") && invoice.issuer.iban ? ` · IBAN: ${invoice.issuer.iban}` : ""}`;
+  document.fillColor("#111827").font("Helvetica").fontSize(10).text(paymentText, 54, y + 23, { width: 480 });
+  document.y = y + 58;
+  const writeSection = (title: string, content?: string | null) => {
+    if (!content) return;
+    if (document.y > 720) document.addPage();
+    document.moveDown(0.6).fillColor(accent).font("Helvetica-Bold").fontSize(10).text(title, 42, document.y, { width: 511 });
+    document.fillColor("#374151").font("Helvetica").fontSize(9).text(content, 42, document.y + 4, { width: 511, lineGap: 2 });
+  };
+  writeSection("NOTAS", invoice.notes);
+  writeSection("CONDICIONES", invoice.terms);
+  if (appendices.length) {
+    if (document.y > 680) document.addPage();
+    document.moveDown(0.8).fillColor(accent).font("Helvetica-Bold").fontSize(11).text("DETALLE COMPLETO DE CONCEPTOS", 42, document.y, { width: 511 });
+    for (const appendix of appendices) writeSection(appendix.concept, appendix.description);
+  }
   document.end();
   return completed;
 }
