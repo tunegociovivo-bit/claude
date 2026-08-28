@@ -37,6 +37,15 @@ export function isDetachedFrameError(error: unknown): boolean {
   return /frame was detached|detached frame|frame has been detached/i.test(String(error));
 }
 
+export async function browserValueOr<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isDetachedFrameError(error)) throw error;
+    return fallback;
+  }
+}
+
 export async function runWithRefreshedFrame<TFrame, TResult>(
   acquireFrame: () => Promise<TFrame>,
   operation: (frame: TFrame) => Promise<TResult>,
@@ -44,8 +53,8 @@ export async function runWithRefreshedFrame<TFrame, TResult>(
 ): Promise<TResult> {
   let lastError: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const frame = await acquireFrame();
     try {
+      const frame = await acquireFrame();
       return await operation(frame);
     } catch (error) {
       lastError = error;
@@ -156,7 +165,15 @@ export class SantanderReconciliationReader {
       for (let pageIndex = 0; pageIndex < 50; pageIndex++) {
         let rowTexts: string[] = [];
         for (let attempt = 0; attempt < 20; attempt++) {
-          rowTexts = await frame.getByRole("row").allInnerTexts().catch(() => []);
+          rowTexts = await runWithRefreshedFrame(
+            async () => {
+              const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
+              if (!refreshedFrame) throw new Error("Santander no restauró el listado de remesas para leerlo");
+              frame = refreshedFrame;
+              return refreshedFrame;
+            },
+            (currentFrame) => browserValueOr(() => currentFrame.getByRole("row").allInnerTexts(), [])
+          );
           if (rowTexts.length > 1) break;
           await frame.waitForTimeout(500);
         }
@@ -182,15 +199,22 @@ export class SantanderReconciliationReader {
           await row.getByRole("button").click({ timeout: 8000 });
           opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
-          if (!await receipts.isVisible().catch(() => false)) continue;
+          if (!await browserValueOr(() => receipts.isVisible(), false)) continue;
           await receipts.click();
           const receiptFrame = await this.waitReceiptFrame(page, remittance.remittanceNumber);
           if (!receiptFrame) continue;
-          const receiptBody = await receiptFrame.locator("body").innerText().catch(() => "");
+          const receiptBody = await browserValueOr(() => receiptFrame.locator("body").innerText(), "");
           if (/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(receiptBody)) throw new Error("Santander cerró la sesión durante la conciliación");
           let receiptTexts: string[] = [];
           for (let attempt = 0; attempt < 30; attempt++) {
-            receiptTexts = await receiptFrame.getByRole("row").allInnerTexts().catch(() => []);
+            receiptTexts = await runWithRefreshedFrame(
+              async () => {
+                const refreshedReceiptFrame = await this.waitReceiptFrame(page, remittance.remittanceNumber);
+                if (!refreshedReceiptFrame) throw new Error("Santander no restauró el detalle de recibos");
+                return refreshedReceiptFrame;
+              },
+              (currentFrame) => browserValueOr(() => currentFrame.getByRole("row").allInnerTexts(), [])
+            );
             const currentReceipt = receiptTexts.map(parseSepaReceiptRow).find((item) => item?.amountCents === remittance.amountCents);
             if (currentReceipt) break;
             await receiptFrame.waitForTimeout(500);
@@ -212,7 +236,7 @@ export class SantanderReconciliationReader {
             });
           }
           } catch (error) {
-            if (/cerró la sesión/i.test(String(error))) throw error;
+            throw error;
           } finally {
             if (opened) {
               await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
@@ -233,14 +257,14 @@ export class SantanderReconciliationReader {
           },
           async (currentFrame) => {
             const next = currentFrame.getByRole("button", { name: /^Ver siguientes$/i });
-            if (await next.count() !== 1 || !await next.isEnabled().catch(() => false)) return false;
+            if (await next.count() !== 1 || !await browserValueOr(() => next.isEnabled(), false)) return false;
             await next.press("Enter");
             await currentFrame.waitForTimeout(800);
-            let nextRows = await currentFrame.getByRole("row").allInnerTexts().catch(() => []);
+            let nextRows = await browserValueOr(() => currentFrame.getByRole("row").allInnerTexts(), []);
             if (nextRows.join("|") === pageSignature) {
               await next.click({ force: true });
               await currentFrame.waitForTimeout(800);
-              nextRows = await currentFrame.getByRole("row").allInnerTexts().catch(() => []);
+              nextRows = await browserValueOr(() => currentFrame.getByRole("row").allInnerTexts(), []);
             }
             return nextRows.join("|") !== pageSignature;
           }
