@@ -37,6 +37,13 @@ export function isDetachedFrameError(error: unknown): boolean {
   return /frame was detached|detached frame|frame has been detached/i.test(String(error));
 }
 
+export class FrameRefreshRequiredError extends Error {
+  constructor(message = "Santander requiere volver a adquirir el iframe") {
+    super(message);
+    this.name = "FrameRefreshRequiredError";
+  }
+}
+
 export async function browserValueOr<T>(operation: () => Promise<T>, _fallback: T): Promise<T> {
   return operation();
 }
@@ -68,7 +75,7 @@ export async function runWithRefreshedFrame<TFrame, TResult>(
       return await operation(frame);
     } catch (error) {
       lastError = error;
-      if (!isDetachedFrameError(error) || attempt === maxAttempts - 1) throw error;
+      if (!(isDetachedFrameError(error) || error instanceof FrameRefreshRequiredError) || attempt === maxAttempts - 1) throw error;
     }
   }
   throw lastError;
@@ -205,9 +212,20 @@ export class SantanderReconciliationReader {
           });
             let opened = false;
             try {
-            const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
-            await this.dismissBlockingModal(page, frame);
-            await clickAfterDismissingModal(page, row.getByRole("button"), () => this.dismissBlockingModal(page, frame));
+            const row = await runWithRefreshedFrame(
+              async () => {
+                const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
+                if (!refreshedFrame) throw new Error("Santander no restauró el listado tras cerrar un diálogo");
+                frame = refreshedFrame;
+                return refreshedFrame;
+              },
+              async (currentFrame) => {
+                const currentRow = currentFrame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
+                await this.dismissBlockingModal(page, currentFrame);
+                await clickAfterDismissingModal(page, currentRow.getByRole("button"), () => this.dismissBlockingModal(page, currentFrame));
+                return currentRow;
+              }
+            );
           opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await browserValueOr(() => receipts.isVisible(), false)) continue;
@@ -431,7 +449,8 @@ export class SantanderReconciliationReader {
     else {
       const disappeared = await modal.waitFor({ state: "hidden", timeout: 12000 }).then(() => true).catch(() => false);
       if (disappeared) return;
-      throw new Error("Santander dejó un diálogo bloqueante sin un control seguro para cerrarlo");
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 });
+      throw new FrameRefreshRequiredError("Santander dejó un diálogo bloqueante; se recargó la consulta de forma segura");
     }
 
     await page.waitForTimeout(300);
