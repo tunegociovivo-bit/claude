@@ -428,7 +428,11 @@ export class SantanderReconciliationReader {
     const structuralClose = modal.locator('button.close, [data-dismiss="modal"], button[aria-label*="cerrar" i], button[title*="cerrar" i]');
     if (await semanticClose.count() > 0) await semanticClose.first().click({ force: true });
     else if (await structuralClose.count() > 0) await structuralClose.first().click({ force: true });
-    else throw new Error("Santander dejó un diálogo bloqueante sin un control seguro para cerrarlo");
+    else {
+      const disappeared = await modal.waitFor({ state: "hidden", timeout: 12000 }).then(() => true).catch(() => false);
+      if (disappeared) return;
+      throw new Error("Santander dejó un diálogo bloqueante sin un control seguro para cerrarlo");
+    }
 
     await page.waitForTimeout(300);
     if (await browserValueOr(() => modal.isVisible(), false)) throw new Error("Santander no cerró el diálogo de la remesa anterior");
