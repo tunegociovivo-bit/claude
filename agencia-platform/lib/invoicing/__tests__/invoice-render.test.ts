@@ -19,15 +19,16 @@ describe("invoice rendering", () => {
   it("renders Rixus USD invoices entirely in English", () => {
     const html = buildInvoiceHtml(invoice);
     expect(html).toContain('lang="en"');
-    expect(html).toContain("INVOICE");
-    expect(html).toContain("ISSUE DATE:");
-    expect(html).toContain("DUE DATE:");
-    expect(html).toContain("BILL TO");
-    expect(html).toContain("DESCRIPTION");
-    expect(html).toContain("UNIT PRICE");
-    expect(html).toContain("QUANTITY");
-    expect(html).toContain("TAXES");
-    expect(html).toContain("PAYMENT METHOD");
+    expect(html).toContain(">Invoice</div>");
+    expect(html).toContain("Issue date:");
+    expect(html).toContain("Due date:");
+    expect(html).toContain(">Bill to</h3>");
+    expect(html).toContain(">Description</th>");
+    expect(html).toContain(">Unit price</th>");
+    expect(html).toContain(">Quantity</th>");
+    expect(html).toContain(">Taxes</th>");
+    expect(html).toContain(">Payment method</h4>");
+    expect(html).toContain("$649.72");
     expect(html).not.toContain("Factura");
     expect(html).not.toContain("Facturar a");
     expect(html).not.toContain("Forma de pago");

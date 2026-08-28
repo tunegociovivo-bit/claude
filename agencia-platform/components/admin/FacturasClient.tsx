@@ -8,6 +8,7 @@ import {
   formatMoney,
   formatRate,
   defaultSeriesForType,
+  defaultSeriesForIssuer,
   TYPE_LABEL,
   STATUS_LABEL,
   PAYMENT_METHOD_LABEL,
@@ -558,13 +559,13 @@ function InvoiceFormModal({
 
   useEffect(() => {
     if (isEdit) return;
-    const series = defaultSeriesForType(type);
+    const series = defaultSeriesForIssuer(type, issuers.find((issuer) => issuer.id === issuerId));
     const year = Number(issueDate.slice(0, 4)) || new Date().getFullYear();
     void fetch(`/api/v1/invoices/next-number?series=${encodeURIComponent(series)}&year=${year}`, { cache: "no-store" })
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((data) => setNextNumber(data.number ?? "No disponible"))
       .catch(() => setNextNumber("No disponible"));
-  }, [type, issueDate, isEdit]);
+  }, [type, issueDate, isEdit, issuerId, issuers]);
 
   const totals = useMemo(() => computeTotals(lines), [lines]);
   const locked = isEdit && !!invoice?.number && status !== "DRAFT";
@@ -625,7 +626,7 @@ function InvoiceFormModal({
     } catch (error: any) {
       return alert(error?.message ?? "Número inicial inválido");
     }
-    const series = defaultSeriesForType(type);
+    const series = defaultSeriesForIssuer(type, issuers.find((issuer) => issuer.id === issuerId));
     const year = Number(issueDate.slice(0, 4)) || new Date().getFullYear();
     const response = await fetch("/api/v1/invoices/next-number", {
       method: "POST",
@@ -653,7 +654,7 @@ function InvoiceFormModal({
     } catch (error: any) {
       return alert(error?.message ?? "Número de factura inválido");
     }
-    const selectedSeries = normalizedCustomNumber?.split("-")[0] ?? defaultSeriesForType(type);
+    const selectedSeries = normalizedCustomNumber?.split("-")[0] ?? defaultSeriesForIssuer(type, issuers.find((issuer) => issuer.id === issuerId));
     const payload: any = {
       type,
       status: finalStatus,

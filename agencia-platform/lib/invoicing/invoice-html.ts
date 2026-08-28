@@ -2,13 +2,10 @@ import {
   computeTotals,
   computeInvoiceLineAmounts,
   formatMoney,
-  TYPE_LABEL,
-  PAYMENT_METHOD_LABEL,
   type InvoiceLine,
-  type InvoiceType,
-  type PaymentMethod
 } from "./core";
 import { invoiceTaxLabel } from "./invoice-form";
+import { invoiceLabels, invoiceLanguage, localizedDate, localizedPaymentLabel, localizedTypeLabel, type InvoiceLanguage } from "./invoice-locale";
 
 export type InvoiceParty = {
   name?: string | null;
@@ -49,10 +46,10 @@ function esc(v: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
-function partyLines(p: InvoiceParty): string {
+function partyLines(p: InvoiceParty, language: InvoiceLanguage = "es"): string {
   const out: string[] = [];
   if (p.legalName && p.legalName !== p.name) out.push(esc(p.legalName));
-  if (p.taxId) out.push(`NIF/CIF: ${esc(p.taxId)}`);
+  if (p.taxId) out.push(`${invoiceLabels(language).taxId}: ${esc(p.taxId)}`);
   if (p.address) out.push(esc(p.address).replace(/\r?\n/g, "<br>"));
   const loc = [p.postalCode, p.city, p.province].filter(Boolean).join(" ");
   if (loc) out.push(esc(loc));
@@ -61,9 +58,9 @@ function partyLines(p: InvoiceParty): string {
   return out.map((l) => `<div>${l}</div>`).join("");
 }
 
-function fmtDate(d?: Date | null): string {
+function fmtDate(d?: Date | null, language: InvoiceLanguage = "es"): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return localizedDate(new Date(d), language);
 }
 
 /**
@@ -75,10 +72,12 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   const accent = opts?.accent ?? "#2563EB";
   const totals = computeTotals(inv.lines);
   const cur = inv.currency || "EUR";
-  const typeLabel = TYPE_LABEL[inv.type as InvoiceType] ?? "Factura";
+  const language = invoiceLanguage(inv);
+  const labels = invoiceLabels(language);
+  const typeLabel = localizedTypeLabel(inv.type, language);
   const isDraft = inv.status === "DRAFT";
   const watermark =
-    inv.type === "PROFORMA" ? "PROFORMA" : inv.type === "PRESUPUESTO" ? "PRESUPUESTO" : isDraft ? "BORRADOR" : "";
+    inv.type === "PROFORMA" ? typeLabel.toUpperCase() : inv.type === "PRESUPUESTO" ? typeLabel.toUpperCase() : isDraft ? labels.draft : "";
 
   const lineRows = inv.lines
     .map((ln) => {
@@ -99,7 +98,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   const taxRows = totals.taxBreakdown
     .map(
       (t) =>
-        `<tr><td>${invoiceTaxLabel(t.rate, cur)} sobre ${formatMoney(t.baseCents, cur)}</td><td class="num">${formatMoney(
+        `<tr><td>${invoiceTaxLabel(t.rate, cur)} ${labels.taxOn} ${formatMoney(t.baseCents, cur)}</td><td class="num">${formatMoney(
           t.taxCents,
           cur
         )}</td></tr>`
@@ -112,7 +111,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
       : "";
 
   return `<!DOCTYPE html>
-<html lang="es">
+<html lang="${language}">
 <head>
 <meta charset="utf-8" />
 <title>${esc(typeLabel)} ${esc(inv.number ?? "")}</title>
@@ -157,7 +156,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
 </head>
 <body>
   ${watermark ? `<div class="watermark">${esc(watermark)}</div>` : ""}
-  <button class="print-btn" onclick="window.print()">Imprimir / Guardar PDF</button>
+  <button class="print-btn" onclick="window.print()">${labels.print}</button>
   <div class="sheet">
     <div class="top">
       <div>
@@ -166,23 +165,23 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
             ? `<img class="logo" src="${esc(inv.issuer.logoUrl)}" alt="" />`
             : `<div class="brandname">${esc(inv.issuer.name ?? "")}</div>`
         }
-        <div class="muted" style="margin-top:6px">${partyLines(inv.issuer)}</div>
+        <div class="muted" style="margin-top:6px">${partyLines(inv.issuer, language)}</div>
       </div>
       <div class="doc-meta">
         <div class="doc-title">${esc(typeLabel)}</div>
         <div class="doc-number">${esc(inv.number ?? "(borrador)")}</div>
         <div class="doc-dates">
-          Fecha: ${fmtDate(inv.issueDate)}<br />
-          ${inv.dueDate ? `Vencimiento: ${fmtDate(inv.dueDate)}` : ""}
+          ${labels.issueDate}: ${fmtDate(inv.issueDate, language)}<br />
+          ${inv.dueDate ? `${labels.dueDate}: ${fmtDate(inv.dueDate, language)}` : ""}
         </div>
       </div>
     </div>
 
     <div class="parties">
       <div class="party">
-        <h3>${inv.type === "PRESUPUESTO" ? "Para" : "Facturar a"}</h3>
+        <h3>${inv.type === "PRESUPUESTO" ? labels.for : labels.billTo}</h3>
         <div class="pname">${esc(inv.client.name ?? "")}</div>
-        ${partyLines(inv.client)}
+        ${partyLines(inv.client, language)}
       </div>
     </div>
 
@@ -190,13 +189,13 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
       <colgroup><col style="width:17%"><col style="width:25%"><col style="width:12%"><col style="width:9%"><col style="width:12%"><col style="width:13%"><col style="width:12%"></colgroup>
       <thead>
         <tr>
-          <th>Concepto</th>
-          <th>Descripción</th>
-          <th class="num">Precio</th>
-          <th class="num">Unidades</th>
-          <th class="num">Subtotal</th>
-          <th class="num">Impuestos</th>
-          <th class="num">Total</th>
+          <th>${labels.concept}</th>
+          <th>${labels.description}</th>
+          <th class="num">${labels.unitPrice}</th>
+          <th class="num">${labels.quantity}</th>
+          <th class="num">${labels.subtotal}</th>
+          <th class="num">${labels.taxes}</th>
+          <th class="num">${labels.total}</th>
         </tr>
       </thead>
       <tbody>${lineRows}</tbody>
@@ -204,15 +203,15 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
 
     <div class="totals">
       <table>
-        <tr><td>Base imponible</td><td class="num">${formatMoney(totals.subtotalCents, cur)}</td></tr>
+        <tr><td>${labels.taxableBase}</td><td class="num">${formatMoney(totals.subtotalCents, cur)}</td></tr>
         ${taxRows}
-        <tr class="grand"><td>Total</td><td class="num">${formatMoney(totals.totalCents, cur)}</td></tr>
+        <tr class="grand"><td>${labels.total}</td><td class="num">${formatMoney(totals.totalCents, cur)}</td></tr>
       </table>
     </div>
 
     <div class="pay">
-      <h4>Forma de pago</h4>
-      <div>${esc(PAYMENT_METHOD_LABEL[inv.paymentMethod as PaymentMethod] ?? inv.paymentMethod)}</div>
+      <h4>${labels.paymentMethod}</h4>
+      <div>${esc(localizedPaymentLabel(inv.paymentMethod, language))}</div>
       ${payExtra}
     </div>
 
@@ -229,19 +228,21 @@ export function buildInvoiceEmailHtml(inv: InvoiceForHtml, opts?: { accent?: str
   const accent = opts?.accent ?? "#2563EB";
   const currency = inv.currency || "EUR";
   const totals = computeTotals(inv.lines);
-  const typeLabel = TYPE_LABEL[inv.type as InvoiceType] ?? "Factura";
+  const language = invoiceLanguage(inv);
+  const labels = invoiceLabels(language);
+  const typeLabel = localizedTypeLabel(inv.type, language);
   const cell = "padding:8px 6px;border-bottom:1px solid #e5e7eb;font:12px Arial,sans-serif;color:#111827;vertical-align:top;";
   let rows = inv.lines.map((line) => {
     const amounts = computeInvoiceLineAmounts(line);
     return `<tr><td style="${cell}">${esc(line.concept || line.description)}</td><td style="${cell}">${esc(line.description || "—")}</td><td style="${cell}text-align:right;white-space:nowrap">${formatMoney(line.unitPriceCents, currency)}</td><td style="${cell}text-align:right">${Number(line.quantity).toLocaleString("es-ES")}</td><td style="${cell}text-align:right;white-space:nowrap">${formatMoney(amounts.subtotalCents, currency)}</td><td style="${cell}text-align:right;white-space:nowrap">${invoiceTaxLabel(line.taxRate, currency)}</td><td style="${cell}text-align:right;white-space:nowrap;font-weight:bold">${formatMoney(amounts.totalCents, currency)}</td></tr>`;
   }).join("");
-  const payment = PAYMENT_METHOD_LABEL[inv.paymentMethod as PaymentMethod] ?? inv.paymentMethod;
+  const payment = localizedPaymentLabel(inv.paymentMethod, language);
   const iban = (inv.paymentMethod === "TRANSFER" || inv.paymentMethod === "REMITTANCE") && inv.issuer.iban
     ? `<br>IBAN: ${esc(inv.issuer.iban)}`
     : "";
-  rows += `<tr><td colspan="7" style="padding:14px 8px;font:12px Arial,sans-serif;color:#374151;background:#f9fafb"><strong>Forma de pago:</strong> ${esc(payment)}${iban}${inv.notes ? `<div style="padding-top:10px;white-space:pre-wrap"><strong>Notas:</strong><br>${esc(inv.notes)}</div>` : ""}${inv.terms ? `<div style="padding-top:10px;white-space:pre-wrap;color:#6b7280"><strong>Condiciones:</strong><br>${esc(inv.terms)}</div>` : ""}</td></tr>`;
+  rows += `<tr><td colspan="7" style="padding:14px 8px;font:12px Arial,sans-serif;color:#374151;background:#f9fafb"><strong>${labels.paymentMethod}:</strong> ${esc(payment)}${iban}${inv.notes ? `<div style="padding-top:10px;white-space:pre-wrap"><strong>${labels.notes}:</strong><br>${esc(inv.notes)}</div>` : ""}${inv.terms ? `<div style="padding-top:10px;white-space:pre-wrap;color:#6b7280"><strong>${labels.terms}:</strong><br>${esc(inv.terms)}</div>` : ""}</td></tr>`;
   const logo = inv.issuer.logoUrl && /^https:\/\//i.test(inv.issuer.logoUrl)
     ? `<img src="${esc(inv.issuer.logoUrl)}" alt="${esc(inv.issuer.name)}" width="150" style="display:block;max-width:150px;max-height:80px;width:auto;height:auto;border:0">`
     : `<div style="font:bold 20px Arial,sans-serif;color:${accent}">${esc(inv.issuer.name)}</div>`;
-  return `<!doctype html><html><body style="margin:0;padding:0;background:#f3f4f6"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f4f6"><tr><td align="center" style="padding:24px 8px"><table role="presentation" width="720" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border-collapse:collapse"><tr><td style="padding:24px;border-bottom:3px solid ${accent}">${logo}<div style="margin-top:8px;font:12px Arial,sans-serif;color:#4b5563">${partyLines(inv.issuer)}</div></td><td align="right" style="padding:24px;border-bottom:3px solid ${accent};font-family:Arial,sans-serif"><div style="font-size:22px;font-weight:bold;color:${accent}">${esc(typeLabel.toUpperCase())}</div><div style="font-size:14px;font-weight:bold">${esc(inv.number ?? "(borrador)")}</div><div style="margin-top:6px;font-size:12px;color:#4b5563">Fecha: ${fmtDate(inv.issueDate)}<br>${inv.dueDate ? `Vencimiento: ${fmtDate(inv.dueDate)}` : ""}</div></td></tr><tr><td colspan="2" style="padding:20px 24px 8px;font-family:Arial,sans-serif"><div style="font-size:10px;color:#6b7280;text-transform:uppercase">Facturar a</div><div style="font-size:14px;font-weight:bold">${esc(inv.client.name)}</div><div style="font-size:12px;color:#374151">${partyLines(inv.client)}</div></td></tr><tr><td colspan="2" style="padding:12px 24px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse"><tr style="background:${accent}"><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:left">CONCEPTO</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:left">DESCRIPCIÓN</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">PRECIO</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">UDS.</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">SUBTOTAL</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">IMPUESTOS</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">TOTAL</th></tr>${rows}</table></td></tr><tr><td></td><td style="padding:18px 24px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font:12px Arial,sans-serif;padding:4px">Base imponible</td><td align="right" style="font:12px Arial,sans-serif;padding:4px">${formatMoney(totals.subtotalCents, currency)}</td></tr><tr><td style="font:bold 15px Arial,sans-serif;color:${accent};border-top:2px solid ${accent};padding:8px 4px">Total</td><td align="right" style="font:bold 15px Arial,sans-serif;color:${accent};border-top:2px solid ${accent};padding:8px 4px">${formatMoney(totals.totalCents, currency)}</td></tr></table></td></tr></table></td></tr></table></body></html>`;
+  return `<!doctype html><html lang="${language}"><body style="margin:0;padding:0;background:#f3f4f6"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f4f6"><tr><td align="center" style="padding:24px 8px"><table role="presentation" width="720" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border-collapse:collapse"><tr><td style="padding:24px;border-bottom:3px solid ${accent}">${logo}<div style="margin-top:8px;font:12px Arial,sans-serif;color:#4b5563">${partyLines(inv.issuer, language)}</div></td><td align="right" style="padding:24px;border-bottom:3px solid ${accent};font-family:Arial,sans-serif"><div style="font-size:22px;font-weight:bold;color:${accent}">${esc(typeLabel.toUpperCase())}</div><div style="font-size:14px;font-weight:bold">${esc(inv.number ?? (language === "en" ? "(draft)" : "(borrador)"))}</div><div style="margin-top:6px;font-size:12px;color:#4b5563">${labels.issueDate}: ${fmtDate(inv.issueDate, language)}<br>${inv.dueDate ? `${labels.dueDate}: ${fmtDate(inv.dueDate, language)}` : ""}</div></td></tr><tr><td colspan="2" style="padding:20px 24px 8px;font-family:Arial,sans-serif"><div style="font-size:10px;color:#6b7280;text-transform:uppercase">${labels.billTo}</div><div style="font-size:14px;font-weight:bold">${esc(inv.client.name)}</div><div style="font-size:12px;color:#374151">${partyLines(inv.client, language)}</div></td></tr><tr><td colspan="2" style="padding:12px 24px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse"><tr style="background:${accent}"><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:left">${labels.concept.toUpperCase()}</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:left">${labels.description.toUpperCase()}</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">${labels.unitPrice.toUpperCase()}</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">${labels.quantity.toUpperCase()}</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">${labels.subtotal.toUpperCase()}</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">${labels.taxes.toUpperCase()}</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">${labels.total.toUpperCase()}</th></tr>${rows}</table></td></tr><tr><td></td><td style="padding:18px 24px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font:12px Arial,sans-serif;padding:4px">${labels.taxableBase}</td><td align="right" style="font:12px Arial,sans-serif;padding:4px">${formatMoney(totals.subtotalCents, currency)}</td></tr><tr><td style="font:bold 15px Arial,sans-serif;color:${accent};border-top:2px solid ${accent};padding:8px 4px">${labels.total}</td><td align="right" style="font:bold 15px Arial,sans-serif;color:${accent};border-top:2px solid ${accent};padding:8px 4px">${formatMoney(totals.totalCents, currency)}</td></tr></table></td></tr></table></td></tr></table></body></html>`;
 }

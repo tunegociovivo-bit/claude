@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { computeTotals, defaultSeriesForType, type InvoiceLine, type InvoiceType } from "./core";
+import { computeTotals, defaultSeriesForIssuer, defaultSeriesForType, type InvoiceLine, type InvoiceType } from "./core";
 import { assignInvoiceNumber, reserveCustomInvoiceNumber } from "./numbering";
 import { normalizeCustomInvoiceNumber, validateCustomInvoiceNumber } from "./invoice-form";
 
@@ -112,7 +112,10 @@ export async function buildInvoiceData(opts: {
 
   // Numeración: cuando deja de ser borrador y aún no tiene número, asigna
   // el siguiente correlativo de su serie. (No para plantillas recurrentes.)
-  const series = (input.series || current?.series || defaultSeriesForType(type)) as string;
+  const customSeries = input.number ? normalizeCustomInvoiceNumber(input.number).split("-")[0] : null;
+  const existingNumberSeries = current?.number ? String(current.number).split("-")[0] : null;
+  const automaticSeries = defaultSeriesForIssuer(type, issuerSnapshot);
+  const series = (customSeries || existingNumberSeries || (automaticSeries === "INV" ? automaticSeries : input.series || current?.series || defaultSeriesForType(type))) as string;
   data.series = series;
   const nowHasNumber = current?.number;
   const becomesNonDraft = status !== "DRAFT";

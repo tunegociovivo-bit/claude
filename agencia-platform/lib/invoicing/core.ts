@@ -97,7 +97,7 @@ const CURRENCY_SYMBOL: Record<Currency, string> = { EUR: "€", USD: "$" };
 export function formatMoney(cents: number, currency: Currency | string = "EUR"): string {
   const cur = (currency in CURRENCY_SYMBOL ? currency : "EUR") as Currency;
   try {
-    return new Intl.NumberFormat("es-ES", { style: "currency", currency: cur }).format(
+    return new Intl.NumberFormat(cur === "USD" ? "en-US" : "es-ES", { style: "currency", currency: cur }).format(
       (cents || 0) / 100
     );
   } catch {
@@ -122,6 +122,18 @@ export function defaultSeriesForType(type: InvoiceType): string {
     default:
       return "FAC";
   }
+}
+
+export function isRixusIssuer(issuer?: { name?: string | null; legalName?: string | null } | null): boolean {
+  return /\brixus\s+solutions\b/i.test(`${issuer?.name ?? ""} ${issuer?.legalName ?? ""}`);
+}
+
+/** Rixus uses its own fiscal series; other issuers retain their existing series. */
+export function defaultSeriesForIssuer(
+  type: InvoiceType,
+  issuer?: { name?: string | null; legalName?: string | null } | null
+): string {
+  return type === "NORMAL" && isRixusIssuer(issuer) ? "INV" : defaultSeriesForType(type);
 }
 
 export const TYPE_LABEL: Record<InvoiceType, string> = {
