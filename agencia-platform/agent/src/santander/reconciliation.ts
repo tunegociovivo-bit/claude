@@ -46,6 +46,18 @@ export async function browserValueOr<T>(operation: () => Promise<T>, fallback: T
   }
 }
 
+export async function clickAfterDismissingModal(page: any, locator: any): Promise<void> {
+  try {
+    await locator.click({ timeout: 8000 });
+  } catch (error) {
+    const message = String(error);
+    if (!/(?:modal[\s\S]*intercepts pointer events|intercepts pointer events[\s\S]*modal)/i.test(message)) throw error;
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await locator.click({ timeout: 8000 });
+  }
+}
+
 export async function runWithRefreshedFrame<TFrame, TResult>(
   acquireFrame: () => Promise<TFrame>,
   operation: (frame: TFrame) => Promise<TResult>,
@@ -196,7 +208,7 @@ export class SantanderReconciliationReader {
           let opened = false;
           try {
           const row = frame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
-          await row.getByRole("button").click({ timeout: 8000 });
+          await clickAfterDismissingModal(page, row.getByRole("button"));
           opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await browserValueOr(() => receipts.isVisible(), false)) continue;
