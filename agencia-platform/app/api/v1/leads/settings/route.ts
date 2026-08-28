@@ -61,7 +61,6 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
         // mostrar el más conservador de ambos para coincidir con el envío real.
         if (active && channel) {
           const warmup = channelWarmupCap(channel, s);
-          dailyTotal = Math.min(dailyTotal, warmup.cap);
           warming = warmup.warming;
           warmupDay = warmup.dayIndex;
           warmupDays = warmup.warmupDays;
@@ -71,9 +70,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
           warmupDays = Number(s.warmupDays) || 45;
         }
 
-        const dailyNewChats = active
-          ? Math.min(effective.maxNewChatsPerDay, dailyTotal)
-          : 0;
+        const dailyNewChats = active ? effective.maxNewChatsPerDay : 0;
         const mode = !active ? "disabled" : recoveryActive ? "recovery" : warming ? "warmup" : "normal";
 
         return [key, {

@@ -11,7 +11,7 @@ import { renderTemplate } from "./template-engine";
 import { aiRewriteMessage } from "./ai-vary";
 import { normalizePhone, sendText, sendImage, sendVoice, getWahaConfig, getSession, checkNumberExists } from "./waha";
 import { generateVoiceMp3 } from "./voice-tts";
-import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupReroute } from "./channels";
+import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupReroute, channelWarmupCap } from "./channels";
 import { findUnsafeCompetitorMention, getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
 import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "./email-only";
@@ -296,6 +296,24 @@ export async function getSendSettings(workspaceId: string, instanceName?: string
     base.maxNewChatsPerDay,
     Math.max(1, Math.ceil(base.dailyLimit * 0.4))
   );
+
+  // Los canales adicionales tienen su propia fecha de alta y su propia rampa.
+  // Este tope debe formar parte de los settings efectivos (no solo del
+  // rerouting), para limitar también sus conversaciones nuevas y para que UI,
+  // diagnóstico y envío compartan exactamente la misma cifra.
+  if (arguments.length >= 2 && instanceName) {
+    const channel = Array.isArray(s.channels)
+      ? s.channels.find((item: any) => item?.name === instanceName)
+      : null;
+    if (channel) {
+      const channelWarmup = channelWarmupCap(channel, s);
+      base.dailyLimit = Math.min(base.dailyLimit, channelWarmup.cap);
+      base.maxNewChatsPerDay = Math.min(
+        base.maxNewChatsPerDay,
+        Math.max(1, Math.ceil(base.dailyLimit * 0.4))
+      );
+    }
+  }
 
   // MULTI-NÚMERO: los topes anti-baneo (diario, por hora, nuevas conversaciones)
   // son POR NÚMERO. El principal + los números extra activos reparten el volumen,

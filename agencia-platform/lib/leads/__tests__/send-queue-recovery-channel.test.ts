@@ -12,7 +12,18 @@ vi.mock("../template-engine", () => ({ renderTemplate: vi.fn() }));
 vi.mock("../ai-vary", () => ({ aiRewriteMessage: vi.fn() }));
 vi.mock("../waha", () => ({ normalizePhone: vi.fn(), sendText: vi.fn(), sendImage: vi.fn(), sendVoice: vi.fn(), getWahaConfig: vi.fn(), getSession: vi.fn(), checkNumberExists: vi.fn() }));
 vi.mock("../voice-tts", () => ({ generateVoiceMp3: vi.fn() }));
-vi.mock("../channels", () => ({ pickEnqueueChannel: vi.fn(), reassignIfQuarantined: vi.fn(), getLeadChannels: vi.fn(), warmupReroute: vi.fn() }));
+vi.mock("../channels", () => ({
+  pickEnqueueChannel: vi.fn(),
+  reassignIfQuarantined: vi.fn(),
+  getLeadChannels: vi.fn(),
+  warmupReroute: vi.fn(),
+  channelWarmupCap: vi.fn((channel: any) => ({
+    cap: channel.testCap ?? channel.dailyLimit ?? 50,
+    warming: channel.testCap != null,
+    dayIndex: channel.testCap != null ? 3 : 30,
+    warmupDays: 30
+  }))
+}));
 vi.mock("../competitors", () => ({ findUnsafeCompetitorMention: vi.fn(), getCompetitorRanking: vi.fn(), rankingAutoCaption: vi.fn() }));
 vi.mock("../ranking-card", () => ({ renderRankingPng: vi.fn() }));
 vi.mock("../email-only", () => ({ EMAIL_ONLY_REASON: "email_only", isEmailOnlyLead: vi.fn(() => false) }));
@@ -70,5 +81,18 @@ describe("recovery por canal", () => {
     } } });
 
     expect(await getSendSettings("ws", "movil-2")).toMatchObject({ recoveryMode: true, dailyLimit: 15, maxPerHour: 3 });
+  });
+
+  it("reduce también los chats nuevos al 40% de la rampa propia del canal", async () => {
+    prisma.workspace.findUnique.mockResolvedValue({ settings: { leads: {
+      ...base,
+      maxNewChatsPerDay: 25,
+      channels: [{ name: "movil-nuevo", dailyLimit: 50, testCap: 12 }]
+    } } });
+
+    const phone = await getSendSettings("ws", "movil-nuevo");
+
+    expect(phone.dailyLimit).toBe(12);
+    expect(phone.maxNewChatsPerDay).toBe(5);
   });
 });
