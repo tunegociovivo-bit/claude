@@ -1,0 +1,69 @@
+import PDFDocument from "pdfkit";
+import { computeInvoiceLineAmounts, computeTotals, formatMoney, PAYMENT_METHOD_LABEL, TYPE_LABEL, type InvoiceType, type PaymentMethod } from "./core";
+import { invoiceTaxLabel } from "./invoice-form";
+import type { InvoiceForHtml, InvoiceParty } from "./invoice-html";
+
+function partyText(party: InvoiceParty): string {
+  return [
+    party.legalName && party.legalName !== party.name ? party.legalName : party.name,
+    party.taxId ? `NIF/CIF: ${party.taxId}` : null,
+    party.address,
+    [party.postalCode, party.city, party.province].filter(Boolean).join(" "),
+    party.email,
+    party.phone
+  ].filter(Boolean).join("\n");
+}
+
+function imageBuffer(value?: string | null): Buffer | null {
+  const match = value?.match(/^data:image\/(?:png|jpeg|webp);base64,(.+)$/i);
+  return match ? Buffer.from(match[1], "base64") : null;
+}
+
+export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> {
+  const document = new PDFDocument({ size: "A4", margin: 42, info: { Title: `${TYPE_LABEL[invoice.type as InvoiceType] ?? "Factura"} ${invoice.number ?? ""}` } });
+  const chunks: Buffer[] = [];
+  document.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+  const completed = new Promise<Buffer>((resolve, reject) => {
+    document.on("end", () => resolve(Buffer.concat(chunks)));
+    document.on("error", reject);
+  });
+  const accent = "#2563EB";
+  const logo = imageBuffer(invoice.issuer.logoUrl);
+  if (logo) document.image(logo, 42, 38, { fit: [150, 70] });
+  else document.fillColor(accent).font("Helvetica-Bold").fontSize(18).text(invoice.issuer.name ?? "", 42, 42, { width: 260 });
+  document.fillColor(accent).font("Helvetica-Bold").fontSize(20).text((TYPE_LABEL[invoice.type as InvoiceType] ?? "Factura").toUpperCase(), 330, 42, { width: 220, align: "right" });
+  document.fillColor("#111827").fontSize(12).text(invoice.number ?? "(borrador)", 330, 68, { width: 220, align: "right" });
+  document.font("Helvetica").fontSize(9).fillColor("#4B5563").text(partyText(invoice.issuer), 42, 112, { width: 250 });
+  document.text(`Fecha: ${invoice.issueDate.toLocaleDateString("es-ES")}\n${invoice.dueDate ? `Vencimiento: ${invoice.dueDate.toLocaleDateString("es-ES")}` : ""}`, 330, 92, { width: 220, align: "right" });
+  document.moveTo(42, 178).lineTo(553, 178).lineWidth(2).strokeColor(accent).stroke();
+  document.fillColor("#6B7280").font("Helvetica-Bold").fontSize(8).text("FACTURAR A", 42, 195);
+  document.fillColor("#111827").font("Helvetica").fontSize(10).text(partyText(invoice.client), 42, 210, { width: 300 });
+
+  const headers = ["CONCEPTO", "DESCRIPCIÓN", "PRECIO", "UDS.", "SUBTOTAL", "IMPUESTOS", "TOTAL"];
+  const widths = [78, 118, 65, 36, 65, 70, 70];
+  let y = 285;
+  document.rect(42, y, 511, 24).fill(accent);
+  let x = 46;
+  headers.forEach((header, index) => { document.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.5).text(header, x, y + 8, { width: widths[index] - 5, align: index > 1 ? "right" : "left" }); x += widths[index]; });
+  y += 24;
+  for (const line of invoice.lines) {
+    const amounts = computeInvoiceLineAmounts(line);
+    const values = [line.concept || line.description, line.description || "—", formatMoney(line.unitPriceCents, invoice.currency), String(line.quantity), formatMoney(amounts.subtotalCents, invoice.currency), invoiceTaxLabel(line.taxRate, invoice.currency), formatMoney(amounts.totalCents, invoice.currency)];
+    x = 46;
+    values.forEach((value, index) => { document.fillColor("#111827").font(index === 0 || index === 6 ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).text(String(value), x, y + 7, { width: widths[index] - 5, align: index > 1 ? "right" : "left", height: 28, ellipsis: true }); x += widths[index]; });
+    document.moveTo(42, y + 34).lineTo(553, y + 34).lineWidth(0.5).strokeColor("#E5E7EB").stroke();
+    y += 34;
+  }
+  const totals = computeTotals(invoice.lines);
+  y += 14;
+  document.font("Helvetica").fontSize(10).fillColor("#111827").text("Base imponible", 350, y, { width: 100 }).text(formatMoney(totals.subtotalCents, invoice.currency), 450, y, { width: 103, align: "right" });
+  y += 24;
+  document.moveTo(350, y).lineTo(553, y).lineWidth(2).strokeColor(accent).stroke();
+  document.font("Helvetica-Bold").fontSize(14).fillColor(accent).text("Total", 350, y + 7, { width: 100 }).text(formatMoney(totals.totalCents, invoice.currency), 450, y + 7, { width: 103, align: "right" });
+  y += 55;
+  document.roundedRect(42, y, 511, 44, 6).fill("#F3F4F6");
+  document.fillColor("#6B7280").font("Helvetica-Bold").fontSize(8).text("FORMA DE PAGO", 54, y + 9);
+  document.fillColor("#111827").font("Helvetica").fontSize(10).text(PAYMENT_METHOD_LABEL[invoice.paymentMethod as PaymentMethod] ?? invoice.paymentMethod, 54, y + 23);
+  document.end();
+  return completed;
+}

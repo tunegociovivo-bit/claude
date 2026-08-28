@@ -1,5 +1,5 @@
 import { sendEmail } from "@/lib/integrations/email";
-import { buildInvoiceHtml } from "./invoice-html";
+import { buildInvoiceEmailHtml } from "./invoice-html";
 import { invoiceRecipientEmail } from "./invoice-form";
 
 export async function sendInvoiceAutomatically(workspaceId: string, invoice: any, idempotencyKey: string): Promise<void> {
@@ -8,12 +8,12 @@ export async function sendInvoiceAutomatically(workspaceId: string, invoice: any
   const recipient = invoiceRecipientEmail(client);
   const number = invoice.number ?? "sin número";
   const label = invoice.type === "PRESUPUESTO" ? "Presupuesto" : "Factura";
-  const html = buildInvoiceHtml({
+  const html = buildInvoiceEmailHtml({
     ...invoice,
     lines: Array.isArray(invoice.lines) ? invoice.lines : [],
     issuer,
     client
-  }, { autoprint: false });
+  });
 
   await sendEmail({
     workspaceId,

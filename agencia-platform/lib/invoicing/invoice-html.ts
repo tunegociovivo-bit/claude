@@ -90,7 +90,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
         <td class="num">${formatMoney(ln.unitPriceCents, cur)}</td>
         <td class="num">${qty.toLocaleString("es-ES")}</td>
         <td class="num">${formatMoney(amounts.subtotalCents, cur)}</td>
-        <td class="num">${invoiceTaxLabel(Number(ln.taxRate) || 0, cur)}<br><span class="muted">${formatMoney(amounts.taxCents, cur)}</span></td>
+        <td class="num">${invoiceTaxLabel(Number(ln.taxRate) || 0, cur)}</td>
         <td class="num">${formatMoney(amounts.totalCents, cur)}</td>
       </tr>`;
     })
@@ -222,4 +222,21 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   ${opts?.autoprint ? "<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});</script>" : ""}
 </body>
 </html>`;
+}
+
+/** HTML deliberadamente conservador para Gmail/Outlook/Roundcube. */
+export function buildInvoiceEmailHtml(inv: InvoiceForHtml, opts?: { accent?: string }): string {
+  const accent = opts?.accent ?? "#2563EB";
+  const currency = inv.currency || "EUR";
+  const totals = computeTotals(inv.lines);
+  const typeLabel = TYPE_LABEL[inv.type as InvoiceType] ?? "Factura";
+  const cell = "padding:8px 6px;border-bottom:1px solid #e5e7eb;font:12px Arial,sans-serif;color:#111827;vertical-align:top;";
+  const rows = inv.lines.map((line) => {
+    const amounts = computeInvoiceLineAmounts(line);
+    return `<tr><td style="${cell}">${esc(line.concept || line.description)}</td><td style="${cell}">${esc(line.description || "—")}</td><td style="${cell}text-align:right;white-space:nowrap">${formatMoney(line.unitPriceCents, currency)}</td><td style="${cell}text-align:right">${Number(line.quantity).toLocaleString("es-ES")}</td><td style="${cell}text-align:right;white-space:nowrap">${formatMoney(amounts.subtotalCents, currency)}</td><td style="${cell}text-align:right;white-space:nowrap">${invoiceTaxLabel(line.taxRate, currency)}</td><td style="${cell}text-align:right;white-space:nowrap;font-weight:bold">${formatMoney(amounts.totalCents, currency)}</td></tr>`;
+  }).join("");
+  const logo = inv.issuer.logoUrl
+    ? `<img src="${esc(inv.issuer.logoUrl)}" alt="${esc(inv.issuer.name)}" width="150" style="display:block;max-width:150px;max-height:80px;width:auto;height:auto;border:0">`
+    : `<div style="font:bold 20px Arial,sans-serif;color:${accent}">${esc(inv.issuer.name)}</div>`;
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#f3f4f6"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f4f6"><tr><td align="center" style="padding:24px 8px"><table role="presentation" width="720" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border-collapse:collapse"><tr><td style="padding:24px;border-bottom:3px solid ${accent}">${logo}<div style="margin-top:8px;font:12px Arial,sans-serif;color:#4b5563">${partyLines(inv.issuer)}</div></td><td align="right" style="padding:24px;border-bottom:3px solid ${accent};font-family:Arial,sans-serif"><div style="font-size:22px;font-weight:bold;color:${accent}">${esc(typeLabel.toUpperCase())}</div><div style="font-size:14px;font-weight:bold">${esc(inv.number ?? "(borrador)")}</div><div style="margin-top:6px;font-size:12px;color:#4b5563">Fecha: ${fmtDate(inv.issueDate)}<br>${inv.dueDate ? `Vencimiento: ${fmtDate(inv.dueDate)}` : ""}</div></td></tr><tr><td colspan="2" style="padding:20px 24px 8px;font-family:Arial,sans-serif"><div style="font-size:10px;color:#6b7280;text-transform:uppercase">Facturar a</div><div style="font-size:14px;font-weight:bold">${esc(inv.client.name)}</div><div style="font-size:12px;color:#374151">${partyLines(inv.client)}</div></td></tr><tr><td colspan="2" style="padding:12px 24px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse"><tr style="background:${accent}"><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:left">CONCEPTO</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:left">DESCRIPCIÓN</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">PRECIO</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">UDS.</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">SUBTOTAL</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">IMPUESTOS</th><th style="padding:8px 6px;color:#fff;font:10px Arial,sans-serif;text-align:right">TOTAL</th></tr>${rows}</table></td></tr><tr><td></td><td style="padding:18px 24px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font:12px Arial,sans-serif;padding:4px">Base imponible</td><td align="right" style="font:12px Arial,sans-serif;padding:4px">${formatMoney(totals.subtotalCents, currency)}</td></tr><tr><td style="font:bold 15px Arial,sans-serif;color:${accent};border-top:2px solid ${accent};padding:8px 4px">Total</td><td align="right" style="font:bold 15px Arial,sans-serif;color:${accent};border-top:2px solid ${accent};padding:8px 4px">${formatMoney(totals.totalCents, currency)}</td></tr></table></td></tr></table></td></tr></table></body></html>`;
 }

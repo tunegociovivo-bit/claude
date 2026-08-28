@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
-import { buildInvoiceHtml, type InvoiceParty } from "@/lib/invoicing/invoice-html";
+import type { InvoiceParty } from "@/lib/invoicing/invoice-html";
+import { buildInvoicePdf } from "@/lib/invoicing/invoice-pdf";
 import { snapshotIssuer, snapshotClient } from "@/lib/invoicing/persist";
 import type { InvoiceLine } from "@/lib/invoicing/core";
 
@@ -17,8 +18,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api, par
   const issuer = (inv.issuerSnapshot as any) ?? snapshotIssuer(inv.issuer) ?? {};
   const client = (inv.clientSnapshot as any) ?? snapshotClient(inv.client) ?? {};
 
-  const html = buildInvoiceHtml(
-    {
+  const pdf = await buildInvoicePdf({
       type: inv.type,
       status: inv.status,
       number: inv.number,
@@ -31,11 +31,15 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api, par
       terms: inv.terms,
       issuer: issuer as InvoiceParty,
       client: client as InvoiceParty
-    },
-    { autoprint: new URL(req.url).searchParams.get("print") === "1" }
-  );
+    });
 
-  return new Response(html, {
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }
+  const filename = `${inv.number ?? "factura"}.pdf`.replace(/[^A-Za-z0-9._-]/g, "_");
+  return new Response(pdf as any, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": String(pdf.length),
+      "Cache-Control": "no-store"
+    }
   }) as any;
 });
