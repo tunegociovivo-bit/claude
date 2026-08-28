@@ -3128,7 +3128,7 @@ function QueueLiveStatus() {
       <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
         {[
           ["Enviados hoy", `${d.counters?.sentToday ?? 0} mensajes`],
-          ["Programados para hoy", `${d.queue?.scheduledToday ?? 0} mensajes`],
+          ["Con fecha de hoy", `${d.queue?.scheduledToday ?? 0} mensajes`],
           ["Tope total diario", `${d.settings?.dailyLimitEffective ?? "?"} mensajes`],
           ["Chats nuevos hoy", `${d.counters?.newChatsToday ?? 0} / ${d.settings?.maxNewChatsPerDay ?? "?"}`],
           ["Aplazados automáticamente", `${(d.queue?.deferredByNewChatCap ?? 0) + (d.queue?.deferredByWarmupCap ?? 0)} mensajes`],
@@ -3142,6 +3142,11 @@ function QueueLiveStatus() {
           </div>
         ))}
       </div>
+      {(d.queue?.scheduledToday ?? 0) > (d.settings?.dailyLimitEffective ?? Number.MAX_SAFE_INTEGER) && (
+        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+          Tener fecha de hoy no garantiza el envío: la capacidad segura actual es de {d.settings?.dailyLimitEffective ?? "?"} mensajes totales y {d.settings?.maxNewChatsPerDay ?? "?"} conversaciones nuevas. El excedente se redistribuirá conservando el motivo.
+        </div>
+      )}
       {(d.sessions ?? []).some((s: any) => s.connected === false) && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {(d.sessions ?? [])
@@ -4938,17 +4943,15 @@ function QueueTable({ loading, items, onChanged }: { loading: boolean; items: Qu
             <option key={s.id} value={s.id}>{s.keyword} · {s.location}</option>
           ))}
         </select>
-        {items.some((m) => m.status === "queued") && (
-          <button
-            onClick={openRepace}
-            disabled={repacing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs disabled:opacity-50"
-            title="Redistribuye los mensajes en cola a partir de una fecha (por defecto, ahora), respetando ventana horaria y anti-baneo. Útil cuando la cola no empieza a enviar hasta dentro de varios días."
-          >
-            {repacing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
-            Reprogramar {selected.size > 0 ? `${selected.size} sel.` : "cola"}
-          </button>
-        )}
+        <button
+          onClick={openRepace}
+          disabled={repacing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs disabled:opacity-50"
+          title="Redistribuye los mensajes en cola a partir de una fecha (por defecto, ahora), respetando ventana horaria y anti-baneo. Útil aunque los pendientes no aparezcan en la página o filtro actual."
+        >
+          {repacing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+          Reprogramar {selected.size > 0 ? `${selected.size} sel.` : "cola"}
+        </button>
         {items.some((m) => m.status === "failed") && (
           <button
             onClick={retryFailed}
