@@ -37,13 +37,8 @@ export function isDetachedFrameError(error: unknown): boolean {
   return /frame was detached|detached frame|frame has been detached/i.test(String(error));
 }
 
-export async function browserValueOr<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await operation();
-  } catch (error) {
-    if (isDetachedFrameError(error)) throw error;
-    return fallback;
-  }
+export async function browserValueOr<T>(operation: () => Promise<T>, _fallback: T): Promise<T> {
+  return operation();
 }
 
 export async function clickAfterDismissingModal(page: any, locator: any, dismissModal?: () => Promise<void>): Promise<void> {
