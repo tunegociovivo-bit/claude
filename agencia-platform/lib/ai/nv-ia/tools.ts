@@ -3700,29 +3700,77 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     if (!phone) return { error: "teléfono inválido o no normalizable" };
     if (!fileId) return { error: "fileId vacío" };
     if (caption.length > 2000) return { error: "caption demasiado largo (>2000)" };
-    const file = await prisma.file.findFirst({
-      where: { id: fileId, workspaceId: ctx.workspaceId, targetType: "TASK", targetId: ctx.taskId },
-      select: { id: true, name: true, mimeType: true, sizeBytes: true }
-    });
+    const [file, sourceTask] = await Promise.all([
+      prisma.file.findFirst({
+        where: { id: fileId, workspaceId: ctx.workspaceId, targetType: "TASK", targetId: ctx.taskId },
+        select: { id: true, name: true, mimeType: true, sizeBytes: true }
+      }),
+      prisma.task.findFirst({
+        where: { id: ctx.taskId, workspaceId: ctx.workspaceId },
+        select: { description: true }
+      })
+    ]);
     if (!file) return { error: `El archivo ${fileId} no pertenece a esta tarea o no existe` };
     if (file.sizeBytes > 50 * 1024 * 1024) return { error: "El archivo supera el límite de 50 MB" };
-    const draft = await prisma.aiDraft.create({
-      data: {
-        workspaceId: ctx.workspaceId,
-        aiAgentRunId: ctx.runId,
-        taskId: ctx.taskId,
-        kind: "WHATSAPP",
-        title: `📎 ${file.name} por WhatsApp a +${phone}`,
-        payload: {
-          phoneNormalized: phone,
-          text: caption,
-          fileId: file.id,
-          fileName: file.name,
-          mimeType: file.mimeType,
-          sizeBytes: file.sizeBytes
+    // Idempotencia entre RUNS distintos: una instrucción programada duplicada
+    // puede regenerar el mismo archivo con otro fileId. Serializamos por
+    // workspace+destinatario+nombre y reutilizamos cualquier envío creado en
+    // las últimas 2 h. Así dos crons simultáneos tampoco pueden mandar dos
+    // documentos idénticos antes de que el primero termine de autoaprobarse.
+    const originTaskId =
+      sourceTask?.description?.match(/\*\*Contexto completo:\*\* lee la tarea original\s+([a-z0-9]+)/i)?.[1] ??
+      sourceTask?.description?.match(/Auto-creada por Sonia[^\n]*task\s+([a-z0-9]+)\)_\s*$/i)?.[1] ??
+      ctx.taskId;
+    const dedupeKey = `wa-file:${ctx.workspaceId}:${originTaskId}:${phone}:${file.name.toLocaleLowerCase("es")}`;
+    const draftResult = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupeKey}))`;
+      const recent = await tx.aiDraft.findMany({
+        where: {
+          workspaceId: ctx.workspaceId,
+          kind: "WHATSAPP",
+          status: { in: ["PENDING", "APPROVED", "EXECUTED"] },
+          createdAt: { gte: new Date(Date.now() - 2 * 60 * 60_000) }
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, payload: true, status: true }
+      });
+      const duplicate = recent.find((item) => {
+        const payload: any = item.payload ?? {};
+        return payload.deliveryScope === originTaskId &&
+          payload.phoneNormalized === phone &&
+          String(payload.fileName ?? "").toLocaleLowerCase("es") === file.name.toLocaleLowerCase("es");
+      });
+      if (duplicate) return { duplicate, draft: null };
+
+      const draft = await tx.aiDraft.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          aiAgentRunId: ctx.runId,
+          taskId: ctx.taskId,
+          kind: "WHATSAPP",
+          title: `📎 ${file.name} por WhatsApp a +${phone}`,
+          payload: {
+            phoneNormalized: phone,
+            deliveryScope: originTaskId,
+            text: caption,
+            fileId: file.id,
+            fileName: file.name,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes
+          }
         }
-      }
+      });
+      return { duplicate: null, draft };
     });
+    if (draftResult.duplicate) {
+      return {
+        ok: true,
+        duplicatePrevented: true,
+        existingDraftId: draftResult.duplicate.id,
+        message: `No se reenvía ${file.name}: ya existe una entrega reciente al mismo teléfono.`
+      };
+    }
+    const draft = draftResult.draft!;
     const auto = await maybeAutoApproveDraft(draft.id, "WHATSAPP", ctx);
     return {
       ok: true,
