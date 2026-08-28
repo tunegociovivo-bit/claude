@@ -45,17 +45,5 @@ export async function completeRixusIssuerProfile(workspaceId: string): Promise<v
         }
       }
     });
-    const documentsWithoutLogo = await prisma.invoice.findMany({
-      where: { workspaceId, issuerId: issuer.id, deletedAt: null },
-      select: { id: true, issuerSnapshot: true }
-    });
-    for (const document of documentsWithoutLogo) {
-      const snapshot = (document.issuerSnapshot ?? {}) as Record<string, unknown>;
-      if (typeof snapshot.logoUrl === "string" && snapshot.logoUrl.trim()) continue;
-      await prisma.invoice.update({
-        where: { id: document.id },
-        data: { issuerSnapshot: { ...snapshot, logoUrl: completed.logoUrl } }
-      });
-    }
   }
 }
