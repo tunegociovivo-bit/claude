@@ -23,9 +23,19 @@ describe("invoice rendering", () => {
   });
 
   it("builds an email-safe layout without flexbox or fixed controls", () => {
-    const html = buildInvoiceEmailHtml(invoice);
+    const html = buildInvoiceEmailHtml({ ...invoice, notes: "Nota visible", terms: "Condiciones visibles", issuer: { ...invoice.issuer, iban: "US00 TEST" } });
     expect(html).toContain('role="presentation"');
     expect(html).not.toMatch(/display:\s*flex|position:\s*fixed|onclick=/i);
+    expect(html).toContain("Nota visible");
+    expect(html).toContain("Condiciones visibles");
+    expect(html).toContain("US00 TEST");
+  });
+
+  it("paginates long invoices without truncating their descriptions", async () => {
+    const long = "Servicio de consultoría y seguimiento con una descripción fiscal extensa ".repeat(4);
+    const pdf = await buildInvoicePdf({ ...invoice, lines: Array.from({ length: 30 }, (_, index) => ({ ...invoice.lines[0], concept: `Servicio ${index + 1}`, description: long })) });
+    const source = pdf.toString("latin1");
+    expect((source.match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
   });
 
   it("creates a real PDF document", async () => {
