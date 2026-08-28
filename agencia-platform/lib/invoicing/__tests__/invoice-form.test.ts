@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addInvoicePaymentDays,
+  addInvoiceMonths,
   automationStatus,
   formatInvoiceNumberPreview,
   invoiceRecipientEmail,
@@ -13,6 +14,10 @@ describe("invoice form defaults", () => {
 
   it("handles month and year changes without timezone drift", () => {
     expect(addInvoicePaymentDays("2026-12-15", 30)).toBe("2027-01-14");
+  });
+
+  it("schedules the first recurring run one interval after creation", () => {
+    expect(addInvoiceMonths("2026-08-31", 1)).toBe("2026-09-30");
   });
 });
 
