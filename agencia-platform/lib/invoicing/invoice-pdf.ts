@@ -29,8 +29,11 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
   });
   const accent = "#2563EB";
   const logo = imageBuffer(invoice.issuer.logoUrl);
-  if (logo) document.image(logo, 42, 38, { fit: [150, 70] });
-  else document.fillColor(accent).font("Helvetica-Bold").fontSize(18).text(invoice.issuer.name ?? "", 42, 42, { width: 260 });
+  let logoDrawn = false;
+  if (logo) {
+    try { document.image(logo, 42, 38, { fit: [150, 70] }); logoDrawn = true; } catch { logoDrawn = false; }
+  }
+  if (!logoDrawn) document.fillColor(accent).font("Helvetica-Bold").fontSize(18).text(invoice.issuer.name ?? "", 42, 42, { width: 260 });
   document.fillColor(accent).font("Helvetica-Bold").fontSize(20).text((TYPE_LABEL[invoice.type as InvoiceType] ?? "Factura").toUpperCase(), 330, 42, { width: 220, align: "right" });
   document.fillColor("#111827").fontSize(12).text(invoice.number ?? "(borrador)", 330, 68, { width: 220, align: "right" });
   document.font("Helvetica").fontSize(9).fillColor("#4B5563").text(partyText(invoice.issuer), 42, 112, { width: 250 });
@@ -42,20 +45,27 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
   const headers = ["CONCEPTO", "DESCRIPCIÓN", "PRECIO", "UDS.", "SUBTOTAL", "IMPUESTOS", "TOTAL"];
   const widths = [78, 118, 65, 36, 65, 70, 70];
   let y = 285;
-  document.rect(42, y, 511, 24).fill(accent);
-  let x = 46;
-  headers.forEach((header, index) => { document.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.5).text(header, x, y + 8, { width: widths[index] - 5, align: index > 1 ? "right" : "left" }); x += widths[index]; });
-  y += 24;
+  const drawTableHeader = () => {
+    document.rect(42, y, 511, 24).fill(accent);
+    let headerX = 46;
+    headers.forEach((header, index) => { document.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.5).text(header, headerX, y + 8, { width: widths[index] - 5, align: index > 1 ? "right" : "left" }); headerX += widths[index]; });
+    y += 24;
+  };
+  drawTableHeader();
   for (const line of invoice.lines) {
     const amounts = computeInvoiceLineAmounts(line);
     const values = [line.concept || line.description, line.description || "—", formatMoney(line.unitPriceCents, invoice.currency), String(line.quantity), formatMoney(amounts.subtotalCents, invoice.currency), invoiceTaxLabel(line.taxRate, invoice.currency), formatMoney(amounts.totalCents, invoice.currency)];
-    x = 46;
-    values.forEach((value, index) => { document.fillColor("#111827").font(index === 0 || index === 6 ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).text(String(value), x, y + 7, { width: widths[index] - 5, align: index > 1 ? "right" : "left", height: 28, ellipsis: true }); x += widths[index]; });
-    document.moveTo(42, y + 34).lineTo(553, y + 34).lineWidth(0.5).strokeColor("#E5E7EB").stroke();
-    y += 34;
+    document.font("Helvetica").fontSize(7.5);
+    const rowHeight = Math.max(30, ...values.map((value, index) => document.heightOfString(String(value), { width: widths[index] - 7 }) + 14));
+    if (y + rowHeight > 760) { document.addPage(); y = 42; drawTableHeader(); }
+    let x = 46;
+    values.forEach((value, index) => { document.fillColor("#111827").font(index === 0 || index === 6 ? "Helvetica-Bold" : "Helvetica").fontSize(7.5).text(String(value), x, y + 7, { width: widths[index] - 7, align: index > 1 ? "right" : "left" }); x += widths[index]; });
+    document.moveTo(42, y + rowHeight).lineTo(553, y + rowHeight).lineWidth(0.5).strokeColor("#E5E7EB").stroke();
+    y += rowHeight;
   }
   const totals = computeTotals(invoice.lines);
   y += 14;
+  if (y + 125 > 790) { document.addPage(); y = 54; }
   document.font("Helvetica").fontSize(10).fillColor("#111827").text("Base imponible", 350, y, { width: 100 }).text(formatMoney(totals.subtotalCents, invoice.currency), 450, y, { width: 103, align: "right" });
   y += 24;
   document.moveTo(350, y).lineTo(553, y).lineWidth(2).strokeColor(accent).stroke();

@@ -23,7 +23,7 @@ describe("invoice rendering", () => {
   });
 
   it("builds an email-safe layout without flexbox or fixed controls", () => {
-    const html = buildInvoiceEmailHtml({ ...invoice, notes: "Nota visible", terms: "Condiciones visibles", issuer: { ...invoice.issuer, iban: "US00 TEST" } });
+    const html = buildInvoiceEmailHtml({ ...invoice, paymentMethod: "TRANSFER", notes: "Nota visible", terms: "Condiciones visibles", issuer: { ...invoice.issuer, iban: "US00 TEST" } });
     expect(html).toContain('role="presentation"');
     expect(html).not.toMatch(/display:\s*flex|position:\s*fixed|onclick=/i);
     expect(html).toContain("Nota visible");

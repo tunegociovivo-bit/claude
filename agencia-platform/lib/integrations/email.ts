@@ -209,6 +209,8 @@ export async function sendEmailWithAttachment(opts: {
   workspaceId?: string;
   from?: string;
   bcc?: string | string[];
+  replyTo?: string;
+  idempotencyKey?: string;
   attachment: { filename: string; content: string | Buffer; contentType: string };
 }): Promise<{ id: string }> {
   const { apiKey, from: resolvedFrom } = await getResendConfig(opts.workspaceId);
@@ -223,12 +225,14 @@ export async function sendEmailWithAttachment(opts: {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {})
     },
     body: JSON.stringify({
       from: opts.from ?? resolvedFrom,
       to: [opts.to],
       ...(opts.bcc ? { bcc: Array.isArray(opts.bcc) ? opts.bcc : [opts.bcc] } : {}),
+      ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
       subject: opts.subject,
       html: opts.html,
       text: opts.text,

@@ -270,7 +270,7 @@ export const invoiceCreateSchema = z.object({
   dueDate: z.string().nullable().optional(),
   currency: z.enum(["EUR", "USD"]).default("EUR"),
   paymentMethod: z.enum(["STRIPE", "TRANSFER", "REMITTANCE", "CARD", "CASH", "OTHER"]).default("STRIPE"),
-  lines: z.array(invoiceLineSchema).min(1),
+  lines: z.array(invoiceLineSchema).min(1).max(500),
   notes: z.string().nullable().optional(),
   terms: z.string().nullable().optional(),
   rectifiesInvoiceId: z.string().nullable().optional(),
