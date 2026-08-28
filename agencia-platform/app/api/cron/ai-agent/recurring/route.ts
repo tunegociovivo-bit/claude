@@ -32,9 +32,37 @@ export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 503 });
 
   const now = new Date();
-  // La limpieza puntual de antiguas recurrencias de prueba ya se ejecutó. No
-  // se mantiene un updateMany destructivo permanente en cada tick del cron.
-  const disabledTestRecurrences = { count: 0 };
+  // Limpieza tenant-scoped de las pruebas recurrentes que se duplicaron. La
+  // versión anterior exigía que la descripción contuviera el teléfono y dejó
+  // vivas copias sin ese texto. El workspace se resuelve desde un proyecto
+  // conocido y los títulos/marcadores son exclusivos de esta prueba.
+  const disabledRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    WITH target_workspace AS (
+      SELECT "workspaceId" FROM "Project" WHERE "id" = 'cmp8x66np0003nnc8pozzsopd'
+    ), disabled AS (
+      UPDATE "Task"
+      SET "recurrence" = 'none', "recurrenceNextAt" = NULL, "updatedAt" = NOW()
+      WHERE "workspaceId" = (SELECT "workspaceId" FROM target_workspace)
+        AND "deletedAt" IS NULL
+        AND "recurrence" <> 'none'
+        AND (
+          "title" ILIKE '%Prueba 3 recurrente%'
+          OR "description" ILIKE '%Prueba 3 recurrente%'
+          OR "title" ILIKE '%Correo de prueba 3%'
+          OR "description" ILIKE '%Correo de prueba 3%'
+        )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::bigint AS count FROM disabled
+  `;
+  const cancelledRows = await prisma.$executeRaw`
+    UPDATE "SoniaScheduledInstruction"
+    SET "status" = 'CANCELLED', "updatedAt" = NOW()
+    WHERE "workspaceId" = (SELECT "workspaceId" FROM "Project" WHERE "id" = 'cmp8x66np0003nnc8pozzsopd')
+      AND "status" = 'SCHEDULED'
+      AND ("sourceText" ILIKE '%Prueba 3 recurrente%' OR "sourceText" ILIKE '%Correo de prueba 3%')
+  `;
+  const disabledTestRecurrences = Number(disabledRows[0]?.count ?? 0n) + cancelledRows;
   const due = await prisma.task.findMany({
     where: { recurrence: { not: "none" }, recurrenceNextAt: { lte: now }, deletedAt: null } as any,
     select: {
@@ -194,7 +222,7 @@ export async function GET(req: NextRequest) {
     triggered,
     repeated,
     advanced,
-    disabledTestRecurrences: disabledTestRecurrences.count,
+    disabledTestRecurrences,
     nationalityExport
   });
 }
