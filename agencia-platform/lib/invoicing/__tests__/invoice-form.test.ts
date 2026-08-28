@@ -10,6 +10,8 @@ import {
   normalizeCustomInvoiceNumber,
   validateCustomInvoiceNumber,
   recurringOccurrenceSchedule,
+  mergeInvoiceClients,
+  normalizeInitialInvoiceSequence,
 } from "../invoice-form";
 
 describe("invoice form defaults", () => {
@@ -107,5 +109,19 @@ describe("automatic invoice workflow", () => {
 describe("invoice number preview", () => {
   it("shows the next number using the legal series and year", () => {
     expect(formatInvoiceNumberPreview("FAC", 2026, 44)).toBe("FAC-2026-0044");
+  });
+
+  it("accepts an administrator-defined initial sequence", () => {
+    expect(normalizeInitialInvoiceSequence("3001")).toBe(3001);
+    expect(() => normalizeInitialInvoiceSequence("0")).toThrow(/inicial/i);
+  });
+});
+
+describe("inline client persistence", () => {
+  it("keeps a newly created client available in later invoice forms", () => {
+    expect(mergeInvoiceClients(
+      [{ id: "old", name: "Anterior", taxId: null }],
+      { id: "new", name: "Nuevo", taxId: "X1" }
+    ).map((client) => client.id)).toEqual(["old", "new"]);
   });
 });
