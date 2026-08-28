@@ -19,9 +19,10 @@ import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 import { computeRecurrenceNext, isValidRecurrence } from "@/lib/tasks/recurrence";
 import { readKanbanColumns } from "@/lib/kanban";
 import { cronAuthOk } from "@/lib/cron-auth";
+import { runNationalityLeadsExport } from "@/lib/one-off/nationality-leads-export";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 function authed(req: NextRequest): boolean {
   return cronAuthOk(req);
@@ -31,28 +32,9 @@ export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 503 });
 
   const now = new Date();
-  // Limpieza puntual solicitada por el administrador: dos comprobaciones de
-  // programación quedaron guardadas como recurrencias diarias y estaban
-  // enviando confirmaciones por WhatsApp a las 08:00. Se desactivan por su
-  // marcador exacto; ninguna otra recurrencia se ve afectada.
-  const disabledTestRecurrences = await prisma.task.updateMany({
-    where: {
-      recurrence: { not: "none" },
-      deletedAt: null,
-      // El teléfono personal del administrador hace el filtro tenant-específico
-      // y evita tocar pruebas o tareas homónimas de cualquier otro workspace.
-      description: { contains: "680167881" },
-      AND: {
-        OR: [
-          { title: { contains: "Prueba 3 recurrente", mode: "insensitive" } },
-          { description: { contains: "Prueba 3 recurrente", mode: "insensitive" } },
-          { title: { contains: "Correo de prueba 3", mode: "insensitive" } },
-          { description: { contains: "Correo de prueba 3", mode: "insensitive" } }
-        ]
-      }
-    },
-    data: { recurrence: "none", recurrenceNextAt: null }
-  });
+  // La limpieza puntual de antiguas recurrencias de prueba ya se ejecutó. No
+  // se mantiene un updateMany destructivo permanente en cada tick del cron.
+  const disabledTestRecurrences = { count: 0 };
   const due = await prisma.task.findMany({
     where: { recurrence: { not: "none" }, recurrenceNextAt: { lte: now }, deletedAt: null } as any,
     select: {
@@ -203,12 +185,16 @@ export async function GET(req: NextRequest) {
     repeated++;
   }
 
+  // Las recurrencias ordinarias ya están procesadas. Esperamos esta operación
+  // puntual para que el runtime no corte la descarga al cerrar la petición.
+  const nationalityExport = await runNationalityLeadsExport();
   return NextResponse.json({
     ok: true,
     due: due.length,
     triggered,
     repeated,
     advanced,
-    disabledTestRecurrences: disabledTestRecurrences.count
+    disabledTestRecurrences: disabledTestRecurrences.count,
+    nationalityExport
   });
 }
