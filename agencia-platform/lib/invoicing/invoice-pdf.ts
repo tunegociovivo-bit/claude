@@ -25,6 +25,21 @@ export function invoiceTableDescription(description: string): { table: string; a
   return { table: `${description.slice(0, 360).trimEnd()}… (ver detalle completo)`, appendix: description };
 }
 
+export function invoicePdfTableLayout(language: InvoiceLanguage): Array<{ label: string; width: number }> {
+  const labels = invoiceLabels(language);
+  const headers = [labels.concept, labels.description, labels.unitPrice, labels.quantity, labels.subtotal, labels.taxes, labels.total];
+  const widths = [72, 110, 65, 48, 65, 70, 72];
+  return headers.map((label, index) => ({ label: label.toUpperCase(), width: widths[index] }));
+}
+
+export function invoicePdfHeaderFits(label: string, width: number, fontSize = 6.5): boolean {
+  const measurement = new PDFDocument({ autoFirstPage: false });
+  measurement.font("Helvetica-Bold").fontSize(fontSize);
+  const fits = measurement.widthOfString(label) <= width - 8;
+  measurement.end();
+  return fits;
+}
+
 export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> {
   const language = invoiceLanguage(invoice);
   const labels = invoiceLabels(language);
@@ -51,13 +66,13 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
   document.fillColor("#6B7280").font("Helvetica-Bold").fontSize(8).text(labels.billTo.toUpperCase(), 42, 195);
   document.fillColor("#111827").font("Helvetica").fontSize(10).text(partyText(invoice.client, language), 42, 210, { width: 300 });
 
-  const headers = [labels.concept, labels.description, labels.unitPrice, labels.quantity, labels.subtotal, labels.taxes, labels.total].map((value) => value.toUpperCase());
-  const widths = [78, 118, 65, 36, 65, 70, 70];
+  const columns = invoicePdfTableLayout(language);
+  const widths = columns.map((column) => column.width);
   let y = 285;
   const drawTableHeader = () => {
     document.rect(42, y, 511, 24).fill(accent);
     let headerX = 46;
-    headers.forEach((header, index) => { document.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.5).text(header, headerX, y + 8, { width: widths[index] - 5, align: index > 1 ? "right" : "left" }); headerX += widths[index]; });
+    columns.forEach((column, index) => { document.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(6.5).text(column.label, headerX, y + 8, { width: widths[index] - 5, align: index > 1 ? "right" : "left", lineBreak: false }); headerX += widths[index]; });
     y += 24;
   };
   drawTableHeader();
