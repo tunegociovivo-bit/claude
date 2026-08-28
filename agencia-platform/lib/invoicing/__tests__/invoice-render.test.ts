@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildInvoiceHtml, buildInvoiceEmailHtml } from "../invoice-html";
-import { buildInvoicePdf, invoiceTableDescription } from "../invoice-pdf";
+import { buildInvoicePdf, invoicePdfHeaderFits, invoicePdfTableLayout, invoiceTableDescription } from "../invoice-pdf";
 
 const invoice = {
   type: "NORMAL",
@@ -83,5 +83,11 @@ describe("invoice rendering", () => {
     const pdf = await buildInvoicePdf(invoice);
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     expect(pdf.length).toBeGreaterThan(500);
+  });
+
+  it("keeps every English PDF table header on one line", () => {
+    for (const column of invoicePdfTableLayout("en")) {
+      expect(invoicePdfHeaderFits(column.label, column.width)).toBe(true);
+    }
   });
 });
