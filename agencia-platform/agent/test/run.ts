@@ -96,11 +96,13 @@ async function main() {
 
     let clicks = 0;
     let escaped = 0;
+    let modalDismissed = 0;
     await clickAfterDismissingModal(
       { keyboard: { press: async (key: string) => { if (key === "Escape") escaped++; } }, waitForTimeout: async () => {} },
-      { click: async () => { if (++clicks === 1) throw new Error("div.modal subtree intercepts pointer events"); } }
+      { click: async () => { if (++clicks === 1) throw new Error("div.modal subtree intercepts pointer events"); } },
+      async () => { modalDismissed++; }
     );
-    ok("cierra el modal residual y reintenta el clic de la siguiente remesa", clicks === 2 && escaped === 1);
+    ok("cierra el modal residual y reintenta el clic de la siguiente remesa", clicks === 2 && escaped === 0 && modalDismissed === 1);
   }
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
