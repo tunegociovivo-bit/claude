@@ -45,32 +45,64 @@ export async function triggerScheduledFollowup(taskId: string): Promise<string |
         dueDate: { gte: new Date(Date.now() - RECOVERY_WINDOW_MS), lte: new Date() },
         status: { notIn: ["DONE", "CANCELLED"] as any }
       },
-      select: { id: true, workspaceId: true, dueDate: true }
+      select: { id: true, workspaceId: true, dueDate: true, description: true }
     });
     if (!task) return null;
-    const recent = await tx.aiAgentRun.findFirst({
-      where: { taskId, createdAt: { gte: new Date(Date.now() - RECENT_RUN_MS) } },
-      select: { id: true }
+    const tracked = await tx.soniaScheduledInstruction.findUnique({
+      where: { followupTaskId: taskId },
+      select: { taskId: true, status: true, payload: true, sourceText: true }
     });
-    if (recent) return null;
+    if (tracked && tracked.status !== "SCHEDULED") return null;
+    const legacyOriginId = !tracked
+      ? task.description?.match(/Auto-creada por Sonia[^\n]*task\s+([a-z0-9]+)\)_\s*$/i)?.[1]
+      : null;
+    const legacyOrigin = legacyOriginId
+      ? await tx.task.findFirst({
+          where: { id: legacyOriginId, workspaceId: task.workspaceId },
+          select: { id: true }
+        })
+      : null;
+    const returnsToOriginal = !!tracked || !!legacyOrigin;
+    const executionTaskId = tracked?.taskId ?? legacyOrigin?.id ?? taskId;
+    if (!returnsToOriginal) {
+      const recent = await tx.aiAgentRun.findFirst({
+        where: { taskId, createdAt: { gte: new Date(Date.now() - RECENT_RUN_MS) } },
+        select: { id: true }
+      });
+      if (recent) return null;
+    }
+    if (returnsToOriginal) {
+      if (tracked) {
+        await tx.soniaScheduledInstruction.update({
+          where: { followupTaskId: taskId },
+          data: { status: "TRIGGERED", triggeredAt: new Date(), attempts: { increment: 1 } }
+        });
+      }
+      await tx.task.update({
+        where: { id: taskId },
+        data: { status: "DONE", completedAt: new Date() }
+      });
+    }
     return tx.aiAgentRun.create({
       data: {
         workspaceId: task.workspaceId,
-        taskId,
+        taskId: executionTaskId,
         status: "PENDING",
         trigger: "SCHEDULED" as any,
-        triggerContext: `Followup programado por Sonia para ${task.dueDate?.toISOString()}.`
+        triggerContext: returnsToOriginal
+          ? [
+              `Ejecución programada para ${task.dueDate?.toISOString()}.`,
+              `IMPORTANTE: ejecuta la orden y devuelve comentarios y archivos en ESTA tarea original (${executionTaskId}); no crees otra tarea.`,
+              `Instrucciones del temporizador auxiliar:`,
+              task.description ?? JSON.stringify(tracked?.payload ?? {}),
+              ...(tracked ? [`Petición original: ${tracked.sourceText}`] : [])
+            ].join("\n\n")
+          : `Followup programado por Sonia para ${task.dueDate?.toISOString()}.`
       },
       select: { id: true }
     });
   });
   if (!run) return null;
-  await prisma.soniaScheduledInstruction
-    .updateMany({
-      where: { followupTaskId: taskId },
-      data: { status: "TRIGGERED", triggeredAt: new Date(), attempts: { increment: 1 } }
-    })
-    .catch(() => undefined);
   void processRunInBackground(run.id);
   return run.id;
 }

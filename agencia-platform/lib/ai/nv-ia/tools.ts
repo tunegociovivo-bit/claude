@@ -8,6 +8,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { createHash } from "crypto";
 import { prisma } from "@/lib/db/prisma";
 import { chatTools } from "@/lib/ai/chat-tools";
 import { semanticSearch } from "@/lib/search/embeddings";
@@ -7617,17 +7618,52 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       });
       if (parent?.projectId) projectId = parent.projectId;
 
-      const task = await prisma.task.create({
-        data: {
-          workspaceId: ctx.workspaceId,
-          title: `🔁 ${title}`,
-          description: description + `\n\n_(Auto-creada por Sonia como seguimiento de la task ${ctx.taskId})_`,
-          status: "TODO",
-          priority: "MEDIUM",
-          projectId,
-          clientId: clientId ?? null,
-          dueDate
-        } as any
+      const actionHash = createHash("sha256")
+        .update(`${title.trim().toLocaleLowerCase("es")}\n${description.trim().toLocaleLowerCase("es")}`)
+        .digest("hex")
+        .slice(0, 16);
+      const occurrenceKey = `schedule:${ctx.taskId}:${dueDate.toISOString()}:${actionHash}`;
+      const task = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${occurrenceKey}))`;
+        const existing = await tx.soniaScheduledInstruction.findFirst({
+          where: { workspaceId: ctx.workspaceId, commentId: occurrenceKey, scheduledAt: dueDate },
+          select: { followupTaskId: true }
+        });
+        if (existing?.followupTaskId) {
+          return tx.task.findUniqueOrThrow({ where: { id: existing.followupTaskId } });
+        }
+        const created = await tx.task.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            title: `🔁 ${title}`,
+            description: description + `\n\n_(Auto-creada por Sonia como seguimiento de la task ${ctx.taskId})_`,
+            status: "TODO",
+            priority: "MEDIUM",
+            projectId,
+            clientId: clientId ?? null,
+            dueDate
+          } as any
+        });
+        await tx.soniaScheduledInstruction.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            taskId: ctx.taskId,
+            commentId: occurrenceKey,
+            followupTaskId: created.id,
+            sourceText: description.slice(0, 4000),
+            timezone: "Europe/Madrid",
+            scheduledAt: dueDate,
+            payload: {
+              summary: title,
+              channel: null,
+              recipient: null,
+              when: { dateIso: dueDate.toISOString() },
+              wallClock: dueDate.toISOString()
+            },
+            status: "SCHEDULED"
+          }
+        });
+        return created;
       });
       armScheduledFollowup(task.id, dueDate);
       return {
