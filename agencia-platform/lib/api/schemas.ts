@@ -248,7 +248,7 @@ const invoiceLineSchema = z.object({
 });
 
 const recurrenceConfigSchema = z.object({
-  intervalMonths: z.number().int().min(1).max(60).default(1),
+  intervalMonths: z.number().int().min(1).max(43_800).default(1),
   intervalUnit: z.enum(["DAYS", "MONTHS", "YEARS"]).optional(),
   intervalValue: z.number().int().min(1).max(3650).optional(),
   dayOfMonth: z.number().int().min(1).max(28).optional(),

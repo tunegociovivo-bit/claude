@@ -1,22 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { assignInvoiceNumber } from "./numbering";
 import { defaultSeriesForType } from "./core";
-import { addInvoiceInterval, addInvoicePaymentDays, type InvoiceRecurrenceUnit } from "./invoice-form";
-
-function addMonths(date: Date, months: number): Date {
-  const d = new Date(date);
-  const day = d.getDate();
-  d.setMonth(d.getMonth() + months);
-  // Evita el "spill" de meses cortos (31 ene + 1 mes ≠ 3 mar).
-  if (d.getDate() < day) d.setDate(0);
-  return d;
-}
-
-function advanceRecurrence(date: Date, config: any): Date {
-  const unit = (config.intervalUnit ?? "MONTHS") as InvoiceRecurrenceUnit;
-  const value = Math.max(1, Number(config.intervalValue ?? config.intervalMonths) || 1);
-  return new Date(`${addInvoiceInterval(date.toISOString().slice(0, 10), unit, value)}T00:00:00.000Z`);
-}
+import { addInvoicePaymentDays, recurringOccurrenceSchedule, type InvoiceRecurrenceUnit } from "./invoice-form";
 
 /**
  * Genera las facturas de las PLANTILLAS recurrentes que toca emitir
@@ -39,7 +24,7 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
     const endsAt = cfg.endsAt ? new Date(cfg.endsAt) : null;
 
     if (nextRunAt > now) continue;
-    if (endsAt && now > endsAt) {
+    if (endsAt && nextRunAt > endsAt) {
       await prisma.invoice
         .update({ where: { id: tpl.id }, data: { recurring: false } })
         .catch(() => {});
@@ -47,7 +32,18 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
     }
 
     const series = (tpl.series || defaultSeriesForType(tpl.type as any)) as string;
-    const occurrenceKey = `recurring:${tpl.id}:${nextRunAt.toISOString()}`;
+    const unit = (cfg.intervalUnit ?? "MONTHS") as InvoiceRecurrenceUnit;
+    const value = Math.max(1, Number(cfg.intervalValue ?? cfg.intervalMonths) || 1);
+    const through = endsAt && endsAt < now ? endsAt : now;
+    const schedule = recurringOccurrenceSchedule(
+      nextRunAt.toISOString().slice(0, 10),
+      through.toISOString().slice(0, 10),
+      unit,
+      value
+    );
+    for (const occurrenceDate of schedule.dueDates) {
+    const occurrence = new Date(`${occurrenceDate}T00:00:00.000Z`);
+    const occurrenceKey = `recurring:${tpl.id}:${occurrence.toISOString()}`;
     let occurrenceHandled = false;
     for (let attempt = 0; attempt < 3 && !occurrenceHandled; attempt++) {
       try {
@@ -57,7 +53,7 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
             select: { id: true }
           });
           if (existing) return false;
-          const number = await assignInvoiceNumber(tpl.workspaceId, series, now.getFullYear(), tx);
+          const number = await assignInvoiceNumber(tpl.workspaceId, series, occurrence.getUTCFullYear(), tx);
           await tx.invoice.create({
             data: {
               workspaceId: tpl.workspaceId,
@@ -69,8 +65,8 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
               clientId: tpl.clientId,
               issuerSnapshot: tpl.issuerSnapshot ?? undefined,
               clientSnapshot: tpl.clientSnapshot ?? undefined,
-              issueDate: nextRunAt,
-              dueDate: new Date(`${addInvoicePaymentDays(nextRunAt.toISOString().slice(0, 10), 30)}T00:00:00.000Z`),
+              issueDate: occurrence,
+              dueDate: new Date(`${addInvoicePaymentDays(occurrenceDate, 30)}T00:00:00.000Z`),
               currency: tpl.currency,
               paymentMethod: tpl.paymentMethod,
               lines: tpl.lines ?? [],
@@ -99,14 +95,17 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
       }
     }
     if (!occurrenceHandled) throw new Error(`No se pudo reclamar la ocurrencia ${occurrenceKey}`);
+    }
 
     // Avanza la próxima ejecución desde la prevista (no desde "ahora"),
     // para no derivar la fecha si el cron se ejecutó con retraso.
-    let next = cfg.intervalUnit ? advanceRecurrence(nextRunAt, cfg) : addMonths(nextRunAt, interval);
-    while (next <= now) next = cfg.intervalUnit ? advanceRecurrence(next, cfg) : addMonths(next, interval);
+    const next = new Date(`${schedule.nextRunAt}T00:00:00.000Z`);
     await prisma.invoice.update({
       where: { id: tpl.id },
-      data: { recurrenceConfig: { ...cfg, intervalMonths: interval, nextRunAt: next.toISOString() } }
+      data: {
+        recurring: endsAt && next > endsAt ? false : true,
+        recurrenceConfig: { ...cfg, intervalMonths: interval, intervalUnit: unit, intervalValue: value, nextRunAt: next.toISOString() }
+      }
     });
   }
 

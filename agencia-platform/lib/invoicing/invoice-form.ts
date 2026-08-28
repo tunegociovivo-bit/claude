@@ -23,6 +23,23 @@ export function addInvoiceInterval(issueDate: string, unit: InvoiceRecurrenceUni
   return addInvoiceMonths(issueDate, unit === "YEARS" ? every * 12 : every);
 }
 
+export function recurringOccurrenceSchedule(
+  nextRunAt: string,
+  throughDate: string,
+  unit: InvoiceRecurrenceUnit,
+  interval: number,
+  maxCatchUp = 366
+): { dueDates: string[]; nextRunAt: string } {
+  const dueDates: string[] = [];
+  let cursor = nextRunAt;
+  while (cursor <= throughDate && dueDates.length < maxCatchUp) {
+    dueDates.push(cursor);
+    cursor = addInvoiceInterval(cursor, unit, interval);
+  }
+  if (cursor <= throughDate) throw new Error(`Hay más de ${maxCatchUp} facturas recurrentes atrasadas; se requiere revisión`);
+  return { dueDates, nextRunAt: cursor };
+}
+
 export function automationStatus(workflow: InvoiceAutomationWorkflow): "DRAFT" | "ISSUED" | "SENT" {
   if (workflow === "SEND") return "SENT";
   if (workflow === "APPROVE") return "ISSUED";
