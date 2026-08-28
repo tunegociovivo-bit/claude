@@ -25,16 +25,28 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   const series = String(body.series || "FAC").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "FAC";
   const year = Number(body.year) || new Date().getFullYear();
   const next = normalizeInitialInvoiceSequence(body.next);
-  const current = await prisma.invoiceCounter.findUnique({
-    where: { workspaceId_series_year: { workspaceId: api.workspaceId, series, year } }
-  });
-  if (current && next < current.next) {
-    return NextResponse.json({ error: { message: `El siguiente número ya es ${current.next}; no puede retroceder para evitar duplicados.` } }, { status: 409 });
+  let currentNext = 1;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      currentNext = await prisma.$transaction(async (tx) => {
+        const current = await tx.invoiceCounter.findUnique({
+          where: { workspaceId_series_year: { workspaceId: api.workspaceId, series, year } }
+        });
+        if (current && next < current.next) return current.next;
+        await tx.invoiceCounter.upsert({
+          where: { workspaceId_series_year: { workspaceId: api.workspaceId, series, year } },
+          create: { workspaceId: api.workspaceId, series, year, next },
+          update: { next }
+        });
+        return next;
+      }, { isolationLevel: "Serializable" });
+      break;
+    } catch (error: any) {
+      if (error?.code !== "P2034" || attempt === 2) throw error;
+    }
   }
-  await prisma.invoiceCounter.upsert({
-    where: { workspaceId_series_year: { workspaceId: api.workspaceId, series, year } },
-    create: { workspaceId: api.workspaceId, series, year, next },
-    update: { next }
-  });
+  if (currentNext > next) {
+    return NextResponse.json({ error: { message: `El siguiente número ya es ${currentNext}; no puede retroceder para evitar duplicados.` } }, { status: 409 });
+  }
   return NextResponse.json({ number: formatInvoiceNumberPreview(series, year, next) });
 });
