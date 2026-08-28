@@ -79,6 +79,7 @@ type InvoiceRow = {
   paidCents: number;
   recurring: boolean;
   deliveryError?: string | null;
+  deletedAt?: string | null;
   clientSnapshot: { name?: string } | null;
   client: { id: string; name: string } | null;
   issuer: { id: string; name: string } | null;
@@ -141,6 +142,7 @@ export default function FacturasClient({
   const [issuersOpen, setIssuersOpen] = useState(false);
   const [sepaExcluded, setSepaExcluded] = useState<Set<string>>(new Set());
   const [excludeNumber, setExcludeNumber] = useState("");
+  const [showTrash, setShowTrash] = useState(false);
 
   const loadInvoices = useCallback(async () => {
     setLoading(true);
@@ -150,6 +152,7 @@ export default function FacturasClient({
       if (statusFilter) params.set("status", statusFilter);
       if (lockedIssuerId) params.set("issuerId", lockedIssuerId);
       if (q.trim()) params.set("q", q.trim());
+      if (showTrash) params.set("trash", "1");
       const [r, exclusionsResponse] = await Promise.all([
         fetch(`/api/v1/invoices?${params.toString()}`, { cache: "no-store" }),
         fetch("/api/v1/facturacion/remesas/exclusions", { cache: "no-store" })
@@ -166,7 +169,7 @@ export default function FacturasClient({
     } finally {
       setLoading(false);
     }
-  }, [typeFilter, statusFilter, q, lockedIssuerId, onInvoicesChanged]);
+  }, [typeFilter, statusFilter, q, lockedIssuerId, onInvoicesChanged, showTrash]);
 
   useEffect(() => {
     loadInvoices();
@@ -223,6 +226,12 @@ export default function FacturasClient({
           className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50"
         >
           <Building2 className="h-4 w-4" /> Emisores ({issuers.length})
+        </button>
+        <button
+          onClick={() => setShowTrash((value) => !value)}
+          className={`inline-flex items-center gap-1.5 border text-sm px-3 py-2 rounded-lg ${showTrash ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-white hover:bg-slate-50"}`}
+        >
+          <Trash2 className="h-4 w-4" /> {showTrash ? "Volver a facturas" : "Papelera"}
         </button>
         <div className="inline-flex items-center gap-1 rounded-lg border bg-white p-1">
           <input
@@ -314,12 +323,12 @@ export default function FacturasClient({
             ) : invoices.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
-                  No hay documentos. Crea tu primera factura.
+                  {showTrash ? "La papelera está vacía." : "No hay documentos. Crea tu primera factura."}
                 </td>
               </tr>
             ) : (
               invoices.map((inv) => (
-                <tr key={inv.id} onClick={() => window.open(`/api/v1/invoices/${inv.id}/pdf`, "_blank")} className="border-t hover:bg-slate-50/50 cursor-pointer" title="Abrir factura">
+                <tr key={inv.id} onClick={() => !showTrash && window.open(`/api/v1/invoices/${inv.id}/pdf`, "_blank")} className={`border-t hover:bg-slate-50/50 ${showTrash ? "" : "cursor-pointer"}`} title={showTrash ? "Documento en la papelera" : "Abrir factura"}>
                   <td className="px-3 py-2">
                     <div className="font-medium flex items-center gap-1.5">
                       {inv.recurring && <Repeat className="h-3.5 w-3.5 text-violet-500" />}
@@ -344,6 +353,20 @@ export default function FacturasClient({
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1 text-slate-500">
+                      {showTrash ? (
+                        <button
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                          onClick={async (event) => {
+                            event.stopPropagation();
+                            const confirmation = prompt(`Esta acción es irreversible y eliminará también sus vínculos bancarios.\n\nEscribe ELIMINAR para borrar definitivamente ${inv.number ?? "este borrador"}.`);
+                            if (confirmation !== "ELIMINAR") return;
+                            const result = await action(`/api/v1/invoices/${inv.id}/purge`, "DELETE");
+                            if (result) loadInvoices();
+                          }}
+                        >
+                          Eliminar definitivamente
+                        </button>
+                      ) : <>
                       {inv.number && inv.type !== "RECTIFICATIVA" && !/^R-/i.test(inv.number) && (
                         <IconBtn
                           title={sepaExcluded.has(inv.number.toUpperCase()) ? "Permitir remesa automática" : "Excluir de remesas automáticas"}
@@ -399,15 +422,19 @@ export default function FacturasClient({
                         </IconBtn>
                       )}
                       <IconBtn
-                        title="Borrar / anular"
+                        title={inv.status === "CANCELLED" || inv.status === "DRAFT" ? "Mover a la papelera" : "Anular factura"}
                         onClick={async () => {
-                          if (!confirm("¿Borrar/anular este documento?")) return;
+                          const message = inv.status === "CANCELLED" || inv.status === "DRAFT"
+                            ? "¿Mover este documento a la papelera? Desde allí podrás eliminarlo definitivamente."
+                            : "¿Anular esta factura? Después podrás moverla a la papelera.";
+                          if (!confirm(message)) return;
                           await action(`/api/v1/invoices/${inv.id}`, "DELETE");
                           loadInvoices();
                         }}
                       >
                         <Trash2 className="h-4 w-4 text-rose-500" />
                       </IconBtn>
+                      </>}
                     </div>
                   </td>
                 </tr>

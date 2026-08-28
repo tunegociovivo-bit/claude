@@ -83,7 +83,7 @@ export const DELETE = withApi({ scope: "*", rate: "destructive" }, async (_req, 
   // Las facturas emitidas NO se borran de verdad: se anulan (status
   // CANCELLED) para mantener la trazabilidad legal. Los borradores sí
   // se pueden eliminar (soft-delete).
-  if (current.number && current.status !== "DRAFT") {
+  if (current.number && current.status !== "DRAFT" && current.status !== "CANCELLED") {
     const cancelled = await prisma.invoice.update({
       where: { id: current.id },
       data: { status: "CANCELLED" }

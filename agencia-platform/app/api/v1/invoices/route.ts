@@ -16,8 +16,9 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const issuerId = url.searchParams.get("issuerId") ?? undefined;
   const q = url.searchParams.get("q")?.trim();
+  const trash = url.searchParams.get("trash") === "1";
 
-  const where: any = { workspaceId: api.workspaceId, deletedAt: null };
+  const where: any = { workspaceId: api.workspaceId, deletedAt: trash ? { not: null } : null };
   if (type) where.type = type;
   if (status) where.status = status;
   if (clientId) where.clientId = clientId;
@@ -46,6 +47,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
       recurring: true,
       deliveryError: true,
       paidAt: true,
+      deletedAt: true,
       clientSnapshot: true,
       client: { select: { id: true, name: true } },
       issuer: { select: { id: true, name: true } }
