@@ -40,34 +40,58 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
     }
 
     const series = (tpl.series || defaultSeriesForType(tpl.type as any)) as string;
-    const number = await assignInvoiceNumber(tpl.workspaceId, series, now.getFullYear());
-
-    await prisma.invoice.create({
-      data: {
-        workspaceId: tpl.workspaceId,
-        type: tpl.type,
-        status: "ISSUED",
-        series,
-        number,
-        issuerId: tpl.issuerId,
-        clientId: tpl.clientId,
-        issuerSnapshot: tpl.issuerSnapshot ?? undefined,
-        clientSnapshot: tpl.clientSnapshot ?? undefined,
-        issueDate: now,
-        dueDate: null,
-        currency: tpl.currency,
-        paymentMethod: tpl.paymentMethod,
-        lines: tpl.lines ?? [],
-        subtotalCents: tpl.subtotalCents,
-        discountCents: tpl.discountCents,
-        taxCents: tpl.taxCents,
-        totalCents: tpl.totalCents,
-        notes: tpl.notes,
-        terms: tpl.terms,
-        recurringSourceId: tpl.id
+    const occurrenceKey = `recurring:${tpl.id}:${nextRunAt.toISOString()}`;
+    let occurrenceHandled = false;
+    for (let attempt = 0; attempt < 3 && !occurrenceHandled; attempt++) {
+      try {
+        const wasCreated = await prisma.$transaction(async (tx) => {
+          const existing = await tx.invoice.findUnique({
+            where: { workspaceId_creationKey: { workspaceId: tpl.workspaceId, creationKey: occurrenceKey } },
+            select: { id: true }
+          });
+          if (existing) return false;
+          const number = await assignInvoiceNumber(tpl.workspaceId, series, now.getFullYear(), tx);
+          await tx.invoice.create({
+            data: {
+              workspaceId: tpl.workspaceId,
+              type: tpl.type,
+              status: "ISSUED",
+              series,
+              number,
+              issuerId: tpl.issuerId,
+              clientId: tpl.clientId,
+              issuerSnapshot: tpl.issuerSnapshot ?? undefined,
+              clientSnapshot: tpl.clientSnapshot ?? undefined,
+              issueDate: now,
+              dueDate: null,
+              currency: tpl.currency,
+              paymentMethod: tpl.paymentMethod,
+              lines: tpl.lines ?? [],
+              subtotalCents: tpl.subtotalCents,
+              discountCents: tpl.discountCents,
+              taxCents: tpl.taxCents,
+              totalCents: tpl.totalCents,
+              notes: tpl.notes,
+              terms: tpl.terms,
+              recurringSourceId: tpl.id,
+              creationKey: occurrenceKey
+            }
+          });
+          return true;
+        }, { isolationLevel: "Serializable" });
+        if (wasCreated) generated++;
+        occurrenceHandled = true;
+      } catch (error: any) {
+        if (error?.code !== "P2002" && error?.code !== "P2034") throw error;
+        const existing = await prisma.invoice.findUnique({
+          where: { workspaceId_creationKey: { workspaceId: tpl.workspaceId, creationKey: occurrenceKey } },
+          select: { id: true }
+        });
+        if (existing) occurrenceHandled = true;
+        else if (attempt === 2) throw error;
       }
-    });
-    generated++;
+    }
+    if (!occurrenceHandled) throw new Error(`No se pudo reclamar la ocurrencia ${occurrenceKey}`);
 
     // Avanza la próxima ejecución desde la prevista (no desde "ahora"),
     // para no derivar la fecha si el cron se ejecutó con retraso.

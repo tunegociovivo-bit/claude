@@ -491,7 +491,13 @@ model Invoice {
 
   // Cobro
   stripePaymentLinkUrl String?
-  paidAt               DateTime?
+    paidAt               DateTime?
+
+    // Idempotencia de creación y entrega automática desde el formulario.
+    creationKey   String?
+    creationHash  String?
+    deliveryError String?   @db.Text
+    sentAt        DateTime?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -505,7 +511,8 @@ model Invoice {
 
   @@unique([workspaceId, number])
   // Idempotencia del import de recurrencias de Holded (múltiples NULL permitidos en Postgres).
-  @@unique([workspaceId, holdedRecurringId])
+    @@unique([workspaceId, holdedRecurringId])
+    @@unique([workspaceId, creationKey])
   @@index([workspaceId])
   @@index([clientId])
   @@index([status])

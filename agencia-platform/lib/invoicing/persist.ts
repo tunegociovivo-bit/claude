@@ -51,8 +51,10 @@ export async function buildInvoiceData(opts: {
   workspaceId: string;
   input: any;
   current?: any | null; // factura existente (en updates)
+  transactionClient?: any;
 }) {
-  const { workspaceId, input, current } = opts;
+  const { workspaceId, input, current, transactionClient } = opts;
+  const db = transactionClient ?? prisma;
   const type = (input.type ?? current?.type ?? "NORMAL") as InvoiceType;
   const status = input.status ?? current?.status ?? "DRAFT";
 
@@ -68,13 +70,13 @@ export async function buildInvoiceData(opts: {
   const isDraft = (current?.status ?? "DRAFT") === "DRAFT";
   if (isDraft || input.issuerId !== undefined) {
     const issuer = issuerId
-      ? await prisma.invoiceIssuer.findFirst({ where: { id: issuerId, workspaceId } })
+      ? await db.invoiceIssuer.findFirst({ where: { id: issuerId, workspaceId } })
       : null;
     issuerSnapshot = snapshotIssuer(issuer);
   }
   if (isDraft || input.clientId !== undefined) {
     const client = clientId
-      ? await prisma.client.findFirst({ where: { id: clientId, workspaceId } })
+      ? await db.client.findFirst({ where: { id: clientId, workspaceId } })
       : null;
     clientSnapshot = snapshotClient(client);
   }
@@ -112,7 +114,7 @@ export async function buildInvoiceData(opts: {
   const becomesNonDraft = status !== "DRAFT";
   if (!input.recurring && becomesNonDraft && !nowHasNumber) {
     const issueYear = (data.issueDate ? new Date(data.issueDate) : new Date()).getFullYear();
-    data.number = await assignInvoiceNumber(workspaceId, series, issueYear);
+    data.number = await assignInvoiceNumber(workspaceId, series, issueYear, transactionClient);
   }
 
   return data;

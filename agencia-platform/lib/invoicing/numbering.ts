@@ -10,11 +10,12 @@ import { prisma } from "@/lib/db/prisma";
 export async function assignInvoiceNumber(
   workspaceId: string,
   series: string,
-  year = new Date().getFullYear()
+  year = new Date().getFullYear(),
+  transactionClient?: any
 ): Promise<string> {
   const serie = (series || "FAC").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "FAC";
 
-  const counter = await prisma.$transaction(async (tx) => {
+  const allocate = async (tx: any) => {
     const existing = await tx.invoiceCounter.findUnique({
       where: { workspaceId_series_year: { workspaceId, series: serie, year } }
     });
@@ -29,7 +30,21 @@ export async function assignInvoiceNumber(
       data: { next: existing.next + 1 }
     });
     return { value: existing.next, _c: updated };
-  });
+  };
+
+  let counter: { value: number; _c: unknown } | undefined;
+  if (transactionClient) counter = await allocate(transactionClient);
+  else {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        counter = await prisma.$transaction(allocate, { isolationLevel: "Serializable" });
+        break;
+      } catch (error: any) {
+        if (error?.code !== "P2034" || attempt === 2) throw error;
+      }
+    }
+  }
+  if (!counter) throw new Error("No se pudo reservar el número de factura");
 
   const padded = String(counter.value).padStart(4, "0");
   return `${serie}-${year}-${padded}`;

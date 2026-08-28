@@ -16,6 +16,12 @@ import {
   type InvoiceType
 } from "@/lib/invoicing/core";
 import {
+  addInvoicePaymentDays,
+  addInvoiceMonths,
+  automationStatus,
+  type InvoiceAutomationWorkflow
+} from "@/lib/invoicing/invoice-form";
+import {
   Plus,
   Building2,
   FileText,
@@ -455,11 +461,19 @@ function InvoiceFormModal({
   const defaultIssuer = issuers.find((i) => i.isDefault) ?? issuers[0];
   const [type, setType] = useState<InvoiceType>("NORMAL");
   const [clientId, setClientId] = useState<string>("");
+  const [formClients, setFormClients] = useState<ClientLite[]>(clients);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClient, setNewClient] = useState({ name: "", taxId: "", email: "", fiscalAddress: "" });
   const [issuerId, setIssuerId] = useState<string>(lockedIssuerId ?? defaultIssuer?.id ?? "");
   const [currency, setCurrency] = useState("EUR");
   const [paymentMethod, setPaymentMethod] = useState("STRIPE");
   const [issueDate, setIssueDate] = useState(toDateInput(new Date()));
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState(addInvoicePaymentDays(toDateInput(new Date()), 30));
+  const [dueDateManuallyChanged, setDueDateManuallyChanged] = useState(false);
+  const [nextNumber, setNextNumber] = useState("Calculando…");
+  const [automationWorkflow, setAutomationWorkflow] = useState<InvoiceAutomationWorkflow>("DRAFT");
+  const [creationKey] = useState(() => crypto.randomUUID());
+  const [deliveryFailed, setDeliveryFailed] = useState(false);
   const [notes, setNotes] = useState("");
   const [terms, setTerms] = useState("");
   const [lines, setLines] = useState<InvoiceLine[]>([
@@ -497,6 +511,20 @@ function InvoiceFormModal({
     })();
   }, [invoice]);
 
+  useEffect(() => {
+    if (!isEdit && !dueDateManuallyChanged) setDueDate(addInvoicePaymentDays(issueDate, 30));
+  }, [issueDate, dueDateManuallyChanged, isEdit]);
+
+  useEffect(() => {
+    if (isEdit) return;
+    const series = defaultSeriesForType(type);
+    const year = Number(issueDate.slice(0, 4)) || new Date().getFullYear();
+    void fetch(`/api/v1/invoices/next-number?series=${encodeURIComponent(series)}&year=${year}`, { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => setNextNumber(data.number ?? "No disponible"))
+      .catch(() => setNextNumber("No disponible"));
+  }, [type, issueDate, isEdit]);
+
   const totals = useMemo(() => computeTotals(lines), [lines]);
   const locked = isEdit && !!invoice?.number && status !== "DRAFT";
 
@@ -510,12 +538,41 @@ function InvoiceFormModal({
     setLines((arr) => (arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr));
   }
 
-  async function save(issue: boolean) {
+  async function createClientInline() {
+    if (!newClient.name.trim()) return alert("Indica el nombre del cliente");
+    const response = await fetch("/api/v1/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: newClient.name.trim(),
+        legalName: newClient.name.trim(),
+        taxId: newClient.taxId.trim() || null,
+        email: newClient.email.trim() || undefined,
+        fiscalAddress: newClient.fiscalAddress.trim() || null,
+        status: "ACTIVE",
+        mrr: 0
+      })
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      return alert(body?.error?.message ?? "No se pudo crear el cliente");
+    }
+    const created = await response.json();
+    const lite = { id: created.id, name: created.name, taxId: created.taxId ?? null };
+    setFormClients((current) => [...current, lite].sort((a, b) => a.name.localeCompare(b.name, "es")));
+    setClientId(created.id);
+    setCreatingClient(false);
+    setNewClient({ name: "", taxId: "", email: "", fiscalAddress: "" });
+  }
+
+  async function save(issue?: boolean) {
     if (!clientId) return alert("Selecciona un cliente");
     if (!issuerId) return alert("Selecciona una empresa emisora (créala en 'Emisores')");
     if (lines.some((l) => !l.description.trim())) return alert("Todas las líneas necesitan descripción");
 
-    const finalStatus = issue ? (type === "PRESUPUESTO" ? "SENT" : "ISSUED") : "DRAFT";
+    const finalStatus = isEdit
+      ? (issue ? (type === "PRESUPUESTO" ? "SENT" : "ISSUED") : "DRAFT")
+      : automationStatus(automationWorkflow);
     const payload: any = {
       type,
       status: finalStatus,
@@ -536,7 +593,10 @@ function InvoiceFormModal({
         discountPct: l.discountPct ? Number(l.discountPct) : undefined
       })),
       recurring,
-      recurrenceConfig: recurring ? { intervalMonths: Number(intervalMonths) || 1 } : null,
+      recurrenceConfig: recurring ? {
+        intervalMonths: Number(intervalMonths) || 1,
+        nextRunAt: `${addInvoiceMonths(issueDate, Number(intervalMonths) || 1)}T00:00:00.000Z`
+      } : null,
       rectifiesInvoiceId: type === "RECTIFICATIVA" ? rectifiesInvoiceId || null : null,
       rectifyReason: type === "RECTIFICATIVA" ? rectifyReason || null : null
     };
@@ -545,12 +605,18 @@ function InvoiceFormModal({
     try {
       const r = await fetch(isEdit ? `/api/v1/invoices/${invoice!.id}` : "/api/v1/invoices", {
         method: isEdit ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": creationKey },
         body: JSON.stringify(payload)
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         return alert(j?.error?.message ?? j?.message ?? `Error ${r.status}`);
+      }
+      const saved = await r.json();
+      if (saved.deliveryError) {
+        setDeliveryFailed(true);
+        alert("La factura se creó, pero no pudo enviarse. Pulsa «Reintentar envío» para volver a enviar la misma factura.");
+        return;
       }
       onSaved();
     } finally {
@@ -576,7 +642,7 @@ function InvoiceFormModal({
         {loading ? (
           <div className="p-8 text-center text-slate-400">Cargando…</div>
         ) : (
-          <div className="p-5 space-y-4">
+          <div className={`p-5 space-y-4 ${deliveryFailed ? "pointer-events-none opacity-70" : ""}`}>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Tipo</label>
@@ -604,13 +670,21 @@ function InvoiceFormModal({
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Vencimiento</label>
-                <input disabled={locked} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputCls} />
+                <input disabled={locked} type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); setDueDateManuallyChanged(true); }} className={inputCls} />
               </div>
+              {!isEdit && (
+                <div className="col-span-2 md:col-span-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
+                  <span className="text-blue-700">N.º de factura actual:</span>{" "}<strong className="text-blue-950">{nextNumber}</strong>
+                </div>
+              )}
               <div className="col-span-2">
-                <label className="block text-xs text-slate-500 mb-1">Cliente</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-xs text-slate-500">Cliente</label>
+                  {!locked && <button type="button" onClick={() => setCreatingClient((value) => !value)} className="text-xs font-medium text-brand-600 hover:underline">+ Crear cliente</button>}
+                </div>
                 <select disabled={locked} value={clientId} onChange={(e) => setClientId(e.target.value)} className={inputCls}>
                   <option value="">— Selecciona cliente —</option>
-                  {clients.map((c) => (
+                  {formClients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                       {c.taxId ? "" : " (sin NIF)"}
@@ -660,6 +734,40 @@ function InvoiceFormModal({
                 )}
               </div>
             </div>
+
+            {creatingClient && !locked && (
+              <div className="rounded-xl border border-brand-200 bg-brand-50 p-3">
+                <div className="mb-2 text-sm font-semibold text-brand-900">Nuevo cliente</div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <input aria-label="Nombre del nuevo cliente" placeholder="Nombre o razón social *" value={newClient.name} onChange={(e) => setNewClient((v) => ({ ...v, name: e.target.value }))} className={inputCls} />
+                  <input aria-label="NIF del nuevo cliente" placeholder="NIF/CIF" value={newClient.taxId} onChange={(e) => setNewClient((v) => ({ ...v, taxId: e.target.value }))} className={inputCls} />
+                  <input aria-label="Email del nuevo cliente" type="email" placeholder="Email" value={newClient.email} onChange={(e) => setNewClient((v) => ({ ...v, email: e.target.value }))} className={inputCls} />
+                  <input aria-label="Dirección fiscal del nuevo cliente" placeholder="Dirección fiscal" value={newClient.fiscalAddress} onChange={(e) => setNewClient((v) => ({ ...v, fiscalAddress: e.target.value }))} className={inputCls} />
+                </div>
+                <div className="mt-2 flex justify-end gap-2">
+                  <button type="button" onClick={() => setCreatingClient(false)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">Cancelar</button>
+                  <button type="button" onClick={() => void createClientInline()} className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white">Crear y seleccionar</button>
+                </div>
+              </div>
+            )}
+
+            {!locked && !isEdit && (
+              <fieldset className="rounded-xl border p-3">
+                <legend className="px-1 text-sm font-semibold text-slate-800">Automatización de la factura</legend>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {([
+                    ["DRAFT", "Crear automáticamente facturas en borrador", "Quedarán pendientes de revisión."],
+                    ["APPROVE", "Aprobar las facturas automáticamente", "Se emitirán sin revisión previa."],
+                    ["SEND", "Enviar las facturas automáticamente", "Se emitirán y quedarán marcadas como enviadas."],
+                  ] as const).map(([value, label, help]) => (
+                    <label key={value} className={`cursor-pointer rounded-lg border p-3 ${automationWorkflow === value ? "border-brand-500 bg-brand-50" : "bg-white"}`}>
+                      <span className="flex items-start gap-2 text-sm font-medium"><input type="radio" name="invoiceAutomation" value={value} checked={automationWorkflow === value} onChange={() => setAutomationWorkflow(value)} className="mt-0.5" />{label}</span>
+                      <span className="mt-1 block pl-5 text-xs text-slate-500">{help}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
 
             {type === "RECTIFICATIVA" && (
               <div className="grid grid-cols-2 gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
@@ -790,20 +898,14 @@ function InvoiceFormModal({
           </button>
           {!locked && (
             <>
-              <button
-                onClick={() => save(false)}
-                disabled={saving}
-                className="text-sm px-3 py-2 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
-              >
-                Guardar borrador
-              </button>
-              <button
-                onClick={() => save(true)}
-                disabled={saving}
-                className="text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50"
-              >
-                {type === "PRESUPUESTO" ? "Emitir presupuesto" : "Emitir factura"}
-              </button>
+              {isEdit ? <>
+                <button onClick={() => save(false)} disabled={saving} className="text-sm px-3 py-2 rounded-lg border hover:bg-slate-50 disabled:opacity-50">Guardar borrador</button>
+                <button onClick={() => save(true)} disabled={saving} className="text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">{type === "PRESUPUESTO" ? "Emitir presupuesto" : "Emitir factura"}</button>
+              </> : (
+                <button onClick={() => save()} disabled={saving} className="text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
+                  {saving ? "Procesando…" : deliveryFailed ? "Reintentar envío" : type === "PRESUPUESTO" ? "Crear presupuesto" : "Crear factura"}
+                </button>
+              )}
             </>
           )}
         </div>

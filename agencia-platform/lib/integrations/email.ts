@@ -95,6 +95,8 @@ export async function sendEmail(opts: {
   from?: string;
   /** Reply-To opcional (se mantiene solo si se aporta). */
   replyTo?: string;
+  /** Evita duplicar un correo cuando se reintenta una misma operación. */
+  idempotencyKey?: string;
 }): Promise<{ id: string }> {
   // Resuelve la clave por bóveda (prioridad) o env. Sin workspaceId → comportamiento previo
   // (solo env). Así callers existentes no cambian, y el path de leads usa la bóveda.
@@ -123,7 +125,8 @@ export async function sendEmail(opts: {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {})
         },
         body: payload,
         signal: AbortSignal.timeout(15000)
