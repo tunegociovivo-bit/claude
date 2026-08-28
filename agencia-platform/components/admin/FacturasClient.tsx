@@ -17,8 +17,10 @@ import {
 } from "@/lib/invoicing/core";
 import {
   addInvoicePaymentDays,
-  addInvoiceMonths,
+  addInvoiceInterval,
   automationStatus,
+  invoiceTaxLabel,
+  type InvoiceRecurrenceUnit,
   type InvoiceAutomationWorkflow
 } from "@/lib/invoicing/invoice-form";
 import {
@@ -36,7 +38,7 @@ import {
   Ban
 } from "lucide-react";
 
-type ClientLite = { id: string; name: string; taxId: string | null };
+type ClientLite = { id: string; name: string; taxId: string | null; email?: string | null; billingEmail?: string | null };
 type Issuer = {
   id: string;
   name: string;
@@ -463,7 +465,7 @@ function InvoiceFormModal({
   const [clientId, setClientId] = useState<string>("");
   const [formClients, setFormClients] = useState<ClientLite[]>(clients);
   const [creatingClient, setCreatingClient] = useState(false);
-  const [newClient, setNewClient] = useState({ name: "", taxId: "", email: "", fiscalAddress: "" });
+  const [newClient, setNewClient] = useState({ name: "", taxId: "", email: "", billingEmail: "", useBillingEmail: false, fiscalAddress: "" });
   const [issuerId, setIssuerId] = useState<string>(lockedIssuerId ?? defaultIssuer?.id ?? "");
   const [currency, setCurrency] = useState("EUR");
   const [paymentMethod, setPaymentMethod] = useState("STRIPE");
@@ -480,7 +482,10 @@ function InvoiceFormModal({
     { description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }
   ]);
   const [recurring, setRecurring] = useState(false);
-  const [intervalMonths, setIntervalMonths] = useState(1);
+  const [recurrenceUnit, setRecurrenceUnit] = useState<InvoiceRecurrenceUnit>("MONTHS");
+  const [recurrenceValue, setRecurrenceValue] = useState(1);
+  const [billingEmail, setBillingEmail] = useState("");
+  const [useBillingEmail, setUseBillingEmail] = useState(false);
   const [rectifiesInvoiceId, setRectifiesInvoiceId] = useState("");
   const [rectifyReason, setRectifyReason] = useState("");
   const [status, setStatus] = useState("DRAFT");
@@ -502,7 +507,8 @@ function InvoiceFormModal({
         setTerms(d.terms ?? "");
         setLines((d.lines ?? []).length ? d.lines : [{ description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }]);
         setRecurring(!!d.recurring);
-        setIntervalMonths(d.recurrenceConfig?.intervalMonths ?? 1);
+        setRecurrenceUnit(d.recurrenceConfig?.intervalUnit ?? "MONTHS");
+        setRecurrenceValue(d.recurrenceConfig?.intervalValue ?? d.recurrenceConfig?.intervalMonths ?? 1);
         setRectifiesInvoiceId(d.rectifiesInvoiceId ?? "");
         setRectifyReason(d.rectifyReason ?? "");
         setStatus(d.status);
@@ -510,6 +516,13 @@ function InvoiceFormModal({
       setLoading(false);
     })();
   }, [invoice]);
+
+  useEffect(() => {
+    if (isEdit) return;
+    const selected = formClients.find((client) => client.id === clientId);
+    setBillingEmail(selected?.billingEmail ?? "");
+    setUseBillingEmail(Boolean(selected?.billingEmail));
+  }, [clientId, formClients, isEdit]);
 
   useEffect(() => {
     if (!isEdit && !dueDateManuallyChanged) setDueDate(addInvoicePaymentDays(issueDate, 30));
@@ -540,6 +553,7 @@ function InvoiceFormModal({
 
   async function createClientInline() {
     if (!newClient.name.trim()) return alert("Indica el nombre del cliente");
+    if (newClient.useBillingEmail && !newClient.billingEmail.trim()) return alert("Indica el correo alternativo de facturación");
     const response = await fetch("/api/v1/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -548,6 +562,7 @@ function InvoiceFormModal({
         legalName: newClient.name.trim(),
         taxId: newClient.taxId.trim() || null,
         email: newClient.email.trim() || undefined,
+        billingEmail: newClient.useBillingEmail ? newClient.billingEmail.trim() || null : null,
         fiscalAddress: newClient.fiscalAddress.trim() || null,
         status: "ACTIVE",
         mrr: 0
@@ -558,17 +573,18 @@ function InvoiceFormModal({
       return alert(body?.error?.message ?? "No se pudo crear el cliente");
     }
     const created = await response.json();
-    const lite = { id: created.id, name: created.name, taxId: created.taxId ?? null };
+    const lite = { id: created.id, name: created.name, taxId: created.taxId ?? null, email: created.email ?? null, billingEmail: created.billingEmail ?? null };
     setFormClients((current) => [...current, lite].sort((a, b) => a.name.localeCompare(b.name, "es")));
     setClientId(created.id);
     setCreatingClient(false);
-    setNewClient({ name: "", taxId: "", email: "", fiscalAddress: "" });
+    setNewClient({ name: "", taxId: "", email: "", billingEmail: "", useBillingEmail: false, fiscalAddress: "" });
   }
 
   async function save(issue?: boolean) {
     if (!clientId) return alert("Selecciona un cliente");
     if (!issuerId) return alert("Selecciona una empresa emisora (créala en 'Emisores')");
     if (lines.some((l) => !l.description.trim())) return alert("Todas las líneas necesitan descripción");
+    if (useBillingEmail && !billingEmail.trim()) return alert("Indica el correo alternativo de facturación");
 
     const finalStatus = isEdit
       ? (issue ? (type === "PRESUPUESTO" ? "SENT" : "ISSUED") : "DRAFT")
@@ -594,8 +610,10 @@ function InvoiceFormModal({
       })),
       recurring,
       recurrenceConfig: recurring ? {
-        intervalMonths: Number(intervalMonths) || 1,
-        nextRunAt: `${addInvoiceMonths(issueDate, Number(intervalMonths) || 1)}T00:00:00.000Z`
+        intervalMonths: recurrenceUnit === "YEARS" ? recurrenceValue * 12 : recurrenceUnit === "MONTHS" ? recurrenceValue : 1,
+        intervalUnit: recurrenceUnit,
+        intervalValue: Number(recurrenceValue) || 1,
+        nextRunAt: `${addInvoiceInterval(issueDate, recurrenceUnit, Number(recurrenceValue) || 1)}T00:00:00.000Z`
       } : null,
       rectifiesInvoiceId: type === "RECTIFICATIVA" ? rectifiesInvoiceId || null : null,
       rectifyReason: type === "RECTIFICATIVA" ? rectifyReason || null : null
@@ -603,6 +621,16 @@ function InvoiceFormModal({
 
     setSaving(true);
     try {
+      const selectedClient = formClients.find((client) => client.id === clientId);
+      const desiredBillingEmail = useBillingEmail ? billingEmail.trim() : null;
+      if (!isEdit && selectedClient && (selectedClient.billingEmail ?? null) !== desiredBillingEmail) {
+        const clientResponse = await fetch(`/api/v1/clients/${clientId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ billingEmail: desiredBillingEmail })
+        });
+        if (!clientResponse.ok) return alert("No se pudo guardar el correo de facturación del cliente");
+      }
       const r = await fetch(isEdit ? `/api/v1/invoices/${invoice!.id}` : "/api/v1/invoices", {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": creationKey },
@@ -659,7 +687,7 @@ function InvoiceFormModal({
                 <select disabled={locked} value={currency} onChange={(e) => setCurrency(e.target.value)} className={inputCls}>
                   {CURRENCIES.map((c) => (
                     <option key={c} value={c}>
-                      {c}
+                      {c === "EUR" ? "€ EUR" : "$ USD"}
                     </option>
                   ))}
                 </select>
@@ -691,6 +719,16 @@ function InvoiceFormModal({
                     </option>
                   ))}
                 </select>
+                {clientId && (() => {
+                  const selected = formClients.find((client) => client.id === clientId);
+                  return <div className="mt-2 rounded-lg border bg-slate-50 p-2 text-xs text-slate-600">
+                    <div>Email del cliente: <strong>{selected?.email || "No informado"}</strong></div>
+                    {!locked && <>
+                      <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={useBillingEmail} onChange={(e) => setUseBillingEmail(e.target.checked)} />Enviar facturas a un correo alternativo</label>
+                      {useBillingEmail && <input type="email" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)} placeholder="facturas@cliente.com" className={`${inputCls} mt-1`} />}
+                    </>}
+                  </div>;
+                })()}
               </div>
               <div className="col-span-2">
                 <label className="block text-xs text-slate-500 mb-1">Empresa emisora</label>
@@ -725,11 +763,15 @@ function InvoiceFormModal({
                       type="number"
                       min={1}
                       disabled={locked}
-                      value={intervalMonths}
-                      onChange={(e) => setIntervalMonths(Number(e.target.value))}
+                      value={recurrenceValue}
+                      onChange={(e) => setRecurrenceValue(Math.max(1, Number(e.target.value)))}
                       className="w-16 px-2 py-1 border rounded-lg"
                     />
-                    mes(es)
+                    <select value={recurrenceUnit} onChange={(e) => setRecurrenceUnit(e.target.value as InvoiceRecurrenceUnit)} className="px-2 py-1 border rounded-lg">
+                      <option value="DAYS">día(s)</option>
+                      <option value="MONTHS">mes(es)</option>
+                      <option value="YEARS">año(s)</option>
+                    </select>
                   </div>
                 )}
               </div>
@@ -742,7 +784,9 @@ function InvoiceFormModal({
                   <input aria-label="Nombre del nuevo cliente" placeholder="Nombre o razón social *" value={newClient.name} onChange={(e) => setNewClient((v) => ({ ...v, name: e.target.value }))} className={inputCls} />
                   <input aria-label="NIF del nuevo cliente" placeholder="NIF/CIF" value={newClient.taxId} onChange={(e) => setNewClient((v) => ({ ...v, taxId: e.target.value }))} className={inputCls} />
                   <input aria-label="Email del nuevo cliente" type="email" placeholder="Email" value={newClient.email} onChange={(e) => setNewClient((v) => ({ ...v, email: e.target.value }))} className={inputCls} />
-                  <input aria-label="Dirección fiscal del nuevo cliente" placeholder="Dirección fiscal" value={newClient.fiscalAddress} onChange={(e) => setNewClient((v) => ({ ...v, fiscalAddress: e.target.value }))} className={inputCls} />
+                  <textarea rows={3} aria-label="Dirección fiscal del nuevo cliente" placeholder="Dirección fiscal (varias líneas)" value={newClient.fiscalAddress} onChange={(e) => setNewClient((v) => ({ ...v, fiscalAddress: e.target.value }))} className={inputCls} />
+                  <label className="md:col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={newClient.useBillingEmail} onChange={(e) => setNewClient((v) => ({ ...v, useBillingEmail: e.target.checked }))} />Usar un correo alternativo para las facturas</label>
+                  {newClient.useBillingEmail && <input aria-label="Correo alternativo de facturación" type="email" placeholder="facturas@cliente.com" value={newClient.billingEmail} onChange={(e) => setNewClient((v) => ({ ...v, billingEmail: e.target.value }))} className={`${inputCls} md:col-span-2`} />}
                 </div>
                 <div className="mt-2 flex justify-end gap-2">
                   <button type="button" onClick={() => setCreatingClient(false)} className="rounded-lg border bg-white px-3 py-1.5 text-sm">Cancelar</button>
@@ -845,7 +889,7 @@ function InvoiceFormModal({
                     >
                       {[21, 10, 4, 0].map((r) => (
                         <option key={r} value={r}>
-                          IVA {r}%
+                          {invoiceTaxLabel(r)}
                         </option>
                       ))}
                     </select>
@@ -868,7 +912,7 @@ function InvoiceFormModal({
                 </div>
                 {totals.taxBreakdown.map((t) => (
                   <div key={t.rate} className="flex justify-between text-slate-500">
-                    <span>IVA {formatRate(t.rate)}</span>
+                    <span>{invoiceTaxLabel(t.rate)}</span>
                     <span>{formatMoney(t.taxCents, currency)}</span>
                   </div>
                 ))}

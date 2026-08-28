@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { assignInvoiceNumber } from "./numbering";
 import { defaultSeriesForType } from "./core";
+import { addInvoiceInterval, addInvoicePaymentDays, type InvoiceRecurrenceUnit } from "./invoice-form";
 
 function addMonths(date: Date, months: number): Date {
   const d = new Date(date);
@@ -9,6 +10,12 @@ function addMonths(date: Date, months: number): Date {
   // Evita el "spill" de meses cortos (31 ene + 1 mes ≠ 3 mar).
   if (d.getDate() < day) d.setDate(0);
   return d;
+}
+
+function advanceRecurrence(date: Date, config: any): Date {
+  const unit = (config.intervalUnit ?? "MONTHS") as InvoiceRecurrenceUnit;
+  const value = Math.max(1, Number(config.intervalValue ?? config.intervalMonths) || 1);
+  return new Date(`${addInvoiceInterval(date.toISOString().slice(0, 10), unit, value)}T00:00:00.000Z`);
 }
 
 /**
@@ -62,8 +69,8 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
               clientId: tpl.clientId,
               issuerSnapshot: tpl.issuerSnapshot ?? undefined,
               clientSnapshot: tpl.clientSnapshot ?? undefined,
-              issueDate: now,
-              dueDate: null,
+              issueDate: nextRunAt,
+              dueDate: new Date(`${addInvoicePaymentDays(nextRunAt.toISOString().slice(0, 10), 30)}T00:00:00.000Z`),
               currency: tpl.currency,
               paymentMethod: tpl.paymentMethod,
               lines: tpl.lines ?? [],
@@ -95,8 +102,8 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
 
     // Avanza la próxima ejecución desde la prevista (no desde "ahora"),
     // para no derivar la fecha si el cron se ejecutó con retraso.
-    let next = addMonths(nextRunAt, interval);
-    while (next <= now) next = addMonths(next, interval);
+    let next = cfg.intervalUnit ? advanceRecurrence(nextRunAt, cfg) : addMonths(nextRunAt, interval);
+    while (next <= now) next = cfg.intervalUnit ? advanceRecurrence(next, cfg) : addMonths(next, interval);
     await prisma.invoice.update({
       where: { id: tpl.id },
       data: { recurrenceConfig: { ...cfg, intervalMonths: interval, nextRunAt: next.toISOString() } }

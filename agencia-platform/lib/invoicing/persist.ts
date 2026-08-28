@@ -36,6 +36,7 @@ export function snapshotClient(client: any) {
     province: client.province ?? null,
     countryCode: client.countryCode ?? "ESP",
     email: client.email ?? null,
+    billingEmail: client.billingEmail ?? null,
     phone: client.phone ?? null,
     personType: "J",
     residenceType: "R"

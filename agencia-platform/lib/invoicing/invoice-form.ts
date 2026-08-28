@@ -15,6 +15,14 @@ export function addInvoiceMonths(issueDate: string, months: number): string {
   return target.toISOString().slice(0, 10);
 }
 
+export type InvoiceRecurrenceUnit = "DAYS" | "MONTHS" | "YEARS";
+
+export function addInvoiceInterval(issueDate: string, unit: InvoiceRecurrenceUnit, interval: number): string {
+  const every = Math.max(1, Math.trunc(Number(interval) || 1));
+  if (unit === "DAYS") return addInvoicePaymentDays(issueDate, every);
+  return addInvoiceMonths(issueDate, unit === "YEARS" ? every * 12 : every);
+}
+
 export function automationStatus(workflow: InvoiceAutomationWorkflow): "DRAFT" | "ISSUED" | "SENT" {
   if (workflow === "SEND") return "SENT";
   if (workflow === "APPROVE") return "ISSUED";
@@ -26,8 +34,12 @@ export function formatInvoiceNumberPreview(series: string, year: number, next: n
   return `${normalized}-${year}-${String(next).padStart(4, "0")}`;
 }
 
-export function invoiceRecipientEmail(snapshot: { email?: string | null } | null | undefined): string {
-  const email = snapshot?.email?.trim();
+export function invoiceRecipientEmail(snapshot: { email?: string | null; billingEmail?: string | null } | null | undefined): string {
+  const email = snapshot?.billingEmail?.trim() || snapshot?.email?.trim();
   if (!email) throw new Error("El cliente no tiene un email de facturación");
   return email;
+}
+
+export function invoiceTaxLabel(rate: number): string {
+  return Number(rate) === 0 ? "0% (sin IVA)" : `IVA ${Number(rate).toLocaleString("es-ES")}%`;
 }

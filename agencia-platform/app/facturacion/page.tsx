@@ -19,7 +19,7 @@ export default async function FacturacionPage() {
   const [clients, issuers, recImported, recActive] = await Promise.all([
     prisma.client.findMany({
       where: { workspaceId, deletedAt: null },
-      select: { id: true, name: true, taxId: true },
+      select: { id: true, name: true, taxId: true, email: true, billingEmail: true },
       orderBy: { name: "asc" }
     }),
     prisma.invoiceIssuer.findMany({

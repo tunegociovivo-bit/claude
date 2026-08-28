@@ -41,6 +41,7 @@ export const clientCreateSchema = z.object({
   status: z.enum(["ACTIVE", "PAUSED", "PROSPECT", "CHURNED"]).default("ACTIVE"),
   contactName: z.string().optional(),
   email: z.string().email().optional(),
+  billingEmail: z.string().email().nullable().optional(),
   phone: z.string().optional(),
   mrr: z.number().int().min(0).default(0),
   notes: z.string().optional(),
@@ -248,6 +249,8 @@ const invoiceLineSchema = z.object({
 
 const recurrenceConfigSchema = z.object({
   intervalMonths: z.number().int().min(1).max(60).default(1),
+  intervalUnit: z.enum(["DAYS", "MONTHS", "YEARS"]).optional(),
+  intervalValue: z.number().int().min(1).max(3650).optional(),
   dayOfMonth: z.number().int().min(1).max(28).optional(),
   nextRunAt: z.string().optional().nullable(),
   endsAt: z.string().optional().nullable()

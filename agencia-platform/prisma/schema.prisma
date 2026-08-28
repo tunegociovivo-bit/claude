@@ -491,13 +491,13 @@ model Invoice {
 
   // Cobro
   stripePaymentLinkUrl String?
-    paidAt               DateTime?
+  paidAt               DateTime?
 
-    // Idempotencia de creación y entrega automática desde el formulario.
-    creationKey   String?
-    creationHash  String?
-    deliveryError String?   @db.Text
-    sentAt        DateTime?
+  // Idempotencia de creación y entrega automática desde el formulario.
+  creationKey   String?
+  creationHash  String?
+  deliveryError String?   @db.Text
+  sentAt        DateTime?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -511,8 +511,8 @@ model Invoice {
 
   @@unique([workspaceId, number])
   // Idempotencia del import de recurrencias de Holded (múltiples NULL permitidos en Postgres).
-    @@unique([workspaceId, holdedRecurringId])
-    @@unique([workspaceId, creationKey])
+  @@unique([workspaceId, holdedRecurringId])
+  @@unique([workspaceId, creationKey])
   @@index([workspaceId])
   @@index([clientId])
   @@index([status])
@@ -549,18 +549,19 @@ model Membership {
 // ====================================================================
 
 model Client {
-  id          String       @id @default(cuid())
-  workspaceId String
-  name        String
-  industry    String?
-  status      ClientStatus @default(ACTIVE)
-  contactName String?
-  email       String?
-  phone       String?
-  mrr         Int          @default(0) // céntimos opcionalmente, aquí euros enteros
-  since       DateTime?
-  notes       String?      @db.Text
-  asanaId     String?      @unique // trazabilidad migración
+  id           String       @id @default(cuid())
+  workspaceId  String
+  name         String
+  industry     String?
+  status       ClientStatus @default(ACTIVE)
+  contactName  String?
+  email        String?
+  billingEmail String? // destinatario alternativo elegido para facturas
+  phone        String?
+  mrr          Int          @default(0) // céntimos opcionalmente, aquí euros enteros
+  since        DateTime?
+  notes        String?      @db.Text
+  asanaId      String?      @unique // trazabilidad migración
 
   // ----- Secciones nuevas del modal Editar cliente -----
   // Información general libre (sector ampliado, ubicación, horarios,
@@ -4673,126 +4674,126 @@ model SoniaKnowledge {
 
 /// Negocio dado de alta en la red Bubui.
 model BubuiBusiness {
-  id                         String                    @id @default(cuid())
+  id                          String                    @id @default(cuid())
   // Slug humano para QR url corto y SEO (bubui.app/n/spa-bambu).
-  slug                       String                    @unique
-  name                       String
-  category                   String // peluquería | restaurante | gimnasio | spa | nutrición | ...
+  slug                        String                    @unique
+  name                        String
+  category                    String // peluquería | restaurante | gimnasio | spa | nutrición | ...
   // Tipo de negocio → decide qué secciones ve en su panel (la Mesa Colectiva
   // solo para restaurante; catálogo/stock para comercio_producto; etc.).
-  businessType               String                    @default("servicios") // restaurante | comercio_producto | servicios
+  businessType                String                    @default("servicios") // restaurante | comercio_producto | servicios
   // Reservas/citas (nicho servicios): si está activo, los clientes piden cita
   // desde la ficha pública y el comercio las confirma desde su panel.
-  bookingEnabled             Boolean                   @default(false)
-  description                String?                   @db.Text
+  bookingEnabled              Boolean                   @default(false)
+  description                 String?                   @db.Text
   // Localización del local (para geofencing + radio de visibilidad).
-  address                    String?
-  city                       String                    @default("Benalmádena")
-  province                   String                    @default("Málaga")
-  latitude                   Float?
-  longitude                  Float?
+  address                     String?
+  city                        String                    @default("Benalmádena")
+  province                    String                    @default("Málaga")
+  latitude                    Float?
+  longitude                   Float?
   // Teléfono PÚBLICO de contacto del negocio (botón "Llamar" en la app).
   // Distinto de ownerPhone (privado, del titular de la cuenta).
-  phone                      String?
+  phone                       String?
   // Cazador de Subvenciones: última vez que se barrió este comercio en
   // busca de ayudas de su nicho (null = nunca). El cron re-escanea los
   // que llevan >7 días o nunca se escanearon.
-  subvLastScanAt             DateTime?
-  subvencionProposals        BubuiSubvencionProposal[]
+  subvLastScanAt              DateTime?
+  subvencionProposals         BubuiSubvencionProposal[]
   // Branding mínimo.
-  logoUrl                    String?
+  logoUrl                     String?
   // Portada horizontal separada del logo cuadrado usado como identidad.
-  coverImageUrl              String?
+  coverImageUrl               String?
   // Web publica verificada por el empresario.
-  websiteUrl                 String?
+  websiteUrl                  String?
   // Imagen del cupón/reto compartido. Si falta, cliente y portal usan la
   // creatividad Bubui predeterminada incluida en cada superficie.
-  challengeImageUrl          String?
-  brandColor                 String?
+  challengeImageUrl           String?
+  brandColor                  String?
   // Oferta default (descuento estándar al cliente cuando escanea). Se usa para
   // el cliente RECURRENTE (ya tiene Bubui y ya ha comprado aquí).
-  defaultDiscountPct         Int                       @default(5)
+  defaultDiscountPct          Int                       @default(5)
   // Descuento de BIENVENIDA para el cliente NUEVO (primera compra con Bubui en
   // este negocio). 0 = sin diferenciar (usa defaultDiscountPct).
-  newCustomerDiscountPct     Int                       @default(0)
+  newCustomerDiscountPct      Int                       @default(0)
   // Cupón cruzado: el % que ofrece a clientes de otros negocios.
-  crossDiscountPct           Int                       @default(10)
+  crossDiscountPct            Int                       @default(10)
   // % de descuento extra que el negocio regala al cliente cuando deja una
   // reseña. 0 = no se incentivan reseñas. Solo se da una vez por cliente
   // (clave única en BubuiOffer triggerBusinessId="review:<businessId>").
-  reviewRewardPct            Int                       @default(8)
+  reviewRewardPct             Int                       @default(8)
   // Descuentos por ACCIÓN post-compra (push a la hora). share→shareOfferPct,
   // review→reviewRewardPct; aquí los dos que faltaban:
-  ppFollowDiscountPct        Int                       @default(5) // seguir en redes (IG/FB)
-  ppPhotoDiscountPct         Int                       @default(5) // subir foto/historia etiquetando
+  ppFollowDiscountPct         Int                       @default(5) // seguir en redes (IG/FB)
+  ppPhotoDiscountPct          Int                       @default(5) // subir foto/historia etiquetando
   // Place ID de Google Business Profile (Google My Business) del negocio,
   // si lo tienen verificado. Habilita el CTA "compártela también en Google"
   // tras dejar una reseña — abre el formulario de reseñas de Google con
   // este local pre-seleccionado.
-  googlePlaceId              String?
+  googlePlaceId               String?
   // Redes y reseñas del negocio (autocompletadas por IA al darse de alta y
   // verificadas por el dueño). Para enlazarlas en su ficha y para reseñas.
-  instagramUrl               String?
-  facebookUrl                String?
-  tiktokUrl                  String?
-  trustpilotUrl              String?
-  tripadvisorUrl             String?
+  instagramUrl                String?
+  facebookUrl                 String?
+  tiktokUrl                   String?
+  trustpilotUrl               String?
+  tripadvisorUrl              String?
   // ── Crecimiento viral + reseñas ──────────────────────────────────
   // Oferta-reto: tras escanear el ticket, al cliente se le crea una oferta
   // MAYOR (shareOfferPct), bloqueada, que solo se activa cuando comparte
   // Bubui y consigue `shareOfferFriends` amigos nuevos verificados. 0 = off.
-  shareOfferPct              Int                       @default(30)
-  shareOfferFriends          Int                       @default(5)
-  shareOfferLabel            String? // en qué se aplica el descuento del cliente (ej. "entrenamiento online")
+  shareOfferPct               Int                       @default(30)
+  shareOfferFriends           Int                       @default(5)
+  shareOfferLabel             String? // en qué se aplica el descuento del cliente (ej. "entrenamiento online")
   // Descuento de bienvenida para los AMIGOS que el cliente trae (cupón
   // referral_welcome). Si es 0 se usa el de cliente nuevo / por defecto.
-  shareFriendDiscountPct     Int                       @default(15)
+  shareFriendDiscountPct      Int                       @default(15)
   // En qué se aplica el descuento de los amigos (ej. "suplementos deportivos").
-  shareFriendLabel           String?
-  challengeServiceDescription String?                 @db.Text
-  challengeServicePrice     Float?
-  challengeServiceMode      String                    @default("local") // local | online
-  challengeFirstFollowupHours Int                     @default(24)
-  challengeRepeatFollowupDays Int                     @default(3)
+  shareFriendLabel            String?
+  challengeServiceDescription String?                   @db.Text
+  challengeServicePrice       Float?
+  challengeServiceMode        String                    @default("local") // local | online
+  challengeFirstFollowupHours Int                       @default(24)
+  challengeRepeatFollowupDays Int                       @default(3)
   // Condición para desbloquear el reto de compartir:
   //   false → basta con que los amigos se instalen y verifiquen el teléfono.
   //   true  → además, cada amigo debe GASTAR su cupón (compra confirmada) en
   //           este negocio para contar. Así el cliente solo disfruta su
   //           descuento si sus amigos compran de verdad.
-  shareOfferRequiresPurchase Boolean                   @default(false)
+  shareOfferRequiresPurchase  Boolean                   @default(false)
   // Solicitud de reseña en Google: push automático ~10 min tras escanear,
   // llevando al cliente a dejar reseña en Google (requiere googlePlaceId).
-  reviewPushEnabled          Boolean                   @default(true)
+  reviewPushEnabled           Boolean                   @default(true)
   // Interruptor del push post-compra (a la hora) que ofrece acciones por
   // descuento (compartir/reseña/seguir/foto). Off por defecto: el comercio lo
   // activa cuando quiere usarlo.
-  postPurchasePushEnabled    Boolean                   @default(true)
+  postPurchasePushEnabled     Boolean                   @default(true)
   // Preferencias de PUSH al panel del dueño: de qué eventos quiere que le
   // avisemos en su dispositivo (el feed "Novedades" del panel siempre los
   // registra; estos flags solo controlan la notificación push).
-  pushOnNewClient            Boolean                   @default(true) // cliente referido nuevo
-  pushOnReview               Boolean                   @default(true) // reseña nueva
-  pushOnBooking              Boolean                   @default(true) // cita/reserva nueva
-  pushOnCoupon               Boolean                   @default(true) // cupón Bubui canjeado
+  pushOnNewClient             Boolean                   @default(true) // cliente referido nuevo
+  pushOnReview                Boolean                   @default(true) // reseña nueva
+  pushOnBooking               Boolean                   @default(true) // cita/reserva nueva
+  pushOnCoupon                Boolean                   @default(true) // cupón Bubui canjeado
   // Tarjeta de fidelidad (sellos digitales). Cada compra confirmada del
   // cliente suma 1 sello; al completar `loyaltyGoal` sellos se desbloquea
   // automáticamente un cupón con loyaltyRewardPct (o loyaltyRewardLabel) y
   // la tarjeta arranca el siguiente ciclo. Triggers únicos
   // "loyalty:<businessId>:<cycle>" → un cliente puede ciclar muchas veces
   // pero no farmea dentro de un ciclo.
-  loyaltyEnabled             Boolean                   @default(false)
-  loyaltyGoal                Int                       @default(5) // nº de visitas para completar
-  loyaltyRewardPct           Int                       @default(0) // % de la recompensa (0 = label)
-  loyaltyRewardLabel         String? // texto libre alternativo (ej. "Café gratis")
+  loyaltyEnabled              Boolean                   @default(false)
+  loyaltyGoal                 Int                       @default(5) // nº de visitas para completar
+  loyaltyRewardPct            Int                       @default(0) // % de la recompensa (0 = label)
+  loyaltyRewardLabel          String? // texto libre alternativo (ej. "Café gratis")
   // Premium: cupón automático el día del cumpleaños del cliente.
-  birthdayEnabled            Boolean                   @default(false)
-  birthdayDiscountPct        Int                       @default(15)
-  birthdayMessage            String?                   @db.Text
+  birthdayEnabled             Boolean                   @default(false)
+  birthdayDiscountPct         Int                       @default(15)
+  birthdayMessage             String?                   @db.Text
   // Premium: ruleta / rasca y gana al escanear el QR. En lugar del descuento
   // fijo (defaultDiscountPct) se sortea uno aleatorio entre min y max.
-  wheelEnabled               Boolean                   @default(false)
-  wheelMinPct                Int                       @default(3)
-  wheelMaxPct                Int                       @default(20)
+  wheelEnabled                Boolean                   @default(false)
+  wheelMinPct                 Int                       @default(3)
+  wheelMaxPct                 Int                       @default(20)
   // ── MESA COLECTIVA (restauración): descuento de grupo viral ──────────
   // El anfitrión escanea el QR del local y la app le muestra un QR de mesa;
   // el resto de comensales lo escanean para unirse (ventana mesaJoinWindowMin).
@@ -4801,121 +4802,121 @@ model BubuiBusiness {
   // dejan reseña en Google (mesaReviewBonusPct, vía enlace, sin condicionar a
   // que sea positiva). El bonus se entrega como cupón de PRÓXIMA visita con
   // mesaNextVisitDays de caducidad (recurrencia). Todo configurable aquí.
-  mesaEnabled                Boolean                   @default(true)
-  mesaBasePct                Int                       @default(5)
-  mesaMinDiners              Int                       @default(4)
-  mesaShareBonusPct          Int                       @default(5)
-  mesaShareFriends           Int                       @default(3)
-  mesaReviewBonusPct         Int                       @default(3)
+  mesaEnabled                 Boolean                   @default(true)
+  mesaBasePct                 Int                       @default(5)
+  mesaMinDiners               Int                       @default(4)
+  mesaShareBonusPct           Int                       @default(5)
+  mesaShareFriends            Int                       @default(3)
+  mesaReviewBonusPct          Int                       @default(3)
   // Plataforma de reseña que da el bonus de la Mesa (según el nicho).
-  mesaReviewPlatform         String                    @default("google") // google | tripadvisor | trustpilot | instagram
-  mesaMaxPct                 Int                       @default(20) // tope de seguridad
-  mesaJoinWindowMin          Int                       @default(60) // minutos para unirse a la mesa
-  mesaNextVisitDays          Int                       @default(15) // caducidad del cupón próxima visita
+  mesaReviewPlatform          String                    @default("google") // google | tripadvisor | trustpilot | instagram
+  mesaMaxPct                  Int                       @default(20) // tope de seguridad
+  mesaJoinWindowMin           Int                       @default(60) // minutos para unirse a la mesa
+  mesaNextVisitDays           Int                       @default(15) // caducidad del cupón próxima visita
   // true = los bonus (compartir/reseña) se aplican a la cuenta de ESTA visita;
   // false (def) = se guardan como cupón de próxima visita (recurrencia).
-  mesaBonusOnThisVisit       Boolean                   @default(false)
+  mesaBonusOnThisVisit        Boolean                   @default(false)
   // Valor neto-nuevo: el comensal NUEVO aporta instalándose; el VETERANO (ya
   // tenía la app) debe completar una acción del menú para que su parte cuente.
   // Evita regalar descuento sin recibir nada cuando la zona ya está saturada.
-  mesaVeteranMustContribute  Boolean                   @default(true)
+  mesaVeteranMustContribute   Boolean                   @default(true)
   // Primera descarga: false (def) = el comensal NUEVO desbloquea su parte solo
   // con instalarse/darse de alta; true = aunque sea nuevo, debe completar también
   // una acción del menú (compartir/reseña) para que su parte cuente.
-  mesaNewUserMustContribute  Boolean                   @default(false)
-  mesaVeteranShareFriends    Int                       @default(1) // amigos si elige "compartir"
-  mesaAutoAdjust             Boolean                   @default(true) // sube exigencia con la saturación
+  mesaNewUserMustContribute   Boolean                   @default(false)
+  mesaVeteranShareFriends     Int                       @default(1) // amigos si elige "compartir"
+  mesaAutoAdjust              Boolean                   @default(true) // sube exigencia con la saturación
   // Menú de acciones que el comercio acepta como aporte del veterano.
-  mesaActShare               Boolean                   @default(true) // invitar amigos
-  mesaActReview              Boolean                   @default(true) // reseña en Google
-  mesaActPhoto               Boolean                   @default(true) // foto del plato (UGC)
-  mesaActFollow              Boolean                   @default(false) // seguir en redes
+  mesaActShare                Boolean                   @default(true) // invitar amigos
+  mesaActReview               Boolean                   @default(true) // reseña en Google
+  mesaActPhoto                Boolean                   @default(true) // foto del plato (UGC)
+  mesaActFollow               Boolean                   @default(false) // seguir en redes
   // Regalo de PRÓXIMA visita (alternativa/extra al % por completar los pasos):
   // texto libre, ej. "1 bebida gratis", "1 café gratis". Si está, al completar
   // los pasos extra (compartir/reseña) cada comensal recibe un cupón canjeable
   // la próxima vez. Vacío = solo % de descuento.
-  mesaPerkLabel              String?
+  mesaPerkLabel               String?
   // Programa de afiliados: recompensas por hitos de amigos traídos.
-  referralEnabled            Boolean                   @default(true)
-  referralReward1            String? // recompensa al traer 1 amigo
-  referralReward3            String? // al traer 3
-  referralReward5            String? // al traer 5
+  referralEnabled             Boolean                   @default(true)
+  referralReward1             String? // recompensa al traer 1 amigo
+  referralReward3             String? // al traer 3
+  referralReward5             String? // al traer 5
   // Programa de referidos B2B: cuántas semanas de banner Home se le han
   // otorgado por traer negocios (1 semana por cada 5 negocios activos).
   // bannerWeeksGranted es acumulativo histórico; se compara con floor(refs/5)
   // para saber cuántas semanas nuevas hay que conceder.
-  bannerWeeksGranted         Int                       @default(0)
+  bannerWeeksGranted          Int                       @default(0)
   // Cartel/QR físico: el negocio puede imprimirlo él mismo o pedir que se
   // lo llevemos gratis (facilita el alta y acelera el crecimiento). Si
   // posterDeliveryRequestedAt != null y posterDeliveredAt == null, está
   // pendiente de que el equipo le lleve el cartel a la dirección indicada.
-  posterDeliveryRequestedAt  DateTime?
-  posterDeliveryAddress      String?
-  posterDeliveryPhone        String?
-  posterDeliveryNote         String?                   @db.Text
-  posterDeliveredAt          DateTime?
+  posterDeliveryRequestedAt   DateTime?
+  posterDeliveryAddress       String?
+  posterDeliveryPhone         String?
+  posterDeliveryNote          String?                   @db.Text
+  posterDeliveredAt           DateTime?
   // Karma de visibilidad (0-100, recalculado nocturno).
-  visibilityScore            Int                       @default(50)
-  scoreUpdatedAt             DateTime?
+  visibilityScore             Int                       @default(50)
+  scoreUpdatedAt              DateTime?
   // Modelo de validación de compra.
-  purchaseMode               String                    @default("express") // express | double_confirm
+  purchaseMode                String                    @default("express") // express | double_confirm
   // Anti-fraude: si está activo, el cliente DEBE fotografiar el ticket y el
   // importe lo lee la IA (no se teclea libremente). El importe se toma del
   // servidor (BubuiTicketScan), no del cliente.
-  requireTicket              Boolean                   @default(false)
+  requireTicket               Boolean                   @default(false)
   // Suscripción.
-  plan                       String                    @default("free") // free | pro | premium
+  plan                        String                    @default("free") // free | pro | premium
   // Email + contraseña hash del dueño (auth simple v1; iremos a oauth en v2).
-  ownerEmail                 String                    @unique
-  ownerPasswordHash          String
-  ownerName                  String?
-  ownerPhone                 String?
+  ownerEmail                  String                    @unique
+  ownerPasswordHash           String
+  ownerName                   String?
+  ownerPhone                  String?
   // Destinos privados para avisos operativos del negocio (no se muestran al cliente).
-  notificationEmail          String?
-  notificationWhatsapp       String?
+  notificationEmail           String?
+  notificationWhatsapp        String?
   // Quien lo refirió a Bubui (si vino vía QR de otro negocio).
-  referrerId                 String?
+  referrerId                  String?
   // Stripe billing — para suscripción Pro/Premium.
-  bubuiStripeCustomerId      String?                   @map("bipiStripeCustomerId")
-  bubuiStripeSubscriptionId  String?                   @map("bipiStripeSubscriptionId")
-  planExpiresAt              DateTime? // null o futuro = activo; pasado = volver a free.
+  bubuiStripeCustomerId       String?                   @map("bipiStripeCustomerId")
+  bubuiStripeSubscriptionId   String?                   @map("bipiStripeSubscriptionId")
+  planExpiresAt               DateTime? // null o futuro = activo; pasado = volver a free.
   // Cancelación programada: si está, la suscripción se cancela al final del
   // periodo ya pagado (cancel_at_period_end en Stripe). Hasta esa fecha el
   // negocio conserva las ventajas del plan.
-  subscriptionCancelAt       DateTime?
+  subscriptionCancelAt        DateTime?
   // Recuperación de contraseña: hash del token de un solo uso + caducidad.
-  ownerResetTokenHash        String?
-  ownerResetExpiresAt        DateTime?
+  ownerResetTokenHash         String?
+  ownerResetExpiresAt         DateTime?
   // Secreto de sesión del panel: se compara con el `<id>:<secret>` que envía
   // el panel. Se emite/renueva en el login. null hasta el próximo login.
-  apiToken                   String?
+  apiToken                    String?
   // ── Activación sin fricción ("claim") ────────────────────────────────
   // Ficha pre-creada desde un lead captado (Google Places). El dueño recibe
   // por WhatsApp un enlace mágico bubui.app/negocios?claim=<token> que entra
   // sin contraseña y le muestra su perfil ya montado para ACTIVARLO.
-  claimToken                 String?                   @unique
-  claimExpiresAt             DateTime?
-  claimedAt                  DateTime? // null = aún sin reclamar/activar
-  provisionedFromLeadId      String? // lead de origen (NV Leads Pro)
+  claimToken                  String?                   @unique
+  claimExpiresAt              DateTime?
+  claimedAt                   DateTime? // null = aún sin reclamar/activar
+  provisionedFromLeadId       String? // lead de origen (NV Leads Pro)
   // Nota de Google (Business Profile), cacheada para ordenar los rankings del
   // directorio sin llamar a Google en cada visita. Se refresca por cron/panel.
-  googleRating               Float?
-  googleReviewsCount         Int?
-  googleRatingUpdatedAt      DateTime?
+  googleRating                Float?
+  googleReviewsCount          Int?
+  googleRatingUpdatedAt       DateTime?
   // Status.
-  active                     Boolean                   @default(true)
+  active                      Boolean                   @default(true)
   // Destacado en Descubre (ordenación preferente).
-  featured                   Boolean                   @default(false)
+  featured                    Boolean                   @default(false)
   // Destacado TEMPORAL: premio del ranking mensual (negocio que más clientes
   // trajo). Mientras featuredUntil > now, cuenta como destacado en Descubre.
-  featuredUntil              DateTime?
+  featuredUntil               DateTime?
   // Banner IA (foto del escaparate → banner con el nombre del negocio).
   // La PRIMERA generación es gratis; cada edición extra cuesta 1€ y concede
   // 1 crédito (aiBannerCredits) al confirmar el pago en Stripe.
-  aiBannerUsed               Int                       @default(0)
-  aiBannerCredits            Int                       @default(0)
-  createdAt                  DateTime                  @default(now())
-  updatedAt                  DateTime                  @updatedAt
+  aiBannerUsed                Int                       @default(0)
+  aiBannerCredits             Int                       @default(0)
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
 
   referrer        BubuiBusiness?              @relation("BubuiReferral", fields: [referrerId], references: [id])
   referrals       BubuiBusiness[]             @relation("BubuiReferral")
@@ -5064,47 +5065,47 @@ model BubuiPurchase {
 /// Se generan tras cada compra confirmada (3-5 ofertas de negocios
 /// complementarios cercanos) y caducan a los 4 días.
 model BubuiOffer {
-  id                     String    @id @default(cuid())
-  customerId             String
-  businessId             String // negocio que ofrece el descuento
-  discountPct            Int
+  id                          String    @id @default(cuid())
+  customerId                  String
+  businessId                  String // negocio que ofrece el descuento
+  discountPct                 Int
   // Negocio "originador" — la compra que desbloqueó esta oferta.
   // En ofertas de afiliados se usa como marcador: "ref:1" | "ref:3" |
   // "ref:5" | "ref:welcome" (garantiza unicidad por hito).
-  triggerBusinessId      String?
+  triggerBusinessId           String?
   // Etiqueta de premio no porcentual (ej. "Tapa gratis"). Si está, la UI
   // la muestra en vez del %.
-  rewardLabel            String?
+  rewardLabel                 String?
   // Origen de la oferta: "cross" (cupón cruzado) | "referral" | "referral_welcome"
   //  | "review_reward" | "share_challenge" (oferta-reto viral) | "mesa" (cupón
   //  próxima visita de la Mesa Colectiva) | "mesa_followup" (acción no elegida).
-  source                 String?   @default("cross")
+  source                      String?   @default("cross")
   // Oferta-reto viral: si active=false la oferta está BLOQUEADA y no se puede
   // canjear hasta conseguir `unlockShares` amigos verificados nuevos por
   // encima de `unlockBaseline` (los que el cliente ya tenía al crearse).
-  active                 Boolean   @default(true)
-  unlockShares           Int       @default(0)
-  unlockBaseline         Int       @default(0)
+  active                      Boolean   @default(true)
+  unlockShares                Int       @default(0)
+  unlockBaseline              Int       @default(0)
   // Reto: si true, solo cuentan los amigos que ADEMÁS hayan comprado (compra
   // confirmada) en el negocio. Se estampa al crear la oferta (según el ajuste
   // del negocio o del reto personalizado). false = basta con instalar+verificar.
-  unlockRequiresPurchase Boolean   @default(false)
+  unlockRequiresPurchase      Boolean   @default(false)
   // Los retos nuevos atribuyen cada amigo al enlace/oferta exactos. Los retos
   // antiguos conservan el recuento global para no cambiar su progreso.
-  usesExactReferralTracking Boolean @default(false)
-  challengeServiceDescription String? @db.Text
-  challengeServicePrice     Float?
-  challengeServiceMode      String?
-  challengeInviterName      String?
+  usesExactReferralTracking   Boolean   @default(false)
+  challengeServiceDescription String?   @db.Text
+  challengeServicePrice       Float?
+  challengeServiceMode        String?
+  challengeInviterName        String?
   // Activación ALTERNATIVA de una oferta-reto (reseña/foto validada por IA), en
   // vez de por amigos. Solo disponible para usuarios con +10 amigos dados de alta.
-  activatedByAction      Boolean   @default(false)
-  activatedProvisional   Boolean   @default(false) // la IA no validó: revisar a mano
-  activationShotUrl      String? // captura usada para activar por acción
-  expiresAt              DateTime
-  redeemed               Boolean   @default(false)
-  redeemedAt             DateTime?
-  createdAt              DateTime  @default(now())
+  activatedByAction           Boolean   @default(false)
+  activatedProvisional        Boolean   @default(false) // la IA no validó: revisar a mano
+  activationShotUrl           String? // captura usada para activar por acción
+  expiresAt                   DateTime
+  redeemed                    Boolean   @default(false)
+  redeemedAt                  DateTime?
+  createdAt                   DateTime  @default(now())
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)

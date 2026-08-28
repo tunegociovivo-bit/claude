@@ -8,6 +8,7 @@ import {
   type InvoiceType,
   type PaymentMethod
 } from "./core";
+import { invoiceTaxLabel } from "./invoice-form";
 
 export type InvoiceParty = {
   name?: string | null;
@@ -52,7 +53,7 @@ function partyLines(p: InvoiceParty): string {
   const out: string[] = [];
   if (p.legalName && p.legalName !== p.name) out.push(esc(p.legalName));
   if (p.taxId) out.push(`NIF/CIF: ${esc(p.taxId)}`);
-  if (p.address) out.push(esc(p.address));
+  if (p.address) out.push(esc(p.address).replace(/\r?\n/g, "<br>"));
   const loc = [p.postalCode, p.city, p.province].filter(Boolean).join(" ");
   if (loc) out.push(esc(loc));
   if (p.email) out.push(esc(p.email));
@@ -99,7 +100,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   const taxRows = totals.taxBreakdown
     .map(
       (t) =>
-        `<tr><td>IVA ${formatRate(t.rate)} sobre ${formatMoney(t.baseCents, cur)}</td><td class="num">${formatMoney(
+        `<tr><td>${invoiceTaxLabel(t.rate)} sobre ${formatMoney(t.baseCents, cur)}</td><td class="num">${formatMoney(
           t.taxCents,
           cur
         )}</td></tr>`
@@ -192,7 +193,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
           <th class="num">Cant.</th>
           <th class="num">Precio</th>
           <th class="num">Dto.</th>
-          <th class="num">IVA</th>
+          <th class="num">Impuesto</th>
           <th class="num">Importe</th>
         </tr>
       </thead>

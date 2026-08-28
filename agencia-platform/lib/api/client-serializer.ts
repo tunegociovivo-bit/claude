@@ -78,6 +78,7 @@ export const CLIENT_ADMIN_FIELDS = [
   "city",
   "province",
   "countryCode",
+  "billingEmail",
   "sepaEnabled",
   "sepaMandateRef",
   "sepaMandateActive",
