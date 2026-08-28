@@ -7,6 +7,7 @@ import {
   formatInvoiceNumberPreview,
   invoiceRecipientEmail,
   invoiceTaxLabel,
+  normalizeCustomInvoiceNumber,
   recurringOccurrenceSchedule,
 } from "../invoice-form";
 
@@ -66,6 +67,21 @@ describe("invoice tax labels", () => {
 
   it("keeps IVA for taxable lines", () => {
     expect(invoiceTaxLabel(21)).toBe("IVA 21%");
+  });
+
+  it("never uses the word IVA on dollar invoices", () => {
+    expect(invoiceTaxLabel(21, "USD")).toBe("Tax 21%");
+    expect(invoiceTaxLabel(0, "USD")).toBe("Tax 0%");
+  });
+});
+
+describe("custom invoice number", () => {
+  it("normalizes an editable invoice number", () => {
+    expect(normalizeCustomInvoiceNumber(" rix-2026-001 ")).toBe("RIX-2026-001");
+  });
+
+  it("rejects unsafe characters", () => {
+    expect(() => normalizeCustomInvoiceNumber("FAC/../../1")).toThrow(/número/i);
   });
 });
 
