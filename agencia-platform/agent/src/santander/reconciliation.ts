@@ -406,17 +406,21 @@ export class SantanderReconciliationReader {
   private async dismissBlockingModal(page: any, frame: any): Promise<void> {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
-    const modals = frame.locator(".modal");
     let modal: any = null;
-    for (let index = await modals.count() - 1; index >= 0; index--) {
-      const candidate = modals.nth(index);
-      const blocksPointer = await candidate.evaluate((element: Element) => {
-        const style = window.getComputedStyle(element);
-        const rect = element.getBoundingClientRect();
-        return style.display !== "none" && style.visibility !== "hidden"
-          && style.pointerEvents !== "none" && rect.width > 0 && rect.height > 0;
-      }).catch(() => false);
-      if (blocksPointer) { modal = candidate; break; }
+    const candidateFrames = [frame, ...page.frames().filter((candidate: any) => candidate !== frame)];
+    for (const candidateFrame of candidateFrames) {
+      const modals = candidateFrame.locator(".modal");
+      for (let index = await modals.count() - 1; index >= 0; index--) {
+        const candidate = modals.nth(index);
+        const blocksPointer = await candidate.evaluate((element: Element) => {
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden"
+            && style.pointerEvents !== "none" && rect.width > 0 && rect.height > 0;
+        }).catch(() => false);
+        if (blocksPointer) { modal = candidate; break; }
+      }
+      if (modal) break;
     }
     if (!modal) return;
 
