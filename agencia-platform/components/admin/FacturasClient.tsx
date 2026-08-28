@@ -126,10 +126,10 @@ export default function FacturasClient({
     for (const client of clients) merged = mergeInvoiceClients(merged, client);
     return merged;
   }), [clients]);
-  const editorClients =
-    clientFilterIds && clientFilterIds.length > 0
-      ? availableClients.filter((c) => clientFilterIds.includes(c.id) || !clients.some((original) => original.id === c.id))
-      : availableClients;
+  // El selector de facturas siempre debe permitir reutilizar cualquier cliente
+  // del workspace. La asignación por emisor se conserva para informes/gestión,
+  // pero nunca vuelve invisible un cliente recién creado.
+  const editorClients = availableClients;
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers ?? []);
   const [loading, setLoading] = useState(true);
@@ -602,6 +602,14 @@ function InvoiceFormModal({
     }
     const created = await response.json();
     const lite = { id: created.id, name: created.name, taxId: created.taxId ?? null, email: created.email ?? null, billingEmail: created.billingEmail ?? null };
+    if (issuerId) {
+      const assignment = await fetch(`/api/v1/invoice-issuers/${issuerId}/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: created.id })
+      });
+      if (!assignment.ok) return alert("El cliente se creó, pero no pudo asignarse a esta empresa emisora");
+    }
     setFormClients((current) => mergeInvoiceClients(current, lite));
     onClientCreated(lite);
     setClientId(created.id);

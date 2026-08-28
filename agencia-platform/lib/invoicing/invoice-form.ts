@@ -78,6 +78,19 @@ export function formatInvoiceNumberPreview(series: string, year: number, next: n
   return `${normalized}-${year}-${String(next).padStart(4, "0")}`;
 }
 
+export function nextInvoiceSequenceFromNumbers(
+  numbers: Array<string | null | undefined>,
+  series: string,
+  year: number
+): number {
+  const prefix = `${series.toUpperCase()}-${year}-`;
+  return numbers.reduce((next, number) => {
+    if (!number?.toUpperCase().startsWith(prefix)) return next;
+    const sequence = Number(number.slice(prefix.length));
+    return Number.isSafeInteger(sequence) ? Math.max(next, sequence + 1) : next;
+  }, 1);
+}
+
 export function invoiceRecipientEmail(snapshot: { email?: string | null; billingEmail?: string | null } | null | undefined): string {
   const email = snapshot?.billingEmail?.trim() || snapshot?.email?.trim();
   if (!email) throw new Error("El cliente no tiene un email de facturación");

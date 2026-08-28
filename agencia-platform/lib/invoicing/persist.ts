@@ -118,15 +118,15 @@ export async function buildInvoiceData(opts: {
   const becomesNonDraft = status !== "DRAFT";
   let chosenNumber = data.number ?? nowHasNumber ?? null;
   if (chosenNumber) chosenNumber = validateCustomInvoiceNumber(chosenNumber, series, (data.issueDate ?? current?.issueDate ?? new Date()).toISOString());
-  if (!input.recurring && becomesNonDraft && !chosenNumber) {
+  if (becomesNonDraft && !chosenNumber) {
     const issueYear = (data.issueDate ? new Date(data.issueDate) : new Date()).getFullYear();
     data.number = await assignInvoiceNumber(workspaceId, series, issueYear, transactionClient);
     chosenNumber = data.number;
   }
-  if (!input.recurring && becomesNonDraft && chosenNumber && chosenNumber !== data.number) data.number = chosenNumber;
-  if (!input.recurring && becomesNonDraft && chosenNumber && transactionClient && chosenNumber === (data.number ?? nowHasNumber)) {
-    const wasAutomaticallyAssigned = !nowHasNumber && !input.number;
-    if (!wasAutomaticallyAssigned) await reserveCustomInvoiceNumber(workspaceId, chosenNumber, transactionClient);
+  if (becomesNonDraft && chosenNumber && chosenNumber !== data.number) data.number = chosenNumber;
+  const customNumberChanged = Boolean(input.number && input.number !== nowHasNumber);
+  if (chosenNumber && transactionClient && customNumberChanged) {
+    await reserveCustomInvoiceNumber(workspaceId, chosenNumber, transactionClient);
   }
 
   return data;

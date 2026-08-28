@@ -32,6 +32,21 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api, pa
 });
 
 const putSchema = z.object({ clientIds: z.array(z.string()).max(10000) });
+const postSchema = z.object({ clientId: z.string().min(1) });
+
+export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, params }) => {
+  await requireAdmin(api);
+  await getIssuer(api.workspaceId, params.id);
+  const parsed = postSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  const client = await prisma.client.findFirst({
+    where: { id: parsed.data.clientId, workspaceId: api.workspaceId, deletedAt: null },
+    select: { id: true }
+  });
+  if (!client) throw new ApiError(404, "not_found", "Cliente no encontrado");
+  await prisma.invoiceIssuer.update({ where: { id: params.id }, data: { clients: { connect: { id: client.id } } } });
+  return NextResponse.json({ connected: true });
+});
 
 export const PUT = withApi({ scope: "*", rate: "admin" }, async (req, { api, params }) => {
   await requireAdmin(api);
