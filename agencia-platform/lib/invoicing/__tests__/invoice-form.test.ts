@@ -12,6 +12,7 @@ import {
   recurringOccurrenceSchedule,
   mergeInvoiceClients,
   normalizeInitialInvoiceSequence,
+  nextInvoiceSequenceFromNumbers,
 } from "../invoice-form";
 
 describe("invoice form defaults", () => {
@@ -114,6 +115,10 @@ describe("invoice number preview", () => {
   it("accepts an administrator-defined initial sequence", () => {
     expect(normalizeInitialInvoiceSequence("3001")).toBe(3001);
     expect(() => normalizeInitialInvoiceSequence("0")).toThrow(/inicial/i);
+  });
+
+  it("continues after the highest existing invoice, including a draft with a custom number", () => {
+    expect(nextInvoiceSequenceFromNumbers(["FAC-2026-000199", "FAC-2026-000201", null], "FAC", 2026)).toBe(202);
   });
 });
 
