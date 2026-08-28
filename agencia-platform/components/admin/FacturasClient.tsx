@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   computeTotals,
+  computeInvoiceLineAmounts,
   formatMoney,
   formatRate,
   defaultSeriesForType,
@@ -20,6 +22,7 @@ import {
   addInvoiceInterval,
   automationStatus,
   invoiceTaxLabel,
+  normalizeCustomInvoiceNumber,
   type InvoiceRecurrenceUnit,
   type InvoiceAutomationWorkflow
 } from "@/lib/invoicing/invoice-form";
@@ -71,6 +74,7 @@ type InvoiceRow = {
   totalCents: number;
   paidCents: number;
   recurring: boolean;
+  deliveryError?: string | null;
   clientSnapshot: { name?: string } | null;
   client: { id: string; name: string } | null;
   issuer: { id: string; name: string } | null;
@@ -305,7 +309,7 @@ export default function FacturasClient({
               </tr>
             ) : (
               invoices.map((inv) => (
-                <tr key={inv.id} className="border-t hover:bg-slate-50/50">
+                <tr key={inv.id} onClick={() => window.open(`/api/v1/invoices/${inv.id}/pdf`, "_blank")} className="border-t hover:bg-slate-50/50 cursor-pointer" title="Abrir factura">
                   <td className="px-3 py-2">
                     <div className="font-medium flex items-center gap-1.5">
                       {inv.recurring && <Repeat className="h-3.5 w-3.5 text-violet-500" />}
@@ -326,6 +330,7 @@ export default function FacturasClient({
                     <span className={`text-[11px] px-2 py-0.5 rounded-md ${STATUS_STYLE[inv.status] ?? "bg-slate-100"}`}>
                       {STATUS_LABEL[inv.status] ?? inv.status}
                     </span>
+                    {inv.deliveryError && <div className="mt-1 text-[11px] text-rose-600">Error de envío: requiere reintento</div>}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1 text-slate-500">
@@ -430,7 +435,7 @@ export default function FacturasClient({
 
 function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {
   return (
-    <button title={title} onClick={onClick} className="p-1.5 rounded-md hover:bg-slate-100">
+    <button title={title} onClick={(event) => { event.stopPropagation(); onClick(); }} className="p-1.5 rounded-md hover:bg-slate-100">
       {children}
     </button>
   );
@@ -456,6 +461,7 @@ function InvoiceFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const router = useRouter();
   const isEdit = !!invoice;
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
@@ -473,13 +479,14 @@ function InvoiceFormModal({
   const [dueDate, setDueDate] = useState(addInvoicePaymentDays(toDateInput(new Date()), 30));
   const [dueDateManuallyChanged, setDueDateManuallyChanged] = useState(false);
   const [nextNumber, setNextNumber] = useState("Calculando…");
+  const [customNumber, setCustomNumber] = useState("");
   const [automationWorkflow, setAutomationWorkflow] = useState<InvoiceAutomationWorkflow>("DRAFT");
   const [creationKey] = useState(() => crypto.randomUUID());
   const [deliveryFailed, setDeliveryFailed] = useState(false);
   const [notes, setNotes] = useState("");
   const [terms, setTerms] = useState("");
   const [lines, setLines] = useState<InvoiceLine[]>([
-    { description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }
+    { concept: "", description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }
   ]);
   const [recurring, setRecurring] = useState(false);
   const [recurrenceUnit, setRecurrenceUnit] = useState<InvoiceRecurrenceUnit>("MONTHS");
@@ -497,6 +504,7 @@ function InvoiceFormModal({
       if (r.ok) {
         const d = await r.json();
         setType(d.type);
+        setCustomNumber(d.number ?? "");
         setClientId(d.clientId ?? "");
         setIssuerId(d.issuerId ?? "");
         setCurrency(d.currency);
@@ -505,7 +513,7 @@ function InvoiceFormModal({
         setDueDate(toDateInput(d.dueDate));
         setNotes(d.notes ?? "");
         setTerms(d.terms ?? "");
-        setLines((d.lines ?? []).length ? d.lines : [{ description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }]);
+        setLines((d.lines ?? []).length ? d.lines : [{ concept: "", description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }]);
         setRecurring(!!d.recurring);
         setRecurrenceUnit(d.recurrenceConfig?.intervalUnit ?? "MONTHS");
         setRecurrenceValue(d.recurrenceConfig?.intervalValue ?? d.recurrenceConfig?.intervalMonths ?? 1);
@@ -516,6 +524,13 @@ function InvoiceFormModal({
       setLoading(false);
     })();
   }, [invoice]);
+
+  useEffect(() => {
+    setFormClients((current) => {
+      const byId = new Map([...clients, ...current].map((client) => [client.id, client]));
+      return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+    });
+  }, [clients]);
 
   useEffect(() => {
     if (isEdit) return;
@@ -545,7 +560,7 @@ function InvoiceFormModal({
     setLines((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
   function addLine() {
-    setLines((arr) => [...arr, { description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }]);
+    setLines((arr) => [...arr, { concept: "", description: "", quantity: 1, unitPriceCents: 0, taxRate: 21 }]);
   }
   function removeLine(i: number) {
     setLines((arr) => (arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr));
@@ -578,6 +593,7 @@ function InvoiceFormModal({
     setClientId(created.id);
     setCreatingClient(false);
     setNewClient({ name: "", taxId: "", email: "", billingEmail: "", useBillingEmail: false, fiscalAddress: "" });
+    router.refresh();
   }
 
   async function save(issue?: boolean) {
@@ -595,6 +611,7 @@ function InvoiceFormModal({
       clientId,
       issuerId,
       series: defaultSeriesForType(type),
+      number: customNumber.trim() ? normalizeCustomInvoiceNumber(customNumber) : undefined,
       currency,
       paymentMethod,
       issueDate: new Date(issueDate || new Date()).toISOString(),
@@ -602,6 +619,7 @@ function InvoiceFormModal({
       notes: notes || null,
       terms: terms || null,
       lines: lines.map((l) => ({
+        concept: l.concept?.trim() || undefined,
         description: l.description,
         quantity: Number(l.quantity) || 0,
         unitPriceCents: Math.round(Number(l.unitPriceCents) || 0),
@@ -644,6 +662,10 @@ function InvoiceFormModal({
       if (saved.deliveryError) {
         setDeliveryFailed(true);
         alert("La factura se creó, pero no pudo enviarse. Pulsa «Reintentar envío» para volver a enviar la misma factura.");
+        return;
+      }
+      if (!isEdit && automationWorkflow === "SEND" && saved.status !== "SENT") {
+        alert("La factura no alcanzó el estado Enviada. Se ha detenido el cierre para que puedas reintentar sin duplicarla.");
         return;
       }
       onSaved();
@@ -700,9 +722,11 @@ function InvoiceFormModal({
                 <label className="block text-xs text-slate-500 mb-1">Vencimiento</label>
                 <input disabled={locked} type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); setDueDateManuallyChanged(true); }} className={inputCls} />
               </div>
-              {!isEdit && (
+              {!locked && (
                 <div className="col-span-2 md:col-span-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
-                  <span className="text-blue-700">N.º de factura actual:</span>{" "}<strong className="text-blue-950">{nextNumber}</strong>
+                  <label className="block text-xs text-blue-700 mb-1">N.º de factura actual (editable)</label>
+                  <input value={customNumber} onChange={(e) => setCustomNumber(e.target.value)} placeholder={isEdit ? "Sin número" : nextNumber} className={inputCls} />
+                  <p className="mt-1 text-[11px] text-blue-700">{isEdit ? "Solo puede cambiarse mientras sea borrador." : `Si lo dejas vacío se usará ${nextNumber}.`} No se admiten números duplicados.</p>
                 </div>
               )}
               <div className="col-span-2">
@@ -845,61 +869,74 @@ function InvoiceFormModal({
                   </button>
                 )}
               </div>
-              <div className="space-y-1.5">
-                {lines.map((ln, i) => (
-                  <div key={i} className="grid grid-cols-12 gap-1.5 items-center">
+              <div className="overflow-x-auto">
+                <div className="min-w-[980px]">
+                  <div className="grid grid-cols-[1.3fr_2fr_.9fr_.7fr_1fr_1.2fr_1fr_36px] gap-1.5 px-1 pb-1 text-[11px] font-medium text-slate-500">
+                    <span>Concepto</span><span>Descripción</span><span>Precio</span><span>Unidades</span><span>Subtotal</span><span>Impuestos</span><span>Total</span><span />
+                  </div>
+                  <div className="space-y-1.5">
+                {lines.map((ln, i) => {
+                  const amounts = computeInvoiceLineAmounts(ln);
+                  return (
+                  <div key={i} className="grid grid-cols-[1.3fr_2fr_.9fr_.7fr_1fr_1.2fr_1fr_36px] gap-1.5 items-center">
+                    <input
+                      disabled={locked}
+                      placeholder="Concepto"
+                      value={ln.concept ?? ""}
+                      onChange={(e) => setLine(i, { concept: e.target.value })}
+                      className={inputCls}
+                    />
                     <input
                       disabled={locked}
                       placeholder="Descripción"
                       value={ln.description}
                       onChange={(e) => setLine(i, { description: e.target.value })}
-                      className={`${inputCls} col-span-5`}
+                      className={inputCls}
                     />
                     <input
                       disabled={locked}
                       type="number"
                       step="0.01"
-                      placeholder="Cant."
-                      value={ln.quantity}
-                      onChange={(e) => setLine(i, { quantity: Number(e.target.value) })}
-                      className={`${inputCls} col-span-1`}
-                    />
-                    <input
-                      disabled={locked}
-                      type="number"
-                      step="0.01"
-                      placeholder="Precio €"
+                      placeholder={currency === "USD" ? "Precio $" : "Precio €"}
                       value={ln.unitPriceCents / 100}
                       onChange={(e) => setLine(i, { unitPriceCents: Math.round(Number(e.target.value) * 100) })}
-                      className={`${inputCls} col-span-2`}
+                      className={inputCls}
                     />
                     <input
                       disabled={locked}
                       type="number"
-                      placeholder="Dto%"
-                      value={ln.discountPct ?? ""}
-                      onChange={(e) => setLine(i, { discountPct: e.target.value ? Number(e.target.value) : undefined })}
-                      className={`${inputCls} col-span-1`}
+                      step="0.01"
+                      placeholder="Unid."
+                      value={ln.quantity}
+                      onChange={(e) => setLine(i, { quantity: Number(e.target.value) })}
+                      className={inputCls}
                     />
-                    <select
-                      disabled={locked}
-                      value={ln.taxRate}
-                      onChange={(e) => setLine(i, { taxRate: Number(e.target.value) })}
-                      className={`${inputCls} col-span-2`}
-                    >
-                      {[21, 10, 4, 0].map((r) => (
-                        <option key={r} value={r}>
-                          {invoiceTaxLabel(r)}
-                        </option>
-                      ))}
-                    </select>
+                    <output className="rounded-lg bg-slate-50 px-2 py-2 text-right text-xs">{formatMoney(amounts.subtotalCents, currency)}</output>
+                    <div>
+                      <select
+                        disabled={locked}
+                        value={ln.taxRate}
+                        onChange={(e) => setLine(i, { taxRate: Number(e.target.value) })}
+                        className={inputCls}
+                      >
+                        {[21, 10, 4, 0].map((r) => (
+                          <option key={r} value={r}>
+                            {invoiceTaxLabel(r, currency)}
+                          </option>
+                        ))}
+                      </select>
+                      <output className="mt-0.5 block text-right text-[11px] text-slate-500">{formatMoney(amounts.taxCents, currency)}</output>
+                    </div>
+                    <output className="rounded-lg bg-slate-50 px-2 py-2 text-right text-xs">{formatMoney(amounts.totalCents, currency)}</output>
                     {!locked && (
-                      <button onClick={() => removeLine(i)} className="col-span-1 p-1.5 rounded-md hover:bg-rose-50 text-rose-500">
+                      <button onClick={() => removeLine(i)} className="p-1.5 rounded-md hover:bg-rose-50 text-rose-500">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
                   </div>
-                ))}
+                );})}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -912,7 +949,7 @@ function InvoiceFormModal({
                 </div>
                 {totals.taxBreakdown.map((t) => (
                   <div key={t.rate} className="flex justify-between text-slate-500">
-                    <span>{invoiceTaxLabel(t.rate)}</span>
+                    <span>{invoiceTaxLabel(t.rate, currency)}</span>
                     <span>{formatMoney(t.taxCents, currency)}</span>
                   </div>
                 ))}
@@ -947,7 +984,7 @@ function InvoiceFormModal({
                 <button onClick={() => save(true)} disabled={saving} className="text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">{type === "PRESUPUESTO" ? "Emitir presupuesto" : "Emitir factura"}</button>
               </> : (
                 <button onClick={() => save()} disabled={saving} className="text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
-                  {saving ? "Procesando…" : deliveryFailed ? "Reintentar envío" : type === "PRESUPUESTO" ? "Crear presupuesto" : "Crear factura"}
+                  {saving ? "Procesando…" : deliveryFailed ? "Reintentar envío" : automationWorkflow === "SEND" ? "Crear, aprobar y enviar" : automationWorkflow === "APPROVE" ? "Crear y aprobar" : type === "PRESUPUESTO" ? "Crear presupuesto" : "Crear borrador"}
                 </button>
               )}
             </>
@@ -994,6 +1031,30 @@ function IssuersModal({
 
   function patch<K extends keyof Issuer>(k: K, v: Issuer[K]) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function loadRixusPreset() {
+    setForm((current) => ({
+      ...current,
+      name: "RIXUS SOLUTIONS",
+      legalName: "RIXUS SOLUTIONS LLC",
+      taxId: "37-2141153",
+      address: "407 LINCOLN RD STE 12-N",
+      postalCode: "33139",
+      city: "MIAMI BEACH",
+      province: "FLORIDA",
+      countryCode: "USA",
+      personType: "J",
+      residenceType: "E"
+    }));
+  }
+
+  function loadLogo(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 1_000_000) return alert("El logo debe ser una imagen de menos de 1 MB");
+    const reader = new FileReader();
+    reader.onload = () => patch("logoUrl", String(reader.result ?? ""));
+    reader.readAsDataURL(file);
   }
 
   async function save() {
@@ -1059,13 +1120,16 @@ function IssuersModal({
           )}
 
           <div className="border-t pt-4">
-            <h3 className="text-sm font-medium mb-2">{form.id ? "Editar emisor" : "Nuevo emisor"}</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">{form.id ? "Editar emisor" : "Nuevo emisor"}</h3>
+              {!form.id && <button type="button" onClick={loadRixusPreset} className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700">Cargar datos de RIXUS SOLUTIONS LLC</button>}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <input placeholder="Nombre comercial *" value={form.name} onChange={(e) => patch("name", e.target.value)} className={inputCls} />
               <input placeholder="Razón social" value={form.legalName ?? ""} onChange={(e) => patch("legalName", e.target.value)} className={inputCls} />
               <input placeholder="NIF / CIF *" value={form.taxId} onChange={(e) => patch("taxId", e.target.value)} className={inputCls} />
               <input placeholder="IBAN" value={form.iban ?? ""} onChange={(e) => patch("iban", e.target.value)} className={inputCls} />
-              <input placeholder="Dirección" value={form.address ?? ""} onChange={(e) => patch("address", e.target.value)} className={`${inputCls} col-span-2`} />
+              <textarea rows={2} placeholder="Dirección fiscal (varias líneas)" value={form.address ?? ""} onChange={(e) => patch("address", e.target.value)} className={`${inputCls} col-span-2`} />
               <input placeholder="Código postal" value={form.postalCode ?? ""} onChange={(e) => patch("postalCode", e.target.value)} className={inputCls} />
               <input placeholder="Ciudad" value={form.city ?? ""} onChange={(e) => patch("city", e.target.value)} className={inputCls} />
               <input placeholder="Provincia" value={form.province ?? ""} onChange={(e) => patch("province", e.target.value)} className={inputCls} />
@@ -1074,6 +1138,11 @@ function IssuersModal({
               <input placeholder="Teléfono" value={form.phone ?? ""} onChange={(e) => patch("phone", e.target.value)} className={inputCls} />
               <input placeholder="Web" value={form.web ?? ""} onChange={(e) => patch("web", e.target.value)} className={inputCls} />
               <input placeholder="URL del logo" value={form.logoUrl ?? ""} onChange={(e) => patch("logoUrl", e.target.value)} className={inputCls} />
+              <label className="col-span-2 rounded-lg border border-dashed p-3 text-sm text-slate-600">
+                <span className="block font-medium">Subir logo desde el ordenador</span>
+                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => loadLogo(e.target.files?.[0])} className="mt-2 block w-full text-xs" />
+                {form.logoUrl?.startsWith("data:image/") && <img src={form.logoUrl} alt="Vista previa del logo" className="mt-2 max-h-28 rounded bg-white object-contain" />}
+              </label>
               <label className="flex items-center gap-2 text-sm col-span-2">
                 <input type="checkbox" checked={!!form.isDefault} onChange={(e) => patch("isDefault", e.target.checked)} />
                 Emisor por defecto

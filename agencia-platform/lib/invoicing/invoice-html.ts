@@ -1,7 +1,7 @@
 import {
   computeTotals,
+  computeInvoiceLineAmounts,
   formatMoney,
-  formatRate,
   TYPE_LABEL,
   PAYMENT_METHOD_LABEL,
   type InvoiceLine,
@@ -83,16 +83,15 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   const lineRows = inv.lines
     .map((ln) => {
       const qty = Number(ln.quantity) || 0;
-      const gross = Math.round(qty * (ln.unitPriceCents || 0));
-      const disc = Math.min(Math.max(Number(ln.discountPct) || 0, 0), 100);
-      const net = gross - Math.round((gross * disc) / 100);
+      const amounts = computeInvoiceLineAmounts(ln);
       return `<tr>
+        <td class="desc">${esc(ln.concept || ln.description)}</td>
         <td class="desc">${esc(ln.description)}</td>
-        <td class="num">${qty.toLocaleString("es-ES")}</td>
         <td class="num">${formatMoney(ln.unitPriceCents, cur)}</td>
-        <td class="num">${disc ? formatRate(disc) : "—"}</td>
-        <td class="num">${formatRate(Number(ln.taxRate) || 0)}</td>
-        <td class="num">${formatMoney(net, cur)}</td>
+        <td class="num">${qty.toLocaleString("es-ES")}</td>
+        <td class="num">${formatMoney(amounts.subtotalCents, cur)}</td>
+        <td class="num">${invoiceTaxLabel(Number(ln.taxRate) || 0, cur)}<br><span class="muted">${formatMoney(amounts.taxCents, cur)}</span></td>
+        <td class="num">${formatMoney(amounts.totalCents, cur)}</td>
       </tr>`;
     })
     .join("");
@@ -100,7 +99,7 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
   const taxRows = totals.taxBreakdown
     .map(
       (t) =>
-        `<tr><td>${invoiceTaxLabel(t.rate)} sobre ${formatMoney(t.baseCents, cur)}</td><td class="num">${formatMoney(
+        `<tr><td>${invoiceTaxLabel(t.rate, cur)} sobre ${formatMoney(t.baseCents, cur)}</td><td class="num">${formatMoney(
           t.taxCents,
           cur
         )}</td></tr>`
@@ -189,12 +188,13 @@ export function buildInvoiceHtml(inv: InvoiceForHtml, opts?: { accent?: string; 
     <table class="lines">
       <thead>
         <tr>
+          <th>Concepto</th>
           <th>Descripción</th>
-          <th class="num">Cant.</th>
           <th class="num">Precio</th>
-          <th class="num">Dto.</th>
-          <th class="num">Impuesto</th>
-          <th class="num">Importe</th>
+          <th class="num">Unidades</th>
+          <th class="num">Subtotal</th>
+          <th class="num">Impuestos</th>
+          <th class="num">Total</th>
         </tr>
       </thead>
       <tbody>${lineRows}</tbody>

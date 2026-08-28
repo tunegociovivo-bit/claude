@@ -49,3 +49,27 @@ export async function assignInvoiceNumber(
   const padded = String(counter.value).padStart(4, "0");
   return `${serie}-${year}-${padded}`;
 }
+
+/** Avanza el contador cuando un admin elige manualmente un número de la serie. */
+export async function reserveCustomInvoiceNumber(
+  workspaceId: string,
+  number: string,
+  transactionClient: any
+): Promise<void> {
+  const match = number.match(/^([A-Z0-9]{1,8})-(\d{4})-(\d+)$/);
+  if (!match) return;
+  const [, series, yearRaw, sequenceRaw] = match;
+  const year = Number(yearRaw);
+  const next = Number(sequenceRaw) + 1;
+  const existing = await transactionClient.invoiceCounter.findUnique({
+    where: { workspaceId_series_year: { workspaceId, series, year } }
+  });
+  if (!existing) {
+    await transactionClient.invoiceCounter.create({ data: { workspaceId, series, year, next } });
+  } else if (existing.next < next) {
+    await transactionClient.invoiceCounter.update({
+      where: { workspaceId_series_year: { workspaceId, series, year } },
+      data: { next }
+    });
+  }
+}

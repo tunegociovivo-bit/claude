@@ -44,6 +44,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
       totalCents: true,
       paidCents: true,
       recurring: true,
+      deliveryError: true,
       paidAt: true,
       clientSnapshot: true,
       client: { select: { id: true, name: true } },
@@ -95,6 +96,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       }, { isolationLevel: "Serializable" });
       break;
     } catch (error: any) {
+      if (error?.code === "P2002" && parsed.data.number) {
+        throw new ApiError(409, "duplicate_invoice_number", "Ese número de factura ya existe");
+      }
       if ((error?.code !== "P2002" && error?.code !== "P2034") || attempt === 2) throw error;
     }
   }

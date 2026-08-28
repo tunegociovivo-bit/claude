@@ -57,6 +57,16 @@ export function invoiceRecipientEmail(snapshot: { email?: string | null; billing
   return email;
 }
 
-export function invoiceTaxLabel(rate: number): string {
-  return Number(rate) === 0 ? "0% (sin IVA)" : `IVA ${Number(rate).toLocaleString("es-ES")}%`;
+export function invoiceTaxLabel(rate: number, currency = "EUR"): string {
+  const value = `${Number(rate).toLocaleString("es-ES")}%`;
+  if (currency === "USD") return `Tax ${value}`;
+  return Number(rate) === 0 ? "0% (sin IVA)" : `IVA ${value}`;
+}
+
+export function normalizeCustomInvoiceNumber(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(normalized) || normalized.length > 40) {
+    throw new Error("El número de factura solo puede contener letras, números y guiones");
+  }
+  return normalized;
 }

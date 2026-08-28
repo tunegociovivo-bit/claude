@@ -27,12 +27,30 @@ export const INVOICE_STATUSES = [
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
 export type InvoiceLine = {
+  concept?: string;
   description: string;
   quantity: number;
   unitPriceCents: number;
   taxRate: number; // % IVA (21, 10, 4, 0)
   discountPct?: number; // % descuento de la línea
 };
+
+export function computeInvoiceLineAmounts(line: InvoiceLine): {
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  discountCents: number;
+} {
+  const quantity = Number(line.quantity) || 0;
+  const unit = Math.round(Number(line.unitPriceCents) || 0);
+  const rate = Number(line.taxRate) || 0;
+  const discount = Math.min(Math.max(Number(line.discountPct) || 0, 0), 100);
+  const gross = Math.round(quantity * unit);
+  const discountCents = Math.round((gross * discount) / 100);
+  const subtotalCents = gross - discountCents;
+  const taxCents = Math.round((subtotalCents * rate) / 100);
+  return { subtotalCents, taxCents, totalCents: subtotalCents + taxCents, discountCents };
+}
 
 export type TaxBreakdownRow = { rate: number; baseCents: number; taxCents: number };
 
@@ -44,8 +62,6 @@ export type InvoiceTotals = {
   taxBreakdown: TaxBreakdownRow[];
 };
 
-const r = Math.round;
-
 /** Calcula los totales de una factura a partir de sus líneas. */
 export function computeTotals(lines: InvoiceLine[]): InvoiceTotals {
   let subtotalCents = 0;
@@ -53,15 +69,8 @@ export function computeTotals(lines: InvoiceLine[]): InvoiceTotals {
   const byRate = new Map<number, { baseCents: number; taxCents: number }>();
 
   for (const ln of lines) {
-    const qty = Number(ln.quantity) || 0;
-    const unit = Math.round(Number(ln.unitPriceCents) || 0);
     const rate = Number(ln.taxRate) || 0;
-    const disc = Math.min(Math.max(Number(ln.discountPct) || 0, 0), 100);
-
-    const gross = r(qty * unit);
-    const lineDiscount = r((gross * disc) / 100);
-    const net = gross - lineDiscount;
-    const lineTax = r((net * rate) / 100);
+    const { subtotalCents: net, taxCents: lineTax, discountCents: lineDiscount } = computeInvoiceLineAmounts(ln);
 
     subtotalCents += net;
     discountCents += lineDiscount;

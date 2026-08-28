@@ -238,6 +238,7 @@ export const eventCreateSchema = z.object({
 // Facturación (gestor de facturas)
 // ──────────────────────────────────────────────────────────────────
 const invoiceLineSchema = z.object({
+  concept: z.string().max(200).optional(),
   description: z.string().min(1),
   // Se acotan los rangos para evitar desbordamientos contables. Se permiten
   // negativos: las facturas RECTIFICATIVAS (abonos) los necesitan.
@@ -262,6 +263,7 @@ export const invoiceCreateSchema = z.object({
   clientId: z.string().nullable().optional(),
   issuerId: z.string().nullable().optional(),
   series: z.string().max(8).optional().nullable(),
+  number: z.string().max(40).optional().nullable(),
   issueDate: z.string().optional(),
   dueDate: z.string().nullable().optional(),
   currency: z.enum(["EUR", "USD"]).default("EUR"),

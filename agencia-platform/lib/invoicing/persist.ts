@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { computeTotals, defaultSeriesForType, type InvoiceLine, type InvoiceType } from "./core";
-import { assignInvoiceNumber } from "./numbering";
+import { assignInvoiceNumber, reserveCustomInvoiceNumber } from "./numbering";
+import { normalizeCustomInvoiceNumber } from "./invoice-form";
 
 /** Datos fiscales congelados en la factura al emitir. */
 export function snapshotIssuer(issuer: any) {
@@ -104,6 +105,8 @@ export async function buildInvoiceData(opts: {
     recurrenceConfig: input.recurrenceConfig ?? current?.recurrenceConfig ?? null
   };
 
+  if (input.number !== undefined) data.number = input.number ? normalizeCustomInvoiceNumber(input.number) : null;
+
   if (input.issueDate) data.issueDate = new Date(input.issueDate);
   if (input.dueDate !== undefined) data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
 
@@ -113,9 +116,12 @@ export async function buildInvoiceData(opts: {
   data.series = series;
   const nowHasNumber = current?.number;
   const becomesNonDraft = status !== "DRAFT";
-  if (!input.recurring && becomesNonDraft && !nowHasNumber) {
+  if (!input.recurring && becomesNonDraft && !nowHasNumber && !data.number) {
     const issueYear = (data.issueDate ? new Date(data.issueDate) : new Date()).getFullYear();
     data.number = await assignInvoiceNumber(workspaceId, series, issueYear, transactionClient);
+  }
+  if (data.number && data.number !== nowHasNumber && transactionClient) {
+    await reserveCustomInvoiceNumber(workspaceId, data.number, transactionClient);
   }
 
   return data;
