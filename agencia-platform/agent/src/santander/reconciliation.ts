@@ -33,6 +33,28 @@ export function shouldRunDailyReconciliation(now: Date, lastSyncAt: Date | null,
 
 export type ReconciliationRetryDecision = "RUN" | "WAIT" | "EXHAUSTED";
 
+export function isDetachedFrameError(error: unknown): boolean {
+  return /frame was detached|detached frame|frame has been detached/i.test(String(error));
+}
+
+export async function runWithRefreshedFrame<TFrame, TResult>(
+  acquireFrame: () => Promise<TFrame>,
+  operation: (frame: TFrame) => Promise<TResult>,
+  maxAttempts = 3
+): Promise<TResult> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const frame = await acquireFrame();
+    try {
+      return await operation(frame);
+    } catch (error) {
+      lastError = error;
+      if (!isDetachedFrameError(error) || attempt === maxAttempts - 1) throw error;
+    }
+  }
+  throw lastError;
+}
+
 export function reconciliationRetryDecision(now: Date, lastAttemptAt: Date | null, failedAttempts: number, timeZone = "Europe/Madrid", retryMinutes = 30): ReconciliationRetryDecision {
   if (!Number.isFinite(now.getTime())) return "WAIT";
   // El botón «Forzar resincronización» reinicia el contador. Debe prevalecer
@@ -194,23 +216,36 @@ export class SantanderReconciliationReader {
           } finally {
             if (opened) {
               await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-              frame = await this.waitFrame(page, /Remesas de un acreedor/i) ?? frame;
+              const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
+              if (!refreshedFrame) throw new Error("Santander no restauró el listado de remesas tras consultar un recibo");
+              frame = refreshedFrame;
             }
           }
         }
         // Santander puede ignorar el filtro de fechas; se recorren las páginas
         // y se corta si el control no cambia realmente el contenido.
-        const next = frame.getByRole("button", { name: /^Ver siguientes$/i });
-        if (await next.count() !== 1 || !await next.isEnabled().catch(() => false)) break;
-        await next.press("Enter");
-        await frame.waitForTimeout(800);
-        let nextRows = await frame.getByRole("row").allInnerTexts().catch(() => []);
-        if (nextRows.join("|") === pageSignature) {
-          await next.click({ force: true });
-          await frame.waitForTimeout(800);
-          nextRows = await frame.getByRole("row").allInnerTexts().catch(() => []);
-        }
-        if (nextRows.join("|") === pageSignature) break;
+        const pagination = await runWithRefreshedFrame(
+          async () => {
+            const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
+            if (!refreshedFrame) throw new Error("Santander no restauró el listado de remesas para paginar");
+            frame = refreshedFrame;
+            return refreshedFrame;
+          },
+          async (currentFrame) => {
+            const next = currentFrame.getByRole("button", { name: /^Ver siguientes$/i });
+            if (await next.count() !== 1 || !await next.isEnabled().catch(() => false)) return false;
+            await next.press("Enter");
+            await currentFrame.waitForTimeout(800);
+            let nextRows = await currentFrame.getByRole("row").allInnerTexts().catch(() => []);
+            if (nextRows.join("|") === pageSignature) {
+              await next.click({ force: true });
+              await currentFrame.waitForTimeout(800);
+              nextRows = await currentFrame.getByRole("row").allInnerTexts().catch(() => []);
+            }
+            return nextRows.join("|") !== pageSignature;
+          }
+        );
+        if (!pagination) break;
       }
       try {
         for (const movement of await this.scanAccountMovements(page, startsAt)) unique.set(movement.externalId, movement);
