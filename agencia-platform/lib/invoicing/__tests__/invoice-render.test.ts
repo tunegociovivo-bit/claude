@@ -45,6 +45,14 @@ describe("invoice rendering", () => {
     expect(rendered.appendix).toBe(description);
   });
 
+  it("renders a maximum description safely when concept is empty", async () => {
+    const description = "X".repeat(2_000);
+    const pdf = await buildInvoicePdf({ ...invoice, lines: [{ ...invoice.lines[0], concept: "", description }] });
+    const pages = pdf.toString("latin1").match(/\/Type\s*\/Page\b/g) ?? [];
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.length).toBeLessThanOrEqual(3);
+  });
+
   it("creates a real PDF document", async () => {
     const pdf = await buildInvoicePdf(invoice);
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");

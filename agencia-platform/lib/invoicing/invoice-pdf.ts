@@ -62,7 +62,7 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
     const amounts = computeInvoiceLineAmounts(line);
     const renderedDescription = invoiceTableDescription(line.description || "");
     if (renderedDescription.appendix) appendices.push({ concept: line.concept || "Línea", description: renderedDescription.appendix });
-    const values = [line.concept || line.description, renderedDescription.table || "—", formatMoney(line.unitPriceCents, invoice.currency), String(line.quantity), formatMoney(amounts.subtotalCents, invoice.currency), invoiceTaxLabel(line.taxRate, invoice.currency), formatMoney(amounts.totalCents, invoice.currency)];
+    const values = [line.concept || renderedDescription.table || "Línea", renderedDescription.table || "—", formatMoney(line.unitPriceCents, invoice.currency), String(line.quantity), formatMoney(amounts.subtotalCents, invoice.currency), invoiceTaxLabel(line.taxRate, invoice.currency), formatMoney(amounts.totalCents, invoice.currency)];
     document.font("Helvetica").fontSize(7.5);
     const rowHeight = Math.max(30, ...values.map((value, index) => document.heightOfString(String(value), { width: widths[index] - 7 }) + 14));
     if (y + rowHeight > 760) { document.addPage(); y = 42; drawTableHeader(); }
