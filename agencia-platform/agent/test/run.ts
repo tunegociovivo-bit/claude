@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { browserValueOr, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -75,6 +75,24 @@ async function main() {
       }
     );
     ok("recupera el iframe cuando Santander lo reemplaza", result === 2 && acquired === 2);
+
+    let acquisitionAttempts = 0;
+    const acquiredAfterDetach = await runWithRefreshedFrame(
+      async () => {
+        acquisitionAttempts++;
+        if (acquisitionAttempts === 1) throw new Error("Frame has been detached");
+        return { ready: true };
+      },
+      async (frame) => frame.ready
+    );
+    ok("reintenta también si el iframe se desconecta mientras se adquiere", acquiredAfterDetach && acquisitionAttempts === 2);
+
+    let detachedWasRethrown = false;
+    try { await browserValueOr(async () => { throw new Error("locator.allInnerTexts: Frame was detached"); }, []); }
+    catch { detachedWasRethrown = true; }
+    ok("no convierte un iframe desconectado en una lista vacía", detachedWasRethrown);
+    ok("mantiene el fallback para un estado opcional no relacionado con el iframe",
+      (await browserValueOr(async () => { throw new Error("element not found"); }, ["fallback"]))[0] === "fallback");
   }
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
