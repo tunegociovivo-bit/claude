@@ -65,8 +65,16 @@ export function invoiceTaxLabel(rate: number, currency = "EUR"): string {
 
 export function normalizeCustomInvoiceNumber(value: string): string {
   const normalized = value.trim().toUpperCase();
-  if (!/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(normalized) || normalized.length > 40) {
-    throw new Error("El número de factura solo puede contener letras, números y guiones");
+  if (!/^[A-Z0-9]{1,8}-\d{4}-\d{1,10}$/.test(normalized) || normalized.length > 40) {
+    throw new Error("Formato de número inválido; utiliza SERIE-AÑO-SECUENCIA, por ejemplo FAC-2026-0001");
   }
+  return normalized;
+}
+
+export function validateCustomInvoiceNumber(value: string, series: string, issueDate: string): string {
+  const normalized = normalizeCustomInvoiceNumber(value);
+  const [numberSeries, numberYear] = normalized.split("-");
+  if (numberSeries !== series.toUpperCase()) throw new Error("La serie del número no coincide con la serie fiscal");
+  if (Number(numberYear) !== Number(issueDate.slice(0, 4))) throw new Error("El año del número no coincide con la fecha de emisión");
   return normalized;
 }

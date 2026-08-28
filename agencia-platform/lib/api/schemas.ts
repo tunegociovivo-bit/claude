@@ -292,7 +292,7 @@ export const invoiceIssuerSchema = z.object({
   phone: z.string().nullable().optional(),
   web: z.string().nullable().optional(),
   iban: z.string().nullable().optional(),
-  logoUrl: z.string().nullable().optional(),
+  logoUrl: z.string().max(1_400_000).refine((value) => !value || /^https?:\/\//i.test(value) || /^data:image\/(png|jpeg|webp);base64,/i.test(value), "Logo inválido").nullable().optional(),
   personType: z.enum(["F", "J"]).default("J"),
   residenceType: z.enum(["R", "E", "U"]).default("R"),
   isDefault: z.boolean().optional()

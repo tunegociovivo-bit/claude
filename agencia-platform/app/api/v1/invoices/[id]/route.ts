@@ -63,8 +63,17 @@ export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req, { api, p
     return NextResponse.json(updated);
   }
 
-  const data = await buildInvoiceData({ workspaceId: api.workspaceId, input: parsed.data, current });
-  const updated = await prisma.invoice.update({ where: { id: current.id }, data });
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const data = await buildInvoiceData({ workspaceId: api.workspaceId, input: parsed.data, current, transactionClient: tx });
+      return tx.invoice.update({ where: { id: current.id }, data });
+    }, { isolationLevel: "Serializable" });
+  } catch (error: any) {
+    if (error?.code === "CUSTOM_INVOICE_NUMBER_SEQUENCE") throw new ApiError(409, "invoice_number_sequence", error.message);
+    if (error?.code === "P2002" && parsed.data.number) throw new ApiError(409, "duplicate_invoice_number", "Ese número de factura ya existe");
+    throw error;
+  }
   return NextResponse.json(updated);
 });
 

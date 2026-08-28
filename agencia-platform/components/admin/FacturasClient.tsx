@@ -605,13 +605,20 @@ function InvoiceFormModal({
     const finalStatus = isEdit
       ? (issue ? (type === "PRESUPUESTO" ? "SENT" : "ISSUED") : "DRAFT")
       : automationStatus(automationWorkflow);
+    let normalizedCustomNumber: string | undefined;
+    try {
+      normalizedCustomNumber = customNumber.trim() ? normalizeCustomInvoiceNumber(customNumber) : undefined;
+    } catch (error: any) {
+      return alert(error?.message ?? "Número de factura inválido");
+    }
+    const selectedSeries = normalizedCustomNumber?.split("-")[0] ?? defaultSeriesForType(type);
     const payload: any = {
       type,
       status: finalStatus,
       clientId,
       issuerId,
-      series: defaultSeriesForType(type),
-      number: customNumber.trim() ? normalizeCustomInvoiceNumber(customNumber) : undefined,
+      series: selectedSeries,
+      number: normalizedCustomNumber,
       currency,
       paymentMethod,
       issueDate: new Date(issueDate || new Date()).toISOString(),

@@ -57,7 +57,7 @@ export async function reserveCustomInvoiceNumber(
   transactionClient: any
 ): Promise<void> {
   const match = number.match(/^([A-Z0-9]{1,8})-(\d{4})-(\d+)$/);
-  if (!match) return;
+  if (!match) throw new Error("Formato fiscal de número no reservable");
   const [, series, yearRaw, sequenceRaw] = match;
   const year = Number(yearRaw);
   const next = Number(sequenceRaw) + 1;
@@ -66,6 +66,10 @@ export async function reserveCustomInvoiceNumber(
   });
   if (!existing) {
     await transactionClient.invoiceCounter.create({ data: { workspaceId, series, year, next } });
+  } else if (existing.next > Number(sequenceRaw)) {
+    const error: any = new Error(`La secuencia ${sequenceRaw} es anterior al siguiente número fiscal disponible (${existing.next})`);
+    error.code = "CUSTOM_INVOICE_NUMBER_SEQUENCE";
+    throw error;
   } else if (existing.next < next) {
     await transactionClient.invoiceCounter.update({
       where: { workspaceId_series_year: { workspaceId, series, year } },

@@ -96,6 +96,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       }, { isolationLevel: "Serializable" });
       break;
     } catch (error: any) {
+      if (error?.code === "CUSTOM_INVOICE_NUMBER_SEQUENCE") {
+        throw new ApiError(409, "invoice_number_sequence", error.message);
+      }
       if (error?.code === "P2002" && parsed.data.number) {
         throw new ApiError(409, "duplicate_invoice_number", "Ese número de factura ya existe");
       }
