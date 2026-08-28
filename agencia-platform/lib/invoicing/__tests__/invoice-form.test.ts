@@ -8,6 +8,7 @@ import {
   invoiceRecipientEmail,
   invoiceTaxLabel,
   normalizeCustomInvoiceNumber,
+  validateCustomInvoiceNumber,
   recurringOccurrenceSchedule,
 } from "../invoice-form";
 
@@ -82,6 +83,14 @@ describe("custom invoice number", () => {
 
   it("rejects unsafe characters", () => {
     expect(() => normalizeCustomInvoiceNumber("FAC/../../1")).toThrow(/número/i);
+  });
+
+  it("rejects numbers outside the canonical series-year-sequence format", () => {
+    expect(() => normalizeCustomInvoiceNumber("FAC-2026-SPECIAL-001")).toThrow(/formato/i);
+  });
+
+  it("requires the fiscal number year to match the issue date", () => {
+    expect(() => validateCustomInvoiceNumber("FAC-2025-001", "FAC", "2026-08-28")).toThrow(/año/i);
   });
 });
 
