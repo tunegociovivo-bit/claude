@@ -31,6 +31,28 @@ export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 503 });
 
   const now = new Date();
+  // Limpieza puntual solicitada por el administrador: dos comprobaciones de
+  // programación quedaron guardadas como recurrencias diarias y estaban
+  // enviando confirmaciones por WhatsApp a las 08:00. Se desactivan por su
+  // marcador exacto; ninguna otra recurrencia se ve afectada.
+  const disabledTestRecurrences = await prisma.task.updateMany({
+    where: {
+      recurrence: { not: "none" },
+      deletedAt: null,
+      // El teléfono personal del administrador hace el filtro tenant-específico
+      // y evita tocar pruebas o tareas homónimas de cualquier otro workspace.
+      description: { contains: "680167881" },
+      AND: {
+        OR: [
+          { title: { contains: "Prueba 3 recurrente", mode: "insensitive" } },
+          { description: { contains: "Prueba 3 recurrente", mode: "insensitive" } },
+          { title: { contains: "Correo de prueba 3", mode: "insensitive" } },
+          { description: { contains: "Correo de prueba 3", mode: "insensitive" } }
+        ]
+      }
+    },
+    data: { recurrence: "none", recurrenceNextAt: null }
+  });
   const due = await prisma.task.findMany({
     where: { recurrence: { not: "none" }, recurrenceNextAt: { lte: now }, deletedAt: null } as any,
     select: {
@@ -181,5 +203,12 @@ export async function GET(req: NextRequest) {
     repeated++;
   }
 
-  return NextResponse.json({ ok: true, due: due.length, triggered, repeated, advanced });
+  return NextResponse.json({
+    ok: true,
+    due: due.length,
+    triggered,
+    repeated,
+    advanced,
+    disabledTestRecurrences: disabledTestRecurrences.count
+  });
 }
