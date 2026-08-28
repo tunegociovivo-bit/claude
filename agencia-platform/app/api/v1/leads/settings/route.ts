@@ -15,6 +15,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
+import { getSendSettings } from "@/lib/leads/send-queue";
+import { channelWarmupCap } from "@/lib/leads/channels";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -35,6 +37,56 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   // Fallback a la config del plugin migrada (settings.integrations.evolution),
   // para que la UI muestre WhatsApp como configurado sin reintroducir nada.
   const evo: any = (ws?.settings as any)?.integrations?.evolution ?? {};
+  const configuredChannels = Array.isArray(s.channels) ? s.channels : [];
+  const effectiveLimitsByChannel = Object.fromEntries(
+    await Promise.all(
+      [
+        { key: "__principal__", instanceName: null, channel: null, active: true },
+        ...configuredChannels.map((channel: any) => ({
+          key: channel.name,
+          instanceName: channel.name,
+          channel,
+          active: channel.active !== false
+        }))
+      ].map(async ({ key, instanceName, channel, active }) => {
+        const effective = await getSendSettings(api.workspaceId, instanceName);
+        const recoveryActive = !!effective.recoveryMode;
+        let dailyTotal = active ? effective.dailyLimit : 0;
+        let warming = false;
+        let warmupDay: number | null = null;
+        let warmupDays: number | null = null;
+
+        // Los canales adicionales tienen su propia fecha de alta. El enrutador
+        // aplica esta rampa además de los topes generales; la proyección debe
+        // mostrar el más conservador de ambos para coincidir con el envío real.
+        if (active && channel) {
+          const warmup = channelWarmupCap(channel, s);
+          dailyTotal = Math.min(dailyTotal, warmup.cap);
+          warming = warmup.warming;
+          warmupDay = warmup.dayIndex;
+          warmupDays = warmup.warmupDays;
+        } else if (active) {
+          warming = !!effective.effectiveWarmupActive;
+          warmupDay = effective.effectiveWarmupDay ?? null;
+          warmupDays = Number(s.warmupDays) || 45;
+        }
+
+        const dailyNewChats = active
+          ? Math.min(effective.maxNewChatsPerDay, dailyTotal)
+          : 0;
+        const mode = !active ? "disabled" : recoveryActive ? "recovery" : warming ? "warmup" : "normal";
+
+        return [key, {
+          mode,
+          dailyTotal,
+          dailyNewChats,
+          maxPerHour: active ? effective.maxPerHour : 0,
+          warmupDay,
+          warmupDays
+        }];
+      })
+    )
+  );
   return NextResponse.json({
     googleConfigured: !!(s.googleApiKey || (ws?.settings as any)?.integrations?.googlePlaces?.apiKeyEnc),
     whatsappProvider: s.whatsappProvider === "evolution" ? "evolution" : "waha",
@@ -127,7 +179,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     enableVariations: s.enableVariations ?? true,
     validateWaBeforeSend: s.validateWaBeforeSend ?? true,
     maxAttempts: s.maxAttempts ?? 3,
-    channels: Array.isArray(s.channels) ? s.channels : [],
+    channels: configuredChannels,
+    effectiveLimitsByChannel,
     webhookToken: s.webhookToken
   });
 });

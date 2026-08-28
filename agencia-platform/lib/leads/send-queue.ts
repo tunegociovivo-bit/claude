@@ -105,6 +105,8 @@ export type LeadsSendSettings = {
   warmupDays: number;
   /** Tope del primer día. */
   warmupStartCap: number;
+  effectiveWarmupActive?: boolean;
+  effectiveWarmupDay?: number | null;
   /** Fecha de "nacimiento" del número PRINCIPAL a efectos de calentamiento.
    *  Se sella al conectar o cambiar el número principal (típico tras un baneo:
    *  enchufas otra SIM). Así un número nuevo re-caliente desde el arranque en
@@ -266,12 +268,14 @@ export async function getSendSettings(workspaceId: string, instanceName?: string
   // en rampa desde warmupStartCap hasta el dailyLimit configurado. La "edad"
   // del número se aproxima por el primer mensaje enviado del workspace.
   if (base.warmupEnabled) {
-    const cap = await computeWarmupCap(workspaceId, base);
-    base.dailyLimit = Math.min(base.dailyLimit, cap);
+    const warmup = await computeWarmupState(workspaceId, base);
+    base.effectiveWarmupActive = warmup.active;
+    base.effectiveWarmupDay = warmup.dayIndex;
+    base.dailyLimit = Math.min(base.dailyLimit, warmup.cap);
     // Durante el calentamiento limitamos también los CHATS NUEVOS (primeros
     // contactos en frío), que es el principal factor de baneo de un número
     // nuevo — no solo el volumen total. Los ceñimos al tope bajo de la rampa.
-    base.maxNewChatsPerDay = Math.min(base.maxNewChatsPerDay, cap);
+    base.maxNewChatsPerDay = Math.min(base.maxNewChatsPerDay, warmup.cap);
   }
 
   // JITTER: resta un % aleatorio (determinístico por día de Madrid) al tope
@@ -314,7 +318,10 @@ export async function getSendSettings(workspaceId: string, instanceName?: string
 }
 
 /** Tope diario efectivo según el "calentamiento" del número. */
-async function computeWarmupCap(workspaceId: string, settings: LeadsSendSettings): Promise<number> {
+async function computeWarmupState(
+  workspaceId: string,
+  settings: LeadsSendSettings
+): Promise<{ cap: number; active: boolean; dayIndex: number | null }> {
   // Fecha de "nacimiento" del número principal. Prioriza principalSince (se sella
   // al conectar/cambiar el número principal, típico tras un baneo) para que un
   // número nuevo re-caliente desde cero, en vez de heredar la antigüedad del
@@ -326,16 +333,24 @@ async function computeWarmupCap(workspaceId: string, settings: LeadsSendSettings
       orderBy: { sentAt: "asc" },
       select: { sentAt: true }
     });
-    if (!first?.sentAt) return settings.warmupStartCap; // aún no se ha enviado nada
+    if (!first?.sentAt) return { cap: settings.warmupStartCap, active: true, dayIndex: 1 }; // aún no se ha enviado nada
     birth = first.sentAt.getTime();
   }
   const dayIndex = Math.floor((Date.now() - birth) / 86_400_000) + 1;
-  if (dayIndex >= settings.warmupDays) return settings.dailyLimit;
+  if (dayIndex >= settings.warmupDays) return { cap: settings.dailyLimit, active: false, dayIndex };
   const ramp =
     settings.warmupStartCap +
     ((settings.dailyLimit - settings.warmupStartCap) * (dayIndex - 1)) /
       Math.max(1, settings.warmupDays - 1);
-  return Math.max(settings.warmupStartCap, Math.min(settings.dailyLimit, Math.round(ramp)));
+  return {
+    cap: Math.max(settings.warmupStartCap, Math.min(settings.dailyLimit, Math.round(ramp))),
+    active: true,
+    dayIndex: Math.max(1, dayIndex)
+  };
+}
+
+async function computeWarmupCap(workspaceId: string, settings: LeadsSendSettings): Promise<number> {
+  return (await computeWarmupState(workspaceId, settings)).cap;
 }
 
 /** Activa el modo recuperación persistiéndolo en settings. */

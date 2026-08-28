@@ -9695,6 +9695,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 }))
               ].filter((channel: any) => channel.key).map((channel: any) => {
                 const state = s.recoveryByChannel?.[channel.key];
+                const limits = s.effectiveLimitsByChannel?.[channel.key];
                 const active = !!state?.enabled;
                 const durationDays = state?.durationDays ?? 14;
                 const expiresAt = state?.since
@@ -9722,6 +9723,18 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                     />
                     <span className="min-w-0 flex-1">
                       <b>{channel.label}</b>{channel.phone ? <span className="ml-1 font-mono text-slate-500">{channel.phone}</span> : null}
+                      {limits ? (
+                        <span className="mt-0.5 block text-[11px] font-medium text-slate-600">
+                          {limits.mode === "recovery"
+                            ? "Recuperación"
+                            : limits.mode === "warmup"
+                              ? `Calentamiento · día ${limits.warmupDay ?? "—"} de ${limits.warmupDays ?? "—"}`
+                              : limits.mode === "disabled"
+                                ? "Canal desactivado"
+                                : "Normal"}
+                          {limits.mode !== "disabled" ? ` · ${limits.dailyTotal} mensajes/día · ${limits.dailyNewChats} chats nuevos/día · ${limits.maxPerHour}/hora` : ""}
+                        </span>
+                      ) : null}
                     </span>
                     <span className={active ? "text-rose-700" : "text-slate-400"}>
                       {active && expiresAt ? `hasta ${expiresAt.toLocaleDateString("es-ES")}` : active ? "recuperación activa" : "límites normales"}
