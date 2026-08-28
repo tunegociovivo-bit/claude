@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   addInvoicePaymentDays,
   addInvoiceMonths,
+  addInvoiceInterval,
   automationStatus,
   formatInvoiceNumberPreview,
   invoiceRecipientEmail,
+  invoiceTaxLabel,
 } from "../invoice-form";
 
 describe("invoice form defaults", () => {
@@ -19,6 +21,14 @@ describe("invoice form defaults", () => {
   it("schedules the first recurring run one interval after creation", () => {
     expect(addInvoiceMonths("2026-08-31", 1)).toBe("2026-09-30");
   });
+
+  it.each([
+    ["2026-08-28", "DAYS", 10, "2026-09-07"],
+    ["2026-08-31", "MONTHS", 1, "2026-09-30"],
+    ["2024-02-29", "YEARS", 1, "2025-02-28"],
+  ] as const)("supports recurring invoices by %s", (date, unit, every, expected) => {
+    expect(addInvoiceInterval(date, unit, every)).toBe(expected);
+  });
 });
 
 describe("automatic invoice delivery", () => {
@@ -26,8 +36,22 @@ describe("automatic invoice delivery", () => {
     expect(invoiceRecipientEmail({ email: " facturas@cliente.es " })).toBe("facturas@cliente.es");
   });
 
+  it("prefers the client's designated billing email", () => {
+    expect(invoiceRecipientEmail({ email: "general@cliente.es", billingEmail: "facturas@cliente.es" })).toBe("facturas@cliente.es");
+  });
+
   it("refuses to mark a delivery when the client has no email", () => {
     expect(() => invoiceRecipientEmail({ email: null })).toThrow(/email/i);
+  });
+});
+
+describe("invoice tax labels", () => {
+  it("shows zero tax without calling it IVA", () => {
+    expect(invoiceTaxLabel(0)).toBe("0% (sin IVA)");
+  });
+
+  it("keeps IVA for taxable lines", () => {
+    expect(invoiceTaxLabel(21)).toBe("IVA 21%");
   });
 });
 
