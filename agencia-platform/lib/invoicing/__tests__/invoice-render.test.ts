@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildInvoiceHtml, buildInvoiceEmailHtml } from "../invoice-html";
-import { buildInvoicePdf } from "../invoice-pdf";
+import { buildInvoicePdf, invoiceTableDescription } from "../invoice-pdf";
 
 const invoice = {
   type: "NORMAL",
@@ -36,6 +36,13 @@ describe("invoice rendering", () => {
     const pdf = await buildInvoicePdf({ ...invoice, lines: Array.from({ length: 30 }, (_, index) => ({ ...invoice.lines[0], concept: `Servicio ${index + 1}`, description: long })) });
     const source = pdf.toString("latin1");
     expect((source.match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
+  });
+
+  it("moves a single oversized description to a full paginated appendix", () => {
+    const description = "Detalle contractual ".repeat(120);
+    const rendered = invoiceTableDescription(description);
+    expect(rendered.table).toContain("ver detalle completo");
+    expect(rendered.appendix).toBe(description);
   });
 
   it("creates a real PDF document", async () => {
