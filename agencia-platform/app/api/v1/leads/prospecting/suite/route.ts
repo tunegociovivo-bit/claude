@@ -7,6 +7,7 @@ import { apolloFindDecisionMakers, hunterCompanySearch, hunterDomainSearch, reso
 import { domainFromProspect, scoreProspect } from "@/lib/leads/prospecting-intelligence";
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
 import { normalizePhone } from "@/lib/leads/waha";
+import { canAccessAdminPath, effectiveAdminAccess } from "@/lib/admin-catalog";
 
 export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (req, { api }) => {
   const campaignId = new URL(req.url).searchParams.get("campaignId") || undefined;
@@ -45,7 +46,8 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
   }
   for (const message of allMessages) if (message.direction === "in") (byChannel[message.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies++;
   const funnel = ["pending", "active", "waiting_action", "replied", "qualified", "meeting", "completed"].map(status => ({ status, count: prospects.filter(p => p.status === status).length }));
-  return NextResponse.json({ messages: allMessages, members: members.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
+  const assignableMembers = members.filter(m => canAccessAdminPath(effectiveAdminAccess(m.role, m.adminGrants), "/admin/prospeccion"));
+  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
 });
 
 const actionSchema = z.discriminatedUnion("action", [
@@ -86,8 +88,8 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
   const prospects = await prisma.prospectingProspect.findMany({ where: { id: { in: data.prospectIds }, workspaceId: api.workspaceId } });
   if (data.action === "assign") {
     if (data.userId) {
-      const allowed = await prisma.membership.count({ where: { workspaceId: api.workspaceId, userId: data.userId } });
-      if (!allowed) throw new ApiError(400, "invalid_member", "El usuario no pertenece a este espacio");
+      const membership = await prisma.membership.findFirst({ where: { workspaceId: api.workspaceId, userId: data.userId } });
+      if (!membership || !canAccessAdminPath(effectiveAdminAccess(membership.role, membership.adminGrants), "/admin/prospeccion")) throw new ApiError(400, "invalid_member", "El usuario no tiene acceso a NV Prospección");
     }
     const result = await prisma.prospectingProspect.updateMany({ where: { id: { in: prospects.map(p=>p.id) } }, data: { assignedUserId: data.userId } });
     if (data.userId && result.count) await prisma.notification.create({ data: { userId: data.userId, type: "prospecting_assignment", body: `Tienes ${result.count} prospecto${result.count === 1 ? "" : "s"} asignado${result.count === 1 ? "" : "s"} en NV Prospección.`, link: `/admin/prospeccion?campaign=${prospects[0]?.campaignId || ""}` } });
