@@ -3,7 +3,7 @@
   "name": "Hub Reuniones",
   "short_name": "Hub Reuniones",
   "description": "Graba reuniones de Meet/Teams/Zoom/Whereby y genera automáticamente una tarea con resumen IA en Hub Negocio Vivo.",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -37,6 +37,7 @@
     "https://business.facebook.com/*",
     "https://www.facebook.com/*",
     "https://secure.facebook.com/*",
+    "https://www.linkedin.com/*",
     "https://meet.google.com/*",
     "https://teams.microsoft.com/*",
     "https://teams.live.com/*",
@@ -48,6 +49,11 @@
     "https://*.gotomeeting.com/*"
   ],
   "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/search/results/people/*"],
+      "js": ["content/linkedin-prospecting.js"],
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://meet.google.com/*",
