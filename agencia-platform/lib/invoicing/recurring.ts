@@ -30,6 +30,28 @@ async function deliverRecurringOccurrence(template: any, invoice: any, occurrenc
  * Pensada para ejecutarse desde el cron interno (cada 5 min).
  */
 export async function runRecurringInvoices(now = new Date()): Promise<{ generated: number }> {
+  // Repara ocurrencias que fueron creadas por una versión anterior o cuyo
+  // envío se interrumpió antes de actualizar el estado. Se usa la misma clave
+  // idempotente para que reintentar no duplique el correo.
+  const pendingDeliveries = await prisma.invoice.findMany({
+    where: {
+      recurringSourceId: { not: null },
+      status: "ISSUED",
+      deletedAt: null
+    },
+    take: 100,
+    orderBy: { issueDate: "asc" }
+  });
+  for (const invoice of pendingDeliveries) {
+    const source = await prisma.invoice.findUnique({ where: { id: invoice.recurringSourceId! } });
+    if (!source || source.status !== "SENT") continue;
+    const occurrenceKey = invoice.creationKey
+      ?? `recurring:${source.id}:${invoice.issueDate.toISOString()}`;
+    await deliverRecurringOccurrence(source, invoice, occurrenceKey).catch((error: any) => {
+      console.error(`[invoicing-recurring] delivery pending retry: ${invoice.id}: ${String(error?.message ?? error)}`);
+    });
+  }
+
   const templates = await prisma.invoice.findMany({
     where: { recurring: true, deletedAt: null, status: { not: "CANCELLED" } }
   });

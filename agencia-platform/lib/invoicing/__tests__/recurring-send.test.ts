@@ -45,7 +45,7 @@ const mocks = vi.hoisted(() => {
   const txInvoiceCreate = vi.fn(async () => createdInvoice);
   const prisma = {
     invoice: {
-      findMany: vi.fn(async () => [template]),
+      findMany: vi.fn(async (_args: any) => [template]),
       findUnique: vi.fn(async () => null),
       update: invoiceUpdate
     },
@@ -71,7 +71,9 @@ describe("recurring invoice delivery", () => {
     vi.clearAllMocks();
     invoiceUpdate.mockResolvedValue({});
     txInvoiceCreate.mockResolvedValue(createdInvoice);
-    mocks.prisma.invoice.findMany.mockResolvedValue([mocks.template]);
+    mocks.prisma.invoice.findMany.mockImplementation(async (args: any) =>
+      args?.where?.recurringSourceId ? [] : [mocks.template]
+    );
     mocks.prisma.invoice.findUnique.mockResolvedValue(null);
     mocks.prisma.$transaction.mockImplementation(async (callback: any) => callback({
       invoice: { findUnique: vi.fn(async () => null), create: txInvoiceCreate }
@@ -107,7 +109,9 @@ describe("recurring invoice delivery", () => {
 
   it("continues with later templates when one email fails", async () => {
     const secondTemplate = { ...mocks.template, id: "template-2" };
-    mocks.prisma.invoice.findMany.mockResolvedValueOnce([mocks.template, secondTemplate]);
+    mocks.prisma.invoice.findMany.mockImplementation(async (args: any) =>
+      args?.where?.recurringSourceId ? [] : [mocks.template, secondTemplate]
+    );
     sendInvoiceAutomatically.mockRejectedValueOnce(new Error("recipient rejected")).mockResolvedValueOnce(undefined);
 
     await runRecurringInvoices(new Date("2026-08-29T12:00:00.000Z"));
@@ -117,6 +121,7 @@ describe("recurring invoice delivery", () => {
 
   it("repairs an older generated occurrence left in ISSUED state", async () => {
     const pending = {
+      ...mocks.template,
       ...createdInvoice,
       creationKey: "recurring:template-1:2026-08-29T00:00:00.000Z",
       recurringSourceId: "template-1"
