@@ -86,7 +86,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
     const normalizeName = (value:string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
     const wanted = normalizeName([prospect.firstName, prospect.lastName].filter(Boolean).join(" "));
     const sameName = wanted.length >= 2 ? candidates.find(c => { const actual=normalizeName(c.name||""); return wanted.every(token=>actual.includes(token)) && actual.every(token=>wanted.includes(token)); }) : undefined;
-    const best = sameName;
+    const best = sameName && (sameName.email || sameName.linkedin) ? sameName : undefined;
     const confidence = best ? Math.max(85,best.confidence||0) : 0;
     const updated = { ...prospect, email: prospect.email || best?.email || null, linkedinUrl: prospect.linkedinUrl || best?.linkedin || null, companyDomain: domain, jobTitle: prospect.jobTitle || best?.title || null };
     const scored = scoreProspect(updated);
