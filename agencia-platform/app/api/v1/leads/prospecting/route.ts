@@ -78,19 +78,58 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
   return NextResponse.json({ campaign }, { status: 201 });
 });
 
-const updateSchema = z.object({
-  id: z.string().min(1),
-  action: z.enum(["activate", "pause", "archive", "resume"])
-});
+const updateSchema = z.discriminatedUnion("action", [
+  z.object({ id: z.string().min(1), action: z.enum(["activate", "pause", "archive", "resume"]) }),
+  z.object({
+    id: z.string().min(1), action: z.literal("update"),
+    name: z.string().trim().min(2).max(120), dailyLimit: z.number().int().min(1).max(500),
+    startHour: z.number().int().min(0).max(23), endHour: z.number().int().min(1).max(24),
+    activeWeekdays: z.array(z.number().int().min(0).max(6)).min(1),
+    steps: z.array(stepSchema).min(1).max(12)
+  })
+]);
 
 export const PATCH = withApi({ scope: "*", admin: true, rate: "admin" }, async (req, { api }) => {
   const parsed = updateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const current = await prisma.prospectingCampaign.findFirst({
     where: { id: parsed.data.id, workspaceId: api.workspaceId },
-    include: { steps: { orderBy: { order: "asc" }, take: 1 } }
+    include: { steps: { orderBy: { order: "asc" } } }
   });
   if (!current) throw new ApiError(404, "not_found", "Campaña no encontrada");
+
+  if (parsed.data.action === "update") {
+    const data = parsed.data;
+    if (data.endHour <= data.startHour) throw new ApiError(400, "validation_error", "La hora final debe ser posterior a la inicial");
+    const campaign = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT "status" FROM "ProspectingCampaign"
+        WHERE "id" = ${current.id} AND "workspaceId" = ${api.workspaceId}
+        FOR UPDATE
+      `;
+      if (!locked.length) throw new ApiError(404, "not_found", "Campaña no encontrada");
+      if (!["draft", "paused"].includes(locked[0].status)) throw new ApiError(409, "campaign_active", "Pausa la campaña antes de editarla");
+      const fresh = await tx.prospectingCampaign.findUnique({ where: { id: current.id }, include: { steps: { orderBy: { order: "asc" } } } });
+      if (!fresh) throw new ApiError(404, "not_found", "Campaña no encontrada");
+      const normalizedCurrent = fresh.steps.map(({ channel, delayHours, templateBody, subject, stopOnReply, requiresReview }) => ({ channel, delayHours, templateBody: templateBody || "", subject: subject || undefined, stopOnReply, requiresReview }));
+      const cadenceChanged = JSON.stringify(normalizedCurrent) !== JSON.stringify(data.steps);
+      if (cadenceChanged) {
+        const activityCount = await tx.prospectingActivity.count({ where: { campaignId: current.id, workspaceId: api.workspaceId } });
+        if (activityCount) throw new ApiError(409, "cadence_started", "La cadencia ya tiene actividad. Puedes cambiar horario y límite, pero no sus pasos.");
+      }
+      if (cadenceChanged) await tx.prospectingStep.deleteMany({ where: { campaignId: current.id } });
+      return tx.prospectingCampaign.update({
+        where: { id: current.id },
+        data: {
+          name: data.name, dailyLimit: data.dailyLimit, startHour: data.startHour, endHour: data.endHour,
+          activeWeekdays: [...new Set(data.activeWeekdays)].sort(),
+          ...(cadenceChanged ? { steps: { create: data.steps.map((step, order) => ({ ...step, order })) } } : {})
+        },
+        include: { steps: { orderBy: { order: "asc" } } }
+      });
+    });
+    return NextResponse.json({ campaign });
+  }
 
   const status = parsed.data.action === "archive" ? "archived" : parsed.data.action === "pause" ? "paused" : "active";
   const now = new Date();
