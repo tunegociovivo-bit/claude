@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, FrameRefreshRequiredError, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, restoreRemittanceListFrame, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, FrameRefreshRequiredError, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -130,6 +130,14 @@ async function main() {
       async () => ({ source: "reconstructed", generation: ++reconstructed })
     );
     ok("reconstruye filtros y cuenta si un diálogo desmonta el listado antes del siguiente recibo", acquiredList.source === "reconstructed" && reconstructed === 1);
+
+    const visitedPages: number[] = [];
+    const recoveredPage = await reopenRemittanceListAtPage(
+      async () => ({ page: 0 }),
+      async (_frame, pageNumber) => { visitedPages.push(pageNumber); return { page: pageNumber }; },
+      3
+    );
+    ok("recupera también la página exacta tras reconstruir la consulta", recoveredPage.page === 3 && visitedPages.join(",") === "1,2,3");
   }
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
