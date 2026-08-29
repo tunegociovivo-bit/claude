@@ -7,19 +7,35 @@
   const clip = (value, max) => clean(value).slice(0, max);
 
   function visiblePeople() {
-    const cards = [...document.querySelectorAll("li.reusable-search__result-container, div.entity-result, div[data-chameleon-result-urn]")];
+    const resultsRoot = document.querySelector("main, [role='main']");
+    if (!resultsRoot) return [];
+    const links = [...resultsRoot.querySelectorAll('a[href^="/in/"], a[href*="linkedin.com/in/"]')];
     const seen = new Set();
-    return cards.flatMap((card) => {
-      const link = card.querySelector('a[href*="/in/"]');
-      if (!link) return [];
+    return links.flatMap((link) => {
       const linkedinUrl = new URL(link.href, location.origin);
       linkedinUrl.search = "";
-      if (seen.has(linkedinUrl.href)) return [];
-      const name = clean(link.querySelector("span[aria-hidden='true']")?.textContent || link.textContent);
-      if (!name || /linkedin member/i.test(name)) return [];
+      linkedinUrl.hash = "";
+      if (!/^\/in\/[^/]+\/?$/.test(linkedinUrl.pathname) || seen.has(linkedinUrl.href)) return [];
+      const card = link.closest("[data-view-name='search-entity-result-universal-template'], li.reusable-search__result-container, .entity-result, [data-chameleon-result-urn], li");
+      if (!card || !resultsRoot.contains(card) || card.closest("aside, nav, header")) return [];
+      const ariaName = clean(link.getAttribute("aria-label"))
+        .replace(/^view\s+(.+?)[’']s\s+profile$/i, "$1")
+        .replace(/^(?:ver|view)(?:\s+el|\s+the)?\s+(?:perfil|profile)(?:\s+de|\s+of)?\s+/i, "")
+        .replace(/[’']s\s+profile$/i, "");
+      const candidates = [
+        link.querySelector("span[aria-hidden='true']")?.textContent,
+        link.textContent,
+        card.querySelector("span[dir='ltr']")?.textContent,
+        ariaName
+      ].map(clean).filter((value) => value && value.length <= 120 && !/^(ver|view|perfil|profile|mensaje|message|conectar|connect)$/i.test(value));
+      const name = candidates[0]?.replace(/\s*[•·]\s*(?:1er|2º|3er|1st|2nd|3rd).*$/i, "").trim();
+      if (!name || /linkedin member|miembro de linkedin/i.test(name)) return [];
       seen.add(linkedinUrl.href);
       const parts = name.split(" ");
-      const headline = clean(card.querySelector(".entity-result__primary-subtitle, .t-14.t-black.t-normal")?.textContent);
+      const lines = (card.innerText || card.textContent || "").split(/\n+/).map(clean).filter(Boolean);
+      const nameIndex = lines.findIndex((line) => line.includes(name));
+      const fallbackHeadline = lines.slice(Math.max(0, nameIndex + 1)).find((line) => line !== name && line.length <= 240 && !/^(1er|2º|3er|1st|2nd|3rd|mensaje|message|conectar|connect|seguir|follow)/i.test(line));
+      const headline = clean(card.querySelector(".entity-result__primary-subtitle, .t-14.t-black.t-normal, [data-view-name='search-entity-result-universal-template'] [class*='primary-subtitle']")?.textContent || fallbackHeadline);
       const headlineParts = headline.split(/\s+(?:en|at|@)\s+/i);
       return [{
         firstName: clip(parts.shift() || name, 120),
