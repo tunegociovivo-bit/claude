@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/auth";
 import { apolloFindDecisionMakers, hunterCompanySearch, hunterDomainSearch, resolveContactKeys } from "@/lib/leads/enrich-contacts";
 import { domainFromProspect, scoreProspect } from "@/lib/leads/prospecting-intelligence";
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
+import { normalizePhone } from "@/lib/leads/waha";
 
 export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (req, { api }) => {
   const campaignId = new URL(req.url).searchParams.get("campaignId") || undefined;
@@ -13,18 +14,38 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
   const [messages, activities, prospects, members] = await Promise.all([
     prisma.prospectingMessage.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, include: { prospect: true, campaign: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 250 }),
     prisma.prospectingActivity.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { campaignId: true, channel: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5000 }),
-    prisma.prospectingProspect.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { id: true, campaignId: true, status: true, score: true, attributedValueCents: true, assignedUserId: true, createdAt: true } }),
+    prisma.prospectingProspect.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { id: true, campaignId: true, leadId: true, firstName: true, lastName: true, companyName: true, phone: true, status: true, score: true, attributedValueCents: true, assignedUserId: true, createdAt: true } }),
     prisma.membership.findMany({ where: { workspaceId: api.workspaceId }, include: { user: { select: { id: true, name: true, email: true, image: true } } }, orderBy: { joinedAt: "asc" } })
   ]);
+  const leadIds = prospects.flatMap(p => p.leadId ? [p.leadId] : []);
+  const phones = prospects.flatMap(p => { const phone=normalizePhone(p.phone); return phone ? [phone] : []; });
+  const whatsappMessages = leadIds.length || phones.length ? await prisma.leadInboxMessage.findMany({
+    where: { workspaceId: api.workspaceId, OR: [...(leadIds.length ? [{ leadId: { in: leadIds } }] : []), ...(phones.length ? [{ phoneNormalized: { in: phones } }] : [])] },
+    orderBy: { receivedAt: "desc" }, take: 250
+  }) : [];
+  const campaignNames = new Map((await prisma.prospectingCampaign.findMany({ where: { workspaceId: api.workspaceId, ...(campaignId ? { id: campaignId } : {}) }, select: { id: true, name: true } })).map(c => [c.id, c.name]));
+  const whatsappNormalized = whatsappMessages.flatMap(message => {
+    const byLead = message.leadId ? prospects.find(p => p.leadId === message.leadId) : undefined;
+    const messagePhone = normalizePhone(message.phoneNormalized || message.fromPhone);
+    const phoneMatches = !byLead && messagePhone ? prospects.filter(p => normalizePhone(p.phone) === messagePhone) : [];
+    const prospect = byLead || (phoneMatches.length === 1 ? phoneMatches[0] : undefined);
+    return prospect ? [{ id: `lead-inbox:${message.id}`, externalId: message.externalMessageId, channel: "whatsapp", direction: message.direction, body: message.body, read: message.read, createdAt: message.receivedAt, prospect, campaign: { name: campaignNames.get(prospect.campaignId) || "Prospección" } }] : [];
+  });
+  const seenMessages = new Set<string>();
+  const allMessages = [...messages, ...whatsappNormalized].sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime()).filter(message => {
+    const externalId = "externalId" in message ? message.externalId : null;
+    const key = externalId ? `${message.channel}:external:${externalId}` : `${message.prospect.id}:${message.direction}:${new Date(message.createdAt).toISOString().slice(0,16)}:${message.body.trim()}`;
+    if (seenMessages.has(key)) return false; seenMessages.add(key); return true;
+  }).slice(0,250);
   const byChannel: Record<string, { actions: number; sent: number; replies: number }> = {};
   for (const item of activities) {
     const row = byChannel[item.channel] ||= { actions: 0, sent: 0, replies: 0 };
     row.actions++;
     if (["sent", "completed"].includes(item.status)) row.sent++;
   }
-  for (const message of messages) if (message.direction === "in") (byChannel[message.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies++;
+  for (const message of allMessages) if (message.direction === "in") (byChannel[message.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies++;
   const funnel = ["pending", "active", "waiting_action", "replied", "qualified", "meeting", "completed"].map(status => ({ status, count: prospects.filter(p => p.status === status).length }));
-  return NextResponse.json({ messages, members: members.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
+  return NextResponse.json({ messages: allMessages, members: members.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
 });
 
 const actionSchema = z.discriminatedUnion("action", [
@@ -69,6 +90,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
       if (!allowed) throw new ApiError(400, "invalid_member", "El usuario no pertenece a este espacio");
     }
     const result = await prisma.prospectingProspect.updateMany({ where: { id: { in: prospects.map(p=>p.id) } }, data: { assignedUserId: data.userId } });
+    if (data.userId && result.count) await prisma.notification.create({ data: { userId: data.userId, type: "prospecting_assignment", body: `Tienes ${result.count} prospecto${result.count === 1 ? "" : "s"} asignado${result.count === 1 ? "" : "s"} en NV Prospección.`, link: `/admin/prospeccion?campaign=${prospects[0]?.campaignId || ""}` } });
     return NextResponse.json({ updated: result.count });
   }
   if (data.action === "score") {
