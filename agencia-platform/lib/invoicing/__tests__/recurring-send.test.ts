@@ -62,7 +62,7 @@ const { createdInvoice, invoiceUpdate, sendInvoiceAutomatically, txInvoiceCreate
 
 vi.mock("@/lib/db/prisma", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/invoicing/numbering", () => ({ assignInvoiceNumber: vi.fn(async () => "INV-2026-0002") }));
-vi.mock("@/lib/invoicing/send", () => ({ sendInvoiceAutomatically }));
+vi.mock("@/lib/invoicing/send", () => ({ sendInvoiceAutomatically: mocks.sendInvoiceAutomatically }));
 
 import { runRecurringInvoices } from "@/lib/invoicing/recurring";
 

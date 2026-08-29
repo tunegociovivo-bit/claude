@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { assignInvoiceNumber } from "./numbering";
 import { defaultSeriesForType } from "./core";
 import { addInvoicePaymentDays, recurringOccurrenceSchedule, type InvoiceRecurrenceUnit } from "./invoice-form";
+import { sendInvoiceAutomatically } from "./send";
 
 /**
  * Genera las facturas de las PLANTILLAS recurrentes que toca emitir
@@ -47,14 +48,13 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
     let occurrenceHandled = false;
     for (let attempt = 0; attempt < 3 && !occurrenceHandled; attempt++) {
       try {
-        const wasCreated = await prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
           const existing = await tx.invoice.findUnique({
-            where: { workspaceId_creationKey: { workspaceId: tpl.workspaceId, creationKey: occurrenceKey } },
-            select: { id: true }
+            where: { workspaceId_creationKey: { workspaceId: tpl.workspaceId, creationKey: occurrenceKey } }
           });
-          if (existing) return false;
+          if (existing) return { invoice: existing, created: false };
           const number = await assignInvoiceNumber(tpl.workspaceId, series, occurrence.getUTCFullYear(), tx);
-          await tx.invoice.create({
+          const invoice = await tx.invoice.create({
             data: {
               workspaceId: tpl.workspaceId,
               type: tpl.type,
@@ -80,9 +80,28 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
               creationKey: occurrenceKey
             }
           });
-          return true;
+          return { invoice, created: true };
         }, { isolationLevel: "Serializable" });
-        if (wasCreated) generated++;
+        if (result.created) generated++;
+        if (tpl.status === "SENT" && result.invoice.status !== "SENT") {
+          try {
+            await sendInvoiceAutomatically(
+              tpl.workspaceId,
+              result.invoice,
+              `invoice:${occurrenceKey}:send`
+            );
+            await prisma.invoice.update({
+              where: { id: result.invoice.id },
+              data: { status: "SENT", sentAt: new Date(), deliveryError: null }
+            });
+          } catch (error: any) {
+            await prisma.invoice.update({
+              where: { id: result.invoice.id },
+              data: { deliveryError: String(error?.message ?? "No se pudo enviar la factura recurrente").slice(0, 500) }
+            });
+            throw error;
+          }
+        }
         occurrenceHandled = true;
       } catch (error: any) {
         if (error?.code !== "P2002" && error?.code !== "P2034") throw error;
