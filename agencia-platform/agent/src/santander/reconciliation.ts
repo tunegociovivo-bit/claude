@@ -91,6 +91,14 @@ export async function restoreRemittanceListFrame<TFrame>(
   return restored ?? reopenConsultation();
 }
 
+export async function acquireRemittanceListFrame<TFrame>(
+  waitForCurrentFrame: () => Promise<TFrame | null>,
+  reopenConsultation: () => Promise<TFrame>
+): Promise<TFrame> {
+  const current = await waitForCurrentFrame().catch(() => null);
+  return current ?? reopenConsultation();
+}
+
 export function reconciliationRetryDecision(now: Date, lastAttemptAt: Date | null, failedAttempts: number, timeZone = "Europe/Madrid", retryMinutes = 30): ReconciliationRetryDecision {
   if (!Number.isFinite(now.getTime())) return "WAIT";
   // El botón «Forzar resincronización» reinicia el contador. Debe prevalecer
@@ -174,8 +182,10 @@ export class SantanderReconciliationReader {
         for (let attempt = 0; attempt < 20; attempt++) {
           rowTexts = await runWithRefreshedFrame(
             async () => {
-              const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
-              if (!refreshedFrame) throw new Error("Santander no restauró el listado de remesas para leerlo");
+              const refreshedFrame = await acquireRemittanceListFrame(
+                () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+                () => this.openRemittanceList(page)
+              );
               frame = refreshedFrame;
               return refreshedFrame;
             },
@@ -204,8 +214,10 @@ export class SantanderReconciliationReader {
             try {
             const row = await runWithRefreshedFrame(
               async () => {
-                const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
-                if (!refreshedFrame) throw new Error("Santander no restauró el listado tras cerrar un diálogo");
+                const refreshedFrame = await acquireRemittanceListFrame(
+                  () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+                  () => this.openRemittanceList(page)
+                );
                 frame = refreshedFrame;
                 return refreshedFrame;
               },
@@ -270,8 +282,10 @@ export class SantanderReconciliationReader {
         // y se corta si el control no cambia realmente el contenido.
         const pagination = await runWithRefreshedFrame(
           async () => {
-            const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
-            if (!refreshedFrame) throw new Error("Santander no restauró el listado de remesas para paginar");
+            const refreshedFrame = await acquireRemittanceListFrame(
+              () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+              () => this.openRemittanceList(page)
+            );
             frame = refreshedFrame;
             return refreshedFrame;
           },
