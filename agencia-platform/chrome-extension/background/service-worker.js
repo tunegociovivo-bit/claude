@@ -797,6 +797,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       return;
     }
+    if (msg?.from === "linkedin-prospecting" && msg?.type === "prospecting-campaigns") {
+      try {
+        const r = await authedFetch("/api/v1/leads/prospecting");
+        const data = await r.json().catch(() => ({}));
+        const campaigns = (data.campaigns ?? []).map((campaign) => ({ id: campaign.id, name: campaign.name, status: campaign.status }));
+        sendResponse(r.ok ? { ok: true, campaigns } : { ok: false, error: data?.error?.message ?? `Hub HTTP ${r.status}` });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    if (msg?.from === "linkedin-prospecting" && msg?.type === "prospecting-import") {
+      try {
+        const r = await authedFetch("/api/v1/leads/prospecting/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ campaignId: msg.campaignId, rows: msg.rows })
+        });
+        const data = await r.json().catch(() => ({}));
+        sendResponse(r.ok ? { ok: true, imported: data.imported ?? 0, duplicates: data.duplicates ?? 0 } : { ok: false, error: data?.error?.message ?? `Hub HTTP ${r.status}` });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
     // Banner → guarda el destino elegido y abre el popup. La captura
     // (tabCapture) NO puede arrancar desde el banner: Chrome exige invocar
     // la extensión por su icono (activeTab). El popup lee este "pendingRecord"

@@ -34,7 +34,8 @@ import {
   Landmark,
   Repeat,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  Target
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -65,7 +66,8 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
   chrome_extension: Puzzle,
   bubui_directorio: Store,
   subvenciones: Landmark,
-  gmb_hub: Star
+  gmb_hub: Star,
+  nv_prospecting: Target
 };
 
 // Degradado de la insignia de cada plataforma: iconos vivos y con color en el
@@ -82,6 +84,7 @@ const PLATFORM_GRAD: Record<string, string> = {
   bubui_directorio: "linear-gradient(135deg,#F86FB0,#D1186A)", // rosa Bubui
   subvenciones: "linear-gradient(135deg,#818CF8,#4338CA)",     // índigo
   gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)",          // verde-azul Google
+  nv_prospecting: "linear-gradient(135deg,#6366F1,#7C3AED)",   // índigo-violeta
   meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)"
 };
 const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
@@ -164,6 +167,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
 
   function movePlatform(key: string, dir: -1 | 1) {
     const baseKeys = [
+      ...(me?.role === "ADMIN" ? ["nv_prospecting"] : []),
       ...(!me || me.features.includes("gmb") ? ["gmb_hub"] : []),
       ...platforms.map((p) => p.key)
     ];
@@ -514,6 +518,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             <div className="space-y-0.5">
               {(() => {
                 const allItems = [
+                  ...(me?.role === "ADMIN" ? [{ key: "nv_prospecting", label: "NV Prospección", href: "/admin/prospeccion", icon: Target }] : []),
                   ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
                   ...platforms.map((p) => ({
                     key: p.key,
