@@ -79,6 +79,7 @@ export const ADMIN_CARDS: AdminCardMeta[] = [
   { href: "/gmb-hub", title: "GMB Hub", sectionId: "comms", external: true },
   { href: "/admin/voz", title: "Llamadas de voz (Sonia)", sectionId: "comms" },
   { href: "/admin/leads", title: "Leads (NV Leads Pro)", sectionId: "comms" },
+  { href: "/admin/prospeccion", title: "Prospección multicanal", sectionId: "comms", adminOnly: true },
   { href: "/admin/meta-comments", title: "Comentarios Meta", sectionId: "comms" },
   { href: "/admin/entregables", title: "Entregables", sectionId: "comms" },
   { href: "/admin/webhooks", title: "Webhooks salientes", sectionId: "comms" },

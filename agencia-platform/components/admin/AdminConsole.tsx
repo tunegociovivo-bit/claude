@@ -283,6 +283,13 @@ const SECTIONS: AdminSection[] = [
         icon: MessageSquare
       },
       {
+        href: "/admin/prospeccion",
+        title: "Prospección multicanal",
+        description:
+          "Motor propio de prospección: LinkedIn asistido, email, cadencias, prospectos y reuniones.",
+        icon: MessageSquare
+      },
+      {
         href: "/admin/entregables",
         title: "Entregables",
         description:

@@ -461,6 +461,12 @@ export default function LeadsClient() {
         description="Captación Google Places + envíos WhatsApp + secuencias + clasificación IA"
         actions={
           <>
+            <a
+              href="/admin/prospeccion"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium"
+            >
+              Prospección multicanal
+            </a>
             {tab === "searches" && (
               <button
                 onClick={() => setNewSearchOpen(true)}
