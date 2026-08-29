@@ -229,6 +229,9 @@ model Workspace {
   leadBroadcasts             LeadBroadcast[]
   leadBroadcastRecipients    LeadBroadcastRecipient[]
   leadExecOutreach           LeadExecOutreach[]
+  prospectingCampaigns       ProspectingCampaign[]
+  prospectingProspects       ProspectingProspect[]
+  prospectingActivities      ProspectingActivity[]
   externalCalendars          UserExternalCalendar[]
   vacationDays               VacationDay[]
   teamMessages               TeamMessage[]
@@ -1498,6 +1501,113 @@ model LeadSequenceAssignment {
   @@index([leadId])
   @@index([sequenceId])
   @@index([status, nextRunAt])
+}
+
+/// Campaña del motor propio de prospección. Orquesta una fuente de contactos,
+/// una cadencia multicanal y los límites diarios sin mezclarla con la cola
+/// operativa de WhatsApp hasta que un paso esté realmente listo para ejecutar.
+model ProspectingCampaign {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  name             String
+  source           String    @default("linkedin") // linkedin | sales_navigator | csv | manual
+  sourceUrl        String?   @db.Text
+  status           String    @default("draft") // draft | active | paused | archived
+  objective        String    @default("meeting") // reply | phone | meeting
+  dailyLimit       Int       @default(30)
+  timezone         String    @default("Europe/Madrid")
+  activeWeekdays   Json? // [1,2,3,4,5]
+  startHour        Int       @default(9)
+  endHour          Int       @default(18)
+  engineLeaseUntil DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace  Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  prospects  ProspectingProspect[]
+  steps      ProspectingStep[]
+  activities ProspectingActivity[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+}
+
+model ProspectingStep {
+  id             String   @id @default(cuid())
+  campaignId     String
+  order          Int
+  channel        String // linkedin_visit | linkedin_connect | linkedin_message | email | whatsapp | task
+  delayHours     Int      @default(0)
+  templateBody   String?  @db.Text
+  subject        String?
+  stopOnReply    Boolean  @default(true)
+  requiresReview Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  campaign ProspectingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, order])
+  @@index([campaignId])
+}
+
+model ProspectingProspect {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  campaignId      String
+  leadId          String?
+  firstName       String?
+  lastName        String?
+  companyName     String?
+  jobTitle        String?
+  linkedinUrl     String?
+  email           String?
+  phone           String?
+  website         String?
+  status          String    @default("pending") // pending | active | processing | waiting_action | replied | qualified | meeting | stopped | completed | excluded
+  currentStep     Int       @default(0)
+  nextActionAt    DateTime?
+  lastContactedAt DateTime?
+  repliedAt       DateTime?
+  stopReason      String?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace  Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign   ProspectingCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  activities ProspectingActivity[]
+
+  @@index([workspaceId, status, nextActionAt])
+  @@index([campaignId, status])
+  @@index([workspaceId, email])
+  @@index([workspaceId, linkedinUrl])
+  @@index([workspaceId, phone])
+}
+
+model ProspectingActivity {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  campaignId     String
+  prospectId     String?
+  stepId         String?
+  idempotencyKey String?   @unique
+  channel        String
+  action         String
+  status         String    @default("queued") // queued | awaiting_review | sent | completed | failed | skipped
+  detail         String?   @db.Text
+  externalId     String?
+  scheduledAt    DateTime?
+  executedAt     DateTime?
+  error          String?   @db.Text
+  createdAt      DateTime  @default(now())
+
+  workspace Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign  ProspectingCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  prospect  ProspectingProspect? @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, scheduledAt])
+  @@index([campaignId, createdAt])
+  @@index([prospectId, createdAt])
 }
 
 model LeadInboxMessage {

@@ -30,6 +30,7 @@ import { processBroadcastTick } from "@/lib/leads/broadcast";
 import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
 import { processExecOutreachTick } from "@/lib/leads/exec-outreach";
 import { ingestJobsInbox } from "@/lib/leads/search-manager";
+import { runProspectingEngine } from "@/lib/leads/prospecting-engine";
 
 export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -37,6 +38,12 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
 
   for (const ws of workspaces) {
     const wsReport: any = { workspaceId: ws.id };
+
+    try {
+      wsReport.prospecting = await runProspectingEngine(new Date(), ws.id);
+    } catch (e: any) {
+      wsReport.prospectingError = e?.message ?? String(e);
+    }
 
     // 1. Procesar 1 batch de la búsqueda más antigua pendiente (si hay).
     try {
