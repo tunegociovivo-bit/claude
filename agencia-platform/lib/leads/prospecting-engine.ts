@@ -55,15 +55,58 @@ export async function completeProspectingActivity(workspaceId: string, activityI
     ]);
     return activity;
   }
-  await prisma.$transaction([
-    prisma.prospectingActivity.update({ where: { id: activity.id }, data: { status: "completed", executedAt: now } }),
-    prisma.prospectingProspect.update({
-      where: { id: activity.prospect.id },
+  if (activity.channel === "email") {
+    const payload = (activity.payload || {}) as { to?: string; subject?: string; body?: string };
+    if (!payload.to || !payload.subject) throw new Error("La aprobación de email no contiene destinatario o asunto");
+    const claimed = await prisma.$transaction(async (tx) => {
+      const activityClaim = await tx.prospectingActivity.updateMany({ where: { id: activity.id, workspaceId, status: "awaiting_review" }, data: { status: "processing", error: null } });
+      if (!activityClaim.count) return false;
+      const prospectClaim = await tx.prospectingProspect.updateMany({ where: { id: activity.prospect!.id, workspaceId, status: "waiting_action" }, data: { status: "processing" } });
+      if (!prospectClaim.count) {
+        await tx.prospectingActivity.update({ where: { id: activity.id }, data: { status: "skipped", error: "El prospecto ya no admite envíos" } });
+        return false;
+      }
+      return true;
+    });
+    if (!claimed) return null;
+    try {
+      const result = await sendEmail({ to: payload.to, subject: payload.subject, text: payload.body || activity.detail || "", html: `<div style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeHtml(payload.body || activity.detail || "")}</div>`, workspaceId, from: LEADS_FROM, idempotencyKey: activity.idempotencyKey || `prospecting-review-${activity.id}` });
+      await prisma.$transaction([
+        prisma.prospectingActivity.update({ where: { id: activity.id }, data: { status: "sent", externalId: result.id, executedAt: now } }),
+        prisma.prospectingProspect.updateMany({
+          where: { id: activity.prospect.id, status: "processing" },
+          data: following
+            ? { status: "active", currentStep: nextStep, nextActionAt: nextDate(following.delayHours, now), lastContactedAt: now }
+            : { status: "completed", currentStep: nextStep, nextActionAt: null, lastContactedAt: now }
+        })
+      ]);
+      return activity;
+    } catch (error) {
+      await prisma.$transaction([
+        prisma.prospectingActivity.update({ where: { id: activity.id }, data: { status: "awaiting_review", error: error instanceof Error ? error.message : String(error) } }),
+        prisma.prospectingProspect.updateMany({ where: { id: activity.prospect.id, status: "processing" }, data: { status: "waiting_action" } })
+      ]);
+      throw error;
+    }
+  }
+  const claimed = await prisma.$transaction(async (tx) => {
+    const activityClaim = await tx.prospectingActivity.updateMany({ where: { id: activity.id, workspaceId, status: "awaiting_review" }, data: { status: "processing", error: null } });
+    if (!activityClaim.count) return false;
+    const prospectClaim = await tx.prospectingProspect.updateMany({ where: { id: activity.prospect!.id, workspaceId, status: "waiting_action" }, data: { status: "processing" } });
+    if (!prospectClaim.count) {
+      await tx.prospectingActivity.update({ where: { id: activity.id }, data: { status: "skipped", error: "El prospecto ya no admite acciones" } });
+      return false;
+    }
+    await tx.prospectingActivity.update({ where: { id: activity.id }, data: { status: "completed", executedAt: now } });
+    await tx.prospectingProspect.updateMany({
+      where: { id: activity.prospect!.id, status: "processing" },
       data: following
         ? { status: "active", currentStep: nextStep, nextActionAt: nextDate(following.delayHours, now), lastContactedAt: now }
         : { status: "completed", currentStep: nextStep, nextActionAt: null, lastContactedAt: now }
-    })
-  ]);
+    });
+    return true;
+  });
+  if (!claimed) return null;
   return activity;
 }
 
@@ -140,6 +183,7 @@ export async function runProspectingEngine(now = new Date(), workspaceId?: strin
         website: prospect.website
       };
       const body = renderProspectingTemplate(step.templateBody || "", tokens);
+      const subject = renderProspectingTemplate(step.subject || `Idea para ${prospect.companyName || "tu empresa"}`, tokens);
       const idempotencyKey = `prospecting:${campaign.id}:${prospect.id}:${step.id}`;
       const nextStep = prospect.currentStep + 1;
       const following = campaign.steps[nextStep];
@@ -156,11 +200,10 @@ export async function runProspectingEngine(now = new Date(), workspaceId?: strin
           await advanceProspect(prospect.id, campaign.id, nextStep, following?.delayHours || 0, completed, now); skipped++; continue;
         }
         if (needsManual) {
-          await prisma.prospectingActivity.upsert({ where: { idempotencyKey }, create: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, stepId: step.id, idempotencyKey, channel: step.channel, action: "execute_step", status: "awaiting_review", detail: body, scheduledAt: now }, update: { status: "awaiting_review" } });
+          await prisma.prospectingActivity.upsert({ where: { idempotencyKey }, create: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, stepId: step.id, idempotencyKey, channel: step.channel, action: step.channel === "email" ? "approve_send" : "execute_step", status: "awaiting_review", detail: body, payload: step.channel === "email" ? { to: prospect.email, subject, body } : undefined, scheduledAt: now }, update: { status: "awaiting_review" } });
           await prisma.prospectingProspect.update({ where: { id: prospect.id }, data: { status: "waiting_action" } });
           awaitingReview++; continue;
         }
-        const subject = renderProspectingTemplate(step.subject || `Idea para ${prospect.companyName || "tu empresa"}`, tokens);
         await prisma.prospectingActivity.upsert({ where: { idempotencyKey }, create: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, stepId: step.id, idempotencyKey, channel: "email", action: "send", status: "queued", detail: body, scheduledAt: now }, update: {} });
         const maySend = await prisma.prospectingProspect.count({ where: { id: prospect.id, campaignId: campaign.id, status: "processing" } });
         if (!maySend) continue;
@@ -171,7 +214,10 @@ export async function runProspectingEngine(now = new Date(), workspaceId?: strin
         const message = error instanceof Error ? error.message : String(error);
         await prisma.$transaction([
           prisma.prospectingActivity.upsert({ where: { idempotencyKey }, create: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, stepId: step.id, idempotencyKey, channel: step.channel, action: "execute_step", status: "failed", detail: body, error: message, scheduledAt: now, executedAt: now }, update: { status: "failed", error: message, executedAt: now } }),
-          prisma.prospectingProspect.update({ where: { id: prospect.id }, data: { status: "active", nextActionAt: nextDate(1, now) } })
+          prisma.prospectingProspect.updateMany({
+            where: { id: prospect.id, campaignId: campaign.id, status: "processing" },
+            data: { status: "active", nextActionAt: nextDate(1, now) }
+          })
         ]);
         failed++;
       }

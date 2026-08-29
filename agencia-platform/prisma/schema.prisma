@@ -1595,6 +1595,7 @@ model ProspectingActivity {
   action         String
   status         String    @default("queued") // queued | awaiting_review | sent | completed | failed | skipped
   detail         String?   @db.Text
+  payload        Json?
   externalId     String?
   scheduledAt    DateTime?
   executedAt     DateTime?

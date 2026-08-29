@@ -42,11 +42,24 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
         _count: { _all: true }
       })
     : [];
+  const activityGrouped = ids.length
+    ? await prisma.prospectingActivity.groupBy({
+        by: ["campaignId", "status"],
+        where: { workspaceId: api.workspaceId, campaignId: { in: ids } },
+        _count: { _all: true }
+      })
+    : [];
 
   return NextResponse.json({
     campaigns: campaigns.map((campaign) => ({
       ...campaign,
       stats: grouped
+        .filter((row) => row.campaignId === campaign.id)
+        .reduce<Record<string, number>>((acc, row) => {
+          acc[row.status] = row._count._all;
+          return acc;
+        }, {}),
+      activityStats: activityGrouped
         .filter((row) => row.campaignId === campaign.id)
         .reduce<Record<string, number>>((acc, row) => {
           acc[row.status] = row._count._all;
