@@ -46,10 +46,12 @@ export async function GET(req: NextRequest) {
         AND "deletedAt" IS NULL
         AND "recurrence" <> 'none'
         AND (
-          "title" ILIKE '%Prueba 3 recurrente%'
-          OR "description" ILIKE '%Prueba 3 recurrente%'
-          OR "title" ILIKE '%Correo de prueba 3%'
-          OR "description" ILIKE '%Correo de prueba 3%'
+          "title" ILIKE '%prueba%recurrent%'
+          OR "description" ILIKE '%prueba%recurrent%'
+          OR "title" ILIKE '%correo de prueba%'
+          OR "description" ILIKE '%correo de prueba%'
+          OR "title" ILIKE '%recurrencia diaria%'
+          OR "description" ILIKE '%recurrencia diaria%'
         )
       RETURNING 1
     )
@@ -60,7 +62,11 @@ export async function GET(req: NextRequest) {
     SET "status" = 'CANCELLED', "updatedAt" = NOW()
     WHERE "workspaceId" = (SELECT "workspaceId" FROM "Project" WHERE "id" = 'cmp8x66np0003nnc8pozzsopd')
       AND "status" = 'SCHEDULED'
-      AND ("sourceText" ILIKE '%Prueba 3 recurrente%' OR "sourceText" ILIKE '%Correo de prueba 3%')
+      AND (
+        "sourceText" ILIKE '%prueba%recurrent%'
+        OR "sourceText" ILIKE '%correo de prueba%'
+        OR "sourceText" ILIKE '%recurrencia diaria%'
+      )
   `;
   const disabledTestRecurrences = Number(disabledRows[0]?.count ?? 0n) + cancelledRows;
   const due = await prisma.task.findMany({
