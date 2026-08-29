@@ -5,6 +5,44 @@
   const ask = (message) => new Promise((resolve) => chrome.runtime.sendMessage({ from: "linkedin-prospecting", ...message }, resolve));
   const clean = (value) => (value || "").replace(/\s+/g, " ").trim();
   const clip = (value, max) => clean(value).slice(0, max);
+  const getStored = (key) => new Promise((resolve) => chrome.storage.local.get(key, (value) => resolve(value[key])));
+  const setStored = (key, value) => new Promise((resolve) => chrome.storage.local.set({ [key]: value }, resolve));
+  const removeStored = (key) => new Promise((resolve) => chrome.storage.local.remove(key, resolve));
+  const BATCH_KEY = "nvLinkedInProspectingBatch";
+  const TAB_TOKEN_KEY = "nvLinkedInProspectingTabToken";
+  const tabToken = sessionStorage.getItem(TAB_TOKEN_KEY) || crypto.randomUUID();
+  sessionStorage.setItem(TAB_TOKEN_KEY, tabToken);
+  const batchStorageKey = `${BATCH_KEY}:${tabToken}`;
+  let navigationTimer = null;
+
+  function currentPage() {
+    const page = Number(new URL(location.href).searchParams.get("page") || "1");
+    return Number.isFinite(page) && page > 0 ? page : 1;
+  }
+
+  function searchIdentity() {
+    const url = new URL(location.href);
+    const params = [...url.searchParams.entries()]
+      .filter(([key]) => !["page", "start"].includes(key))
+      .sort(([a, av], [b, bv]) => a.localeCompare(b) || av.localeCompare(bv));
+    return `${url.pathname}?${new URLSearchParams(params).toString()}`;
+  }
+
+  function hasLinkedInChallenge() {
+    return /captcha|security verification|verificación de seguridad|unusual activity|actividad inusual|account restricted|cuenta restringida/i.test(document.body.innerText || "");
+  }
+
+  function nextPageControl() {
+    const main = document.querySelector("main, [role='main']") || document;
+    const pager = main.querySelector(".artdeco-pagination, [data-view-name*='pagination'], nav[aria-label*='página' i], nav[aria-label*='page' i]");
+    if (!pager) return null;
+    const candidates = [...pager.querySelectorAll("a, button")];
+    return candidates.find((element) => {
+      const label = clean(element.innerText || element.getAttribute("aria-label"));
+      const disabled = element.disabled || element.getAttribute("aria-disabled") === "true" || element.hasAttribute("disabled");
+      return !disabled && /^(siguiente|next|página siguiente|next page)$/i.test(label);
+    }) || null;
+  }
 
   function visiblePeople() {
     const resultsRoot = document.querySelector("main, [role='main']");
@@ -129,10 +167,114 @@
     if (!confirm(`Se han detectado ${rows.length} personas visibles. Vista previa:\n\n${preview}\n\n¿Importarlas en «${campaigns[selected].name}»?`)) {
       button.disabled = false; button.textContent = "Importar a NV Prospección"; return;
     }
-    button.textContent = `Importando ${rows.length}…`;
-    const imported = await ask({ type: "prospecting-import", campaignId: campaigns[selected].id, rows });
-    alert(imported?.ok ? `${imported.imported} contactos importados · ${imported.duplicates} duplicados omitidos.` : imported?.error || "No se pudo importar");
-    button.disabled = false; button.textContent = "Importar a NV Prospección";
+    const requestedPages = Number(prompt("¿Cuántas páginas quieres importar automáticamente? Máximo 100. Escribe 1 para importar solo esta página.", "10"));
+    if (!Number.isInteger(requestedPages) || requestedPages < 1 || requestedPages > 100) {
+      alert("Indica un número de páginas entre 1 y 100.");
+      button.disabled = false; button.textContent = "Importar a NV Prospección"; return;
+    }
+    const job = {
+      ownerToken: tabToken,
+      campaignId: campaigns[selected].id,
+      campaignName: campaigns[selected].name,
+      searchIdentity: searchIdentity(),
+      expectedPage: currentPage(),
+      remaining: requestedPages,
+      imported: 0,
+      duplicates: 0,
+      startedAt: Date.now()
+    };
+    await setStored(batchStorageKey, job);
+    await runBatchPage(button, job);
+  }
+
+  async function runBatchPage(button, job) {
+    const activeJob = await getStored(batchStorageKey);
+    if (!activeJob || activeJob.ownerToken !== tabToken || activeJob.campaignId !== job.campaignId || activeJob.searchIdentity !== job.searchIdentity) {
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      return;
+    }
+    job = activeJob;
+    if (currentPage() !== job.expectedPage) {
+      await removeStored(batchStorageKey);
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      alert(`La importación esperaba la página ${job.expectedPage}, pero LinkedIn muestra la ${currentPage()}. Se ha detenido para no mezclar resultados.`);
+      return;
+    }
+    stopButton.style.display = "block";
+    if (hasLinkedInChallenge()) {
+      await removeStored(batchStorageKey);
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      alert("LinkedIn ha mostrado una verificación o restricción. La importación se ha detenido sin continuar navegando.");
+      return;
+    }
+    const rows = visiblePeople();
+    if (!rows.length) {
+      await removeStored(batchStorageKey);
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      alert(`La importación se detuvo en la página ${currentPage()}: no se detectaron tarjetas válidas.`);
+      return;
+    }
+    button.disabled = true;
+    button.textContent = `Importando página ${currentPage()}…`;
+    const result = await ask({ type: "prospecting-import", campaignId: job.campaignId, rows });
+    if (!result?.ok) {
+      await removeStored(batchStorageKey);
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      alert(result?.error || "No se pudo importar esta página");
+      return;
+    }
+    if (!await getStored(batchStorageKey)) {
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      return;
+    }
+    const updated = {
+      ...job,
+      imported: job.imported + (result.imported || 0),
+      duplicates: job.duplicates + (result.duplicates || 0),
+      remaining: job.remaining - 1
+    };
+    const next = nextPageControl();
+    if (updated.remaining <= 0 || !next) {
+      await removeStored(batchStorageKey);
+      stopButton.style.display = "none";
+      button.disabled = false; button.textContent = "Importar a NV Prospección";
+      alert(`Importación finalizada: ${updated.imported} contactos importados · ${updated.duplicates} duplicados omitidos.`);
+      return;
+    }
+    updated.expectedPage = currentPage() + 1;
+    await setStored(batchStorageKey, updated);
+    button.textContent = `Página ${currentPage()} lista · siguiente en 12 s`;
+    navigationTimer = setTimeout(() => {
+      next.click();
+      // LinkedIn puede cambiar de página como SPA sin recargar el content
+      // script. Si el documento sobrevive, reanudamos aquí; si recarga, lo
+      // hará el bloque de recuperación al final del archivo.
+      let checks = 0;
+      const waitForPage = setInterval(() => {
+        checks++;
+        if (currentPage() === updated.expectedPage) {
+          clearInterval(waitForPage);
+          setTimeout(() => runBatchPage(button, updated), 4000);
+        } else if (checks >= 30) {
+          clearInterval(waitForPage);
+          void (async () => {
+            const stalled = await getStored(batchStorageKey);
+            if (stalled?.ownerToken !== tabToken) return;
+            await removeStored(batchStorageKey);
+            stopButton.style.display = "none";
+            button.disabled = false;
+            button.textContent = "Importar a NV Prospección";
+            alert("LinkedIn no avanzó a la página siguiente. La importación se ha detenido.");
+          })();
+        }
+      }, 1000);
+    }, 12000);
   }
 
   const button = document.createElement("button");
@@ -141,4 +283,24 @@
   button.style.cssText = "position:fixed;right:22px;bottom:22px;z-index:2147483647;background:#4f46e5;color:white;border:0;border-radius:12px;padding:12px 16px;font:600 14px system-ui;box-shadow:0 8px 24px #0003;cursor:pointer";
   button.addEventListener("click", () => importVisible(button));
   document.documentElement.appendChild(button);
+
+  const stopButton = document.createElement("button");
+  stopButton.textContent = "Detener importación";
+  stopButton.style.cssText = "display:none;position:fixed;right:22px;bottom:76px;z-index:2147483647;background:#fff;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:9px 13px;font:600 12px system-ui;box-shadow:0 6px 18px #0002;cursor:pointer";
+  stopButton.addEventListener("click", async () => {
+    if (navigationTimer) clearTimeout(navigationTimer);
+    await removeStored(batchStorageKey);
+    stopButton.style.display = "none";
+    button.disabled = false;
+    button.textContent = "Importar a NV Prospección";
+    alert("Importación detenida.");
+  });
+  document.documentElement.appendChild(stopButton);
+
+  void (async () => {
+    const job = await getStored(batchStorageKey);
+    if (!job || job.ownerToken !== tabToken || job.searchIdentity !== searchIdentity() || job.expectedPage !== currentPage()) return;
+    if (Date.now() - job.startedAt > 2 * 60 * 60 * 1000) { await removeStored(batchStorageKey); return; }
+    setTimeout(() => runBatchPage(button, job), 4000);
+  })();
 })();
