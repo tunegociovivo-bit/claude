@@ -4,6 +4,23 @@ import { defaultSeriesForType } from "./core";
 import { addInvoicePaymentDays, recurringOccurrenceSchedule, type InvoiceRecurrenceUnit } from "./invoice-form";
 import { sendInvoiceAutomatically } from "./send";
 
+async function deliverRecurringOccurrence(template: any, invoice: any, occurrenceKey: string): Promise<void> {
+  if (template.status !== "SENT" || invoice.status === "SENT") return;
+  try {
+    await sendInvoiceAutomatically(template.workspaceId, invoice, `invoice:${occurrenceKey}:send`);
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { status: "SENT", sentAt: new Date(), deliveryError: null }
+    });
+  } catch (error: any) {
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { deliveryError: String(error?.message ?? "No se pudo enviar la factura recurrente").slice(0, 500) }
+    }).catch(() => {});
+    throw error;
+  }
+}
+
 /**
  * Genera las facturas de las PLANTILLAS recurrentes que toca emitir
  * (recurrenceConfig.nextRunAt <= ahora). Por cada plantilla:
@@ -42,6 +59,7 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
       unit,
       value
     );
+    let templateFailed = false;
     for (const occurrenceDate of schedule.dueDates) {
     const occurrence = new Date(`${occurrenceDate}T00:00:00.000Z`);
     const occurrenceKey = `recurring:${tpl.id}:${occurrence.toISOString()}`;
@@ -83,38 +101,33 @@ export async function runRecurringInvoices(now = new Date()): Promise<{ generate
           return { invoice, created: true };
         }, { isolationLevel: "Serializable" });
         if (result.created) generated++;
-        if (tpl.status === "SENT" && result.invoice.status !== "SENT") {
-          try {
-            await sendInvoiceAutomatically(
-              tpl.workspaceId,
-              result.invoice,
-              `invoice:${occurrenceKey}:send`
-            );
-            await prisma.invoice.update({
-              where: { id: result.invoice.id },
-              data: { status: "SENT", sentAt: new Date(), deliveryError: null }
-            });
-          } catch (error: any) {
-            await prisma.invoice.update({
-              where: { id: result.invoice.id },
-              data: { deliveryError: String(error?.message ?? "No se pudo enviar la factura recurrente").slice(0, 500) }
-            });
-            throw error;
-          }
-        }
+        await deliverRecurringOccurrence(tpl, result.invoice, occurrenceKey);
         occurrenceHandled = true;
       } catch (error: any) {
-        if (error?.code !== "P2002" && error?.code !== "P2034") throw error;
+        if (error?.code !== "P2002" && error?.code !== "P2034") break;
         const existing = await prisma.invoice.findUnique({
-          where: { workspaceId_creationKey: { workspaceId: tpl.workspaceId, creationKey: occurrenceKey } },
-          select: { id: true }
+          where: { workspaceId_creationKey: { workspaceId: tpl.workspaceId, creationKey: occurrenceKey } }
         });
-        if (existing) occurrenceHandled = true;
-        else if (attempt === 2) throw error;
+        if (existing) {
+          try {
+            await deliverRecurringOccurrence(tpl, existing, occurrenceKey);
+            occurrenceHandled = true;
+          } catch {
+            break;
+          }
+        }
       }
     }
-    if (!occurrenceHandled) throw new Error(`No se pudo reclamar la ocurrencia ${occurrenceKey}`);
+    if (!occurrenceHandled) {
+      templateFailed = true;
+      console.error(`[invoicing-recurring] occurrence pending retry: ${occurrenceKey}`);
+      break;
     }
+    }
+
+    // No avanzamos esta plantilla si una ocurrencia no se envió. El siguiente
+    // cron la retomará con la misma clave idempotente, sin bloquear las demás.
+    if (templateFailed) continue;
 
     // Avanza la próxima ejecución desde la prevista (no desde "ahora"),
     // para no derivar la fecha si el cron se ejecutó con retraso.

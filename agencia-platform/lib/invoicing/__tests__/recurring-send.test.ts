@@ -94,7 +94,7 @@ describe("recurring invoice delivery", () => {
 
   it("delivers an existing unsent occurrence after a concurrent creation collision", async () => {
     mocks.prisma.$transaction.mockRejectedValueOnce({ code: "P2002" });
-    mocks.prisma.invoice.findUnique.mockResolvedValueOnce(createdInvoice);
+    mocks.prisma.invoice.findUnique.mockResolvedValueOnce(createdInvoice as any);
 
     await runRecurringInvoices(new Date("2026-08-29T12:00:00.000Z"));
 
