@@ -3,7 +3,7 @@
   "name": "Hub Reuniones",
   "short_name": "Hub Reuniones",
   "description": "Graba reuniones de Meet/Teams/Zoom/Whereby y genera automáticamente una tarea con resumen IA en Hub Negocio Vivo.",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -50,7 +50,14 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/search/results/people/*"],
+      "matches": [
+        "https://www.linkedin.com/search/results/people/*",
+        "https://www.linkedin.com/sales/search/people*",
+        "https://www.linkedin.com/groups/*",
+        "https://www.linkedin.com/events/*",
+        "https://www.linkedin.com/feed/update/*",
+        "https://www.linkedin.com/posts/*"
+      ],
       "js": ["content/linkedin-prospecting.js"],
       "run_at": "document_idle"
     },

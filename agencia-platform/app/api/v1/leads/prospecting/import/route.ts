@@ -13,7 +13,9 @@ const rowSchema = z.object({
   email: z.string().trim().max(320).optional().default(""),
   phone: z.string().trim().max(80).optional().default(""),
   website: z.string().trim().max(1000).optional().default(""),
-  sourceKey: z.string().trim().max(500).optional().default("")
+  sourceKey: z.string().trim().max(500).optional().default(""),
+  sourceType: z.enum(["linkedin_search", "sales_navigator", "linkedin_group", "linkedin_event", "linkedin_engagement"]).optional(),
+  sourceUrl: z.string().trim().max(2000).optional().default("")
 }).refine((row) => Boolean(row.linkedinUrl || row.email || row.phone || row.sourceKey), "Cada contacto necesita LinkedIn, email, teléfono o un identificador de origen");
 
 const bodySchema = z.object({ campaignId: z.string().min(1), rows: z.array(rowSchema).min(1).max(5000) });
@@ -60,7 +62,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
         email: row.email || null,
         phone: row.phone || null,
         website: row.website || null,
-        metadata: row.sourceKey ? { source: "linkedin_visible_search", sourceKey: row.sourceKey, profileResolved: Boolean(row.linkedinUrl) } : undefined,
+        metadata: { source: row.sourceType || "linkedin_search", sourceKey: row.sourceKey || undefined, sourceUrl: row.sourceUrl || undefined, capturedAt: new Date().toISOString(), profileResolved: Boolean(row.linkedinUrl) },
         status: row.linkedinUrl || row.email || row.phone ? (campaign.status === "active" ? "active" : "pending") : "pending_resolution",
         nextActionAt: row.linkedinUrl || row.email || row.phone ? (campaign.status === "active" ? new Date() : null) : null
       }))

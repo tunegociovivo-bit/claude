@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { LEADS_FROM, sendEmail } from "@/lib/integrations/email";
+import { chooseProspectingVariant, prospectConditionMatches, type ProspectCondition } from "@/lib/leads/prospecting-intelligence";
+import { complete } from "@/lib/ai/anthropic";
 
 type Tokens = Record<string, string | null | undefined>;
 
@@ -80,6 +82,7 @@ export async function completeProspectingActivity(workspaceId: string, activityI
             : { status: "completed", currentStep: nextStep, nextActionAt: null, lastContactedAt: now }
         })
       ]);
+      await prisma.prospectingMessage.create({ data: { workspaceId, campaignId: activity.campaignId, prospectId: activity.prospect.id, channel: "email", direction: "out", body: payload.body || activity.detail || "", status: "sent", externalId: result.id } }).catch(() => null);
       return activity;
     } catch (error) {
       await prisma.$transaction([
@@ -173,6 +176,17 @@ export async function runProspectingEngine(now = new Date(), workspaceId?: strin
         await prisma.prospectingProspect.update({ where: { id: prospect.id }, data: { status: "completed" } });
         continue;
       }
+      const condition = step.condition as ProspectCondition | null;
+      if (!prospectConditionMatches(condition, prospect)) {
+        const conditionKey = `prospecting:${campaign.id}:${prospect.id}:${step.id}:condition`;
+        await prisma.prospectingActivity.upsert({ where: { idempotencyKey: conditionKey }, create: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, stepId: step.id, idempotencyKey: conditionKey, channel: step.channel, action: "condition_not_met", status: "skipped", detail: `Condición no cumplida: ${condition?.field || "desconocida"}`, executedAt: now }, update: {} });
+        const branchStep = prospect.currentStep + 1;
+        const branchFollowing = campaign.steps[branchStep];
+        if (condition?.onFalse === "stop") await prisma.prospectingProspect.update({ where: { id: prospect.id }, data: { status: "stopped", stopReason: "Condición de cadencia no cumplida", nextActionAt: null } });
+        else await advanceProspect(prospect.id, campaign.id, branchStep, branchFollowing?.delayHours || 0, !branchFollowing, now);
+        skipped++;
+        continue;
+      }
       const tokens: Tokens = {
         firstName: prospect.firstName,
         lastName: prospect.lastName,
@@ -182,15 +196,19 @@ export async function runProspectingEngine(now = new Date(), workspaceId?: strin
         phone: prospect.phone,
         website: prospect.website
       };
-      const body = renderProspectingTemplate(step.templateBody || "", tokens);
-      const subject = renderProspectingTemplate(step.subject || `Idea para ${prospect.companyName || "tu empresa"}`, tokens);
+      const variant = chooseProspectingVariant(step.variants as Array<{ body?: string; subject?: string }> | null, prospect.id);
+      let body = renderProspectingTemplate(variant?.body || step.templateBody || "", tokens);
+      const subject = renderProspectingTemplate(variant?.subject || step.subject || `Idea para ${prospect.companyName || "tu empresa"}`, tokens);
       const idempotencyKey = `prospecting:${campaign.id}:${prospect.id}:${step.id}`;
       const nextStep = prospect.currentStep + 1;
       const following = campaign.steps[nextStep];
       const completed = !following;
 
       try {
-        const needsManual = step.requiresReview || step.channel !== "email";
+        if (step.personalization !== "template") {
+          body = await complete({ workspaceId: campaign.workspaceId, feature: "prospecting_personalization", system: "Redacta un contacto B2B breve, específico y veraz en español. Usa exclusivamente los datos facilitados; no inventes noticias, relaciones ni problemas. Devuelve solo el mensaje listo para revisar.", user: `Objetivo: ${campaign.objective}\nPersona: ${prospect.firstName || ""} ${prospect.lastName || ""}\nCargo: ${prospect.jobTitle || "desconocido"}\nEmpresa: ${prospect.companyName || "desconocida"}\nWeb: ${prospect.website || "desconocida"}\nContexto disponible: ${JSON.stringify(prospect.metadata || {})}\nPlantilla orientativa: ${body}`, maxTokens: 500 });
+        }
+        const needsManual = step.requiresReview || step.channel !== "email" || step.personalization !== "template";
         if (step.channel === "email" && !prospect.email) {
           await prisma.prospectingActivity.upsert({ where: { idempotencyKey }, create: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, stepId: step.id, idempotencyKey, channel: step.channel, action: "missing_channel", status: "skipped", detail: "Prospecto sin email", executedAt: now }, update: {} });
           await advanceProspect(prospect.id, campaign.id, nextStep, following?.delayHours || 0, completed, now); skipped++; continue;
@@ -209,6 +227,7 @@ export async function runProspectingEngine(now = new Date(), workspaceId?: strin
         if (!maySend) continue;
         const result = await sendEmail({ to: prospect.email!, subject, text: body, html: `<div style="white-space:pre-wrap;font-family:Arial,sans-serif">${escapeHtml(body)}</div>`, workspaceId: campaign.workspaceId, from: LEADS_FROM, idempotencyKey });
         await prisma.prospectingActivity.update({ where: { idempotencyKey }, data: { status: "sent", externalId: result.id, executedAt: now, error: null } });
+        await prisma.prospectingMessage.create({ data: { workspaceId: campaign.workspaceId, campaignId: campaign.id, prospectId: prospect.id, channel: "email", direction: "out", body, status: "sent", externalId: result.id } }).catch(() => null);
         await advanceProspect(prospect.id, campaign.id, nextStep, following?.delayHours || 0, completed, now); sent++;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

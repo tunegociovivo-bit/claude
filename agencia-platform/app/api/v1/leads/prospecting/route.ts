@@ -10,7 +10,10 @@ const stepSchema = z.object({
   templateBody: z.string().max(12000).optional().default(""),
   subject: z.string().max(240).optional(),
   stopOnReply: z.boolean().default(true),
-  requiresReview: z.boolean().default(false)
+  requiresReview: z.boolean().default(false),
+  condition: z.object({ field: z.enum(["email", "phone", "linkedin", "score", "status", "replied"]).optional(), operator: z.enum(["exists", "missing", "gte", "equals"]).optional(), value: z.union([z.string(), z.number(), z.boolean()]).optional(), onFalse: z.enum(["skip", "stop"]).optional() }).nullable().optional(),
+  variants: z.array(z.object({ body: z.string().max(12000).optional(), subject: z.string().max(240).optional() })).max(5).nullable().optional(),
+  personalization: z.enum(["template", "ai_research", "ai_company"]).default("template")
 });
 
 const createSchema = z.object({
@@ -83,7 +86,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
       dailyLimit: data.dailyLimit,
       activeWeekdays: [1, 2, 3, 4, 5],
       steps: {
-        create: data.steps.map((step, order) => ({ ...step, order }))
+        create: data.steps.map((step, order) => ({ ...step, condition: step.condition || undefined, variants: step.variants || undefined, order }))
       }
     },
     include: { steps: { orderBy: { order: "asc" } } }
@@ -124,7 +127,7 @@ export const PATCH = withApi({ scope: "*", admin: true, rate: "admin" }, async (
       if (!["draft", "paused"].includes(locked[0].status)) throw new ApiError(409, "campaign_active", "Pausa la campaña antes de editarla");
       const fresh = await tx.prospectingCampaign.findUnique({ where: { id: current.id }, include: { steps: { orderBy: { order: "asc" } } } });
       if (!fresh) throw new ApiError(404, "not_found", "Campaña no encontrada");
-      const normalizedCurrent = fresh.steps.map(({ channel, delayHours, templateBody, subject, stopOnReply, requiresReview }) => ({ channel, delayHours, templateBody: templateBody || "", subject: subject || undefined, stopOnReply, requiresReview }));
+      const normalizedCurrent = fresh.steps.map(({ channel, delayHours, templateBody, subject, stopOnReply, requiresReview, condition, variants, personalization }) => ({ channel, delayHours, templateBody: templateBody || "", subject: subject || undefined, stopOnReply, requiresReview, condition, variants, personalization }));
       const cadenceChanged = JSON.stringify(normalizedCurrent) !== JSON.stringify(data.steps);
       if (cadenceChanged) {
         const activityCount = await tx.prospectingActivity.count({ where: { campaignId: current.id, workspaceId: api.workspaceId } });
@@ -136,7 +139,7 @@ export const PATCH = withApi({ scope: "*", admin: true, rate: "admin" }, async (
         data: {
           name: data.name, dailyLimit: data.dailyLimit, startHour: data.startHour, endHour: data.endHour,
           activeWeekdays: [...new Set(data.activeWeekdays)].sort(),
-          ...(cadenceChanged ? { steps: { create: data.steps.map((step, order) => ({ ...step, order })) } } : {})
+          ...(cadenceChanged ? { steps: { create: data.steps.map((step, order) => ({ ...step, condition: step.condition || undefined, variants: step.variants || undefined, order })) } } : {})
         },
         include: { steps: { orderBy: { order: "asc" } } }
       });

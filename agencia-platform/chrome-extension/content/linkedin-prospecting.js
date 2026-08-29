@@ -15,6 +15,11 @@
   const batchStorageKey = `${BATCH_KEY}:${tabToken}`;
   let navigationTimer = null;
 
+  function currentSourceType() {
+    const path = location.pathname;
+    return path.startsWith("/sales/") ? "sales_navigator" : path.startsWith("/groups/") ? "linkedin_group" : path.startsWith("/events/") ? "linkedin_event" : /\/posts\/|\/feed\/update\//.test(path) ? "linkedin_engagement" : "linkedin_search";
+  }
+
   function currentPage() {
     const page = Number(new URL(location.href).searchParams.get("page") || "1");
     return Number.isFinite(page) && page > 0 ? page : 1;
@@ -33,6 +38,7 @@
   }
 
   function nextPageControl() {
+    if (!["linkedin_search", "sales_navigator"].includes(currentSourceType())) return null;
     const main = document.querySelector("main, [role='main']") || document;
     const pager = main.querySelector(".artdeco-pagination, [data-view-name*='pagination'], nav[aria-label*='página' i], nav[aria-label*='page' i]");
     if (!pager) return null;
@@ -47,14 +53,20 @@
   function visiblePeople() {
     const resultsRoot = document.querySelector("main, [role='main']");
     if (!resultsRoot) return [];
-    const links = [...resultsRoot.querySelectorAll('a[href^="/in/"], a[href*="linkedin.com/in/"]')];
+    const sourceType = currentSourceType();
+    const scopedCards = sourceType === "linkedin_group" ? [...resultsRoot.querySelectorAll("[data-view-name*='member']")]
+      : sourceType === "linkedin_event" ? [...resultsRoot.querySelectorAll("[data-view-name*='attendee'], [data-view-name*='participant']")]
+      : sourceType === "linkedin_engagement" ? [...resultsRoot.querySelectorAll(".comments-comment-item, article")]
+      : [resultsRoot];
+    const links = scopedCards.flatMap((root) => [...root.querySelectorAll('a[href^="/in/"], a[href*="linkedin.com/in/"]')]);
     const seen = new Set();
     const linkedRows = links.flatMap((link) => {
       const linkedinUrl = new URL(link.href, location.origin);
       linkedinUrl.search = "";
       linkedinUrl.hash = "";
       if (!/^\/in\/[^/]+\/?$/.test(linkedinUrl.pathname) || seen.has(linkedinUrl.href)) return [];
-      const card = link.closest("[data-view-name='search-entity-result-universal-template'], li.reusable-search__result-container, .entity-result, [data-chameleon-result-urn], li");
+      const sourceCardSelector = sourceType === "linkedin_engagement" ? ".comments-comment-item, article" : sourceType === "linkedin_event" ? "[data-view-name*='attendee'], [data-view-name*='participant']" : sourceType === "linkedin_group" ? "[data-view-name*='member']" : "[data-view-name='search-entity-result-universal-template'], li.reusable-search__result-container, .entity-result, [data-chameleon-result-urn], li";
+      const card = link.closest(sourceCardSelector);
       if (!card || !resultsRoot.contains(card) || card.closest("aside, nav, header")) return [];
       const ariaName = clean(link.getAttribute("aria-label"))
         .replace(/^view\s+(.+?)[’']s\s+profile$/i, "$1")
@@ -137,7 +149,7 @@
         sourceKey
       }];
     });
-    return [...linkedRows, ...fallbackRows];
+    return [...linkedRows, ...fallbackRows].map((row) => ({ ...row, sourceType, sourceUrl: location.href }));
   }
 
   async function importVisible(button) {
