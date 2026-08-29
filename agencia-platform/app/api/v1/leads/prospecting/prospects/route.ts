@@ -19,6 +19,9 @@ export const PATCH = withApi({ scope: "*", admin: true, rate: "admin" }, async (
   if (!prospect) throw new ApiError(404, "not_found", "Prospecto no encontrado");
   const now = new Date();
   const action = parsed.data.action;
+  if (["reactivate", "retry"].includes(action) && !prospect.linkedinUrl && !prospect.email && !prospect.phone) {
+    throw new ApiError(409, "profile_unresolved", "Resuelve primero el perfil o añade un canal de contacto verificable");
+  }
   const status = action === "exclude" ? "excluded" : action === "qualified" ? "qualified" : action === "meeting" ? "meeting" : prospect.campaign.status === "active" ? "active" : "pending";
   await prisma.$transaction(async (tx) => {
     await tx.prospectingProspect.update({

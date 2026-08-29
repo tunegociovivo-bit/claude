@@ -12,8 +12,9 @@ const rowSchema = z.object({
   linkedinUrl: z.string().trim().max(1000).optional().default(""),
   email: z.string().trim().max(320).optional().default(""),
   phone: z.string().trim().max(80).optional().default(""),
-  website: z.string().trim().max(1000).optional().default("")
-}).refine((row) => Boolean(row.linkedinUrl || row.email || row.phone), "Cada contacto necesita LinkedIn, email o teléfono");
+  website: z.string().trim().max(1000).optional().default(""),
+  sourceKey: z.string().trim().max(500).optional().default("")
+}).refine((row) => Boolean(row.linkedinUrl || row.email || row.phone || row.sourceKey), "Cada contacto necesita LinkedIn, email, teléfono o un identificador de origen");
 
 const bodySchema = z.object({ campaignId: z.string().min(1), rows: z.array(rowSchema).min(1).max(5000) });
 
@@ -31,13 +32,16 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
 
   const existing = await prisma.prospectingProspect.findMany({
     where: { workspaceId: api.workspaceId },
-    select: { email: true, phone: true, linkedinUrl: true }
+    select: { email: true, phone: true, linkedinUrl: true, metadata: true }
   });
-  const fingerprints = new Set(existing.flatMap((row) => [normalize(row.email ?? undefined), normalize(row.phone ?? undefined), normalize(row.linkedinUrl ?? undefined)].filter(Boolean)) as string[]);
+  const fingerprints = new Set(existing.flatMap((row) => {
+    const metadata = (row.metadata || {}) as { sourceKey?: string };
+    return [normalize(row.email ?? undefined), normalize(row.phone ?? undefined), normalize(row.linkedinUrl ?? undefined), metadata.sourceKey ? `source:${normalize(metadata.sourceKey)}` : null].filter(Boolean);
+  }) as string[]);
   const accepted = [] as z.infer<typeof rowSchema>[];
   let duplicates = 0;
   for (const row of parsed.data.rows) {
-    const keys = [normalize(row.email), normalize(row.phone), normalize(row.linkedinUrl)].filter(Boolean) as string[];
+    const keys = [normalize(row.email), normalize(row.phone), normalize(row.linkedinUrl), row.sourceKey ? `source:${normalize(row.sourceKey)}` : null].filter(Boolean) as string[];
     if (keys.some((key) => fingerprints.has(key))) { duplicates++; continue; }
     keys.forEach((key) => fingerprints.add(key));
     accepted.push(row);
@@ -56,8 +60,9 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
         email: row.email || null,
         phone: row.phone || null,
         website: row.website || null,
-        status: campaign.status === "active" ? "active" : "pending",
-        nextActionAt: campaign.status === "active" ? new Date() : null
+        metadata: row.sourceKey ? { source: "linkedin_visible_search", sourceKey: row.sourceKey, profileResolved: Boolean(row.linkedinUrl) } : undefined,
+        status: row.linkedinUrl || row.email || row.phone ? (campaign.status === "active" ? "active" : "pending") : "pending_resolution",
+        nextActionAt: row.linkedinUrl || row.email || row.phone ? (campaign.status === "active" ? new Date() : null) : null
       }))
     });
   }

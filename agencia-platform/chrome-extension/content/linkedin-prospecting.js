@@ -11,7 +11,7 @@
     if (!resultsRoot) return [];
     const links = [...resultsRoot.querySelectorAll('a[href^="/in/"], a[href*="linkedin.com/in/"]')];
     const seen = new Set();
-    return links.flatMap((link) => {
+    const linkedRows = links.flatMap((link) => {
       const linkedinUrl = new URL(link.href, location.origin);
       linkedinUrl.search = "";
       linkedinUrl.hash = "";
@@ -45,6 +45,61 @@
         linkedinUrl: linkedinUrl.href
       }];
     });
+    // LinkedIn prueba una variante donde las tarjetas visibles no exponen
+    // enlaces /in/. En ese caso usamos los botones Conectar/Mensaje como
+    // ancla y leemos únicamente la tarjeta del resultado dentro de <main>.
+    const actionButtons = [...resultsRoot.querySelectorAll("button")].filter((candidate) =>
+      /^(conectar|connect|mensaje|message)$/i.test(clean(candidate.innerText || candidate.getAttribute("aria-label")))
+    );
+    const seenSources = new Set();
+    const fallbackRows = actionButtons.flatMap((actionButton) => {
+      let card = actionButton.closest("[data-view-name='search-entity-result-universal-template'], li.reusable-search__result-container, .entity-result, [data-chameleon-result-urn], li");
+      if (!card) {
+        card = actionButton.parentElement;
+        while (card?.parentElement && card.parentElement !== resultsRoot) {
+          const lines = (card.innerText || card.textContent || "").split(/\n+/).map(clean).filter(Boolean);
+          if (lines.length >= 4 && lines.length <= 12) break;
+          card = card.parentElement;
+        }
+      }
+      if (!card || !resultsRoot.contains(card) || card.closest("aside, nav, header")) return [];
+      const lines = (card.innerText || card.textContent || "").split(/\n+/).map(clean).filter(Boolean);
+      const nameLine = lines.find((line) =>
+        line.length >= 3 && line.length <= 120 && /\s/.test(line) && !/^(conectar|connect|mensaje|message|seguir|follow|actual:|anterior:|resumen:)/i.test(line)
+      );
+      const name = clean(nameLine)
+        .replace(/^(?:seleccionar\s+a|select)\s+/i, "")
+        .replace(/\s*[•·]\s*(?:1er|2º|3er|1st|2nd|3rd).*$/i, "");
+      if (!name || /linkedin member|miembro de linkedin/i.test(name)) return [];
+      const nameIndex = lines.indexOf(nameLine);
+      const headline = lines.slice(nameIndex + 1).find((line) =>
+        line.length <= 240 && !/^(conectar|connect|mensaje|message|seguir|follow|actual:|anterior:|resumen:)/i.test(line)
+      ) || "";
+      const current = lines.find((line) => /^(actual|current):/i.test(line)) || "";
+      const currentParts = current.replace(/^(actual|current):\s*/i, "").split(/\s+(?:en|at|@)\s+/i);
+      const headlineParts = headline.split(/\s+(?:en|at|@)\s+/i);
+      const companyName = currentParts.length > 1 ? currentParts.at(-1) : headlineParts.length > 1 ? headlineParts.at(-1) : "";
+      const profileLink = card.querySelector('a[href^="/in/"], a[href*="linkedin.com/in/"]');
+      const linkedinUrl = profileLink ? new URL(profileLink.href, location.origin).href.split(/[?#]/)[0] : "";
+      if (linkedinUrl && seen.has(linkedinUrl)) return [];
+      const sourceElement = card.matches("[data-chameleon-result-urn], [data-entity-urn], [data-urn]")
+        ? card
+        : card.querySelector("[data-chameleon-result-urn], [data-entity-urn], [data-urn]");
+      const rawSourceKey = sourceElement?.getAttribute("data-chameleon-result-urn") || sourceElement?.getAttribute("data-entity-urn") || sourceElement?.getAttribute("data-urn");
+      const sourceKey = clip(rawSourceKey || `visible:${name}|${headline}|${current}`, 500).toLowerCase();
+      if (seenSources.has(sourceKey)) return [];
+      seenSources.add(sourceKey);
+      const parts = name.split(" ");
+      return [{
+        firstName: clip(parts.shift() || name, 120),
+        lastName: clip(parts.join(" "), 120),
+        companyName: clip(companyName, 240),
+        jobTitle: clip(headlineParts[0] || headline, 240),
+        linkedinUrl,
+        sourceKey
+      }];
+    });
+    return [...linkedRows, ...fallbackRows];
   }
 
   async function importVisible(button) {
@@ -65,7 +120,9 @@
     if (!campaigns[selected]) { button.disabled = false; button.textContent = "Importar a NV Prospección"; return; }
     const rows = visiblePeople();
     if (!rows.length) {
-      alert("No encuentro personas visibles. Espera a que LinkedIn termine de cargar los resultados.");
+      const profileLinks = document.querySelectorAll('main a[href*="/in/"], [role="main"] a[href*="/in/"]').length;
+      const actionButtons = [...document.querySelectorAll("main button, [role='main'] button")].filter((candidate) => /conectar|connect|mensaje|message/i.test(clean(candidate.innerText || candidate.getAttribute("aria-label")))).length;
+      alert(`No encuentro tarjetas importables. Diagnóstico: ${profileLinks} enlaces de perfil y ${actionButtons} botones de contacto visibles.`);
       button.disabled = false; button.textContent = "Importar a NV Prospección"; return;
     }
     const preview = rows.slice(0, 5).map((row) => `• ${row.firstName} ${row.lastName} — ${row.jobTitle || "sin cargo"}${row.companyName ? ` · ${row.companyName}` : ""}`).join("\n");
