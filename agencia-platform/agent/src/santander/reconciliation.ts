@@ -81,6 +81,16 @@ export async function runWithRefreshedFrame<TFrame, TResult>(
   throw lastError;
 }
 
+export async function restoreRemittanceListFrame<TFrame>(
+  navigateBack: () => Promise<void>,
+  waitForRestoredFrame: () => Promise<TFrame | null>,
+  reopenConsultation: () => Promise<TFrame>
+): Promise<TFrame> {
+  await navigateBack().catch(() => {});
+  const restored = await waitForRestoredFrame().catch(() => null);
+  return restored ?? reopenConsultation();
+}
+
 export function reconciliationRetryDecision(now: Date, lastAttemptAt: Date | null, failedAttempts: number, timeZone = "Europe/Madrid", retryMinutes = 30): ReconciliationRetryDecision {
   if (!Number.isFinite(now.getTime())) return "WAIT";
   // El botón «Forzar resincronización» reinicia el contador. Debe prevalecer
@@ -156,27 +166,7 @@ export class SantanderReconciliationReader {
       if (!context) throw new Error("Chrome dedicado no está disponible");
       if (!await this.ensureAuthenticated(context)) throw new Error("No se pudo iniciar sesión en Santander con la credencial local");
       page = await context.newPage();
-      await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: 20000 });
-      let frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
-      if (!frame) throw new Error("Santander no cargó el módulo de remesas");
-      const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
-      if (!await consultation.isVisible().catch(() => false)) throw new Error("Santander no mostró la consulta de remesas");
-      await consultation.click();
-      frame = await this.waitFrame(page, /Tipo de remesa/i);
-      if (!frame) throw new Error("Santander no cargó los filtros de remesas");
-      await frame.getByRole("listbox", { name: /Elige una opción/i }).click();
-      await frame.getByRole("option", { name: /^Domiciliaciones$/i }).click();
-      await frame.getByRole("listbox", { name: /^Todos$/i }).click();
-      await frame.getByRole("option", { name: /Domiciliaciones \(CORE\)/i }).click();
-      await frame.getByRole("button", { name: /^Aplicar$/i }).click();
-      frame = await this.waitFrame(page, /Cuenta abono[\s\S]*Identificador[\s\S]*Acreedor/i);
-      if (!frame) throw new Error("Santander no cargó la cuenta de abono");
-      const account = frame.getByText(/\d{4}\s+\d{4}\s+\d{10}/).first();
-      const accountToggle = account.locator("xpath=ancestor::*[.//button][1]//button").first();
-      await accountToggle.click();
-      await frame.getByRole("button", { name: /^Remesas$/i }).click();
-      frame = await this.waitFrame(page, /Remesas de un acreedor/i);
-      if (!frame) throw new Error("Santander no cargó el listado de remesas");
+      let frame = await this.openRemittanceList(page);
       const unique = new Map<string, BrowserMovement>();
       const seenPages = new Set<string>();
       for (let pageIndex = 0; pageIndex < 50; pageIndex++) {
@@ -268,10 +258,11 @@ export class SantanderReconciliationReader {
             throw error;
           } finally {
             if (opened) {
-              await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-              const refreshedFrame = await this.waitFrame(page, /Remesas de un acreedor/i, 60);
-              if (!refreshedFrame) throw new Error("Santander no restauró el listado de remesas tras consultar un recibo");
-              frame = refreshedFrame;
+              frame = await restoreRemittanceListFrame(
+                async () => { await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }); },
+                () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+                () => this.openRemittanceList(page)
+              );
             }
           }
         }
@@ -339,6 +330,31 @@ export class SantanderReconciliationReader {
       await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, { waitUntil: "domcontentloaded", timeout: 20000 });
     }
     return this.submitStoredLogin(page);
+  }
+
+  private async openRemittanceList(page: any): Promise<any> {
+    await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: 20000 });
+    let frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
+    if (!frame) throw new Error("Santander no cargó el módulo de remesas");
+    const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
+    if (!await consultation.isVisible().catch(() => false)) throw new Error("Santander no mostró la consulta de remesas");
+    await consultation.click();
+    frame = await this.waitFrame(page, /Tipo de remesa/i);
+    if (!frame) throw new Error("Santander no cargó los filtros de remesas");
+    await frame.getByRole("listbox", { name: /Elige una opción/i }).click();
+    await frame.getByRole("option", { name: /^Domiciliaciones$/i }).click();
+    await frame.getByRole("listbox", { name: /^Todos$/i }).click();
+    await frame.getByRole("option", { name: /Domiciliaciones \(CORE\)/i }).click();
+    await frame.getByRole("button", { name: /^Aplicar$/i }).click();
+    frame = await this.waitFrame(page, /Cuenta abono[\s\S]*Identificador[\s\S]*Acreedor/i);
+    if (!frame) throw new Error("Santander no cargó la cuenta de abono");
+    const account = frame.getByText(/\d{4}\s+\d{4}\s+\d{10}/).first();
+    const accountToggle = account.locator("xpath=ancestor::*[.//button][1]//button").first();
+    await accountToggle.click();
+    await frame.getByRole("button", { name: /^Remesas$/i }).click();
+    frame = await this.waitFrame(page, /Remesas de un acreedor/i);
+    if (!frame) throw new Error("Santander no cargó el listado de remesas");
+    return frame;
   }
 
   private async submitStoredLogin(page: any): Promise<boolean> {

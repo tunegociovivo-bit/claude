@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateAgent } from "@/lib/facturacion/sepa/agent";
-import { ensureReconciliationConfig } from "@/lib/facturacion/reconciliation/service";
+import { ensureReconciliationConfig, requestReconciliation } from "@/lib/facturacion/reconciliation/service";
 
 export const dynamic = "force-dynamic";
 
@@ -20,4 +20,11 @@ export async function GET(req: NextRequest) {
     provider: config.provider,
     profile: config.profile
   });
+}
+
+export async function POST(req: NextRequest) {
+  const agent = await authenticateAgent(req.headers.get("authorization") ?? "");
+  if (!agent) return NextResponse.json({ error: { code: "unauthorized", message: "Agente no autorizado" } }, { status: 401 });
+  const config = await requestReconciliation(agent.workspaceId);
+  return NextResponse.json({ ok: true, requested: true, lastSyncAt: config.lastSyncAt });
 }
