@@ -114,4 +114,24 @@ describe("recurring invoice delivery", () => {
 
     expect(sendInvoiceAutomatically).toHaveBeenCalledTimes(2);
   });
+
+  it("repairs an older generated occurrence left in ISSUED state", async () => {
+    const pending = {
+      ...createdInvoice,
+      creationKey: "recurring:template-1:2026-08-29T00:00:00.000Z",
+      recurringSourceId: "template-1"
+    };
+    mocks.prisma.invoice.findMany.mockImplementation(async (args: any) =>
+      args?.where?.recurringSourceId ? [pending] : []
+    );
+    mocks.prisma.invoice.findUnique.mockResolvedValueOnce(mocks.template as any);
+
+    await runRecurringInvoices(new Date("2026-08-30T12:00:00.000Z"));
+
+    expect(sendInvoiceAutomatically).toHaveBeenCalledWith(
+      "workspace-1",
+      pending,
+      "invoice:recurring:template-1:2026-08-29T00:00:00.000Z:send"
+    );
+  });
 });
