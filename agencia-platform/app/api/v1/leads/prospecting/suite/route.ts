@@ -110,14 +110,22 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
     GROUP BY COALESCE("metadata"->>'source','manual'), "metadata"->>'sourceUrl'
   `);
   const sources=summarizeProspectingSources(sourceRows.map(row=>({metadata:{source:row.type,sourceUrl:row.url||undefined,capturedAt:row.latest||undefined},total:Number(row.total),resolved:Number(row.resolved)})));
+  const teamWorkload = [...prospects.reduce((counts, prospect) => {
+    const id = prospect.assignedUserId || "unassigned";
+    const current = counts.get(id) || { assigned: 0, active: 0 };
+    current.assigned += 1;
+    if (!["completed", "stopped", "excluded"].includes(prospect.status)) current.active += 1;
+    counts.set(id, current);
+    return counts;
+  }, new Map<string, { assigned: number; active: number }>())].map(([userId, counts]) => ({ userId, ...counts }));
   const assignableMembers = members.filter(m => canAccessAdminPath(effectiveAdminAccess(m.role, m.adminGrants), "/admin/prospeccion"));
-  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), sources, analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
+  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), teamWorkload, sources, analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
 });
 
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("score"), prospectIds: z.array(z.string()).min(1).max(500) }),
   z.object({ action: z.literal("enrich"), prospectIds: z.array(z.string()).min(1).max(50) }),
-  z.object({ action: z.literal("assign"), prospectIds: z.array(z.string()).min(1).max(500), userId: z.string().nullable() }),
+  z.object({ action: z.literal("assign"), prospectIds: z.array(z.string()).max(500).default([]), campaignId: z.string().optional(), userId: z.string().nullable() }),
   z.object({ action: z.literal("attribute"), prospectId: z.string(), valueCents: z.number().int().min(0).max(1_000_000_000), outcome: z.enum(["qualified", "meeting", "won", "lost"]) }),
   z.object({ action: z.literal("message"), prospectId: z.string(), channel: z.enum(["linkedin", "email", "whatsapp", "phone", "note"]), direction: z.enum(["in", "out"]).default("in"), body: z.string().trim().min(1).max(12000), externalId: z.string().optional() }),
   z.object({ action: z.literal("read"), messageIds: z.array(z.string()).min(1).max(500) })
@@ -154,16 +162,18 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
     await prisma.prospectingActivity.create({ data: { workspaceId: api.workspaceId, campaignId: prospect.campaignId, prospectId: prospect.id, channel: "crm", action: `attribution_${data.outcome}`, status: "completed", detail: `Valor atribuido: ${(data.valueCents/100).toFixed(2)} EUR`, executedAt: new Date() } });
     return NextResponse.json({ prospect: updated });
   }
-  const prospects = await prisma.prospectingProspect.findMany({ where: { id: { in: data.prospectIds }, workspaceId: api.workspaceId },include:{campaign:{select:{status:true}}} });
   if (data.action === "assign") {
+    if (!data.prospectIds.length && !data.campaignId) throw new ApiError(400, "validation_error", "Selecciona contactos o una campaña");
     if (data.userId) {
       const membership = await prisma.membership.findFirst({ where: { workspaceId: api.workspaceId, userId: data.userId } });
       if (!membership || !canAccessAdminPath(effectiveAdminAccess(membership.role, membership.adminGrants), "/admin/prospeccion")) throw new ApiError(400, "invalid_member", "El usuario no tiene acceso a NV Prospección");
     }
-    const result = await prisma.prospectingProspect.updateMany({ where: { id: { in: prospects.map(p=>p.id) } }, data: { assignedUserId: data.userId } });
-    if (data.userId && result.count) await prisma.notification.create({ data: { userId: data.userId, type: "prospecting_assignment", body: `Tienes ${result.count} prospecto${result.count === 1 ? "" : "s"} asignado${result.count === 1 ? "" : "s"} en NV Prospección.`, link: `/admin/prospeccion?campaign=${prospects[0]?.campaignId || ""}` } });
+    const targetWhere = data.prospectIds.length ? { id: { in: data.prospectIds } } : { campaignId: data.campaignId! };
+    const result = await prisma.prospectingProspect.updateMany({ where: { workspaceId: api.workspaceId, ...targetWhere }, data: { assignedUserId: data.userId } });
+    if (data.userId && result.count) await prisma.notification.create({ data: { userId: data.userId, type: "prospecting_assignment", body: `Tienes ${result.count} prospecto${result.count === 1 ? "" : "s"} asignado${result.count === 1 ? "" : "s"} en NV Prospección.`, link: `/admin/prospeccion?campaign=${data.campaignId || ""}` } });
     return NextResponse.json({ updated: result.count });
   }
+  const prospects = await prisma.prospectingProspect.findMany({ where: { id: { in: data.prospectIds }, workspaceId: api.workspaceId },include:{campaign:{select:{status:true}}} });
   if (data.action === "score") {
     await prisma.$transaction(prospects.map(p => { const result = scoreProspect(p); return prisma.prospectingProspect.update({ where: { id: p.id }, data: { score: result.score, scoreBreakdown: result.breakdown } }); }));
     return NextResponse.json({ updated: prospects.length });
