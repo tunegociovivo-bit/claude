@@ -9,8 +9,8 @@ type Policy={trackingEnabled:boolean;collectApps:boolean;collectDomains:boolean;
 type Worker={user:{id:string;name:string;email:string};policy:Policy;sessions:any[];topUsage:{name:string;seconds:number}[];screenshots:{id:string;url:string;capturedAt:string;appName?:string;blurred:boolean}[]};
 const duration=(s:number)=>`${Math.floor(s/3600)} h ${Math.floor((s%3600)/60)} min`;
 const time=(d:string|null)=>d?new Date(d).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}):"—";
-const WIN_URL=process.env.NEXT_PUBLIC_TIME_AGENT_WIN_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.1.0/Negocio%20Vivo%20Control%20Horario%20Setup%200.1.0.exe";
-const MAC_URL=process.env.NEXT_PUBLIC_TIME_AGENT_MAC_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.1.0/Negocio%20Vivo%20Control%20Horario-0.1.0.dmg";
+const WIN_URL=process.env.NEXT_PUBLIC_TIME_AGENT_WIN_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.1.0/Negocio.Vivo.Control.Horario.Setup.0.1.0.exe";
+const MAC_URL=process.env.NEXT_PUBLIC_TIME_AGENT_MAC_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.1.0/Negocio.Vivo.Control.Horario-0.1.0-arm64.dmg";
 
 export default function TimeTrackingClient(){
  const [data,setData]=useState<Dashboard|null>(null),[today,setToday]=useState<Today|null>(null),[worker,setWorker]=useState<Worker|null>(null);
