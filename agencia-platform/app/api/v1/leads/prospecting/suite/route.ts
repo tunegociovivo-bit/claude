@@ -4,12 +4,12 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { apolloFindDecisionMakers, hunterCompanySearch, hunterDomainSearch, resolveContactKeys } from "@/lib/leads/enrich-contacts";
-import { domainFromProspect, scoreProspect } from "@/lib/leads/prospecting-intelligence";
+import { domainFromProspect, scoreProspect, summarizeProspectingSources } from "@/lib/leads/prospecting-intelligence";
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
 import { scheduleResolvedProspect } from "@/lib/leads/prospecting-resolver";
 import { normalizePhone } from "@/lib/leads/waha";
 import { canAccessAdminPath, effectiveAdminAccess } from "@/lib/admin-catalog";
-import type { Prisma, ProspectingProspect } from "@prisma/client";
+import { Prisma, type ProspectingProspect } from "@prisma/client";
 import { createHash } from "node:crypto";
 
 type ContactKeys={apolloKey:string|null;hunterKey:string|null};
@@ -99,8 +99,17 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
   for (const item of prospectingMessageStats) if (item.direction === "in" && item.channel !== "whatsapp") (byChannel[item.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies += item._count._all;
   if (whatsappReplyCount) (byChannel.whatsapp ||= { actions: 0, sent: 0, replies: 0 }).replies += whatsappReplyCount;
   const funnel = ["pending", "active", "waiting_action", "replied", "qualified", "meeting", "completed"].map(status => ({ status, count: prospects.filter(p => p.status === status).length }));
+  const sourceRows=await prisma.$queryRaw<Array<{type:string;url:string|null;latest:string|null;total:number;resolved:number}>>(Prisma.sql`
+    SELECT COALESCE("metadata"->>'source','manual') AS "type", "metadata"->>'sourceUrl' AS "url",
+      MAX("metadata"->>'capturedAt') AS "latest", COUNT(*)::int AS "total",
+      COUNT(*) FILTER (WHERE "resolutionStatus"='resolved')::int AS "resolved"
+    FROM "ProspectingProspect"
+    WHERE "workspaceId"=${api.workspaceId} ${campaignId?Prisma.sql`AND "campaignId"=${campaignId}`:Prisma.empty}
+    GROUP BY COALESCE("metadata"->>'source','manual'), "metadata"->>'sourceUrl'
+  `);
+  const sources=summarizeProspectingSources(sourceRows.map(row=>({metadata:{source:row.type,sourceUrl:row.url||undefined,capturedAt:row.latest||undefined},total:Number(row.total),resolved:Number(row.resolved)})));
   const assignableMembers = members.filter(m => canAccessAdminPath(effectiveAdminAccess(m.role, m.adminGrants), "/admin/prospeccion"));
-  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
+  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), sources, analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
 });
 
 const actionSchema = z.discriminatedUnion("action", [
