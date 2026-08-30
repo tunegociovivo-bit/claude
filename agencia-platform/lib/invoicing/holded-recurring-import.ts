@@ -243,6 +243,7 @@ export async function updateRecurringTemplate(workspaceId: string, id: string, i
       currency: input.currency,
       totalCents: input.totalCents,
       subtotalCents: input.totalCents,
+      discountCents: 0,
       taxCents: 0,
       lines,
       clientSnapshot: {
