@@ -102,6 +102,21 @@ describe("edición de plantillas recurrentes", () => {
     });
   });
 
+  it("conserva las copias ocultas cuando un cliente antiguo no envía bccEmails", async () => {
+    prisma._rows.push({
+      id: "legacy-1", workspaceId: "w1", type: "RECURRING", status: "SENT", currency: "EUR",
+      totalCents: 30000, clientSnapshot: { billingEmail: "billing@example.com", invoiceBcc: ["control@example.com"] },
+      recurrenceConfig: { intervalUnit: "MONTHS", intervalValue: 1, nextRunAt: "2026-09-01T00:00:00.000Z" }, lines: []
+    });
+
+    await updateRecurringTemplate("w1", "legacy-1", {
+      intervalUnit: "MONTHS", intervalValue: 1, recipientEmail: "billing@example.com",
+      totalCents: 30000, currency: "EUR", nextRunAt: "2026-09-01T00:00:00.000Z", sendAutomatically: true
+    }, new Date("2026-08-30T00:00:00.000Z"));
+
+    expect(prisma._rows[0].clientSnapshot.invoiceBcc).toEqual(["control@example.com"]);
+  });
+
   it("normaliza plantillas antiguas con varias líneas a una línea contablemente coherente", async () => {
     prisma._rows.push({
       id: "multi-1", workspaceId: "w1", recurring: true, deletedAt: null, status: "SENT",

@@ -253,7 +253,7 @@ export async function updateRecurringTemplate(workspaceId: string, id: string, i
         ...client,
         ...(input.contactName?.trim() ? { name: input.contactName.trim() } : {}),
         billingEmail: input.recipientEmail.trim(),
-        invoiceBcc: input.bccEmails ?? []
+        invoiceBcc: input.bccEmails ?? (Array.isArray(client.invoiceBcc) ? client.invoiceBcc : [])
       },
       recurrenceConfig: {
         ...cfg,

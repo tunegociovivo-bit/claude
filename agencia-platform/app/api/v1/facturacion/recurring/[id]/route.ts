@@ -32,7 +32,7 @@ export const PATCH = withApi({ scope: "*", rate: "admin", admin: true }, async (
     sendAutomatically: z.boolean(),
     contactName: z.string().max(200).optional(),
     description: z.string().max(2000).optional(),
-    bccEmails: z.array(z.string().trim().email()).max(10).default([])
+    bccEmails: z.array(z.string().trim().email()).max(10).optional()
   }).safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: { code: "bad_request", message: parsed.error.issues[0]?.message ?? "Datos inválidos" } }, { status: 400 });
   const res = await updateRecurringTemplate(api.workspaceId, id, parsed.data);
