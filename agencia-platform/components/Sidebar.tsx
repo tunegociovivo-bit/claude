@@ -68,6 +68,7 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
   bubui_directorio: Store,
   subvenciones: Landmark,
   gmb_hub: Star,
+  time_tracking: Clock3,
   nv_prospecting: Target
 };
 
@@ -85,6 +86,7 @@ const PLATFORM_GRAD: Record<string, string> = {
   bubui_directorio: "linear-gradient(135deg,#F86FB0,#D1186A)", // rosa Bubui
   subvenciones: "linear-gradient(135deg,#818CF8,#4338CA)",     // índigo
   gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)",          // verde-azul Google
+  time_tracking: "linear-gradient(135deg,#6366F1,#14B8A6)",   // índigo-teal
   nv_prospecting: "linear-gradient(135deg,#6366F1,#7C3AED)",   // índigo-violeta
   meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)"
 };
@@ -98,7 +100,6 @@ const nav = [
   { href: "/tareas", label: "Tareas", icon: KanbanSquare, feature: "tareas" as const },
   { href: "/clientes", label: "Clientes", icon: Users, feature: "clientes" as const },
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
-  { href: "/control-horario", label: "Control horario", icon: Clock3, feature: "equipo" as const },
   { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
   { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
   { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
@@ -171,6 +172,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
     const baseKeys = [
       ...(me?.role === "ADMIN" ? ["nv_prospecting"] : []),
       ...(!me || me.features.includes("gmb") ? ["gmb_hub"] : []),
+      ...(!me || me.features.includes("equipo") ? ["time_tracking"] : []),
       ...platforms.map((p) => p.key)
     ];
     const keys = orderItems(baseKeys, platformOrder);
@@ -499,6 +501,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
 
         {!isHidden("section:plataformas") && (() => {
           const showGmb = !me || me.features.includes("gmb");
+          const showTimeTracking = !me || me.features.includes("equipo");
           const gmbActive = pathname.startsWith("/gmb-hub");
           return (
           <div className="pt-4 mt-2 border-t border-slate-800">
@@ -522,6 +525,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                 const allItems = [
                   ...(me?.role === "ADMIN" ? [{ key: "nv_prospecting", label: "NV Prospección", href: "/admin/prospeccion", icon: Target }] : []),
                   ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
+                  ...(showTimeTracking ? [{ key: "time_tracking", label: "Control horario", href: "/control-horario", icon: Clock3 }] : []),
                   ...platforms.map((p) => ({
                     key: p.key,
                     label: p.label,
@@ -554,7 +558,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
                           <Icon className="h-3 w-3" />
                         </span>
                         <span className="truncate flex-1">{p.label}</span>
-                        {key !== "gmb_hub" && <UsageBar micros={cost} max={usage.maxMicros} />}
+                        {key !== "gmb_hub" && key !== "time_tracking" && <UsageBar micros={cost} max={usage.maxMicros} />}
                       </Link>
                       <div className="hidden group-hover:flex flex-col -mx-0.5">
                         <button
