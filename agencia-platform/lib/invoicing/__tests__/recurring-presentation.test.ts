@@ -18,4 +18,12 @@ describe("recurring invoice delivery presentation", () => {
     expect(recurringDeliverySummary({ nextRunAt: null, recipientEmail: null, bccEmails: [] }))
       .toEqual({ date: "—", recipient: "Sin correo configurado", bcc: null });
   });
+
+  it("does not break the list for an invalid legacy date and hides duplicate BCC entries", () => {
+    expect(recurringDeliverySummary({
+      nextRunAt: "not-a-date",
+      recipientEmail: "cliente@example.com",
+      bccEmails: ["Control@Example.com", " control@example.com "]
+    })).toEqual({ date: "Fecha inválida", recipient: "cliente@example.com", bcc: "control@example.com" });
+  });
 });
