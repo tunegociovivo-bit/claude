@@ -25,3 +25,22 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   console.info(`[leads/search-control] ws=${api.workspaceId} id=${id} action=${parsed.data.action} → ${out.status} (changed=${out.changed})`);
   return NextResponse.json({ ok: true, id, status: out.status, changed: out.changed });
 });
+
+/**
+ * Elimina una busqueda del historial. Los leads captados se conservan: la
+ * relacion Lead.search usa onDelete:SetNull, por lo que no se pierden datos,
+ * mensajes ni conversaciones al limpiar el listado de busquedas.
+ */
+export const DELETE = withApi({ scope: "*" }, async (_req, { params, api }) => {
+  const id = String((params as any)?.id ?? "").trim();
+  if (!id) throw new ApiError(400, "validation_error", "Falta id");
+
+  const search = await prisma.leadSearch.findFirst({
+    where: { id, workspaceId: api.workspaceId },
+    select: { id: true }
+  });
+  if (!search) throw new ApiError(404, "not_found", "Busqueda no encontrada");
+
+  await prisma.leadSearch.delete({ where: { id: search.id } });
+  return NextResponse.json({ ok: true, id, leadsPreserved: true });
+});

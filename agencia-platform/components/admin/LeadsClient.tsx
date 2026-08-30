@@ -2841,8 +2841,76 @@ const SEARCH_STATUS_META: Record<string, { label: string; cls: string }> = {
 function SearchesTable({ loading, items, onChanged }: { loading: boolean; items: SearchRow[]; onChanged: () => void }) {
   const [runningAllId, setRunningAllId] = useState<string | null>(null);
   const [controlBusyId, setControlBusyId] = useState<string | null>(null);
+  const [selectedSearches, setSelectedSearches] = useState<Set<string>>(new Set());
+  const [gatheringLeads, setGatheringLeads] = useState(false);
+  const [enqueueLeadIds, setEnqueueLeadIds] = useState<string[]>([]);
+  const [enqueueOpen, setEnqueueOpen] = useState(false);
+  const [deletingSearches, setDeletingSearches] = useState(false);
   if (loading) return <Loading />;
   if (items.length === 0) return <Empty msg="Sin búsquedas. Pulsa 'Nueva búsqueda' arriba." />;
+
+  const allSearchesSelected = items.length > 0 && items.every((item) => selectedSearches.has(item.id));
+  function toggleSearch(id: string) {
+    setSelectedSearches((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllSearches() {
+    setSelectedSearches(allSearchesSelected ? new Set() : new Set(items.map((item) => item.id)));
+  }
+
+  async function enqueueSelectedSearches() {
+    if (selectedSearches.size === 0 || gatheringLeads) return;
+    setGatheringLeads(true);
+    try {
+      const q = new URLSearchParams({ idsOnly: "1", searchIds: Array.from(selectedSearches).join(",") });
+      const response = await fetch(`/api/v1/leads?${q.toString()}`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(body?.error?.message ?? "No se pudieron reunir los leads de las búsquedas.");
+        return;
+      }
+      const ids = ((body.items ?? []) as MinimalLead[])
+        .filter((lead) => !lead.emailOnly && phoneKind(lead.phone) === "mobile" && !["excluded", "discarded"].includes(lead.contactStatus))
+        .map((lead) => lead.id);
+      if (ids.length === 0) {
+        alert("Las búsquedas seleccionadas no contienen leads móviles disponibles para WhatsApp.");
+        return;
+      }
+      setEnqueueLeadIds(Array.from(new Set(ids)));
+      setEnqueueOpen(true);
+    } finally {
+      setGatheringLeads(false);
+    }
+  }
+
+  async function deleteSelectedSearches() {
+    const ids = Array.from(selectedSearches);
+    if (ids.length === 0 || deletingSearches) return;
+    const leadCount = items
+      .filter((item) => selectedSearches.has(item.id))
+      .reduce((sum, item) => sum + (item._count?.leads ?? item.totalResults ?? 0), 0);
+    if (!confirm(
+      `¿Eliminar ${ids.length} búsqueda(s) del listado?\n\n` +
+      `Los ${leadCount.toLocaleString("es")} leads captados, sus mensajes y conversaciones se conservarán.`
+    )) return;
+    setDeletingSearches(true);
+    try {
+      const results = await Promise.all(ids.map(async (id) => {
+        const response = await fetch(`/api/v1/leads/searches/${id}`, { method: "DELETE" });
+        return { id, ok: response.ok };
+      }));
+      const failed = results.filter((result) => !result.ok);
+      setSelectedSearches(new Set(failed.map((result) => result.id)));
+      if (failed.length > 0) alert(`${failed.length} búsqueda(s) no pudieron eliminarse.`);
+      onChanged();
+    } finally {
+      setDeletingSearches(false);
+    }
+  }
   async function process(id: string) {
     await fetch(`/api/v1/leads/searches/${id}/process`, { method: "POST" });
     onChanged();
@@ -2896,10 +2964,44 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
     }
   }
   return (
-    <div className="bg-white rounded-xl border overflow-x-auto">
+    <div className="space-y-2">
+      {selectedSearches.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2">
+          <span className="text-sm font-medium text-brand-800">
+            {selectedSearches.size} búsqueda(s) seleccionada(s)
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setSelectedSearches(new Set())} className="text-xs text-slate-600 hover:underline">
+              Quitar selección
+            </button>
+            <button
+              type="button"
+              onClick={() => void enqueueSelectedSearches()}
+              disabled={gatheringLeads}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {gatheringLeads ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Encolar WhatsApp de las búsquedas
+            </button>
+            <button
+              type="button"
+              onClick={() => void deleteSelectedSearches()}
+              disabled={deletingSearches}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {deletingSearches ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Eliminar búsquedas
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="bg-white rounded-xl border overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
+            <th className="px-3 py-2.5 w-8">
+              <input type="checkbox" checked={allSearchesSelected} onChange={toggleAllSearches} aria-label="Seleccionar todas las búsquedas" className="accent-brand-600" />
+            </th>
             <th className="text-left px-3 py-2.5">Keyword</th>
             <th className="text-left px-3 py-2.5">Localidad</th>
             <th className="text-left px-3 py-2.5">Alcance</th>
@@ -2929,6 +3031,9 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
             const bigSearch = totalQueries > 20; // solo lo mostramos si tiene sentido
             return (
               <tr key={s.id} className="hover:bg-slate-50">
+                <td className="px-3 py-2">
+                  <input type="checkbox" checked={selectedSearches.has(s.id)} onChange={() => toggleSearch(s.id)} aria-label={`Seleccionar búsqueda ${s.keyword || s.location}`} className="accent-brand-600" />
+                </td>
                 <td className="px-3 py-2 font-medium">{s.keyword || <span className="text-slate-500 italic">marketing/IA (todos)</span>}</td>
                 <td className="px-3 py-2 text-slate-600">{s.location}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">{s.scope === "spain" ? "Toda España" : "Provincia"}</td>
@@ -3059,6 +3164,14 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
           })}
         </tbody>
       </table>
+      </div>
+      <EnqueueModal
+        open={enqueueOpen}
+        leadIds={enqueueLeadIds}
+        initialKind="text"
+        onClose={() => setEnqueueOpen(false)}
+        onDone={() => { setEnqueueOpen(false); setSelectedSearches(new Set()); onChanged(); }}
+      />
     </div>
   );
 }
