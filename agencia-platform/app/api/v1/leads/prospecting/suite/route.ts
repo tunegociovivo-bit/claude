@@ -8,13 +8,47 @@ import { domainFromProspect, scoreProspect } from "@/lib/leads/prospecting-intel
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
 import { normalizePhone } from "@/lib/leads/waha";
 import { canAccessAdminPath, effectiveAdminAccess } from "@/lib/admin-catalog";
+import type { Prisma, ProspectingProspect } from "@prisma/client";
+import { createHash } from "node:crypto";
+
+type ContactKeys={apolloKey:string|null;hunterKey:string|null};
+const ANALYTICS_PAGE_SIZE=2000;
+type WhatsappInboxAnalyticsRow=Prisma.LeadInboxMessageGetPayload<{select:{id:true;externalMessageId:true;leadId:true;phoneNormalized:true;fromPhone:true;body:true;receivedAt:true}}>;
+type ProspectingWhatsappAnalyticsRow=Prisma.ProspectingMessageGetPayload<{select:{id:true;externalId:true;prospectId:true;body:true;createdAt:true}}>;
+async function visitWhatsappInbox(where:Prisma.LeadInboxMessageWhereInput,visit:(row:WhatsappInboxAnalyticsRow)=>void){
+  let cursor:string|undefined;
+  do{const page=await prisma.leadInboxMessage.findMany({where,select:{id:true,externalMessageId:true,leadId:true,phoneNormalized:true,fromPhone:true,body:true,receivedAt:true},orderBy:{id:"asc"},take:ANALYTICS_PAGE_SIZE,...(cursor?{cursor:{id:cursor},skip:1}:{})});for(const row of page)visit(row);cursor=page.length===ANALYTICS_PAGE_SIZE?page.at(-1)?.id:undefined;}while(cursor);
+}
+async function visitProspectingWhatsapp(where:Prisma.ProspectingMessageWhereInput,visit:(row:ProspectingWhatsappAnalyticsRow)=>void){
+  let cursor:string|undefined;
+  do{const page=await prisma.prospectingMessage.findMany({where,select:{id:true,externalId:true,prospectId:true,body:true,createdAt:true},orderBy:{id:"asc"},take:ANALYTICS_PAGE_SIZE,...(cursor?{cursor:{id:cursor},skip:1}:{})});for(const row of page)visit(row);cursor=page.length===ANALYTICS_PAGE_SIZE?page.at(-1)?.id:undefined;}while(cursor);
+}
+const chunks=<T,>(items:T[],size=500)=>Array.from({length:Math.ceil(items.length/size)},(_,index)=>items.slice(index*size,(index+1)*size));
+const compactKey=(value:string)=>createHash("sha256").update(value).digest("base64url").slice(0,16);
+async function enrichOneProspect(prospect:ProspectingProspect,keys:ContactKeys){
+  const domain=prospect.companyDomain||domainFromProspect(prospect);
+  const candidates:Array<{name?:string|null;title?:string|null;email?:string|null;linkedin?:string|null;confidence?:number|null;source:string}>=[];
+  const calls:Promise<void>[]=[];
+  if(domain&&keys.hunterKey)calls.push(hunterDomainSearch({domain,apiKey:keys.hunterKey,limit:10}).then(rows=>{candidates.push(...rows.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter"})))}));
+  if(!domain&&prospect.companyName&&keys.hunterKey)calls.push(hunterCompanySearch({company:prospect.companyName,apiKey:keys.hunterKey,limit:10}).then(hit=>{candidates.push(...hit.people.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter_company"})))}));
+  if(domain&&keys.apolloKey)calls.push(apolloFindDecisionMakers({domain,apiKey:keys.apolloKey,limit:10}).then(rows=>{candidates.push(...rows.map(p=>({name:p.name,title:p.title,email:p.email,linkedin:p.linkedin,source:"apollo"})))}));
+  await Promise.allSettled(calls);
+  const normalize=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(Boolean);
+  const wanted=normalize([prospect.firstName,prospect.lastName].filter(Boolean).join(" "));
+  const identity=wanted.length>=2?candidates.find(c=>{const actual=normalize(c.name||"");return wanted.every(token=>actual.includes(token))&&actual.every(token=>wanted.includes(token))}):undefined;
+  const best=identity&&(identity.email||identity.linkedin)?identity:undefined;
+  const updated={...prospect,email:prospect.email||best?.email||null,linkedinUrl:prospect.linkedinUrl||best?.linkedin||null,companyDomain:domain,jobTitle:prospect.jobTitle||identity?.title||null};const scored=scoreProspect(updated);
+  await prisma.prospectingProspect.update({where:{id:prospect.id},data:{email:updated.email,linkedinUrl:updated.linkedinUrl,companyDomain:domain,jobTitle:updated.jobTitle,resolutionStatus:best?"resolved":"not_found",resolutionConfidence:best?Math.max(85,best.confidence||0):0,enrichedAt:new Date(),score:scored.score,scoreBreakdown:scored.breakdown,metadata:{...((prospect.metadata as object)||{}),enrichment:{candidates:candidates.slice(0,10),selectedSource:best?.source||null}}}});
+  return Boolean(best);
+}
 
 export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (req, { api }) => {
   const campaignId = new URL(req.url).searchParams.get("campaignId") || undefined;
   const whereCampaign = campaignId ? { campaignId } : {};
-  const [messages, activities, prospects, members] = await Promise.all([
+  const [messages, activityStats, prospectingMessageStats, prospects, members] = await Promise.all([
     prisma.prospectingMessage.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, include: { prospect: true, campaign: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 250 }),
-    prisma.prospectingActivity.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { campaignId: true, channel: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5000 }),
+    prisma.prospectingActivity.groupBy({ by: ["channel", "status"], where: { workspaceId: api.workspaceId, ...whereCampaign }, _count: { _all: true } }),
+    prisma.prospectingMessage.groupBy({ by: ["channel", "direction"], where: { workspaceId: api.workspaceId, ...whereCampaign }, _count: { _all: true } }),
     prisma.prospectingProspect.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { id: true, campaignId: true, leadId: true, firstName: true, lastName: true, companyName: true, phone: true, status: true, score: true, attributedValueCents: true, assignedUserId: true, createdAt: true } }),
     prisma.membership.findMany({ where: { workspaceId: api.workspaceId }, include: { user: { select: { id: true, name: true, email: true, image: true } } }, orderBy: { joinedAt: "asc" } })
   ]);
@@ -38,13 +72,27 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
     const key = externalId ? `${message.channel}:external:${externalId}` : `${message.prospect.id}:${message.direction}:${new Date(message.createdAt).toISOString().slice(0,16)}:${message.body.trim()}`;
     if (seenMessages.has(key)) return false; seenMessages.add(key); return true;
   }).slice(0,250);
+  const prospectByLead=new Map(prospects.filter(p=>p.leadId).map(p=>[p.leadId!,p]));
+  const prospectsByPhone=new Map<string,typeof prospects>();
+  for(const prospect of prospects){const phone=normalizePhone(prospect.phone);if(!phone)continue;const matches=prospectsByPhone.get(phone)||[];matches.push(prospect);prospectsByPhone.set(phone,matches);}
+  const whatsappReplyKeys = new Set<string>();
+  await visitProspectingWhatsapp({workspaceId:api.workspaceId,...whereCampaign,channel:"whatsapp",direction:"in"},message=>whatsappReplyKeys.add(compactKey(message.externalId?`external:${message.externalId}`:`${message.prospectId}:${message.createdAt.toISOString().slice(0,16)}:${message.body.trim()}`)));
+  const addInboxReply=(message:WhatsappInboxAnalyticsRow)=>{
+    const byLead=message.leadId?prospectByLead.get(message.leadId):undefined;
+    const messagePhone=normalizePhone(message.phoneNormalized||message.fromPhone);const phoneMatches=!byLead&&messagePhone?prospectsByPhone.get(messagePhone)||[]:[];const prospect=byLead||(phoneMatches.length===1?phoneMatches[0]:undefined);
+    if(prospect)whatsappReplyKeys.add(compactKey(message.externalMessageId?`external:${message.externalMessageId}`:`${prospect.id}:${message.receivedAt.toISOString().slice(0,16)}:${message.body.trim()}`));
+  };
+  for(const leadChunk of chunks(leadIds))await visitWhatsappInbox({workspaceId:api.workspaceId,direction:"in",leadId:{in:leadChunk}},addInboxReply);
+  for(const phoneChunk of chunks(phones))await visitWhatsappInbox({workspaceId:api.workspaceId,direction:"in",phoneNormalized:{in:phoneChunk}},addInboxReply);
+  const whatsappReplyCount=whatsappReplyKeys.size;
   const byChannel: Record<string, { actions: number; sent: number; replies: number }> = {};
-  for (const item of activities) {
+  for (const item of activityStats) {
     const row = byChannel[item.channel] ||= { actions: 0, sent: 0, replies: 0 };
-    row.actions++;
-    if (["sent", "completed"].includes(item.status)) row.sent++;
+    row.actions += item._count._all;
+    if (["sent", "completed"].includes(item.status)) row.sent += item._count._all;
   }
-  for (const message of allMessages) if (message.direction === "in") (byChannel[message.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies++;
+  for (const item of prospectingMessageStats) if (item.direction === "in" && item.channel !== "whatsapp") (byChannel[item.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies += item._count._all;
+  if (whatsappReplyCount) (byChannel.whatsapp ||= { actions: 0, sent: 0, replies: 0 }).replies += whatsappReplyCount;
   const funnel = ["pending", "active", "waiting_action", "replied", "qualified", "meeting", "completed"].map(status => ({ status, count: prospects.filter(p => p.status === status).length }));
   const assignableMembers = members.filter(m => canAccessAdminPath(effectiveAdminAccess(m.role, m.adminGrants), "/admin/prospeccion"));
   return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
@@ -100,22 +148,10 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
     return NextResponse.json({ updated: prospects.length });
   }
   const keys = await resolveContactKeys(api.workspaceId);
-  let enriched = 0;
-  for (const prospect of prospects) {
-    const domain = prospect.companyDomain || domainFromProspect(prospect);
-    let candidates: Array<{ name?: string | null; title?: string | null; email?: string | null; linkedin?: string | null; confidence?: number | null; source: string }> = [];
-    if (domain && keys.hunterKey) candidates.push(...(await hunterDomainSearch({ domain, apiKey: keys.hunterKey, limit: 10 })).map(p => ({ name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter" })));
-    if (!domain && prospect.companyName && keys.hunterKey) { const hit = await hunterCompanySearch({ company: prospect.companyName, apiKey: keys.hunterKey, limit: 10 }); candidates.push(...hit.people.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter_company"}))); }
-    if (domain && keys.apolloKey) candidates.push(...(await apolloFindDecisionMakers({ domain, apiKey: keys.apolloKey, limit: 10 })).map(p=>({name:p.name,title:p.title,email:p.email,linkedin:p.linkedin,source:"apollo"})));
-    const normalizeName = (value:string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
-    const wanted = normalizeName([prospect.firstName, prospect.lastName].filter(Boolean).join(" "));
-    const sameName = wanted.length >= 2 ? candidates.find(c => { const actual=normalizeName(c.name||""); return wanted.every(token=>actual.includes(token)) && actual.every(token=>wanted.includes(token)); }) : undefined;
-    const best = sameName && (sameName.email || sameName.linkedin) ? sameName : undefined;
-    const confidence = best ? Math.max(85,best.confidence||0) : 0;
-    const updated = { ...prospect, email: prospect.email || best?.email || null, linkedinUrl: prospect.linkedinUrl || best?.linkedin || null, companyDomain: domain, jobTitle: prospect.jobTitle || best?.title || null };
-    const scored = scoreProspect(updated);
-    await prisma.prospectingProspect.update({ where: { id: prospect.id }, data: { email: updated.email, linkedinUrl: updated.linkedinUrl, companyDomain: domain, jobTitle: updated.jobTitle, resolutionStatus: best ? "resolved" : "not_found", resolutionConfidence: confidence, enrichedAt: new Date(), score: scored.score, scoreBreakdown: scored.breakdown, metadata: { ...((prospect.metadata as object)||{}), enrichment: { candidates: candidates.slice(0,10), selectedSource: best?.source || null } } } });
-    if (best) enriched++;
+  let enriched=0,failed=0;
+  for(let index=0;index<prospects.length;index+=3){
+    const results=await Promise.allSettled(prospects.slice(index,index+3).map(prospect=>enrichOneProspect(prospect,keys)));
+    for(const result of results){if(result.status==="fulfilled"&&result.value)enriched++;else if(result.status==="rejected")failed++;}
   }
-  return NextResponse.json({ processed: prospects.length, enriched, missingProviders: !keys.apolloKey && !keys.hunterKey });
+  return NextResponse.json({ processed: prospects.length, enriched, failed, missingProviders: !keys.apolloKey && !keys.hunterKey });
 });
