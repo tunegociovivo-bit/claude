@@ -35,7 +35,8 @@ import {
   Repeat,
   Activity,
   AlertTriangle,
-  Target
+  Target,
+  Clock3
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -97,6 +98,7 @@ const nav = [
   { href: "/tareas", label: "Tareas", icon: KanbanSquare, feature: "tareas" as const },
   { href: "/clientes", label: "Clientes", icon: Users, feature: "clientes" as const },
   { href: "/equipo", label: "Equipo", icon: UsersRound, feature: "equipo" as const },
+  { href: "/control-horario", label: "Control horario", icon: Clock3, feature: "equipo" as const },
   { href: "/documentos", label: "Documentos", icon: BookOpen, feature: "documentos" as const },
   { href: "/databases", label: "Bases de datos", icon: Database, feature: "databases" as const },
   { href: "/calendario", label: "Calendario", icon: CalendarDays, feature: "calendario" as const }
