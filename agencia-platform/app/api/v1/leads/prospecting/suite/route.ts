@@ -6,12 +6,14 @@ import { ApiError } from "@/lib/api/auth";
 import { apolloFindDecisionMakers, hunterCompanySearch, hunterDomainSearch, resolveContactKeys } from "@/lib/leads/enrich-contacts";
 import { domainFromProspect, scoreProspect } from "@/lib/leads/prospecting-intelligence";
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
+import { scheduleResolvedProspect } from "@/lib/leads/prospecting-resolver";
 import { normalizePhone } from "@/lib/leads/waha";
 import { canAccessAdminPath, effectiveAdminAccess } from "@/lib/admin-catalog";
 import type { Prisma, ProspectingProspect } from "@prisma/client";
 import { createHash } from "node:crypto";
 
 type ContactKeys={apolloKey:string|null;hunterKey:string|null};
+type EnrichmentProspect=ProspectingProspect&{campaign:{status:string}};
 const ANALYTICS_PAGE_SIZE=2000;
 type WhatsappInboxAnalyticsRow=Prisma.LeadInboxMessageGetPayload<{select:{id:true;externalMessageId:true;leadId:true;phoneNormalized:true;fromPhone:true;body:true;receivedAt:true}}>;
 type ProspectingWhatsappAnalyticsRow=Prisma.ProspectingMessageGetPayload<{select:{id:true;externalId:true;prospectId:true;body:true;createdAt:true}}>;
@@ -25,20 +27,23 @@ async function visitProspectingWhatsapp(where:Prisma.ProspectingMessageWhereInpu
 }
 const chunks=<T,>(items:T[],size=500)=>Array.from({length:Math.ceil(items.length/size)},(_,index)=>items.slice(index*size,(index+1)*size));
 const compactKey=(value:string)=>createHash("sha256").update(value).digest("base64url").slice(0,16);
-async function enrichOneProspect(prospect:ProspectingProspect,keys:ContactKeys){
+async function enrichOneProspect(prospect:EnrichmentProspect,keys:ContactKeys){
   const domain=prospect.companyDomain||domainFromProspect(prospect);
   const candidates:Array<{name?:string|null;title?:string|null;email?:string|null;linkedin?:string|null;confidence?:number|null;source:string}>=[];
   const calls:Promise<void>[]=[];
-  if(domain&&keys.hunterKey)calls.push(hunterDomainSearch({domain,apiKey:keys.hunterKey,limit:10}).then(rows=>{candidates.push(...rows.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter"})))}));
-  if(!domain&&prospect.companyName&&keys.hunterKey)calls.push(hunterCompanySearch({company:prospect.companyName,apiKey:keys.hunterKey,limit:10}).then(hit=>{candidates.push(...hit.people.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter_company"})))}));
-  if(domain&&keys.apolloKey)calls.push(apolloFindDecisionMakers({domain,apiKey:keys.apolloKey,limit:10}).then(rows=>{candidates.push(...rows.map(p=>({name:p.name,title:p.title,email:p.email,linkedin:p.linkedin,source:"apollo"})))}));
-  await Promise.allSettled(calls);
+  if(domain&&keys.hunterKey)calls.push(hunterDomainSearch({domain,apiKey:keys.hunterKey,limit:10,throwOnError:true}).then(rows=>{candidates.push(...rows.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter"})))}));
+  if(!domain&&prospect.companyName&&keys.hunterKey)calls.push(hunterCompanySearch({company:prospect.companyName,apiKey:keys.hunterKey,limit:10,throwOnError:true}).then(hit=>{candidates.push(...hit.people.map(p=>({name:p.name,title:p.position,email:p.email,confidence:p.confidence,source:"hunter_company"})))}));
+  if(domain&&keys.apolloKey)calls.push(apolloFindDecisionMakers({domain,apiKey:keys.apolloKey,limit:10,throwOnError:true}).then(rows=>{candidates.push(...rows.map(p=>({name:p.name,title:p.title,email:p.email,linkedin:p.linkedin,source:"apollo"})))}));
+  const providerResults=await Promise.allSettled(calls);const providerErrors=providerResults.flatMap(result=>result.status==="rejected"?[result.reason instanceof Error?result.reason.message:String(result.reason)]:[]);
   const normalize=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(Boolean);
   const wanted=normalize([prospect.firstName,prospect.lastName].filter(Boolean).join(" "));
   const identity=wanted.length>=2?candidates.find(c=>{const actual=normalize(c.name||"");return wanted.every(token=>actual.includes(token))&&actual.every(token=>wanted.includes(token))}):undefined;
   const best=identity&&(identity.email||identity.linkedin)?identity:undefined;
+  if(!best&&providerErrors.length)throw new Error(`Enriquecimiento incompleto; reintenta despu\u00e9s: ${providerErrors.join(" | ")}`);
   const updated={...prospect,email:prospect.email||best?.email||null,linkedinUrl:prospect.linkedinUrl||best?.linkedin||null,companyDomain:domain,jobTitle:prospect.jobTitle||identity?.title||null};const scored=scoreProspect(updated);
-  await prisma.prospectingProspect.update({where:{id:prospect.id},data:{email:updated.email,linkedinUrl:updated.linkedinUrl,companyDomain:domain,jobTitle:updated.jobTitle,resolutionStatus:best?"resolved":"not_found",resolutionConfidence:best?Math.max(85,best.confidence||0):0,enrichedAt:new Date(),score:scored.score,scoreBreakdown:scored.breakdown,metadata:{...((prospect.metadata as object)||{}),enrichment:{candidates:candidates.slice(0,10),selectedSource:best?.source||null}}}});
+  const now=new Date();
+  await prisma.prospectingProspect.update({where:{id:prospect.id},data:{email:updated.email,linkedinUrl:updated.linkedinUrl,companyDomain:domain,jobTitle:updated.jobTitle,resolutionStatus:best?"resolved":"not_found",resolutionConfidence:best?Math.max(85,best.confidence||0):0,resolutionError:best?null:"No se encontr\u00f3 una identidad con canal verificable",nextResolutionAt:null,enrichedAt:now,score:scored.score,scoreBreakdown:scored.breakdown,metadata:{...((prospect.metadata as object)||{}),enrichment:{candidates:candidates.slice(0,10),selectedSource:best?.source||null,providerErrors}}}});
+  if(best)await scheduleResolvedProspect(prospect.id,prospect.workspaceId,now);
   return Boolean(best);
 }
 
@@ -133,7 +138,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
     await prisma.prospectingActivity.create({ data: { workspaceId: api.workspaceId, campaignId: prospect.campaignId, prospectId: prospect.id, channel: "crm", action: `attribution_${data.outcome}`, status: "completed", detail: `Valor atribuido: ${(data.valueCents/100).toFixed(2)} EUR`, executedAt: new Date() } });
     return NextResponse.json({ prospect: updated });
   }
-  const prospects = await prisma.prospectingProspect.findMany({ where: { id: { in: data.prospectIds }, workspaceId: api.workspaceId } });
+  const prospects = await prisma.prospectingProspect.findMany({ where: { id: { in: data.prospectIds }, workspaceId: api.workspaceId },include:{campaign:{select:{status:true}}} });
   if (data.action === "assign") {
     if (data.userId) {
       const membership = await prisma.membership.findFirst({ where: { workspaceId: api.workspaceId, userId: data.userId } });
