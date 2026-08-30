@@ -7,6 +7,8 @@ import FacturacionClient from "@/components/FacturacionClient";
 import { completeRixusIssuerProfile } from "@/lib/invoicing/rixus";
 import { synchronizeInvoiceCounters } from "@/lib/invoicing/counter-sync";
 import { repairLegacyInvoiceDocuments } from "@/lib/invoicing/legacy-repair";
+import { listRecurringTemplates } from "@/lib/invoicing/holded-recurring-import";
+import { upcomingRecurringDeliveries } from "@/lib/invoicing/recurring-presentation";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,7 @@ export default async function FacturacionPage() {
   await synchronizeInvoiceCounters(workspaceId);
   await repairLegacyInvoiceDocuments(workspaceId, userId);
 
-  const [clients, issuers, recImported, recActive] = await Promise.all([
+  const [clients, issuers, recurringTemplates] = await Promise.all([
     prisma.client.findMany({
       where: { workspaceId, deletedAt: null },
       select: { id: true, name: true, taxId: true, email: true, billingEmail: true },
@@ -33,11 +35,12 @@ export default async function FacturacionPage() {
       where: { workspaceId, deletedAt: null },
       orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }]
     }),
-    // Resumen REAL de recurrencias (sin hardcode): importadas de Holded y cuántas activas.
-    prisma.invoice.count({ where: { workspaceId, deletedAt: null, holdedRecurringId: { not: null } } }),
-    prisma.invoice.count({ where: { workspaceId, deletedAt: null, holdedRecurringId: { not: null }, recurring: true } })
+    listRecurringTemplates(workspaceId)
   ]);
+  const recImported = recurringTemplates.length;
+  const recActive = recurringTemplates.filter((template) => template.status === "active").length;
   const recPaused = recImported - recActive;
+  const upcomingRecurring = upcomingRecurringDeliveries(recurringTemplates, 3);
 
   return (
     <div className="max-w-6xl mx-auto pb-24">
@@ -50,21 +53,29 @@ export default async function FacturacionPage() {
           🏦 Remesas de adeudos SEPA
         </a>
       </div>
-      <a
-        href="/admin/facturacion-recurrentes"
-        className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 hover:border-brand-300 hover:shadow-sm transition"
-      >
-        <div className="flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-50 text-brand-600 text-lg">🔁</span>
-          <div>
-            <div className="font-semibold text-slate-800">Facturas recurrentes</div>
-            <div className="text-sm text-slate-500">
-              {recImported} importadas · <span className="text-emerald-600 font-medium">{recActive} activas</span> · <span className="text-amber-600 font-medium">{recPaused} pausadas</span>
+      <section className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-50 text-brand-600 text-lg">🔁</span>
+            <div>
+              <div className="font-semibold text-slate-800">Facturas recurrentes</div>
+              <div className="text-sm text-slate-500">
+                {recImported} configuradas · <span className="text-emerald-600 font-medium">{recActive} activas</span> · <span className="text-amber-600 font-medium">{recPaused} pausadas</span>
+              </div>
             </div>
           </div>
+          <a href="/admin/facturacion-recurrentes" className="text-sm text-brand-600 font-medium hover:underline">Gestionar →</a>
         </div>
-        <span className="text-sm text-brand-600 font-medium">Gestionar →</span>
-      </a>
+        <div className="border-t border-slate-100">
+          {upcomingRecurring.length ? upcomingRecurring.map((delivery) => (
+            <div key={delivery.id} className="grid gap-1 border-b border-slate-100 px-4 py-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.4fr)] md:items-center md:gap-5">
+              <span className="truncate text-sm font-medium text-slate-700">{delivery.contactName || "Cliente sin nombre"}</span>
+              <span className="text-sm text-slate-600"><span className="font-medium">{delivery.date}</span> · {delivery.sendAutomatically ? "envío automático" : "solo creación"}</span>
+              <span className="min-w-0 text-xs text-slate-500 md:text-right"><span className="block break-all">Para: {delivery.recipient}</span>{delivery.bcc && <span className="block break-all">BCC: {delivery.bcc}</span>}</span>
+            </div>
+          )) : <div className="px-4 py-3 text-sm text-slate-500">No hay próximas facturas recurrentes activas.</div>}
+        </div>
+      </section>
       <FacturacionClient clients={clients} initialIssuers={issuers as any} />
     </div>
   );

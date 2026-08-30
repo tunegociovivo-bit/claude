@@ -44,12 +44,15 @@ describe("Sidebar — enlaces visibles añadidos", () => {
 
 describe("/facturacion — tarjeta de recurrentes con datos reales (no hardcode)", () => {
   const src = read("app/facturacion/page.tsx");
-  it("cuenta importadas/activas/pausadas vía prisma y enlaza al panel", () => {
-    expect(src).toContain("holdedRecurringId: { not: null }");
+  it("cuenta todas las recurrencias y muestra sus próximas entregas", () => {
+    expect(src).toContain("listRecurringTemplates(workspaceId)");
+    expect(src).toContain("upcomingRecurringDeliveries(recurringTemplates, 3)");
     expect(src).toContain("recImported");
     expect(src).toContain("recActive");
     expect(src).toContain("recPaused");
     expect(src).toContain("/admin/facturacion-recurrentes");
+    expect(src).toContain("Para: {delivery.recipient}");
+    expect(src).toContain("BCC: {delivery.bcc}");
     // no hardcode de los números del ejemplo
     expect(src).not.toMatch(/20 importadas/);
   });
