@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/auth";
 import { apolloFindDecisionMakers, hunterCompanySearch, hunterDomainSearch, resolveContactKeys } from "@/lib/leads/enrich-contacts";
 import { domainFromProspect, scoreProspect, summarizeProspectingSources } from "@/lib/leads/prospecting-intelligence";
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
+import { inboxMessageId, splitInboxMessageIds } from "@/lib/leads/prospecting-inbox";
 import { scheduleResolvedProspect } from "@/lib/leads/prospecting-resolver";
 import { normalizePhone } from "@/lib/leads/waha";
 import { canAccessAdminPath, effectiveAdminAccess } from "@/lib/admin-catalog";
@@ -64,15 +65,16 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
     orderBy: { receivedAt: "desc" }, take: 250
   }) : [];
   const campaignNames = new Map((await prisma.prospectingCampaign.findMany({ where: { workspaceId: api.workspaceId, ...(campaignId ? { id: campaignId } : {}) }, select: { id: true, name: true } })).map(c => [c.id, c.name]));
+  const prospectingNormalized = messages.map(message => ({ ...message, id: inboxMessageId("prospecting", message.id), source: "prospecting" as const }));
   const whatsappNormalized = whatsappMessages.flatMap(message => {
     const byLead = message.leadId ? prospects.find(p => p.leadId === message.leadId) : undefined;
     const messagePhone = normalizePhone(message.phoneNormalized || message.fromPhone);
     const phoneMatches = !byLead && messagePhone ? prospects.filter(p => normalizePhone(p.phone) === messagePhone) : [];
     const prospect = byLead || (phoneMatches.length === 1 ? phoneMatches[0] : undefined);
-    return prospect ? [{ id: `lead-inbox:${message.id}`, externalId: message.externalMessageId, channel: "whatsapp", direction: message.direction, body: message.body, read: message.read, createdAt: message.receivedAt, prospect, campaign: { name: campaignNames.get(prospect.campaignId) || "Prospección" } }] : [];
+    return prospect ? [{ id: inboxMessageId("lead-inbox", message.id), externalId: message.externalMessageId, source: "lead-inbox" as const, channel: "whatsapp", direction: message.direction, body: message.body, read: message.read, createdAt: message.receivedAt, prospect, campaign: { name: campaignNames.get(prospect.campaignId) || "Prospección" } }] : [];
   });
   const seenMessages = new Set<string>();
-  const allMessages = [...messages, ...whatsappNormalized].sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime()).filter(message => {
+  const allMessages = [...prospectingNormalized, ...whatsappNormalized].sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime()).filter(message => {
     const externalId = "externalId" in message ? message.externalId : null;
     const key = externalId ? `${message.channel}:external:${externalId}` : `${message.prospect.id}:${message.direction}:${new Date(message.createdAt).toISOString().slice(0,16)}:${message.body.trim()}`;
     if (seenMessages.has(key)) return false; seenMessages.add(key); return true;
@@ -126,8 +128,13 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const data = parsed.data;
   if (data.action === "read") {
-    const result = await prisma.prospectingMessage.updateMany({ where: { id: { in: data.messageIds }, workspaceId: api.workspaceId }, data: { read: true } });
-    return NextResponse.json({ updated: result.count });
+    const ids = splitInboxMessageIds(data.messageIds);
+    if (!ids.prospecting.length && !ids.leadInbox.length) throw new ApiError(400, "validation_error", "No se han recibido mensajes válidos");
+    const [prospectingResult, leadInboxResult] = await prisma.$transaction([
+      prisma.prospectingMessage.updateMany({ where: { id: { in: ids.prospecting }, workspaceId: api.workspaceId }, data: { read: true } }),
+      prisma.leadInboxMessage.updateMany({ where: { id: { in: ids.leadInbox }, workspaceId: api.workspaceId }, data: { read: true } })
+    ]);
+    return NextResponse.json({ updated: prospectingResult.count + leadInboxResult.count });
   }
   if (data.action === "message") {
     const prospect = await prisma.prospectingProspect.findFirst({ where: { id: data.prospectId, workspaceId: api.workspaceId } });
