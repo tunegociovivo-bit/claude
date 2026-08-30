@@ -165,8 +165,13 @@ export type RecurringTemplate = {
   totalCents: number;
   currency: string;
   intervalMonths: number | null;
+  intervalUnit: "DAYS" | "MONTHS" | "YEARS";
+  intervalValue: number;
   nextRunAt: string | null;
   importedAt: string | null;
+  recipientEmail: string | null;
+  description: string | null;
+  sendAutomatically: boolean;
 };
 
 /** Lista las plantillas recurrentes del workspace (importadas de Holded o no). */
@@ -175,7 +180,7 @@ export async function listRecurringTemplates(workspaceId: string): Promise<Recur
     where: { workspaceId, deletedAt: null, OR: [{ holdedRecurringId: { not: null } }, { recurring: true }] },
     orderBy: { createdAt: "desc" },
     take: 1000,
-    select: { id: true, holdedRecurringId: true, recurring: true, clientSnapshot: true, totalCents: true, currency: true, recurrenceConfig: true }
+    select: { id: true, holdedRecurringId: true, recurring: true, status: true, clientSnapshot: true, lines: true, totalCents: true, currency: true, recurrenceConfig: true }
   });
   return rows.map((r: any) => {
     const cfg = (r.recurrenceConfig as any) ?? {};
@@ -187,10 +192,72 @@ export async function listRecurringTemplates(workspaceId: string): Promise<Recur
       totalCents: r.totalCents ?? 0,
       currency: r.currency ?? "EUR",
       intervalMonths: cfg.intervalMonths ?? null,
+      intervalUnit: cfg.intervalUnit ?? "MONTHS",
+      intervalValue: Math.max(1, Number(cfg.intervalValue ?? cfg.intervalMonths) || 1),
       nextRunAt: cfg.nextRunAt ?? null,
-      importedAt: cfg.importedAt ?? null
+      importedAt: cfg.importedAt ?? null,
+      recipientEmail: (r.clientSnapshot as any)?.billingEmail ?? (r.clientSnapshot as any)?.email ?? null,
+      description: Array.isArray(r.lines) ? (r.lines[0] as any)?.description ?? null : null,
+      sendAutomatically: r.status === "SENT"
     };
   });
+}
+
+export type RecurringTemplateUpdate = {
+  intervalUnit: "DAYS" | "MONTHS" | "YEARS";
+  intervalValue: number;
+  recipientEmail: string;
+  totalCents: number;
+  currency: "EUR" | "USD";
+  nextRunAt: string;
+  sendAutomatically: boolean;
+  contactName?: string;
+  description?: string;
+};
+
+export async function updateRecurringTemplate(workspaceId: string, id: string, input: RecurringTemplateUpdate): Promise<{ ok: boolean }> {
+  const current = await prisma.invoice.findFirst({
+    where: { id, workspaceId, deletedAt: null }
+  });
+  if (!current) return { ok: false };
+  const cfg = (current.recurrenceConfig as any) ?? {};
+  const client = (current.clientSnapshot as any) ?? {};
+  const lines = Array.isArray(current.lines) ? [...(current.lines as any[])] : [];
+  const first = lines[0] ?? { quantity: 1, taxRate: 0, discountPct: 0 };
+  lines[0] = {
+    ...first,
+    description: input.description?.trim() || first.description || "Servicio recurrente",
+    quantity: 1,
+    unitPriceCents: input.totalCents,
+    taxRate: 0
+  };
+  const intervalMonths = input.intervalUnit === "YEARS"
+    ? input.intervalValue * 12
+    : input.intervalUnit === "MONTHS" ? input.intervalValue : 1;
+  await prisma.invoice.update({
+    where: { id },
+    data: {
+      status: input.sendAutomatically ? "SENT" : "ISSUED",
+      currency: input.currency,
+      totalCents: input.totalCents,
+      subtotalCents: input.totalCents,
+      taxCents: 0,
+      lines,
+      clientSnapshot: {
+        ...client,
+        ...(input.contactName?.trim() ? { name: input.contactName.trim() } : {}),
+        billingEmail: input.recipientEmail.trim()
+      },
+      recurrenceConfig: {
+        ...cfg,
+        intervalMonths,
+        intervalUnit: input.intervalUnit,
+        intervalValue: input.intervalValue,
+        nextRunAt: new Date(input.nextRunAt).toISOString()
+      }
+    }
+  });
+  return { ok: true };
 }
 
 /** Pausa/activa UNA plantilla (tenant-scoped). Activar = `recurring:true` (activación gradual). */

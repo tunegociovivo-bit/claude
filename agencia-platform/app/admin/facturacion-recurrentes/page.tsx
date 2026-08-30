@@ -11,12 +11,13 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { RefreshCw, Download, Play, Pause, ShieldAlert, Repeat } from "lucide-react";
+import { RefreshCw, Download, Play, Pause, ShieldAlert, Repeat, Pencil, X } from "lucide-react";
 
-type Template = { id: string; holdedRecurringId: string | null; status: "active" | "paused"; contactName: string | null; totalCents: number; currency: string; intervalMonths: number | null; nextRunAt: string | null };
+type Template = { id: string; holdedRecurringId: string | null; status: "active" | "paused"; contactName: string | null; totalCents: number; currency: "EUR" | "USD"; intervalMonths: number | null; intervalUnit: "DAYS" | "MONTHS" | "YEARS"; intervalValue: number; nextRunAt: string | null; recipientEmail: string | null; description: string | null; sendAutomatically: boolean };
 type ListResp = { templates: Template[]; summary: { total: number; active: number; paused: number } };
 
 const money = (c: number, cur: string) => `${(c / 100).toFixed(2)} ${cur}`;
+const intervalLabel = (t: Template) => `${t.intervalValue} ${t.intervalUnit === "DAYS" ? (t.intervalValue === 1 ? "día" : "días") : t.intervalUnit === "YEARS" ? (t.intervalValue === 1 ? "año" : "años") : (t.intervalValue === 1 ? "mes" : "meses")}`;
 
 export default function FacturacionRecurrentesPage() {
   const [data, setData] = useState<ListResp | null>(null);
@@ -24,6 +25,7 @@ export default function FacturacionRecurrentesPage() {
   const [err, setErr] = useState<string | null>(null);
   const [preview, setPreview] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Template | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -54,6 +56,26 @@ export default function FacturacionRecurrentesPage() {
     if (!confirm("¿Pausar TODAS las recurrencias del workspace? No se emitirá ninguna factura hasta reactivarlas.")) return;
     await fetch("/api/v1/facturacion/recurring/pause-all", { method: "POST" });
     load();
+  }
+
+  async function saveTemplate(value: Template) {
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/v1/facturacion/recurring/${value.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          intervalUnit: value.intervalUnit, intervalValue: Number(value.intervalValue),
+          recipientEmail: value.recipientEmail?.trim(), totalCents: Number(value.totalCents),
+          currency: value.currency, nextRunAt: new Date(value.nextRunAt!).toISOString(),
+          sendAutomatically: value.sendAutomatically, contactName: value.contactName ?? "",
+          description: value.description ?? ""
+        })
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error?.message ?? "No se pudo guardar la recurrencia");
+      setEditing(null); await load();
+    } catch (e: any) { setErr(String(e?.message ?? e)); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -100,10 +122,11 @@ export default function FacturacionRecurrentesPage() {
                   <tr key={t.id}>
                     <td className="p-3">{t.contactName ?? <span className="text-slate-400">—</span>}</td>
                     <td className="p-3">{money(t.totalCents, t.currency)}</td>
-                    <td className="p-3">{t.intervalMonths ? `${t.intervalMonths} mes(es)` : "—"}</td>
+                    <td className="p-3">{intervalLabel(t)}</td>
                     <td className="p-3 text-slate-500">{t.nextRunAt ? new Date(t.nextRunAt).toLocaleDateString("es-ES") : "—"}</td>
                     <td className="p-3">{t.status === "active" ? <span className="text-emerald-600">● activa</span> : <span className="text-amber-600">⏸ pausada</span>}</td>
                     <td className="p-3 text-right">
+                      <button onClick={() => setEditing({ ...t })} className="mr-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" /> Editar</button>
                       {t.status === "paused" ? (
                         <button onClick={() => setStatus(t.id, "resume")} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs hover:bg-emerald-50 text-emerald-700"><Play className="h-3.5 w-3.5" /> Activar</button>
                       ) : (
@@ -117,8 +140,30 @@ export default function FacturacionRecurrentesPage() {
           </div>
         )}
       </section>
+      {editing && <RecurringEditor value={editing} busy={busy} onChange={setEditing} onClose={() => setEditing(null)} onSave={() => void saveTemplate(editing)} />}
     </div>
   );
+}
+
+function RecurringEditor({ value, busy, onChange, onClose, onSave }: { value: Template; busy: boolean; onChange: (v: Template) => void; onClose: () => void; onSave: () => void }) {
+  const input = "mt-1 w-full rounded-lg border px-3 py-2 text-sm";
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+    <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+      <div className="flex items-center justify-between border-b p-5"><div><h2 className="font-semibold">Editar factura recurrente</h2><p className="text-xs text-slate-500">Los cambios se aplicarán a las próximas facturas.</p></div><button onClick={onClose}><X className="h-5 w-5" /></button></div>
+      <div className="grid gap-4 p-5 md:grid-cols-2">
+        <label className="text-xs text-slate-600">Cliente<input className={input} value={value.contactName ?? ""} onChange={(e) => onChange({ ...value, contactName: e.target.value })} /></label>
+        <label className="text-xs text-slate-600">Correo de envío<input type="email" required className={input} value={value.recipientEmail ?? ""} onChange={(e) => onChange({ ...value, recipientEmail: e.target.value })} /></label>
+        <label className="text-xs text-slate-600">Importe<input type="number" min="0" step="0.01" className={input} value={(value.totalCents / 100).toFixed(2)} onChange={(e) => onChange({ ...value, totalCents: Math.round(Number(e.target.value) * 100) })} /></label>
+        <label className="text-xs text-slate-600">Moneda<select className={input} value={value.currency} onChange={(e) => onChange({ ...value, currency: e.target.value as "EUR" | "USD" })}><option value="EUR">EUR (€)</option><option value="USD">USD ($)</option></select></label>
+        <label className="text-xs text-slate-600">Cada<input type="number" min="1" max="3650" className={input} value={value.intervalValue} onChange={(e) => onChange({ ...value, intervalValue: Math.max(1, Number(e.target.value)) })} /></label>
+        <label className="text-xs text-slate-600">Periodo<select className={input} value={value.intervalUnit} onChange={(e) => onChange({ ...value, intervalUnit: e.target.value as Template["intervalUnit"] })}><option value="DAYS">día(s)</option><option value="MONTHS">mes(es)</option><option value="YEARS">año(s)</option></select></label>
+        <label className="text-xs text-slate-600">Próxima emisión<input type="date" className={input} value={value.nextRunAt?.slice(0, 10) ?? ""} onChange={(e) => onChange({ ...value, nextRunAt: `${e.target.value}T00:00:00.000Z` })} /></label>
+        <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={value.sendAutomatically} onChange={(e) => onChange({ ...value, sendAutomatically: e.target.checked })} />Enviar automáticamente por correo</label>
+        <label className="text-xs text-slate-600 md:col-span-2">Descripción<textarea rows={3} className={input} value={value.description ?? ""} onChange={(e) => onChange({ ...value, description: e.target.value })} /></label>
+      </div>
+      <div className="flex justify-end gap-2 border-t p-4"><button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cancelar</button><button disabled={busy || !value.recipientEmail || !value.nextRunAt} onClick={onSave} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy ? "Guardando…" : "Guardar cambios"}</button></div>
+    </div>
+  </div>;
 }
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: "ok" | "warn" }) {

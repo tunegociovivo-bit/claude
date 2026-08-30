@@ -19,6 +19,7 @@ const { prisma, holdedMock } = vi.hoisted(() => {
           return true;
         });
       }),
+      findFirst: vi.fn(async ({ where }: any) => rows.find((r) => r.id === where.id && r.workspaceId === where.workspaceId && r.deletedAt == null) ?? null),
       create: vi.fn(async ({ data }: any) => {
         if (data.holdedRecurringId && rows.some((r) => r.workspaceId === data.workspaceId && r.holdedRecurringId === data.holdedRecurringId)) {
           const e: any = new Error("uniq"); e.code = "P2002"; throw e;
@@ -38,6 +39,12 @@ const { prisma, holdedMock } = vi.hoisted(() => {
           n++;
         }
         return { count: n };
+      }),
+      update: vi.fn(async ({ where, data }: any) => {
+        const row = rows.find((r) => r.id === where.id);
+        if (!row) throw new Error("not found");
+        Object.assign(row, data);
+        return { ...row };
       })
     }
   };
