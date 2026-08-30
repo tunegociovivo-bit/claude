@@ -15,6 +15,7 @@ const SERVICE = "NegocioVivoTimeAgent";
 const deviceId = store.get("deviceId") || crypto.createHash("sha256").update(`${os.hostname()}-${os.userInfo().username}-${os.platform()}`).digest("hex").slice(0, 24);
 store.set("deviceId", deviceId);
 let tray, window, timer, lastTick = Date.now();
+let lastPolicySync = 0;
 const execFileAsync = promisify(execFile);
 const traySvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#4f46e5"/><circle cx="10" cy="10" r="6" fill="none" stroke="white" stroke-width="1.6"/><path d="M10 6v4l3 2" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const trayIcon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(traySvg).toString("base64")}`);
@@ -45,6 +46,20 @@ function schedule() {
   timer = setTimeout(captureCycle, base - jitter + Math.random() * jitter * 2);
 }
 async function headers() { const t = await token(); return t ? { Authorization: `Bearer ${t}` } : {}; }
+async function syncPolicy() {
+  if (Date.now() - lastPolicySync < 300000) return;
+  const response = await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: await headers(), timeout: 15000 });
+  const p = response.data || {};
+  store.set("trackingEnabled", p.trackingEnabled !== false);
+  store.set("screenshots", p.screenshotsEnabled !== false);
+  store.set("intervalMin", p.screenshotInterval || 10);
+  store.set("jitterPct", p.screenshotJitter ?? 20);
+  store.set("retentionDays", p.retentionDays || 30);
+  store.set("blur", p.blurScreenshots === true);
+  store.set("allowPrivateMode", p.allowPrivateMode !== false);
+  store.set("excludedApps", Array.isArray(p.excludedApps) ? p.excludedApps : []);
+  lastPolicySync = Date.now();
+}
 async function postActivity(win) {
   const now = new Date(); now.setSeconds(0, 0);
   const elapsed = Math.min(300, Math.max(1, Math.round((Date.now() - lastTick) / 1000))); lastTick = Date.now();
@@ -53,6 +68,8 @@ async function postActivity(win) {
 }
 async function captureCycle() {
   try {
+    await syncPolicy();
+    if (store.get("trackingEnabled") === false) return;
     const win = await activeWindow().catch(() => null);
     await postActivity(win);
     if (store.get("paused") || !store.get("screenshots") || excluded(win?.owner?.name) || excluded(win?.title)) return;
@@ -74,7 +91,7 @@ function updateMenu() {
   const paused = store.get("paused");
   tray.setToolTip(`Negocio Vivo Control Horario · ${paused ? "Pausado" : "Activo"}`);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: paused ? "Reanudar seguimiento" : "Pausar / tiempo privado", click: () => { store.set("paused", !paused); updateMenu(); } },
+    { label: paused ? "Reanudar seguimiento" : "Pausar / tiempo privado", enabled: store.get("allowPrivateMode") !== false, click: () => { store.set("paused", !paused); updateMenu(); } },
     { label: "Configuración y privacidad", click: showWindow },
     { type: "separator" }, { label: "Salir", click: () => app.quit() }
   ]));

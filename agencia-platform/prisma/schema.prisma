@@ -65,6 +65,7 @@ model User {
   timeTrackerSessions       TimeTrackerSession[]
   timeTrackerActivities     TimeTrackerActivity[]
   timeTrackerScreenshots    TimeTrackerScreenshot[]
+  timeTrackerPolicy         TimeTrackerPolicy?
 }
 
 // Registro de intentos de login para throttling/lockout. Se guardan
@@ -244,6 +245,7 @@ model Workspace {
   timeTrackerSessions        TimeTrackerSession[]
   timeTrackerActivities      TimeTrackerActivity[]
   timeTrackerScreenshots     TimeTrackerScreenshot[]
+  timeTrackerPolicies        TimeTrackerPolicy[]
   searchEmbeddings           SearchEmbedding[]
   metaConnections            MetaConnection[]
   sepaRemittanceRequests     SepaRemittanceRequest[]
@@ -352,6 +354,31 @@ model TimeTrackerScreenshot {
   @@index([workspaceId, capturedAt])
   @@index([userId, capturedAt])
   @@index([expiresAt])
+}
+
+model TimeTrackerPolicy {
+  id                  String   @id @default(cuid())
+  workspaceId         String
+  userId              String   @unique
+  trackingEnabled     Boolean  @default(true)
+  collectApps         Boolean  @default(true)
+  collectDomains      Boolean  @default(true)
+  collectWindowTitles Boolean  @default(false)
+  collectIdle         Boolean  @default(true)
+  screenshotsEnabled  Boolean  @default(true)
+  screenshotInterval  Int      @default(10)
+  screenshotJitter    Int      @default(20)
+  blurScreenshots     Boolean  @default(false)
+  retentionDays       Int      @default(30)
+  allowPrivateMode    Boolean  @default(true)
+  excludedApps        String[] @default([])
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 model OpportunitySignal {
