@@ -16,6 +16,11 @@ const { authenticateMock, prisma } = vi.hoisted(() => {
         if (!r) return { count: 0 };
         Object.assign(r, data);
         return { count: 1 };
+      }),
+      delete: vi.fn(async ({ where }: any) => {
+        const index = rows.findIndex((r) => r.id === where.id);
+        if (index < 0) throw new Error("not found");
+        return rows.splice(index, 1)[0];
       })
     }
   };
@@ -28,7 +33,7 @@ vi.mock("@/lib/api/auth", async (importActual) => {
 });
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: () => ({ ok: true, remaining: 100, resetAt: Date.now() + 60_000 }) }));
 
-import { PATCH } from "../route";
+import { DELETE, PATCH } from "../route";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -39,6 +44,9 @@ beforeEach(() => {
 
 const call = (id: string, body: any) =>
   PATCH(new NextRequest(`https://hub.example/api/v1/leads/searches/${id}`, { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), { params: { id } });
+
+const remove = (id: string) =>
+  DELETE(new NextRequest(`https://hub.example/api/v1/leads/searches/${id}`, { method: "DELETE" }), { params: { id } });
 
 describe("PATCH searches/[id] control", () => {
   it("acción inválida → 400", async () => {
@@ -64,5 +72,20 @@ describe("PATCH searches/[id] control", () => {
     const res = await call("s1", { action: "cancel" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, changed: false, status: "CANCELLED" });
+  });
+});
+
+describe("DELETE searches/[id]", () => {
+  it("elimina una búsqueda del workspace y confirma que conserva sus leads", async () => {
+    const res = await remove("s1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, id: "s1", leadsPreserved: true });
+    expect(prisma._rows).toHaveLength(0);
+  });
+
+  it("no permite eliminar búsquedas de otro workspace", async () => {
+    authenticateMock.mockResolvedValue({ workspaceId: "attacker", userId: "u2", scopes: new Set(["*"]) });
+    expect((await remove("s1")).status).toBe(404);
+    expect(prisma._rows).toHaveLength(1);
   });
 });

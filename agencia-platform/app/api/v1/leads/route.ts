@@ -11,6 +11,11 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const urgency = url.searchParams.get("urgency") ?? undefined;
   const province = url.searchParams.get("province") ?? undefined;
   const searchId = url.searchParams.get("searchId") ?? undefined;
+  const searchIds = (url.searchParams.get("searchIds") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .slice(0, 100);
   const keyword = url.searchParams.get("keyword") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
   const ticketTier = url.searchParams.get("ticketTier") ?? undefined;
@@ -28,7 +33,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (status) where.contactStatus = status;
   if (urgency) where.urgency = urgency;
   if (province) where.province = province;
-  if (searchId) where.searchId = searchId;
+  if (searchIds.length > 0) where.searchId = { in: searchIds };
+  else if (searchId) where.searchId = searchId;
   // Filtro por NICHO: todas las búsquedas cuya keyword coincide (cerrajero,
   // cerrajero Málaga, cerrajero España… comparten keyword "cerrajero").
   if (keyword) where.search = { is: { keyword: { equals: keyword, mode: "insensitive" } } };
