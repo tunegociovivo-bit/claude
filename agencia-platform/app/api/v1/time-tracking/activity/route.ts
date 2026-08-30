@@ -20,13 +20,17 @@ export const POST = withApi({ scope: "time_tracking:write" }, async (req, { api 
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const member = await prisma.membership.findFirst({ where: { workspaceId: api.workspaceId, userId: api.userId }, select: { id: true } });
   if (!member) throw new ApiError(403, "forbidden", "Usuario fuera del espacio");
+  const policy = await prisma.timeTrackerPolicy.findUnique({ where: { userId: api.userId } });
+  if (policy?.trackingEnabled === false) return NextResponse.json({ ok: true, accepted: 0, disabled: true });
+  let session = await prisma.timeTrackerSession.findFirst({ where: { workspaceId: api.workspaceId, userId: api.userId, endedAt: null } });
+  if (!session) session = await prisma.timeTrackerSession.create({ data: { workspaceId: api.workspaceId, userId: api.userId, source: "AGENT", deviceId: parsed.data.deviceId } });
   let accepted = 0;
   for (const e of parsed.data.entries) {
     // En modo privado conservamos únicamente tiempo agregado, sin aplicación,
     // dominio ni título de ventana.
     const identity = {
       workspaceId: api.workspaceId, userId: api.userId, deviceId: parsed.data.deviceId,
-      bucketStart: e.bucketStart, appName: e.privateMode ? null : (e.appName ?? null), domain: e.privateMode ? null : (e.domain ?? null)
+      bucketStart: e.bucketStart, appName: e.privateMode || policy?.collectApps === false ? null : (e.appName ?? null), domain: e.privateMode || policy?.collectDomains === false ? null : (e.domain ?? null)
     };
     const existing = await prisma.timeTrackerActivity.findFirst({ where: identity, select: { id: true } });
     if (existing) {
@@ -34,12 +38,13 @@ export const POST = withApi({ scope: "time_tracking:write" }, async (req, { api 
     } else {
       await prisma.timeTrackerActivity.create({
       data: { workspaceId: api.workspaceId, userId: api.userId, deviceId: parsed.data.deviceId, bucketStart: e.bucketStart,
-        durationSec: e.durationSec, appName: e.privateMode ? null : e.appName, domain: e.privateMode ? null : e.domain,
-        windowTitle: e.privateMode ? null : e.windowTitle, projectId: e.projectId, productive: e.productive,
-        idle: e.idle ?? false, privateMode: e.privateMode ?? false }
+        durationSec: e.durationSec, appName: e.privateMode || policy?.collectApps === false ? null : e.appName, domain: e.privateMode || policy?.collectDomains === false ? null : e.domain,
+        windowTitle: e.privateMode || policy?.collectWindowTitles !== true ? null : e.windowTitle, projectId: e.projectId, sessionId: session.id, productive: e.productive,
+        idle: policy?.collectIdle === false ? false : (e.idle ?? false), privateMode: e.privateMode ?? false }
       });
     }
     accepted++;
   }
-  return NextResponse.json({ ok: true, accepted });
+  await prisma.timeTrackerSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
+  return NextResponse.json({ ok: true, accepted, sessionId: session.id });
 });
