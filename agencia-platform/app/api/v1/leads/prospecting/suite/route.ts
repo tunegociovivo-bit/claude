@@ -7,6 +7,7 @@ import { apolloFindDecisionMakers, hunterCompanySearch, hunterDomainSearch, reso
 import { domainFromProspect, scoreProspect, summarizeProspectingSources } from "@/lib/leads/prospecting-intelligence";
 import { markProspectingProspectReplied } from "@/lib/leads/prospecting-engine";
 import { inboxMessageId, splitInboxMessageIds } from "@/lib/leads/prospecting-inbox";
+import { buildProspectingConversion } from "@/lib/leads/prospecting-analytics";
 import { scheduleResolvedProspect } from "@/lib/leads/prospecting-resolver";
 import { normalizePhone } from "@/lib/leads/waha";
 import { canAccessAdminPath, effectiveAdminAccess } from "@/lib/admin-catalog";
@@ -51,12 +52,13 @@ async function enrichOneProspect(prospect:EnrichmentProspect,keys:ContactKeys){
 export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (req, { api }) => {
   const campaignId = new URL(req.url).searchParams.get("campaignId") || undefined;
   const whereCampaign = campaignId ? { campaignId } : {};
-  const [messages, activityStats, prospectingMessageStats, prospects, members] = await Promise.all([
+  const [messages, activityStats, prospectingMessageStats, prospects, members, wonEvents] = await Promise.all([
     prisma.prospectingMessage.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, include: { prospect: true, campaign: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 250 }),
     prisma.prospectingActivity.groupBy({ by: ["channel", "status"], where: { workspaceId: api.workspaceId, ...whereCampaign }, _count: { _all: true } }),
     prisma.prospectingMessage.groupBy({ by: ["channel", "direction"], where: { workspaceId: api.workspaceId, ...whereCampaign }, _count: { _all: true } }),
-    prisma.prospectingProspect.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { id: true, campaignId: true, leadId: true, firstName: true, lastName: true, companyName: true, phone: true, status: true, score: true, attributedValueCents: true, assignedUserId: true, createdAt: true } }),
-    prisma.membership.findMany({ where: { workspaceId: api.workspaceId }, include: { user: { select: { id: true, name: true, email: true, image: true } } }, orderBy: { joinedAt: "asc" } })
+    prisma.prospectingProspect.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign }, select: { id: true, campaignId: true, leadId: true, firstName: true, lastName: true, companyName: true, phone: true, status: true, score: true, attributedValueCents: true, assignedUserId: true, lastContactedAt: true, repliedAt: true, createdAt: true } }),
+    prisma.membership.findMany({ where: { workspaceId: api.workspaceId }, include: { user: { select: { id: true, name: true, email: true, image: true } } }, orderBy: { joinedAt: "asc" } }),
+    prisma.prospectingActivity.findMany({ where: { workspaceId: api.workspaceId, ...whereCampaign, channel: "crm", action: "attribution_won" }, distinct: ["prospectId"], select: { prospectId: true } })
   ]);
   const leadIds = prospects.flatMap(p => p.leadId ? [p.leadId] : []);
   const phones = prospects.flatMap(p => { const phone=normalizePhone(p.phone); return phone ? [phone] : []; });
@@ -101,6 +103,7 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
   for (const item of prospectingMessageStats) if (item.direction === "in" && item.channel !== "whatsapp") (byChannel[item.channel] ||= { actions: 0, sent: 0, replies: 0 }).replies += item._count._all;
   if (whatsappReplyCount) (byChannel.whatsapp ||= { actions: 0, sent: 0, replies: 0 }).replies += whatsappReplyCount;
   const funnel = ["pending", "active", "waiting_action", "replied", "qualified", "meeting", "completed"].map(status => ({ status, count: prospects.filter(p => p.status === status).length }));
+  const conversion = buildProspectingConversion(prospects, wonEvents.flatMap(event => event.prospectId ? [event.prospectId] : []));
   const sourceRows=await prisma.$queryRaw<Array<{type:string;url:string|null;latest:string|null;total:number;resolved:number}>>(Prisma.sql`
     SELECT COALESCE("metadata"->>'source','manual') AS "type", "metadata"->>'sourceUrl' AS "url",
       MAX("metadata"->>'capturedAt') AS "latest", COUNT(*)::int AS "total",
@@ -119,7 +122,7 @@ export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (re
     return counts;
   }, new Map<string, { assigned: number; active: number }>())].map(([userId, counts]) => ({ userId, ...counts }));
   const assignableMembers = members.filter(m => canAccessAdminPath(effectiveAdminAccess(m.role, m.adminGrants), "/admin/prospeccion"));
-  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), teamWorkload, sources, analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, byChannel } });
+  return NextResponse.json({ messages: allMessages, members: assignableMembers.map(m => ({ membershipId: m.id, role: m.role, ...m.user })), teamWorkload, sources, analytics: { total: prospects.length, avgScore: prospects.length ? Math.round(prospects.reduce((n,p)=>n+p.score,0)/prospects.length) : 0, attributedValue: prospects.reduce((n,p)=>n+(p.attributedValueCents||0),0)/100, funnel, conversion, byChannel } });
 });
 
 const actionSchema = z.discriminatedUnion("action", [
