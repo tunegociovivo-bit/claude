@@ -93,10 +93,11 @@ describe("edición de plantillas recurrentes", () => {
     expect((await updateRecurringTemplate("w1", "daily-1", {
       intervalUnit: "DAYS", intervalValue: 3, recipientEmail: "new@example.com",
       totalCents: 70000, currency: "USD", nextRunAt: "2026-09-02T00:00:00.000Z", sendAutomatically: true
+      , bccEmails: ["info@negociovivo.com", "control@example.com"]
     })).ok).toBe(true);
     expect(prisma._rows[0]).toMatchObject({
       totalCents: 70000,
-      clientSnapshot: { name: "Calle Ancha Rohrmoser, S.A.", email: "old@example.com", billingEmail: "new@example.com" },
+      clientSnapshot: { name: "Calle Ancha Rohrmoser, S.A.", email: "old@example.com", billingEmail: "new@example.com", invoiceBcc: ["info@negociovivo.com", "control@example.com"] },
       recurrenceConfig: { intervalUnit: "DAYS", intervalValue: 3, nextRunAt: "2026-09-02T00:00:00.000Z" }
     });
   });
