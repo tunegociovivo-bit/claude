@@ -26,11 +26,15 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const stale = await prisma.timeTrackerSession.findMany({ where: { workspaceId: api.workspaceId, source: "AGENT", endedAt: null, updatedAt: { lt: staleBefore } }, select: { id: true, updatedAt: true } });
   await Promise.all(stale.map(s => prisma.timeTrackerSession.update({ where: { id: s.id }, data: { endedAt: s.updatedAt } })));
 
-  const [members, projects, sessions, activities, active] = await Promise.all([
+  const [allMembers, policies, projects, sessions, activities, active] = await Promise.all([
     prisma.membership.findMany({
       where: { workspaceId: api.workspaceId },
       select: { userId: true, role: true, user: { select: { name: true, email: true, image: true } } },
       orderBy: { user: { name: "asc" } }
+    }),
+    prisma.timeTrackerPolicy.findMany({
+      where: { workspaceId: api.workspaceId },
+      select: { userId: true, trackingEnabled: true }
     }),
     prisma.project.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, name: true, color: true }, orderBy: { name: "asc" } }),
     prisma.timeTrackerSession.findMany({
@@ -43,6 +47,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     }),
     prisma.timeTrackerSession.findMany({ where: { workspaceId: api.workspaceId, endedAt: null, ...userFilter } })
   ]);
+  const enabledByUser = new Map(policies.map((policy) => [policy.userId, policy.trackingEnabled]));
+  const members = allMembers.filter((item) => enabledByUser.get(item.userId) !== false);
 
   const now = Date.now();
   const byUser = new Map<string, { seconds: number; productive: number; tracked: number; idle: number }>();
@@ -65,6 +71,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   return NextResponse.json({
     days,
     isAdmin: member.role === "ADMIN",
+    availableMembers: member.role === "ADMIN" ? allMembers.map((m) => ({
+      id: m.userId, name: m.user.name || m.user.email, email: m.user.email,
+      included: enabledByUser.get(m.userId) !== false
+    })) : undefined,
     members: members.map((m) => ({
       id: m.userId, name: m.user.name || m.user.email, email: m.user.email, image: m.user.image, role: m.role,
       active: active.some((s) => s.userId === m.userId), ...(byUser.get(m.userId) ?? {})
@@ -83,6 +93,8 @@ const command = z.discriminatedUnion("action", [
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   await membership(api.workspaceId, api.userId);
+  const policy = await prisma.timeTrackerPolicy.findUnique({ where: { userId: api.userId! }, select: { trackingEnabled: true } });
+  if (policy?.trackingEnabled === false) throw new ApiError(403, "tracking_excluded", "No tienes el control horario activado");
   const parsed = command.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const open = await prisma.timeTrackerSession.findFirst({ where: { workspaceId: api.workspaceId, userId: api.userId!, endedAt: null } });

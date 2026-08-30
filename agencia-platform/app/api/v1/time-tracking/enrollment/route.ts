@@ -18,6 +18,8 @@ export const POST = withApi({ scope: "admin", admin: true }, async (req, { api }
     include: { user: { select: { name: true, email: true } } }
   });
   if (!member) throw new ApiError(404, "member_not_found", "El trabajador no pertenece a esta empresa");
+  const policy = await prisma.timeTrackerPolicy.findUnique({ where: { userId: member.userId }, select: { trackingEnabled: true } });
+  if (policy?.trackingEnabled === false) throw new ApiError(409, "tracking_excluded", "Este trabajador está excluido del control horario");
   const prefix = PREFIX + randomBytes(6).toString("hex");
   const secret = randomBytes(24).toString("base64url");
   const key = await prisma.apiKey.create({ data: {
