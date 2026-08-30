@@ -8,6 +8,12 @@ export async function sendInvoiceAutomatically(workspaceId: string, invoice: any
   const client = (invoice.clientSnapshot ?? {}) as any;
   const issuer = (invoice.issuerSnapshot ?? {}) as any;
   const recipient = invoiceRecipientEmail(client);
+  const normalizedRecipient = recipient.trim().toLowerCase();
+  const bcc: string[] = Array.isArray(client.invoiceBcc)
+    ? [...new Set<string>((client.invoiceBcc as unknown[])
+      .map((email: unknown) => String(email).trim().toLowerCase())
+      .filter((email: string) => email && email !== normalizedRecipient))]
+    : [];
   const renderable = {
     ...invoice,
     lines: Array.isArray(invoice.lines) ? invoice.lines : [],
@@ -23,6 +29,7 @@ export async function sendInvoiceAutomatically(workspaceId: string, invoice: any
   await sendEmailWithAttachment({
     workspaceId,
     to: recipient,
+    bcc: bcc.length ? bcc : undefined,
     subject: `${label} ${number} · ${issuer.name ?? "Negocio Vivo"}`,
     html,
     text: language === "en"

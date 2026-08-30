@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { RefreshCw, Download, Play, Pause, ShieldAlert, Repeat, Pencil, X } from "lucide-react";
 
-type Template = { id: string; holdedRecurringId: string | null; status: "active" | "paused"; contactName: string | null; totalCents: number; currency: "EUR" | "USD"; intervalMonths: number | null; intervalUnit: "DAYS" | "MONTHS" | "YEARS"; intervalValue: number; nextRunAt: string | null; recipientEmail: string | null; description: string | null; sendAutomatically: boolean };
+type Template = { id: string; holdedRecurringId: string | null; status: "active" | "paused"; contactName: string | null; totalCents: number; currency: "EUR" | "USD"; intervalMonths: number | null; intervalUnit: "DAYS" | "MONTHS" | "YEARS"; intervalValue: number; nextRunAt: string | null; recipientEmail: string | null; description: string | null; sendAutomatically: boolean; bccEmails: string[] };
 type ListResp = { templates: Template[]; summary: { total: number; active: number; paused: number } };
 
 const money = (c: number, cur: string) => `${(c / 100).toFixed(2)} ${cur}`;
@@ -68,7 +68,7 @@ export default function FacturacionRecurrentesPage() {
           recipientEmail: value.recipientEmail?.trim(), totalCents: Number(value.totalCents),
           currency: value.currency, nextRunAt: new Date(value.nextRunAt!).toISOString(),
           sendAutomatically: value.sendAutomatically, contactName: value.contactName ?? "",
-          description: value.description ?? ""
+          description: value.description ?? "", bccEmails: value.bccEmails
         })
       });
       const body = await r.json().catch(() => ({}));
@@ -153,6 +153,7 @@ function RecurringEditor({ value, busy, onChange, onClose, onSave }: { value: Te
       <div className="grid gap-4 p-5 md:grid-cols-2">
         <label className="text-xs text-slate-600">Cliente<input className={input} value={value.contactName ?? ""} onChange={(e) => onChange({ ...value, contactName: e.target.value })} /></label>
         <label className="text-xs text-slate-600">Correo de envío<input type="email" required className={input} value={value.recipientEmail ?? ""} onChange={(e) => onChange({ ...value, recipientEmail: e.target.value })} /></label>
+        <label className="text-xs text-slate-600 md:col-span-2">Copias ocultas (BCC)<input type="text" className={input} placeholder="info@negociovivo.com, control@empresa.com" value={value.bccEmails.join(", ")} onChange={(e) => onChange({ ...value, bccEmails: e.target.value.split(/[,;\n]/).map((email) => email.trim()).filter(Boolean) })} /><span className="mt-1 block text-[11px] text-slate-500">Puedes separar varias direcciones con comas. El cliente no verá estos destinatarios.</span></label>
         <label className="text-xs text-slate-600">Importe<input type="number" min="0" step="0.01" className={input} value={(value.totalCents / 100).toFixed(2)} onChange={(e) => onChange({ ...value, totalCents: Math.round(Number(e.target.value) * 100) })} /></label>
         <label className="text-xs text-slate-600">Moneda<select className={input} value={value.currency} onChange={(e) => onChange({ ...value, currency: e.target.value as "EUR" | "USD" })}><option value="EUR">EUR (€)</option><option value="USD">USD ($)</option></select></label>
         <label className="text-xs text-slate-600">Cada<input type="number" min="1" max="3650" className={input} value={value.intervalValue} onChange={(e) => onChange({ ...value, intervalValue: Math.max(1, Number(e.target.value)) })} /></label>

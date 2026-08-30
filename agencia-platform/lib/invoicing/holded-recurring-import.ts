@@ -172,6 +172,7 @@ export type RecurringTemplate = {
   recipientEmail: string | null;
   description: string | null;
   sendAutomatically: boolean;
+  bccEmails: string[];
 };
 
 /** Lista las plantillas recurrentes del workspace (importadas de Holded o no). */
@@ -198,7 +199,8 @@ export async function listRecurringTemplates(workspaceId: string): Promise<Recur
       importedAt: cfg.importedAt ?? null,
       recipientEmail: (r.clientSnapshot as any)?.billingEmail ?? (r.clientSnapshot as any)?.email ?? null,
       description: Array.isArray(r.lines) ? (r.lines[0] as any)?.description ?? null : null,
-      sendAutomatically: r.status === "SENT"
+      sendAutomatically: r.status === "SENT",
+      bccEmails: Array.isArray((r.clientSnapshot as any)?.invoiceBcc) ? (r.clientSnapshot as any).invoiceBcc : []
     };
   });
 }
@@ -213,6 +215,7 @@ export type RecurringTemplateUpdate = {
   sendAutomatically: boolean;
   contactName?: string;
   description?: string;
+  bccEmails?: string[];
 };
 
 export async function updateRecurringTemplate(workspaceId: string, id: string, input: RecurringTemplateUpdate, now = new Date()): Promise<{ ok: boolean; error?: "past_next_run" }> {
@@ -249,7 +252,8 @@ export async function updateRecurringTemplate(workspaceId: string, id: string, i
       clientSnapshot: {
         ...client,
         ...(input.contactName?.trim() ? { name: input.contactName.trim() } : {}),
-        billingEmail: input.recipientEmail.trim()
+        billingEmail: input.recipientEmail.trim(),
+        invoiceBcc: input.bccEmails ?? []
       },
       recurrenceConfig: {
         ...cfg,
