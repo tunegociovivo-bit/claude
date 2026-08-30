@@ -53,7 +53,6 @@ function partyLines(p: InvoiceParty, language: InvoiceLanguage = "es"): string {
   if (p.address) out.push(esc(p.address).replace(/\r?\n/g, "<br>"));
   const loc = [p.postalCode, p.city, p.province].filter(Boolean).join(" ");
   if (loc) out.push(esc(loc));
-  if (p.email) out.push(esc(p.email));
   if (p.phone) out.push(esc(p.phone));
   return out.map((l) => `<div>${l}</div>`).join("");
 }

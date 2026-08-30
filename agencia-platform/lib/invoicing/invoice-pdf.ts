@@ -4,13 +4,12 @@ import { invoiceTaxLabel } from "./invoice-form";
 import type { InvoiceForHtml, InvoiceParty } from "./invoice-html";
 import { invoiceLabels, invoiceLanguage, localizedDate, localizedPaymentLabel, localizedTypeLabel, type InvoiceLanguage } from "./invoice-locale";
 
-function partyText(party: InvoiceParty, language: InvoiceLanguage): string {
+export function invoicePartyText(party: InvoiceParty, language: InvoiceLanguage): string {
   return [
     party.legalName && party.legalName !== party.name ? party.legalName : party.name,
     party.taxId ? `${invoiceLabels(language).taxId}: ${party.taxId}` : null,
     party.address,
     [party.postalCode, party.city, party.province].filter(Boolean).join(" "),
-    party.email,
     party.phone
   ].filter(Boolean).join("\n");
 }
@@ -60,11 +59,11 @@ export async function buildInvoicePdf(invoice: InvoiceForHtml): Promise<Buffer> 
   if (!logoDrawn) document.fillColor(accent).font("Helvetica-Bold").fontSize(18).text(invoice.issuer.name ?? "", 42, 42, { width: 260 });
   document.fillColor(accent).font("Helvetica-Bold").fontSize(20).text(typeLabel.toUpperCase(), 330, 42, { width: 220, align: "right" });
   document.fillColor("#111827").fontSize(12).text(invoice.number ?? (language === "en" ? "(draft)" : "(borrador)"), 330, 68, { width: 220, align: "right" });
-  document.font("Helvetica").fontSize(9).fillColor("#4B5563").text(partyText(invoice.issuer, language), 42, 112, { width: 250 });
+  document.font("Helvetica").fontSize(9).fillColor("#4B5563").text(invoicePartyText(invoice.issuer, language), 42, 112, { width: 250 });
   document.text(`${labels.issueDate}: ${localizedDate(invoice.issueDate, language)}\n${invoice.dueDate ? `${labels.dueDate}: ${localizedDate(invoice.dueDate, language)}` : ""}`, 330, 92, { width: 220, align: "right" });
   document.moveTo(42, 178).lineTo(553, 178).lineWidth(2).strokeColor(accent).stroke();
   document.fillColor("#6B7280").font("Helvetica-Bold").fontSize(8).text(labels.billTo.toUpperCase(), 42, 195);
-  document.fillColor("#111827").font("Helvetica").fontSize(10).text(partyText(invoice.client, language), 42, 210, { width: 300 });
+  document.fillColor("#111827").font("Helvetica").fontSize(10).text(invoicePartyText(invoice.client, language), 42, 210, { width: 300 });
 
   const columns = invoicePdfTableLayout(language);
   const widths = columns.map((column) => column.width);
