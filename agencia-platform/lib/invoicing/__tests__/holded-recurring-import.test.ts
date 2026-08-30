@@ -100,6 +100,41 @@ describe("edición de plantillas recurrentes", () => {
       recurrenceConfig: { intervalUnit: "DAYS", intervalValue: 3, nextRunAt: "2026-09-02T00:00:00.000Z" }
     });
   });
+
+  it("normaliza plantillas antiguas con varias líneas a una línea contablemente coherente", async () => {
+    prisma._rows.push({
+      id: "multi-1", workspaceId: "w1", recurring: true, deletedAt: null, status: "SENT",
+      totalCents: 24200, subtotalCents: 20000, taxCents: 4200, currency: "EUR",
+      clientSnapshot: { name: "Cliente" },
+      lines: [
+        { description: "Servicio A", quantity: 1, unitPriceCents: 10000, taxRate: 21 },
+        { description: "Servicio B", quantity: 1, unitPriceCents: 10000, taxRate: 21 }
+      ],
+      recurrenceConfig: { intervalUnit: "MONTHS", intervalValue: 1, nextRunAt: "2026-09-01T00:00:00.000Z" }
+    });
+
+    await updateRecurringTemplate("w1", "multi-1", {
+      intervalUnit: "MONTHS", intervalValue: 1, recipientEmail: "billing@example.com",
+      totalCents: 30000, currency: "EUR", nextRunAt: "2026-09-01T00:00:00.000Z",
+      sendAutomatically: true, description: "Servicio mensual"
+    }, new Date("2026-08-30T00:00:00.000Z"));
+
+    expect(prisma._rows[0].lines).toEqual([{ description: "Servicio mensual", quantity: 1, unitPriceCents: 30000, taxRate: 0, discountPct: 0 }]);
+    expect(prisma._rows[0]).toMatchObject({ subtotalCents: 30000, taxCents: 0, totalCents: 30000 });
+  });
+
+  it("rechaza una próxima emisión anterior a hoy", async () => {
+    prisma._rows.push({
+      id: "safe-1", workspaceId: "w1", recurring: true, deletedAt: null, status: "SENT",
+      totalCents: 10000, currency: "EUR", clientSnapshot: { name: "Cliente" }, lines: [], recurrenceConfig: {}
+    });
+    const result = await updateRecurringTemplate("w1", "safe-1", {
+      intervalUnit: "DAYS", intervalValue: 1, recipientEmail: "billing@example.com",
+      totalCents: 10000, currency: "EUR", nextRunAt: "2026-08-29T00:00:00.000Z", sendAutomatically: true
+    }, new Date("2026-08-30T12:00:00.000Z"));
+    expect(result).toEqual({ ok: false, error: "past_next_run" });
+    expect(prisma.invoice.update).not.toHaveBeenCalled();
+  });
 });
 
 describe("normalización de periodicidad", () => {
