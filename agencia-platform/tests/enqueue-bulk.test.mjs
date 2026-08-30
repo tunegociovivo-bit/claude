@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ENQUEUE_BATCH_SIZE, enqueueRetryDelayMs, splitEnqueueBatches } from "../lib/leads/enqueue-bulk.ts";
+import { ENQUEUE_BATCH_SIZE, enqueueRetryDelayMs, isRetryableEnqueueStatus, splitEnqueueBatches } from "../lib/leads/enqueue-bulk.ts";
 
 test("splits a large enqueue request into durable request-sized batches", () => {
   const leadIds = Array.from({ length: 406 }, (_, index) => `lead-${index + 1}`);
@@ -31,4 +31,12 @@ test("honors Retry-After and otherwise backs off safely after a 429", () => {
   assert.equal(enqueueRetryDelayMs(null, 0), 15_000);
   assert.equal(enqueueRetryDelayMs(null, 1), 30_000);
   assert.equal(enqueueRetryDelayMs(null, 10), 60_000);
+});
+
+test("retries transient gateway errors with a shorter exponential delay", () => {
+  for (const status of [429, 502, 503, 504]) assert.equal(isRetryableEnqueueStatus(status), true);
+  for (const status of [400, 401, 500]) assert.equal(isRetryableEnqueueStatus(status), false);
+  assert.equal(enqueueRetryDelayMs(null, 0, 502), 2_000);
+  assert.equal(enqueueRetryDelayMs(null, 1, 503), 4_000);
+  assert.equal(enqueueRetryDelayMs(null, 10, 504), 15_000);
 });

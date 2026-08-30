@@ -15,7 +15,9 @@ import { usePollingChannel } from "@/lib/client/usePollingChannel";
 import {
   ENQUEUE_BATCH_DELAY_MS,
   ENQUEUE_MAX_RATE_LIMIT_RETRIES,
+  ENQUEUE_MAX_TRANSIENT_RETRIES,
   enqueueRetryDelayMs,
+  isRetryableEnqueueStatus,
   splitEnqueueBatches
 } from "@/lib/leads/enqueue-bulk";
 import {
@@ -2607,36 +2609,71 @@ function EnqueueModal({
       let emailOnlySkipped = 0;
       const skipped: { leadId: string; reason: string }[] = [];
 
+      const failed: { leadId: string; reason: string }[] = [];
+
+      async function enqueueBatch(batchLeadIds: string[]): Promise<{ response: Response | null; body: any; message?: string }> {
+        let attempt = 0;
+        while (true) {
+          try {
+            const response = await fetch("/api/v1/leads/queue/enqueue-bulk", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...payload, leadIds: batchLeadIds })
+            });
+            const body = await response.json().catch(() => ({}));
+            const maxRetries = response.status === 429
+              ? ENQUEUE_MAX_RATE_LIMIT_RETRIES
+              : ENQUEUE_MAX_TRANSIENT_RETRIES;
+            if (!isRetryableEnqueueStatus(response.status) || attempt >= maxRetries) {
+              return { response, body };
+            }
+            const delayMs = enqueueRetryDelayMs(response.headers.get("Retry-After"), attempt, response.status);
+            attempt++;
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          } catch (error: any) {
+            if (attempt >= ENQUEUE_MAX_TRANSIENT_RETRIES) {
+              return { response: null, body: {}, message: error?.message ?? "Error de red" };
+            }
+            const delayMs = enqueueRetryDelayMs(null, attempt, 503);
+            attempt++;
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+      }
+
+      function collect(body: any) {
+        enqueued += body.ok ?? 0;
+        replaced += body.replacedQueued ?? 0;
+        emailOnlySkipped += body.emailOnlySkipped ?? 0;
+        skipped.push(...(body.skipped ?? []));
+      }
+
       for (let index = 0; index < batches.length; index++) {
         if (index > 0) await new Promise((resolve) => setTimeout(resolve, ENQUEUE_BATCH_DELAY_MS));
 
-        let r: Response;
-        let rateLimitAttempt = 0;
-        while (true) {
-          r = await fetch("/api/v1/leads/queue/enqueue-bulk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...payload, leadIds: batches[index] })
+        const result = await enqueueBatch(batches[index]);
+        if (result.response?.ok) {
+          collect(result.body);
+          continue;
+        }
+
+        // Un proxy puede devolver 502 aunque el servidor haya persistido parte
+        // del lote. Reintentamos uno a uno: la comprobacion de duplicados del
+        // endpoint conserva lo ya encolado y evita repetir mensajes.
+        for (const leadId of batches[index]) {
+          const single = await enqueueBatch([leadId]);
+          if (single.response?.ok) collect(single.body);
+          else failed.push({
+            leadId,
+            reason: single.body?.error?.message ?? single.message ?? `Error ${single.response?.status ?? "de red"}`
           });
-          if (r.status !== 429 || rateLimitAttempt >= ENQUEUE_MAX_RATE_LIMIT_RETRIES) break;
-          const delayMs = enqueueRetryDelayMs(r.headers.get("Retry-After"), rateLimitAttempt);
-          rateLimitAttempt++;
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          setError(
-            `${j?.error?.message ?? `Error ${r.status}`} ` +
-            `(lote ${index + 1}/${batches.length}; ${enqueued} ya encolados).`
-          );
-          return;
-        }
-        enqueued += j.ok ?? 0;
-        replaced += j.replacedQueued ?? 0;
-        emailOnlySkipped += j.emailOnlySkipped ?? 0;
-        skipped.push(...(j.skipped ?? []));
       }
+      skipped.push(...failed);
       setResult({ ok: enqueued, skipped, total: leadIds.length, replacedQueued: replaced, emailOnlySkipped });
+      if (failed.length > 0) {
+        setError(`${failed.length} lead(s) no pudieron encolarse tras varios reintentos. Los demás sí se han procesado y no se han duplicado.`);
+      }
     } finally {
       setBusy(false);
     }
