@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildInvoiceHtml, buildInvoiceEmailHtml } from "../invoice-html";
-import { buildInvoicePdf, invoicePdfHeaderFits, invoicePdfTableLayout, invoiceTableDescription } from "../invoice-pdf";
+import { buildInvoicePdf, invoicePartyText, invoicePdfHeaderFits, invoicePdfTableLayout, invoiceTableDescription } from "../invoice-pdf";
 
 const invoice = {
   type: "NORMAL",
@@ -11,8 +11,8 @@ const invoice = {
   currency: "USD",
   paymentMethod: "STRIPE",
   lines: [{ concept: "Marketing", description: "", quantity: 1, unitPriceCents: 64972, taxRate: 0 }],
-  issuer: { name: "RIXUS SOLUTIONS LLC", taxId: "37-2141153" },
-  client: { name: "Cliente" }
+  issuer: { name: "RIXUS SOLUTIONS LLC", taxId: "37-2141153", email: "issuer@example.com" },
+  client: { name: "Cliente", email: "cliente@example.com", billingEmail: "facturas@cliente.com" }
 };
 
 describe("invoice rendering", () => {
@@ -46,6 +46,18 @@ describe("invoice rendering", () => {
     const html = buildInvoiceHtml(invoice);
     expect(html).toContain(">Tax 0%</td>");
     expect(html).not.toContain("Tax 0%<br>");
+  });
+
+  it("never prints email addresses inside the invoice document", () => {
+    const html = buildInvoiceHtml(invoice);
+    const emailHtml = buildInvoiceEmailHtml(invoice);
+    const pdfParties = `${invoicePartyText(invoice.issuer, "en")}\n${invoicePartyText(invoice.client, "en")}`;
+
+    for (const address of ["issuer@example.com", "cliente@example.com", "facturas@cliente.com"]) {
+      expect(html).not.toContain(address);
+      expect(emailHtml).not.toContain(address);
+      expect(pdfParties).not.toContain(address);
+    }
   });
 
   it("builds an email-safe layout without flexbox or fixed controls", () => {
