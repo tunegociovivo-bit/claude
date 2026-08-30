@@ -1,6 +1,6 @@
 {
   "name": "negocio-vivo-time-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agente multiplataforma de control horario de Negocio Vivo",
   "author": "Negocio Vivo",
   "private": true,

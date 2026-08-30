@@ -21,6 +21,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   since.setHours(0, 0, 0, 0);
   since.setDate(since.getDate() - days + 1);
   const userFilter = member.role === "ADMIN" ? {} : { userId: api.userId! };
+  // Cierra sesiones de agentes que llevan más de 5 minutos sin heartbeat.
+  const staleBefore = new Date(Date.now() - 5 * 60_000);
+  const stale = await prisma.timeTrackerSession.findMany({ where: { workspaceId: api.workspaceId, source: "AGENT", endedAt: null, updatedAt: { lt: staleBefore } }, select: { id: true, updatedAt: true } });
+  await Promise.all(stale.map(s => prisma.timeTrackerSession.update({ where: { id: s.id }, data: { endedAt: s.updatedAt } })));
 
   const [members, projects, sessions, activities, active] = await Promise.all([
     prisma.membership.findMany({
