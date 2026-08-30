@@ -104,7 +104,7 @@ describe("edición de plantillas recurrentes", () => {
   it("normaliza plantillas antiguas con varias líneas a una línea contablemente coherente", async () => {
     prisma._rows.push({
       id: "multi-1", workspaceId: "w1", recurring: true, deletedAt: null, status: "SENT",
-      totalCents: 24200, subtotalCents: 20000, taxCents: 4200, currency: "EUR",
+      totalCents: 24200, subtotalCents: 20000, taxCents: 4200, discountCents: 1000, currency: "EUR",
       clientSnapshot: { name: "Cliente" },
       lines: [
         { description: "Servicio A", quantity: 1, unitPriceCents: 10000, taxRate: 21 },
@@ -120,7 +120,7 @@ describe("edición de plantillas recurrentes", () => {
     }, new Date("2026-08-30T00:00:00.000Z"));
 
     expect(prisma._rows[0].lines).toEqual([{ description: "Servicio mensual", quantity: 1, unitPriceCents: 30000, taxRate: 0, discountPct: 0 }]);
-    expect(prisma._rows[0]).toMatchObject({ subtotalCents: 30000, taxCents: 0, totalCents: 30000 });
+    expect(prisma._rows[0]).toMatchObject({ subtotalCents: 30000, discountCents: 0, taxCents: 0, totalCents: 30000 });
   });
 
   it("rechaza una próxima emisión anterior a hoy", async () => {
