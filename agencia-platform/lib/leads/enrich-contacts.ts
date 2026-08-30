@@ -13,7 +13,7 @@ export type EmailVerdict = { email: string; status: string; score: number | null
 
 /** Busca decisores de una empresa por dominio (cargos senior). Best-effort.
  *  `titles` acota por cargo (p.ej. marketing/expansión) — Apollo los trata como OR. */
-export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: string; limit?: number; titles?: string[] }): Promise<ApolloPerson[]> {
+export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: string; limit?: number; titles?: string[]; throwOnError?: boolean }): Promise<ApolloPerson[]> {
   try {
     const resp = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
       method: "POST",
@@ -28,7 +28,10 @@ export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: s
       signal: AbortSignal.timeout(15000)
     });
     const data: any = await resp.json().catch(() => null);
-    if (!resp.ok) return [];
+    if (!resp.ok) {
+      if (opts.throwOnError) throw new Error(`Apollo respondi\u00f3 HTTP ${resp.status}`);
+      return [];
+    }
     const people: any[] = Array.isArray(data?.people) ? data.people : [];
     return people
       .map((p) => ({
@@ -40,7 +43,8 @@ export async function apolloFindDecisionMakers(opts: { domain: string; apiKey: s
         email: typeof p?.email === "string" && !/email_not_unlocked/i.test(p.email) ? p.email : null
       }))
       .filter((p) => p.name);
-  } catch {
+  } catch (error) {
+    if (opts.throwOnError) throw error;
     return [];
   }
 }
@@ -49,13 +53,16 @@ export type HunterPerson = { name: string; position: string | null; email: strin
 
 /** Busca personas de un dominio (opcionalmente de un DEPARTAMENTO, p.ej.
  *  "marketing") con su email real, vía Hunter Domain Search. Best-effort. */
-export async function hunterDomainSearch(opts: { domain: string; apiKey: string; department?: string; limit?: number }): Promise<HunterPerson[]> {
+export async function hunterDomainSearch(opts: { domain: string; apiKey: string; department?: string; limit?: number; throwOnError?: boolean }): Promise<HunterPerson[]> {
   try {
     const dep = opts.department ? `&department=${encodeURIComponent(opts.department)}` : "";
     const url = `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(opts.domain)}${dep}&limit=${opts.limit ?? 10}&api_key=${encodeURIComponent(opts.apiKey)}`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
     const data: any = await resp.json().catch(() => null);
-    if (!resp.ok) return [];
+    if (!resp.ok) {
+      if (opts.throwOnError) throw new Error(`Hunter respondi\u00f3 HTTP ${resp.status}`);
+      return [];
+    }
     const emails: any[] = Array.isArray(data?.data?.emails) ? data.data.emails : [];
     return emails
       .filter((e) => e?.value)
@@ -66,7 +73,8 @@ export async function hunterDomainSearch(opts: { domain: string; apiKey: string;
         department: e.department ?? null,
         confidence: typeof e.confidence === "number" ? e.confidence : null
       }));
-  } catch {
+  } catch (error) {
+    if (opts.throwOnError) throw error;
     return [];
   }
 }
@@ -77,13 +85,16 @@ export async function hunterDomainSearch(opts: { domain: string; apiKey: string;
  * fichas de Google suele ser de un franquiciado, Glovo, Instagram… y no el de la
  * central. Devuelve el dominio resuelto + las personas.
  */
-export async function hunterCompanySearch(opts: { company: string; apiKey: string; department?: string; limit?: number }): Promise<{ domain: string | null; people: HunterPerson[] }> {
+export async function hunterCompanySearch(opts: { company: string; apiKey: string; department?: string; limit?: number; throwOnError?: boolean }): Promise<{ domain: string | null; people: HunterPerson[] }> {
   try {
     const dep = opts.department ? `&department=${encodeURIComponent(opts.department)}` : "";
     const url = `https://api.hunter.io/v2/domain-search?company=${encodeURIComponent(opts.company)}${dep}&limit=${opts.limit ?? 15}&api_key=${encodeURIComponent(opts.apiKey)}`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
     const data: any = await resp.json().catch(() => null);
-    if (!resp.ok) return { domain: null, people: [] };
+    if (!resp.ok) {
+      if (opts.throwOnError) throw new Error(`Hunter respondi\u00f3 HTTP ${resp.status}`);
+      return { domain: null, people: [] };
+    }
     const domain = typeof data?.data?.domain === "string" ? data.data.domain : null;
     const emails: any[] = Array.isArray(data?.data?.emails) ? data.data.emails : [];
     const people = emails
@@ -96,7 +107,8 @@ export async function hunterCompanySearch(opts: { company: string; apiKey: strin
         confidence: typeof e.confidence === "number" ? e.confidence : null
       }));
     return { domain, people };
-  } catch {
+  } catch (error) {
+    if (opts.throwOnError) throw error;
     return { domain: null, people: [] };
   }
 }
