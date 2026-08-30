@@ -16,6 +16,8 @@ const deviceId = store.get("deviceId") || crypto.createHash("sha256").update(`${
 store.set("deviceId", deviceId);
 let tray, window, timer, lastTick = Date.now();
 const execFileAsync = promisify(execFile);
+const traySvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#4f46e5"/><circle cx="10" cy="10" r="6" fill="none" stroke="white" stroke-width="1.6"/><path d="M10 6v4l3 2" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+const trayIcon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(traySvg).toString("base64")}`);
 
 async function activeWindow() {
   if (process.platform === "win32") {
@@ -84,5 +86,5 @@ function createWindow() {
 }
 ipcMain.handle("config:get", async () => ({ ...store.store, hasToken: Boolean(await token()), platform: process.platform }));
 ipcMain.handle("config:set", async (_e, input) => { const { apiToken, ...safe } = input; Object.entries(safe).forEach(([k,v]) => store.set(k,v)); if (apiToken) await keytar.setPassword(SERVICE, "agent-token", apiToken); schedule(); updateMenu(); return { ok: true }; });
-app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(nativeImage.createEmpty()); updateMenu(); schedule(); if (!store.get("onboarded")) showWindow(); });
+app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(trayIcon); updateMenu(); schedule(); if (!store.get("onboarded")) showWindow(); });
 app.on("before-quit", () => { app.isQuitting = true; }); app.on("window-all-closed", e => e.preventDefault());
