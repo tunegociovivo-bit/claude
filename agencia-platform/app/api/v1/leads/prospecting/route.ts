@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import type { Prisma } from "@prisma/client";
 
 const stepSchema = z.object({
   channel: z.enum(["linkedin_visit", "linkedin_connect", "linkedin_message", "email", "whatsapp", "task"]),
@@ -149,6 +150,21 @@ export const PATCH = withApi({ scope: "*", admin: true, rate: "admin" }, async (
 
   const status = parsed.data.action === "archive" ? "archived" : parsed.data.action === "pause" ? "paused" : "active";
   const now = new Date();
+  if (status === "active") {
+    const runnableStatuses = ["pending", "active"];
+    const channels = new Set(current.steps.map((step) => step.channel));
+    const contactFilters: Prisma.ProspectingProspectWhereInput[] = [];
+    if (["linkedin_visit", "linkedin_connect", "linkedin_message"].some((channel) => channels.has(channel))) contactFilters.push({ linkedinUrl: { not: null } });
+    if (channels.has("email")) contactFilters.push({ email: { not: null } });
+    if (channels.has("whatsapp")) contactFilters.push({ phone: { not: null } });
+    if (channels.has("task")) contactFilters.push({ id: { not: "" } });
+    const [totalProspects, reachableProspects] = await Promise.all([
+      prisma.prospectingProspect.count({ where: { campaignId: current.id, workspaceId: api.workspaceId, status: { in: runnableStatuses } } }),
+      contactFilters.length ? prisma.prospectingProspect.count({ where: { campaignId: current.id, workspaceId: api.workspaceId, status: { in: runnableStatuses }, OR: contactFilters } }) : 0
+    ]);
+    if (!totalProspects) throw new ApiError(409, "campaign_empty", "Importa al menos un prospecto antes de activar la campa\u00f1a");
+    if (!reachableProspects) throw new ApiError(409, "campaign_unreachable", "Ning\u00fan prospecto tiene LinkedIn, email o WhatsApp compatible con esta cadencia");
+  }
   const campaign = await prisma.$transaction(async (tx) => {
     const updated = await tx.prospectingCampaign.update({ where: { id: current.id }, data: { status, ...(status === "paused" ? { engineLeaseUntil: null } : {}) } });
     if (status === "active") {
