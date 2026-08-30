@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { RefreshCw, Download, Play, Pause, ShieldAlert, Repeat, Pencil, X } from "lucide-react";
+import { recurringDeliverySummary } from "@/lib/invoicing/recurring-presentation";
 
 type Template = { id: string; holdedRecurringId: string | null; status: "active" | "paused"; contactName: string | null; totalCents: number; currency: "EUR" | "USD"; intervalMonths: number | null; intervalUnit: "DAYS" | "MONTHS" | "YEARS"; intervalValue: number; nextRunAt: string | null; recipientEmail: string | null; description: string | null; sendAutomatically: boolean; bccEmails: string[] };
 type ListResp = { templates: Template[]; summary: { total: number; active: number; paused: number } };
@@ -115,15 +116,17 @@ export default function FacturacionRecurrentesPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-xs text-slate-500 bg-slate-50"><tr>
-                <th className="text-left p-3">Cliente</th><th className="text-left p-3">Importe</th><th className="text-left p-3">Cada</th><th className="text-left p-3">Próxima</th><th className="text-left p-3">Estado</th><th className="text-right p-3">Acción</th>
+                <th className="text-left p-3">Cliente</th><th className="text-left p-3">Importe</th><th className="text-left p-3">Cada</th><th className="text-left p-3">Próximo envío</th><th className="text-left p-3">Destinatarios</th><th className="text-left p-3">Estado</th><th className="text-right p-3">Acción</th>
               </tr></thead>
               <tbody className="divide-y">
-                {data.templates.map((t) => (
-                  <tr key={t.id}>
+                {data.templates.map((t) => {
+                  const delivery = recurringDeliverySummary(t);
+                  return <tr key={t.id}>
                     <td className="p-3">{t.contactName ?? <span className="text-slate-400">—</span>}</td>
                     <td className="p-3">{money(t.totalCents, t.currency)}</td>
                     <td className="p-3">{intervalLabel(t)}</td>
-                    <td className="p-3 text-slate-500">{t.nextRunAt ? new Date(t.nextRunAt).toLocaleDateString("es-ES") : "—"}</td>
+                    <td className="p-3 text-slate-600"><span className="whitespace-nowrap font-medium">{delivery.date}</span>{t.sendAutomatically ? <span className="mt-0.5 block text-[11px] text-emerald-600">Envío automático</span> : <span className="mt-0.5 block text-[11px] text-amber-600">Solo se creará</span>}</td>
+                    <td className="max-w-xs p-3"><span className="block break-all text-slate-700">{delivery.recipient}</span>{delivery.bcc && <span className="mt-0.5 block break-all text-[11px] text-slate-500">BCC: {delivery.bcc}</span>}</td>
                     <td className="p-3">{t.status === "active" ? <span className="text-emerald-600">● activa</span> : <span className="text-amber-600">⏸ pausada</span>}</td>
                     <td className="p-3 text-right">
                       <button onClick={() => setEditing({ ...t })} className="mr-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" /> Editar</button>
@@ -133,8 +136,8 @@ export default function FacturacionRecurrentesPage() {
                         <button onClick={() => setStatus(t.id, "pause")} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs hover:bg-amber-50 text-amber-700"><Pause className="h-3.5 w-3.5" /> Pausar</button>
                       )}
                     </td>
-                  </tr>
-                ))}
+                  </tr>;
+                })}
               </tbody>
             </table>
           </div>
