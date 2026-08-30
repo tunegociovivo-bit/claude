@@ -15,7 +15,7 @@ const { prisma, holdedMock } = vi.hoisted(() => {
           if (where.holdedRecurringId?.in) return where.holdedRecurringId.in.includes(r.holdedRecurringId);
           if (where.deletedAt === null && r.deletedAt != null) return false;
           if (where.recurring === true && !r.recurring) return false;
-          if (where.OR) return where.OR.some((o: any) => (o.holdedRecurringId?.not === null && r.holdedRecurringId != null) || (o.recurring === true && r.recurring));
+          if (where.OR) return where.OR.some((o: any) => (o.holdedRecurringId?.not === null && r.holdedRecurringId != null) || (o.recurring === true && r.recurring) || (o.recurrenceConfig?.not && r.recurrenceConfig != null));
           return true;
         });
       }),
@@ -69,6 +69,17 @@ beforeEach(() => {
 });
 
 describe("edición de plantillas recurrentes", () => {
+  it("mantiene visibles las plantillas propias del HUB cuando están pausadas", async () => {
+    prisma._rows.push({
+      id: "hub-paused", workspaceId: "w1", recurring: false, deletedAt: null,
+      holdedRecurringId: null, status: "SENT", totalCents: 10000, currency: "EUR",
+      clientSnapshot: { name: "Cliente HUB", billingEmail: "hub@example.com" },
+      recurrenceConfig: { intervalUnit: "MONTHS", intervalValue: 1, nextRunAt: "2026-09-01T00:00:00.000Z" }
+    });
+
+    expect(await listRecurringTemplates("w1")).toEqual([expect.objectContaining({ id: "hub-paused", status: "paused" })]);
+  });
+
   it("expone la periodicidad real en días en lugar del fallback mensual", async () => {
     prisma._rows.push({
       id: "daily-1", workspaceId: "w1", recurring: true, deletedAt: null,
