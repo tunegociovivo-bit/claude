@@ -7,6 +7,15 @@ const tokens=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"
 const retryAt=(attempt:number)=>new Date(Date.now()+Math.min(7*24,Math.pow(2,attempt)*6)*60*60*1000);
 const leaseUntil=()=>new Date(Date.now()+15*60*1000);
 
+export async function scheduleResolvedProspect(id:string,workspaceId:string,now=new Date()){
+  const activated=await prisma.prospectingProspect.updateMany({where:{id,workspaceId,status:"pending_resolution",campaign:{status:"active"}},data:{status:"active",nextActionAt:now}});
+  if(activated.count)return "active";
+  const pending=await prisma.prospectingProspect.updateMany({where:{id,workspaceId,status:"pending_resolution"},data:{status:"pending",nextActionAt:null}});
+  if(!pending.count)return "unchanged";
+  const activatedAfterTransition=await prisma.prospectingProspect.updateMany({where:{id,workspaceId,status:"pending",campaign:{status:"active"}},data:{status:"active",nextActionAt:now}});
+  return activatedAfterTransition.count?"active":"pending";
+}
+
 export async function autoResolveProspectingProfiles(limit=20) {
   const now=new Date();
   const prospects=await prisma.prospectingProspect.findMany({
@@ -36,7 +45,8 @@ export async function autoResolveProspectingProfiles(limit=20) {
       if(!match&&providerErrors.length)throw new Error(`Enriquecimiento incompleto; se reintentar\u00e1: ${providerErrors.join(" | ")}`);
       const enriched={...prospect,email:prospect.email||match?.email||null,linkedinUrl:prospect.linkedinUrl||match?.linkedin||null,jobTitle:prospect.jobTitle||identity?.title||null};const scored=scoreProspect(enriched);
       const terminal=attempt>=4;
-      await prisma.prospectingProspect.update({where:{id:prospect.id},data:{email:enriched.email,linkedinUrl:enriched.linkedinUrl,jobTitle:enriched.jobTitle,companyDomain:domain,enrichedAt:now,resolutionStatus:match?"resolved":terminal?"not_found":"retry_pending",resolutionConfidence:match?Math.max(85,match.confidence||0):0,resolutionAttempts:attempt,nextResolutionAt:match||terminal?null:retryAt(attempt),resolutionError:match?null:`No se encontró una identidad con canal verificable${providerErrors.length?`. Proveedores con error: ${providerErrors.join(" | ")}`:""}`,score:scored.score,scoreBreakdown:scored.breakdown,status:match?(prospect.campaign.status==="active"?"active":"pending"):"pending_resolution",nextActionAt:match&&prospect.campaign.status==="active"?now:null,metadata:{...((prospect.metadata as object)||{}),enrichment:{candidates:candidates.slice(0,10),selectedSource:match?.source||null,providerErrors}}}});
+      await prisma.prospectingProspect.update({where:{id:prospect.id},data:{email:enriched.email,linkedinUrl:enriched.linkedinUrl,jobTitle:enriched.jobTitle,companyDomain:domain,enrichedAt:now,resolutionStatus:match?"resolved":terminal?"not_found":"retry_pending",resolutionConfidence:match?Math.max(85,match.confidence||0):0,resolutionAttempts:attempt,nextResolutionAt:match||terminal?null:retryAt(attempt),resolutionError:match?null:`No se encontró una identidad con canal verificable${providerErrors.length?`. Proveedores con error: ${providerErrors.join(" | ")}`:""}`,score:scored.score,scoreBreakdown:scored.breakdown,metadata:{...((prospect.metadata as object)||{}),enrichment:{candidates:candidates.slice(0,10),selectedSource:match?.source||null,providerErrors}}}});
+      if(match)await scheduleResolvedProspect(prospect.id,prospect.workspaceId,now);
       if(match)resolved++;else if(!terminal)retrying++;
     }catch(error){await prisma.prospectingProspect.update({where:{id:prospect.id},data:{resolutionStatus:attempt>=4?"failed":"retry_pending",resolutionAttempts:attempt,nextResolutionAt:attempt>=4?null:retryAt(attempt),resolutionError:error instanceof Error?error.message:String(error)}}).catch(()=>null);if(attempt<4)retrying++;}
   }
