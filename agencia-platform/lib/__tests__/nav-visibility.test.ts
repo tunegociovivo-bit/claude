@@ -53,6 +53,8 @@ describe("/facturacion — tarjeta de recurrentes con datos reales (no hardcode)
     expect(src).toContain("/admin/facturacion-recurrentes");
     expect(src).toContain("Para: {delivery.recipient}");
     expect(src).toContain("BCC: {delivery.bcc}");
+    expect(src).toContain("Próxima factura");
+    expect(src).toContain("Correos de envío");
     // no hardcode de los números del ejemplo
     expect(src).not.toMatch(/20 importadas/);
   });
