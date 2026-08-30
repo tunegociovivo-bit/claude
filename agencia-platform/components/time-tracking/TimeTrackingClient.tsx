@@ -17,6 +17,8 @@ export default function TimeTrackingClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [shots, setShots] = useState<Shot[]>([]);
+  const [enrollUser, setEnrollUser] = useState("");
+  const [enrollmentToken, setEnrollmentToken] = useState("");
   const load = useCallback(async () => {
     const r = await fetch(`/api/v1/time-tracking?days=${days}`, { cache: "no-store" });
     if (!r.ok) throw new Error((await r.json().catch(() => null))?.error?.message || "No se pudo cargar el control horario");
@@ -32,6 +34,15 @@ export default function TimeTrackingClient() {
       const r = await fetch("/api/v1/time-tracking", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(action === "start" ? { action, projectId: projectId || null, privateMode } : { action }) });
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.error?.message || "No se pudo registrar el fichaje");
       await load();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
+  async function createEnrollment() {
+    if (!enrollUser) return;
+    setBusy(true); setError(""); setEnrollmentToken("");
+    try {
+      const r = await fetch("/api/v1/time-tracking/enrollment", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: enrollUser }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error?.message || "No se pudo generar la credencial");
+      setEnrollmentToken((await r.json()).token);
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
   if (!data) return <main className="p-6"><p>{error || "Cargando control horario…"}</p></main>;
@@ -56,6 +67,12 @@ export default function TimeTrackingClient() {
       <div className="flex items-end justify-between gap-3"><div><h2 className="font-bold">Capturas periódicas</h2><p className="text-sm text-slate-500">Acceso temporal; las imágenes se eliminan al vencer su retención.</p></div><span className="text-xs text-slate-500">{shots.length} recientes</span></div>
       {shots.length ? <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{shots.slice(0,18).map(s=><a key={s.id} href={s.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-xl border border-slate-200"><img src={s.url} alt={`Captura de ${s.user}`} className="aspect-video w-full bg-slate-100 object-cover transition group-hover:scale-[1.02]"/><div className="p-3"><div className="font-semibold">{s.user}</div><div className="text-xs text-slate-500">{new Date(s.capturedAt).toLocaleString("es-ES")} · {s.appName || "Aplicación no indicada"}{s.blurred ? " · Difuminada" : ""}</div></div></a>)}</div> : <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Todavía no hay capturas. Se mostrarán cuando el agente de Windows o macOS esté vinculado.</p>}
     </section>
+    {data.isAdmin && <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <h2 className="font-bold">Instalar agente en un equipo</h2><p className="mt-1 text-sm text-slate-500">Genera una credencial individual, instala la aplicación y pégala una sola vez. Podrás revocarla desde Administración → API.</p>
+      <div className="mt-4 flex flex-col gap-3 md:flex-row"><select value={enrollUser} onChange={e=>setEnrollUser(e.target.value)} className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2"><option value="">Seleccionar trabajador…</option>{data.members.map(m=><option key={m.id} value={m.id}>{m.name} · {m.email}</option>)}</select><button disabled={busy||!enrollUser} onClick={createEnrollment} className="rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">Generar credencial</button></div>
+      {enrollmentToken && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-900">Cópiala ahora: solo se muestra esta vez.</p><div className="mt-2 flex gap-2"><code className="min-w-0 flex-1 overflow-x-auto rounded bg-white p-2 text-xs">{enrollmentToken}</code><button onClick={()=>navigator.clipboard.writeText(enrollmentToken)} className="rounded-lg border bg-white px-3 text-sm font-semibold">Copiar</button></div></div>}
+      <p className="mt-4 text-xs text-slate-500">Windows y macOS utilizan el mismo token. El instalador de macOS aparecerá cuando esté firmado y notarizado por Apple.</p>
+    </section>}
     <div className="flex gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900"><ShieldCheck className="shrink-0"/><p><b>Privacidad por diseño:</b> no se registran pulsaciones, contraseñas ni contenidos de formularios. Cada trabajador puede ver sus datos y activar tiempo privado.</p></div>
   </main>;
 }
