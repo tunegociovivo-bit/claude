@@ -6,13 +6,14 @@ type RecurringDelivery = {
 
 export function recurringDeliverySummary(delivery: RecurringDelivery) {
   const bccEmails = Array.isArray(delivery.bccEmails)
-    ? delivery.bccEmails.map((email) => email.trim()).filter(Boolean)
+    ? [...new Set(delivery.bccEmails.map((email) => email.trim().toLowerCase()).filter(Boolean))]
     : [];
+  const nextRunAt = delivery.nextRunAt ? new Date(delivery.nextRunAt) : null;
 
   return {
-    date: delivery.nextRunAt
-      ? new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid" }).format(new Date(delivery.nextRunAt))
-      : "—",
+    date: !nextRunAt ? "—" : Number.isFinite(nextRunAt.getTime())
+      ? new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid" }).format(nextRunAt)
+      : "Fecha inválida",
     recipient: delivery.recipientEmail?.trim() || "Sin correo configurado",
     bcc: bccEmails.length ? bccEmails.join(", ") : null
   };

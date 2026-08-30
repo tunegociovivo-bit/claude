@@ -125,7 +125,7 @@ export default function FacturacionRecurrentesPage() {
                     <td className="p-3">{t.contactName ?? <span className="text-slate-400">—</span>}</td>
                     <td className="p-3">{money(t.totalCents, t.currency)}</td>
                     <td className="p-3">{intervalLabel(t)}</td>
-                    <td className="p-3 text-slate-600"><span className="whitespace-nowrap font-medium">{delivery.date}</span>{t.sendAutomatically ? <span className="mt-0.5 block text-[11px] text-emerald-600">Envío automático</span> : <span className="mt-0.5 block text-[11px] text-amber-600">Solo se creará</span>}</td>
+                    <td className="p-3 text-slate-600"><span className="whitespace-nowrap font-medium">{delivery.date}</span>{t.status === "paused" ? <span className="mt-0.5 block text-[11px] text-amber-600">Al reactivar</span> : t.sendAutomatically ? <span className="mt-0.5 block text-[11px] text-emerald-600">Envío automático</span> : <span className="mt-0.5 block text-[11px] text-amber-600">Solo se creará</span>}</td>
                     <td className="max-w-xs p-3"><span className="block break-all text-slate-700">{delivery.recipient}</span>{delivery.bcc && <span className="mt-0.5 block break-all text-[11px] text-slate-500">BCC: {delivery.bcc}</span>}</td>
                     <td className="p-3">{t.status === "active" ? <span className="text-emerald-600">● activa</span> : <span className="text-amber-600">⏸ pausada</span>}</td>
                     <td className="p-3 text-right">
