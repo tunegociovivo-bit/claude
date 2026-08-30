@@ -1,0 +1,39 @@
+name: Publicar agente de control horario
+
+on:
+  push:
+    tags: ["time-agent-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            command: dist:win
+            files: agencia-platform/desktop-agent/dist/*.exe
+          - os: macos-latest
+            command: dist:mac
+            files: agencia-platform/desktop-agent/dist/*.dmg
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: agencia-platform/desktop-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agencia-platform/desktop-agent/package-lock.json
+      - run: npm ci
+      - run: npm run ${{ matrix.command }}
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ matrix.files }}
+          generate_release_notes: true
