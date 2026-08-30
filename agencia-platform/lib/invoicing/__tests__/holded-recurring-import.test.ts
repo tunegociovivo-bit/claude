@@ -46,7 +46,7 @@ const { prisma, holdedMock } = vi.hoisted(() => {
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
 vi.mock("@/lib/integrations/holded", () => ({ holdedListRecurringInvoices: holdedMock }));
 
-import { previewHoldedRecurring, importHoldedRecurringPaused, setTemplatePaused, pauseAllRecurring, periodicityToMonths, normalizeRecurring } from "../holded-recurring-import";
+import { previewHoldedRecurring, importHoldedRecurringPaused, setTemplatePaused, pauseAllRecurring, periodicityToMonths, normalizeRecurring, listRecurringTemplates, updateRecurringTemplate } from "../holded-recurring-import";
 
 const NOW = new Date("2026-08-13T00:00:00Z");
 const SAMPLE = [
@@ -59,6 +59,40 @@ beforeEach(() => {
   vi.clearAllMocks();
   prisma._rows.length = 0;
   holdedMock.mockResolvedValue(SAMPLE);
+});
+
+describe("edición de plantillas recurrentes", () => {
+  it("expone la periodicidad real en días en lugar del fallback mensual", async () => {
+    prisma._rows.push({
+      id: "daily-1", workspaceId: "w1", recurring: true, deletedAt: null,
+      holdedRecurringId: null, status: "SENT", totalCents: 64972, currency: "USD",
+      clientSnapshot: { name: "Calle Ancha Rohrmoser, S.A.", billingEmail: "billing@example.com" },
+      recurrenceConfig: { intervalMonths: 1, intervalUnit: "DAYS", intervalValue: 1, nextRunAt: "2026-08-31T00:00:00.000Z" }
+    });
+
+    const [template] = await listRecurringTemplates("w1");
+    expect(template).toMatchObject({ intervalUnit: "DAYS", intervalValue: 1, recipientEmail: "billing@example.com", sendAutomatically: true });
+  });
+
+  it("actualiza frecuencia, correo e importe dentro del workspace", async () => {
+    prisma._rows.push({
+      id: "daily-1", workspaceId: "w1", recurring: true, deletedAt: null,
+      status: "SENT", totalCents: 64972, subtotalCents: 64972, currency: "USD",
+      clientSnapshot: { name: "Calle Ancha Rohrmoser, S.A.", email: "old@example.com" },
+      lines: [{ description: "Servicio", quantity: 1, unitPriceCents: 64972, taxRate: 0 }],
+      recurrenceConfig: { intervalUnit: "DAYS", intervalValue: 1, nextRunAt: "2026-08-31T00:00:00.000Z" }
+    });
+
+    expect((await updateRecurringTemplate("w1", "daily-1", {
+      intervalUnit: "DAYS", intervalValue: 3, recipientEmail: "new@example.com",
+      totalCents: 70000, currency: "USD", nextRunAt: "2026-09-02T00:00:00.000Z", sendAutomatically: true
+    })).ok).toBe(true);
+    expect(prisma._rows[0]).toMatchObject({
+      totalCents: 70000,
+      clientSnapshot: { name: "Calle Ancha Rohrmoser, S.A.", email: "old@example.com", billingEmail: "new@example.com" },
+      recurrenceConfig: { intervalUnit: "DAYS", intervalValue: 3, nextRunAt: "2026-09-02T00:00:00.000Z" }
+    });
+  });
 });
 
 describe("normalización de periodicidad", () => {
