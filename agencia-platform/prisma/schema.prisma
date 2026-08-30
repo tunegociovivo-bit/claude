@@ -1576,6 +1576,9 @@ model ProspectingProspect {
   assignedUserId       String?
   resolutionStatus     String    @default("unresolved")
   resolutionConfidence Float?
+  resolutionAttempts   Int       @default(0)
+  nextResolutionAt     DateTime?
+  resolutionError      String?   @db.Text
   enrichedAt           DateTime?
   attributedValueCents Int?
   status               String    @default("pending") // pending | active | processing | waiting_action | replied | qualified | meeting | stopped | completed | excluded
@@ -1598,6 +1601,7 @@ model ProspectingProspect {
   @@index([workspaceId, email])
   @@index([workspaceId, linkedinUrl])
   @@index([workspaceId, phone])
+  @@index([resolutionStatus, nextResolutionAt])
 }
 
 model ProspectingMessage {
