@@ -14,6 +14,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { holdedListRecurringInvoices, type HoldedRecurring } from "@/lib/integrations/holded";
+import { Prisma } from "@prisma/client";
 
 export type NormalizedRecurring = {
   holdedId: string;
@@ -178,9 +179,8 @@ export type RecurringTemplate = {
 /** Lista las plantillas recurrentes del workspace (importadas de Holded o no). */
 export async function listRecurringTemplates(workspaceId: string): Promise<RecurringTemplate[]> {
   const rows = await prisma.invoice.findMany({
-    where: { workspaceId, deletedAt: null, OR: [{ holdedRecurringId: { not: null } }, { recurring: true }] },
+    where: { workspaceId, deletedAt: null, OR: [{ holdedRecurringId: { not: null } }, { recurring: true }, { recurrenceConfig: { not: Prisma.DbNull } }] },
     orderBy: { createdAt: "desc" },
-    take: 1000,
     select: { id: true, holdedRecurringId: true, recurring: true, status: true, clientSnapshot: true, lines: true, totalCents: true, currency: true, recurrenceConfig: true }
   });
   return rows.map((r: any) => {

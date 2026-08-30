@@ -28,7 +28,8 @@ export function recurringDeliverySummary(delivery: RecurringDelivery) {
 
 export function upcomingRecurringDeliveries(deliveries: RecurringDashboardDelivery[], limit = 3) {
   return deliveries
-    .filter((delivery) => delivery.status === "active")
+    .filter((delivery) => delivery.status === "active" && delivery.nextRunAt && Number.isFinite(new Date(delivery.nextRunAt).getTime()))
+    .slice()
     .sort((a, b) => {
       const aTime = a.nextRunAt ? new Date(a.nextRunAt).getTime() : Number.POSITIVE_INFINITY;
       const bTime = b.nextRunAt ? new Date(b.nextRunAt).getTime() : Number.POSITIVE_INFINITY;
