@@ -215,22 +215,24 @@ export type RecurringTemplateUpdate = {
   description?: string;
 };
 
-export async function updateRecurringTemplate(workspaceId: string, id: string, input: RecurringTemplateUpdate): Promise<{ ok: boolean }> {
+export async function updateRecurringTemplate(workspaceId: string, id: string, input: RecurringTemplateUpdate, now = new Date()): Promise<{ ok: boolean; error?: "past_next_run" }> {
+  const nextRunAt = new Date(input.nextRunAt);
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (!Number.isFinite(nextRunAt.getTime()) || nextRunAt < today) return { ok: false, error: "past_next_run" };
   const current = await prisma.invoice.findFirst({
     where: { id, workspaceId, deletedAt: null }
   });
   if (!current) return { ok: false };
   const cfg = (current.recurrenceConfig as any) ?? {};
   const client = (current.clientSnapshot as any) ?? {};
-  const lines = Array.isArray(current.lines) ? [...(current.lines as any[])] : [];
-  const first = lines[0] ?? { quantity: 1, taxRate: 0, discountPct: 0 };
-  lines[0] = {
-    ...first,
-    description: input.description?.trim() || first.description || "Servicio recurrente",
+  const first = Array.isArray(current.lines) ? (current.lines as any[])[0] : null;
+  const lines = [{
+    description: input.description?.trim() || first?.description || "Servicio recurrente",
     quantity: 1,
     unitPriceCents: input.totalCents,
-    taxRate: 0
-  };
+    taxRate: 0,
+    discountPct: 0
+  }];
   const intervalMonths = input.intervalUnit === "YEARS"
     ? input.intervalValue * 12
     : input.intervalUnit === "MONTHS" ? input.intervalValue : 1;
@@ -253,7 +255,7 @@ export async function updateRecurringTemplate(workspaceId: string, id: string, i
         intervalMonths,
         intervalUnit: input.intervalUnit,
         intervalValue: input.intervalValue,
-        nextRunAt: new Date(input.nextRunAt).toISOString()
+        nextRunAt: nextRunAt.toISOString()
       }
     }
   });

@@ -35,6 +35,7 @@ export const PATCH = withApi({ scope: "*", rate: "admin", admin: true }, async (
   }).safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: { code: "bad_request", message: parsed.error.issues[0]?.message ?? "Datos inválidos" } }, { status: 400 });
   const res = await updateRecurringTemplate(api.workspaceId, id, parsed.data);
+  if (res.error === "past_next_run") return NextResponse.json({ error: { code: "past_next_run", message: "La próxima emisión debe ser hoy o una fecha futura" } }, { status: 400 });
   if (!res.ok) return NextResponse.json({ error: { code: "not_found", message: "Plantilla no encontrada" } }, { status: 404 });
   console.info(`[recurring] ws=${api.workspaceId} id=${id} updated by=${api.userId ?? "?"}`);
   return NextResponse.json({ ok: true, id });
