@@ -259,6 +259,9 @@ model Workspace {
   metaOptimizationProposals  MetaOptimizationProposal[]
   aiAgentRuns                AiAgentRun[]
   soniaScheduledInstructions SoniaScheduledInstruction[]
+  accountancyInvoiceClients  AccountancyInvoiceClient[]
+  accountancyInvoiceSchedule AccountancyInvoiceSchedule?
+  accountancyInvoiceRuns     AccountancyInvoiceRun[]
   aiDrafts                   AiDraft[]
   aiOrchestrations           AiOrchestration[]
   aiRunSteps                 AiRunStep[]
@@ -283,6 +286,83 @@ model Workspace {
   invoiceCounters            InvoiceCounter[]
   expenses                   Expense[]
   panelNotes                 PanelNote[]
+}
+
+model AccountancyInvoiceClient {
+  id                String                      @id @default(cuid())
+  workspaceId       String
+  name              String
+  source            String
+  externalAccountId String?
+  enabled           Boolean                     @default(true)
+  notes             String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  workspace         Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runItems          AccountancyInvoiceRunItem[]
+
+  @@unique([workspaceId, source, externalAccountId])
+  @@index([workspaceId, enabled])
+  @@index([workspaceId, source])
+}
+
+model AccountancyInvoiceSchedule {
+  id           String    @id @default(cuid())
+  workspaceId  String    @unique
+  enabled      Boolean   @default(true)
+  dayOfMonth   Int       @default(2)
+  time         String    @default("08:30")
+  timezone     String    @default("Europe/Madrid")
+  recipients   Json
+  lastRunMonth String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model AccountancyInvoiceRun {
+  id           String                      @id @default(cuid())
+  workspaceId  String
+  periodKey    String
+  periodFrom   DateTime
+  periodTo     DateTime
+  trigger      String
+  status       String                      @default("PENDING")
+  recipients   Json?
+  archiveFiles Json?
+  emailedAt    DateTime?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+  workspace    Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items        AccountancyInvoiceRunItem[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, periodKey])
+}
+
+model AccountancyInvoiceRunItem {
+  id           String                    @id @default(cuid())
+  runId        String
+  clientId     String?
+  clientName   String
+  source       String
+  status       String                    @default("PENDING")
+  invoiceCount Int                       @default(0)
+  amountCents  Int                       @default(0)
+  currency     String                    @default("EUR")
+  files        Json?
+  error        String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  run          AccountancyInvoiceRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  client       AccountancyInvoiceClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([runId, status])
+  @@index([clientId])
 }
 
 // Control horario y productividad. Solo almacena metadatos de uso agregados;

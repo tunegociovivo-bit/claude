@@ -49,6 +49,9 @@ export default async function FacturacionPage() {
         description="Elige primero la empresa con la que vas a facturar. Después emite facturas, presupuestos, rectificativas y proformas — recurrentes, multi-divisa, Stripe y Factura-e."
       />
       <div className="mb-3 flex flex-wrap gap-2">
+        <a href="/facturacion/gestoria" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+          📁 Facturas gestoría
+        </a>
         <a href="/facturacion/remesas" className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-100">
           🏦 Remesas de adeudos SEPA
         </a>
