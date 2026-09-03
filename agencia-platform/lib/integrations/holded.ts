@@ -120,7 +120,17 @@ export async function holdedGetInvoice(opts: {
 
 function nestedStrings(value: unknown, depth = 0): string[] {
   if (depth > 5) return [];
-  if (typeof value === "string") return [value];
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try {
+        return [value, ...nestedStrings(JSON.parse(trimmed), depth + 1)];
+      } catch {
+        // No era JSON serializado; se trata como una cadena normal.
+      }
+    }
+    return [value];
+  }
   if (!value || typeof value !== "object") return [];
   return Object.values(value as Record<string, unknown>).slice(0, 100).flatMap((entry) => nestedStrings(entry, depth + 1)).slice(0, 200);
 }
