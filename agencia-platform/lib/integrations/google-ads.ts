@@ -21,7 +21,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 
-const API_VERSION = "v17"; // estable a fecha de implementación
+const API_VERSION = "v25";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const BASE = `https://googleads.googleapis.com/${API_VERSION}`;
 
@@ -48,6 +48,97 @@ async function getAccessToken(refreshToken: string): Promise<string> {
   }
   const data = await r.json();
   return data.access_token as string;
+}
+
+export type GoogleAdsInvoice = {
+  id: string;
+  number: string;
+  issueDate: string;
+  totalAmountMicros: number;
+  currency: string;
+  pdfUrl: string;
+};
+
+export function normalizeGoogleAdsInvoices(payload: any): GoogleAdsInvoice[] {
+  const rows = Array.isArray(payload?.invoices) ? payload.invoices : [];
+  return rows.filter((invoice: any) => invoice?.pdfUrl).map((invoice: any) => ({
+    id: invoice.resourceName || invoice.id || invoice.invoiceId,
+    number: invoice.id || invoice.invoiceId || String(invoice.resourceName || "").split("/").pop(),
+    issueDate: invoice.issueDate || "",
+    totalAmountMicros: Number(invoice.totalAmountMicros || 0),
+    currency: invoice.currencyCode || "EUR",
+    pdfUrl: invoice.pdfUrl
+  }));
+}
+
+function digits(value: string | null | undefined) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+/**
+ * Lista las facturas oficiales de una cuenta con facturación mensual.
+ * Google exige indicar el billing setup y el manager pagador.
+ */
+export async function gadsListInvoices(opts: {
+  workspaceId: string;
+  customerId: string;
+  issueYear: number;
+  issueMonth: number;
+  loginCustomerId?: string | null;
+}): Promise<GoogleAdsInvoice[]> {
+  const cfg = await getConnConfig(opts.workspaceId);
+  const customerId = digits(opts.customerId);
+  if (!customerId) throw new Error("ID de cliente de Google Ads no válido");
+  const accessToken = await getAccessToken(cfg.refreshToken);
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "developer-token": cfg.devToken
+  };
+  const loginCustomerId = digits(opts.loginCustomerId || cfg.loginCustomerId);
+  if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
+
+  const setupsResponse = await fetch(`${BASE}/customers/${customerId}/googleAds:searchStream`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "SELECT billing_setup.resource_name FROM billing_setup" })
+  });
+  if (!setupsResponse.ok) {
+    const detail = await setupsResponse.text();
+    throw new Error(`Google Ads billing setups ${setupsResponse.status}: ${detail.slice(0, 300)}`);
+  }
+  const setupBatches = await setupsResponse.json();
+  const resources = (Array.isArray(setupBatches) ? setupBatches : [setupBatches])
+    .flatMap((batch: any) => batch.results || [])
+    .map((row: any) => row.billingSetup?.resourceName)
+    .filter(Boolean);
+  if (!resources.length) throw new Error("La cuenta no tiene una configuración de facturación mensual accesible por API");
+
+  const invoices: GoogleAdsInvoice[] = [];
+  for (const billingSetup of resources) {
+    const query = new URLSearchParams({
+      billingSetup,
+      issueYear: String(opts.issueYear),
+      issueMonth: String(opts.issueMonth)
+    });
+    const response = await fetch(`${BASE}/customers/${customerId}/invoices:list?${query}`, { headers });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Google Ads invoices ${response.status}: ${detail.slice(0, 300)}`);
+    }
+    const data = await response.json();
+    invoices.push(...normalizeGoogleAdsInvoices(data));
+  }
+  return [...new Map(invoices.map((invoice) => [invoice.id, invoice])).values()];
+}
+
+export async function gadsDownloadInvoicePdf(opts: { workspaceId: string; invoice: GoogleAdsInvoice }) {
+  const cfg = await getConnConfig(opts.workspaceId);
+  const accessToken = await getAccessToken(cfg.refreshToken);
+  const response = await fetch(opts.invoice.pdfUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error(`Google Ads PDF ${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.subarray(0, 4).toString("ascii") !== "%PDF") throw new Error("Google Ads no devolvió un PDF válido");
+  return buffer;
 }
 
 async function getConnConfig(workspaceId: string) {

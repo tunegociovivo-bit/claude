@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getPreviousMonthPeriod, getRunHealth, getSourceDownloadOutcome } from "./domain";
 import { shouldRunMonthlySchedule } from "./domain";
 import { holdedGetInvoicePdf, holdedListInvoices } from "@/lib/integrations/holded";
+import { gadsDownloadInvoicePdf, gadsListInvoices } from "@/lib/integrations/google-ads";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 
 export const DEFAULT_RECIPIENTS = ["info@negociovivo.com"];
@@ -17,22 +18,24 @@ const DEFAULT_CLIENTS = [
   ["NEGOCIO VIVO", "META", "2074249599540370"],
   ["David Díaz Ríos", "META", "1906884993251"],
   ["Mudanzas Reva", "GOOGLE_ADS", "384-789-9827"],
-  ["Taxi Grande Málaga", "GOOGLE_ADS", "taxi-grande-malaga"],
+  ["Taxi Grande Málaga", "GOOGLE_ADS", "249-419-3921"],
   ["Tecnoidentia NV", "GOOGLE_ADS", "708-187-4860"],
-  ["Automatic Choice", "GOOGLE_ADS", "automatic-choice"],
+  ["Automatic Choice", "GOOGLE_ADS", "918-792-1793"],
   ["Mudanzas Lorena", "GOOGLE_ADS", "mudanzas-lorena"],
-  ["Eroski Franquicias", "GOOGLE_ADS", "https://ads.google.com/aw/billing/documents?ocid=59412057"],
-  ["NV - México", "GOOGLE_ADS", "https://ads.google.com/aw/billing/documents?ocid=8406455988"],
-  ["LATAM", "GOOGLE_ADS", "https://ads.google.com/aw/billing/documents?ocid=6587199532"]
+  ["Eroski Franquicias", "GOOGLE_ADS", "196-147-6671"],
+  ["NV - México", "GOOGLE_ADS", "631-103-4413"],
+  ["LATAM", "GOOGLE_ADS", "660-810-9819"]
 ] as const;
 
 export async function ensureDefaultAccountancyClients(workspaceId: string) {
-  const googleUrlMigrations = [
-    ["196-147-6671", "https://ads.google.com/aw/billing/documents?ocid=59412057"],
-    ["631-103-4413", "https://ads.google.com/aw/billing/documents?ocid=8406455988"],
-    ["660-810-9819", "https://ads.google.com/aw/billing/documents?ocid=6587199532"]
+  const googleIdMigrations = [
+    ["taxi-grande-malaga", "249-419-3921"],
+    ["automatic-choice", "918-792-1793"],
+    ["https://ads.google.com/aw/billing/documents?ocid=59412057", "196-147-6671"],
+    ["https://ads.google.com/aw/billing/documents?ocid=8406455988", "631-103-4413"],
+    ["https://ads.google.com/aw/billing/documents?ocid=6587199532", "660-810-9819"]
   ] as const;
-  for (const [oldId, externalAccountId] of googleUrlMigrations) {
+  for (const [oldId, externalAccountId] of googleIdMigrations) {
     await prisma.accountancyInvoiceClient.updateMany({ where: { workspaceId, source: "GOOGLE_ADS", externalAccountId: oldId }, data: { externalAccountId } });
   }
   await prisma.accountancyInvoiceClient.createMany({
@@ -44,6 +47,56 @@ export async function ensureDefaultAccountancyClients(workspaceId: string) {
     create: { workspaceId, recipients: DEFAULT_RECIPIENTS },
     update: {}
   });
+}
+
+export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
+  const pending = await prisma.accountancyInvoiceRunItem.findFirst({
+    where: { source: "GOOGLE_ADS", status: "PENDING", ...(runId ? { runId } : {}) },
+    include: { run: true, client: true },
+    orderBy: { createdAt: "asc" }
+  });
+  if (!pending) return null;
+  const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: pending.id, status: "PENDING" }, data: { status: "RUNNING", startedAt: new Date(), error: null } });
+  if (!claimed.count) return null;
+  try {
+    if (!isStorageEnabled()) throw new Error("Storage no configurado para archivar las facturas");
+    const customerId = String(pending.client?.externalAccountId || "").replace(/\D/g, "");
+    if (!customerId) throw new Error("Configura el ID numérico de Google Ads de esta cuenta");
+    const invoices = await gadsListInvoices({
+      workspaceId: pending.run.workspaceId,
+      customerId,
+      issueYear: pending.run.periodFrom.getUTCFullYear(),
+      issueMonth: pending.run.periodFrom.getUTCMonth() + 1
+    });
+    const files: Array<{ id: string; name: string; url: string }> = [];
+    const errors: string[] = [];
+    let amountCents = 0;
+    for (const invoice of invoices) {
+      try {
+        const buffer = await gadsDownloadInvoicePdf({ workspaceId: pending.run.workspaceId, invoice });
+        const name = `google-ads-${customerId}-${invoice.number || invoice.id}.pdf`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const s3Key = buildS3Key({ workspaceId: pending.run.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id, filename: name });
+        await uploadBuffer({ s3Key, body: buffer, contentType: "application/pdf" });
+        const row = await prisma.file.create({ data: { workspaceId: pending.run.workspaceId, name, mimeType: "application/pdf", sizeBytes: buffer.length, s3Key, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id } });
+        files.push({ id: row.id, name, url: await signedDownloadUrl(s3Key, 7 * 24 * 3600) });
+        amountCents += Math.round(invoice.totalAmountMicros / 10_000);
+      } catch (error: any) {
+        errors.push(`${invoice.number || invoice.id}: ${String(error?.message || error).slice(0, 180)}`);
+      }
+    }
+    const outcome = getSourceDownloadOutcome(invoices.length, files.length, errors);
+    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents, currency: invoices[0]?.currency || "EUR", files, finishedAt: new Date() } });
+  } catch (error: any) {
+    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: "FAILED", error: String(error?.message || error).slice(0, 1000), finishedAt: new Date() } });
+  }
+  await refreshRunStatus(pending.runId);
+  return pending.id;
+}
+
+export async function processAllPendingGoogleAdsInvoiceRun(runId?: string, limit = 20) {
+  let processed = 0;
+  while (processed < limit && await processPendingGoogleAdsInvoiceRun(runId)) processed++;
+  return processed;
 }
 
 export async function createAccountancyInvoiceRun(workspaceId: string, trigger: "MANUAL" | "SCHEDULED", now = new Date()) {

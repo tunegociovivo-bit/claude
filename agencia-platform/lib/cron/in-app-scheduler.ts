@@ -80,9 +80,10 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] holded/sepa:", (e as Error).message);
     }
     try {
-      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
+      await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría:", (e as Error).message);
     }
