@@ -382,6 +382,19 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             </Link>
             <Link
               onClick={onNavigate}
+              href="/facturacion/gestoria"
+              className={clsx(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                pathname.startsWith("/facturacion/gestoria")
+                  ? "bg-brand-600/25 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              )}
+            >
+              <FileText className="h-4 w-4" />
+              Facturas gestoría
+            </Link>
+            <Link
+              onClick={onNavigate}
               href="/facturacion/remesas"
               className={clsx(
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
