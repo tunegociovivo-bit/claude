@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
-import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, SOURCES } from "@/lib/accountancy-invoices/service";
+import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, processPendingHoldedInvoiceRun, SOURCES } from "@/lib/accountancy-invoices/service";
 import { validateRecipients } from "@/lib/accountancy-invoices/domain";
 
 async function adminContext() {
@@ -29,7 +29,11 @@ export async function POST(req: NextRequest) {
   const ctx = await adminContext();
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const body = await req.json();
-  if (body.action === "run") return NextResponse.json(await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL"), { status: 201 });
+  if (body.action === "run") {
+    const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
+    setImmediate(() => processPendingHoldedInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Holded manual:", error?.message || error)));
+    return NextResponse.json(run, { status: 201 });
+  }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });
     const client = await prisma.accountancyInvoiceClient.create({ data: { workspaceId: ctx.workspaceId, name: body.name.trim(), source: body.source, externalAccountId: body.externalAccountId?.trim() || null, notes: body.notes?.trim() || null } });

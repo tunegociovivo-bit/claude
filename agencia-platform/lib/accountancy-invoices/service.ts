@@ -87,9 +87,9 @@ export async function runAccountancySchedules(now = new Date()) {
   return created;
 }
 
-export async function processPendingHoldedInvoiceRun() {
+export async function processPendingHoldedInvoiceRun(runId?: string) {
   const pending = await prisma.accountancyInvoiceRunItem.findFirst({
-    where: { source: "HOLDED", status: "PENDING" },
+    where: { source: "HOLDED", status: "PENDING", ...(runId ? { runId } : {}) },
     include: { run: true },
     orderBy: { createdAt: "asc" }
   });
