@@ -18,7 +18,7 @@ describe("decodeHoldedPdfPayload", () => {
   });
 
   it("accepts an HTTPS URL returned by legacy Holded and blocks local URLs", () => {
-    expect(extractSafeHoldedPdfUrl(Buffer.from(JSON.stringify({ data: "https://cdn.holded.com/invoice.pdf" })))).toBe("https://cdn.holded.com/invoice.pdf");
+    expect(extractSafeHoldedPdfUrl(Buffer.from(JSON.stringify({ response: { document: { url: "https://cdn.holded.com/invoice.pdf" } } })))).toBe("https://cdn.holded.com/invoice.pdf");
     expect(() => extractSafeHoldedPdfUrl(Buffer.from('"http://127.0.0.1/invoice.pdf"'))).toThrow(/segura/);
   });
 });
