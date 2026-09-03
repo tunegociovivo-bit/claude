@@ -118,12 +118,19 @@ export async function holdedGetInvoice(opts: {
   return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`);
 }
 
+function nestedStrings(value: unknown, depth = 0): string[] {
+  if (depth > 5) return [];
+  if (typeof value === "string") return [value];
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value as Record<string, unknown>).slice(0, 100).flatMap((entry) => nestedStrings(entry, depth + 1)).slice(0, 200);
+}
+
 export function decodeHoldedPdfPayload(payload: Buffer): Buffer {
   if (payload.length >= 5 && payload.subarray(0, 4).toString() === "%PDF") return payload;
   try {
     const json = JSON.parse(payload.toString("utf8"));
-    const encoded = typeof json === "string" ? json : [json?.data, json?.pdf, json?.content].find((value) => typeof value === "string");
-    if (encoded) {
+    for (const encoded of nestedStrings(json)) {
+      if (/^https?:\/\//i.test(encoded)) continue;
       const normalized = encoded.replace(/^data:application\/pdf;base64,/i, "");
       const decoded = Buffer.from(normalized, "base64");
       if (decoded.length >= 5 && decoded.subarray(0, 4).toString() === "%PDF") return decoded;
@@ -136,8 +143,9 @@ export function decodeHoldedPdfPayload(payload: Buffer): Buffer {
 
 export function extractSafeHoldedPdfUrl(payload: Buffer): string {
   const json = JSON.parse(payload.toString("utf8"));
-  const candidate = typeof json === "string" ? json : [json?.url, json?.data, json?.pdf].find((value) => typeof value === "string" && /^https?:\/\//i.test(value));
-  const url = new URL(candidate || "");
+  const candidate = nestedStrings(json).find((value) => /^https?:\/\//i.test(value));
+  if (!candidate) throw new Error("Holded devolvió una URL de PDF no segura");
+  const url = new URL(candidate);
   const privateHost = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url.hostname) || url.hostname.endsWith(".local");
   if (url.protocol !== "https:" || privateHost) throw new Error("Holded devolvió una URL de PDF no segura");
   return url.toString();
