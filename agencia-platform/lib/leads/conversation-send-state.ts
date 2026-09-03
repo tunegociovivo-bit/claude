@@ -27,3 +27,9 @@ export function whatsappAckLabel(ack: number | null | undefined) {
   if (ack >= 2) return "Entregado";
   return "Enviado";
 }
+
+export function hasConfirmedReplyId(payload: unknown): payload is { id: string; at?: string; instanceName?: string | null } {
+  if (!payload || typeof payload !== "object") return false;
+  const id = (payload as { id?: unknown }).id;
+  return typeof id === "string" && id.trim().length > 0;
+}

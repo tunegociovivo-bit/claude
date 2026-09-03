@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Send, ExternalLink, Paperclip, X } from "lucide-react";
 import { validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
-import { failPendingReply, visibleConversationItems, whatsappAckLabel, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
+import { failPendingReply, hasConfirmedReplyId, visibleConversationItems, whatsappAckLabel, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
 
 type Msg = {
   id: string;
@@ -30,6 +30,9 @@ function fmtTime(iso: string): string {
 }
 
 export default function LeadConversationEmbed({ phone, leadId }: { phone: string; leadId?: string | null }) {
+  const conversationKey = `${phone}:${leadId ?? ""}`;
+  const conversationKeyRef = useRef(conversationKey);
+  conversationKeyRef.current = conversationKey;
   const [items, setItems] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyChannel, setReplyChannel] = useState<string | null>(null);
@@ -47,12 +50,14 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
+    const requestedKey = conversationKey;
     try {
       const q = new URLSearchParams({ phone });
       if (leadId) q.set("leadId", leadId);
       const r = await fetch(`/api/v1/leads/inbox/conversation?${q.toString()}`, { cache: "no-store" });
       if (!r.ok) return;
       const d = await r.json();
+      if (conversationKeyRef.current !== requestedKey) return;
       setItems(d.items ?? []);
       setReplyChannel(d.replyChannel ?? null);
       setLeadName(d.lead?.name ?? d.displayName ?? null);
@@ -60,19 +65,24 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
       setIsLid(!!d.isLid);
       setOptedOut(!!d.optedOut);
     } finally {
-      setLoading(false);
+      if (conversationKeyRef.current === requestedKey) setLoading(false);
     }
   }
 
   useEffect(() => {
     setLoading(true);
+    setSending(false);
+    setItems([]);
     setPendingReplies([]);
     setSendError(null);
+    setText("");
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     void load();
     const i = setInterval(() => void load(), 12_000);
     return () => clearInterval(i);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone]);
+  }, [phone, leadId]);
 
   useEffect(() => {
     fetch("/api/v1/leads/settings")
@@ -101,6 +111,7 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
     }
     const t = text.trim();
     if (!t || sending) return;
+    const requestedKey = conversationKey;
     setSending(true);
     setSendError(null);
     const temporaryId = `tmp-${Date.now()}`;
@@ -115,21 +126,25 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.message ?? d?.error?.message ?? "No se pudo enviar el mensaje.");
+      if (!hasConfirmedReplyId(d)) throw new Error("WhatsApp no confirmó el identificador del mensaje. No se considera enviado.");
+      if (conversationKeyRef.current !== requestedKey) return;
       setItems((prev) => prev.some(item => item.id === d.id) ? prev : [...prev, { id: d.id, direction: "out", body: t, at: d.at ?? new Date().toISOString(), instanceName: d.instanceName ?? null }]);
       setPendingReplies((prev) => prev.filter(reply => reply.id !== temporaryId));
       void load();
     } catch (e: any) {
+      if (conversationKeyRef.current !== requestedKey) return;
       const message = e?.message ?? "Error de red";
       setPendingReplies((prev) => failPendingReply(prev, temporaryId, message));
       setText((current) => current.trim() ? current : t);
       setSendError(message);
     } finally {
-      setSending(false);
+      if (conversationKeyRef.current === requestedKey) setSending(false);
     }
   }
 
   async function sendAttachment() {
     if (!attachment || sending) return;
+    const requestedKey = conversationKey;
     const validationError = validateWhatsappAttachment(attachment);
     if (validationError) {
       alert(validationError);
@@ -145,14 +160,15 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
       const r = await fetch("/api/v1/leads/inbox/reply-file", { method: "POST", body: form });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d?.message ?? d?.error?.message ?? "No se pudo enviar el documento.");
+      if (conversationKeyRef.current !== requestedKey) return;
       setAttachment(null);
       setText("");
       if (fileInputRef.current) fileInputRef.current.value = "";
       await load();
     } catch (error: any) {
-      alert(error?.message ?? "Error de red al enviar el documento");
+      if (conversationKeyRef.current === requestedKey) alert(error?.message ?? "Error de red al enviar el documento");
     } finally {
-      setSending(false);
+      if (conversationKeyRef.current === requestedKey) setSending(false);
     }
   }
 

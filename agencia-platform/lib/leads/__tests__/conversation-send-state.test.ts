@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failPendingReply, visibleConversationItems, whatsappAckLabel, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
+import { failPendingReply, hasConfirmedReplyId, visibleConversationItems, whatsappAckLabel, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
 
 const pending: PendingConversationReply = {
   id: "tmp-1",
@@ -25,5 +25,11 @@ describe("conversation optimistic reply state", () => {
     expect(whatsappAckLabel(1)).toBe("Enviado");
     expect(whatsappAckLabel(2)).toBe("Entregado");
     expect(whatsappAckLabel(3)).toBe("Leído");
+  });
+
+  it("requires a persisted message id before treating a reply as sent", () => {
+    expect(hasConfirmedReplyId({ ok: true })).toBe(false);
+    expect(hasConfirmedReplyId({ id: "   " })).toBe(false);
+    expect(hasConfirmedReplyId({ id: "saved-1" })).toBe(true);
   });
 });
