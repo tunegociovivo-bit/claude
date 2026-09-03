@@ -136,15 +136,54 @@ function nestedStrings(value: unknown, depth = 0): string[] {
 }
 
 export function decodeHoldedPdfPayload(payload: Buffer): Buffer {
-  if (payload.length >= 5 && payload.subarray(0, 4).toString() === "%PDF") return payload;
+  const asPdf = (candidate: Buffer): Buffer | null => {
+    const start = candidate.subarray(0, 32).indexOf(Buffer.from("%PDF"));
+    return start >= 0 ? candidate.subarray(start) : null;
+  };
+  const direct = asPdf(payload);
+  if (direct) return direct;
   try {
     const json = JSON.parse(payload.toString("utf8"));
-    for (const encoded of nestedStrings(json)) {
-      if (/^https?:\/\//i.test(encoded)) continue;
-      const normalized = encoded.replace(/^data:application\/pdf;base64,/i, "");
-      const decoded = Buffer.from(normalized, "base64");
-      if (decoded.length >= 5 && decoded.subarray(0, 4).toString() === "%PDF") return decoded;
-    }
+    const visit = (value: unknown, depth = 0): Buffer | null => {
+      if (depth > 8 || value == null) return null;
+      if (Array.isArray(value)) {
+        if (value.length && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+          const bytes = asPdf(Buffer.from(value as number[]));
+          if (bytes) return bytes;
+        }
+        if (value.length && value.every((entry) => typeof entry === "string")) {
+          const joined = visit(value.join(""), depth + 1);
+          if (joined) return joined;
+        }
+        for (const entry of value.slice(0, 200)) {
+          const found = visit(entry, depth + 1);
+          if (found) return found;
+        }
+        return null;
+      }
+      if (typeof value === "object") {
+        for (const entry of Object.values(value as Record<string, unknown>).slice(0, 100)) {
+          const found = visit(entry, depth + 1);
+          if (found) return found;
+        }
+        return null;
+      }
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      if (/^https?:\/\//i.test(trimmed)) return null;
+      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        try {
+          const nested = visit(JSON.parse(trimmed), depth + 1);
+          if (nested) return nested;
+        } catch { /* cadena normal */ }
+      }
+      const normalized = trimmed
+        .replace(/^data:application\/pdf(?:;[^,]*)?;base64,/i, "")
+        .replace(/\s+/g, "");
+      return asPdf(Buffer.from(normalized, "base64"));
+    };
+    const decoded = visit(json);
+    if (decoded) return decoded;
   } catch {
     // La respuesta no era JSON; se informa con un error uniforme debajo.
   }
