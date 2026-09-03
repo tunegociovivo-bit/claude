@@ -46,3 +46,14 @@ export function domainFromProspect(input: { website?: string | null; email?: str
   } catch {}
   return input.email?.split("@")[1]?.toLowerCase() || null;
 }
+
+export function summarizeProspectingSources(prospects:Array<{metadata:unknown;resolutionStatus?:string|null;total?:number;resolved?:number}>){
+  const sources=new Map<string,{type:string;url:string|null;label:string;total:number;resolved:number;latest:string|null}>();
+  for(const prospect of prospects){
+    const metadata=(prospect.metadata||{}) as {source?:string;sourceUrl?:string;capturedAt?:string};const type=metadata.source||"manual";let url=metadata.sourceUrl||null;let label=type;
+    if(url){try{const parsed=new URL(url);if(parsed.protocol!=="https:"||!["linkedin.com","www.linkedin.com","sales.linkedin.com"].includes(parsed.hostname.toLowerCase()))throw new Error("unsupported_source");parsed.username="";parsed.password="";parsed.hash="";parsed.searchParams.delete("page");parsed.searchParams.delete("start");url=parsed.toString();label=(parsed.searchParams.get("keywords")||parsed.searchParams.get("query")||type).replace(/\+/g," ").slice(0,160)}catch{url=null}}
+    const key=`${type}:${url||"manual"}`;const current=sources.get(key)||{type,url,label,total:0,resolved:0,latest:null};current.total+=prospect.total??1;current.resolved+=prospect.resolved??(prospect.resolutionStatus==="resolved"?1:0);
+    if(metadata.capturedAt&&(!current.latest||metadata.capturedAt>current.latest))current.latest=metadata.capturedAt;sources.set(key,current);
+  }
+  return [...sources.values()].sort((a,b)=>(b.latest||"").localeCompare(a.latest||""));
+}
