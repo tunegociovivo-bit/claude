@@ -80,10 +80,11 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] holded/sepa:", (e as Error).message);
     }
     try {
-      const { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
       await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
+      await processAllPendingMetaInvoiceRun(undefined, 8);
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría:", (e as Error).message);
     }
@@ -201,10 +202,11 @@ export function startInAppScheduler(): void {
     if (accountancyBusy) return;
     accountancyBusy = true;
     try {
-      const { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
       await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
+      await processAllPendingMetaInvoiceRun(undefined, 8);
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría independiente:", (e as Error).message);
     } finally {

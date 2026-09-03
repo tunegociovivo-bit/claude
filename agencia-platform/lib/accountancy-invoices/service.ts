@@ -116,6 +116,21 @@ export async function processAllPendingGoogleAdsInvoiceRun(runId?: string, limit
   return processed;
 }
 
+export async function processAllPendingMetaInvoiceRun(runId?: string, limit = 20) {
+  const pending = await prisma.accountancyInvoiceRunItem.findMany({ where: { source: "META", status: "PENDING", ...(runId ? { runId } : {}) }, include: { run: true }, orderBy: { createdAt: "desc" }, take: limit });
+  const touchedRuns = new Set<string>();
+  for (const item of pending) {
+    const connections = await prisma.metaConnection.count({ where: { workspaceId: item.run.workspaceId } });
+    const error = connections
+      ? "Meta está conectado para campañas, pero Meta no expone los PDF de facturación mediante su API pública. Hace falta activar el conector permanente de documentos de pago."
+      : "No hay una conexión permanente de Meta configurada para descargar documentos de facturación.";
+    const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: item.id, status: "PENDING" }, data: { status: "FAILED", error, startedAt: new Date(), finishedAt: new Date() } });
+    if (claimed.count) touchedRuns.add(item.runId);
+  }
+  for (const touchedRunId of touchedRuns) await refreshRunStatus(touchedRunId);
+  return pending.length;
+}
+
 export async function createAccountancyInvoiceRun(workspaceId: string, trigger: "MANUAL" | "SCHEDULED", now = new Date()) {
   const period = getPreviousMonthPeriod(now);
   const clients = await prisma.accountancyInvoiceClient.findMany({ where: { workspaceId, enabled: true }, orderBy: [{ source: "asc" }, { name: "asc" }] });
@@ -138,10 +153,14 @@ export async function refreshRunStatus(runId: string) {
   const run = await prisma.accountancyInvoiceRun.findUnique({ where: { id: runId }, include: { items: true } });
   if (!run) throw new Error("Ejecución no encontrada");
   const status = getRunHealth(run.items);
-  return prisma.accountancyInvoiceRun.update({
+  const updated = await prisma.accountancyInvoiceRun.update({
     where: { id: runId },
     data: { status, ...(status === "SUCCESS" || status === "PARTIAL" || status === "FAILED" ? { finishedAt: new Date() } : {}) }
   });
+  if (updated.trigger === "SCHEDULED" && ["SUCCESS", "PARTIAL", "FAILED"].includes(updated.status)) {
+    setImmediate(() => import("./delivery").then(({ deliverScheduledAccountancyRun }) => deliverScheduledAccountancyRun(runId)).catch((error) => console.warn("[facturas-gestoria] envío automático:", error?.message || error)));
+  }
+  return updated;
 }
 
 export async function runAccountancySchedules(now = new Date()) {

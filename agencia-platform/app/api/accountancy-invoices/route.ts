@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
-import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, SOURCES } from "@/lib/accountancy-invoices/service";
+import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, SOURCES } from "@/lib/accountancy-invoices/service";
 import { validateRecipients } from "@/lib/accountancy-invoices/domain";
 
 async function adminContext() {
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
     setImmediate(() => processPendingHoldedInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Holded manual:", error?.message || error)));
     setImmediate(() => processAllPendingGoogleAdsInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Google Ads manual:", error?.message || error)));
+    setImmediate(() => processAllPendingMetaInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Meta manual:", error?.message || error)));
     return NextResponse.json(run, { status: 201 });
   }
   if (body.action === "client") {
