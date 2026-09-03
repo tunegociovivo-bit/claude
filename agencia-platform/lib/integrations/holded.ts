@@ -118,18 +118,36 @@ export async function holdedGetInvoice(opts: {
   return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`);
 }
 
+export function decodeHoldedPdfPayload(payload: Buffer): Buffer {
+  if (payload.length >= 5 && payload.subarray(0, 4).toString() === "%PDF") return payload;
+  try {
+    const json = JSON.parse(payload.toString("utf8"));
+    const encoded = typeof json === "string" ? json : [json?.data, json?.pdf, json?.content].find((value) => typeof value === "string");
+    if (encoded) {
+      const normalized = encoded.replace(/^data:application\/pdf;base64,/i, "");
+      const decoded = Buffer.from(normalized, "base64");
+      if (decoded.length >= 5 && decoded.subarray(0, 4).toString() === "%PDF") return decoded;
+    }
+  } catch {
+    // La respuesta no era JSON; se informa con un error uniforme debajo.
+  }
+  throw new Error("Holded devolvió un archivo no PDF");
+}
+
 /** Descarga el PDF oficial de una factura de Holded. */
 export async function holdedGetInvoicePdf(opts: { workspaceId: string; invoiceId: string }): Promise<Buffer> {
   const key = await getApiKey(opts.workspaceId);
-  const response = await fetch(`${BASE}/invoicing/v1/documents/invoice/${encodeURIComponent(opts.invoiceId)}/pdf`, {
-    headers: { key, Accept: "application/pdf" },
+  const response = await fetch(`https://api.holded.com/api/v2/invoices/${encodeURIComponent(opts.invoiceId)}/pdf`, {
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/pdf" },
     signal: AbortSignal.timeout(30_000),
     cache: "no-store"
   });
   if (!response.ok) throw new Error(`Holded ${response.status}: no se pudo descargar el PDF ${opts.invoiceId}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length < 5 || buffer.subarray(0, 4).toString() !== "%PDF") throw new Error(`Holded devolvió un archivo no PDF para ${opts.invoiceId}`);
-  return buffer;
+  try {
+    return decodeHoldedPdfPayload(Buffer.from(await response.arrayBuffer()));
+  } catch {
+    throw new Error(`Holded devolvió un archivo no PDF para ${opts.invoiceId}`);
+  }
 }
 
 /** Documento recurrente de Holded (plantilla). Los nombres de campo varían según la
