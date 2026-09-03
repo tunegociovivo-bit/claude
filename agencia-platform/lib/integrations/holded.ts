@@ -134,19 +134,35 @@ export function decodeHoldedPdfPayload(payload: Buffer): Buffer {
   throw new Error("Holded devolvió un archivo no PDF");
 }
 
+export function extractSafeHoldedPdfUrl(payload: Buffer): string {
+  const json = JSON.parse(payload.toString("utf8"));
+  const candidate = typeof json === "string" ? json : [json?.url, json?.data, json?.pdf].find((value) => typeof value === "string" && /^https?:\/\//i.test(value));
+  const url = new URL(candidate || "");
+  const privateHost = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url.hostname) || url.hostname.endsWith(".local");
+  if (url.protocol !== "https:" || privateHost) throw new Error("Holded devolvió una URL de PDF no segura");
+  return url.toString();
+}
+
 /** Descarga el PDF oficial de una factura de Holded. */
 export async function holdedGetInvoicePdf(opts: { workspaceId: string; invoiceId: string }): Promise<Buffer> {
   const key = await getApiKey(opts.workspaceId);
-  const response = await fetch(`https://api.holded.com/api/v2/invoices/${encodeURIComponent(opts.invoiceId)}/pdf`, {
+  const current = await fetch(`https://api.holded.com/api/v2/invoices/${encodeURIComponent(opts.invoiceId)}/pdf`, {
     headers: { Authorization: `Bearer ${key}`, Accept: "application/pdf" },
     signal: AbortSignal.timeout(30_000),
     cache: "no-store"
   });
-  if (!response.ok) throw new Error(`Holded ${response.status}: no se pudo descargar el PDF ${opts.invoiceId}`);
-  try {
-    return decodeHoldedPdfPayload(Buffer.from(await response.arrayBuffer()));
-  } catch {
-    throw new Error(`Holded devolvió un archivo no PDF para ${opts.invoiceId}`);
+  if (current.ok) return decodeHoldedPdfPayload(Buffer.from(await current.arrayBuffer()));
+
+  const legacy = await fetch(`${BASE}/invoicing/v1/documents/invoice/${encodeURIComponent(opts.invoiceId)}/pdf`, {
+    headers: { key, Accept: "application/pdf, application/json" }, signal: AbortSignal.timeout(30_000), cache: "no-store"
+  });
+  if (!legacy.ok) throw new Error(`Holded ${current.status}/${legacy.status}: no se pudo descargar el PDF ${opts.invoiceId}`);
+  const payload = Buffer.from(await legacy.arrayBuffer());
+  try { return decodeHoldedPdfPayload(payload); } catch {
+    const url = extractSafeHoldedPdfUrl(payload);
+    const downloaded = await fetch(url, { signal: AbortSignal.timeout(30_000), cache: "no-store" });
+    if (!downloaded.ok) throw new Error(`Holded ${downloaded.status}: no se pudo abrir el PDF ${opts.invoiceId}`);
+    return decodeHoldedPdfPayload(Buffer.from(await downloaded.arrayBuffer()));
   }
 }
 
