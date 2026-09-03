@@ -13,6 +13,10 @@ describe("decodeHoldedPdfPayload", () => {
     expect(decodeHoldedPdfPayload(wrapped)).toEqual(pdf);
   });
 
+  it("accepts the legacy raw base64 response body", () => {
+    expect(decodeHoldedPdfPayload(Buffer.from(pdf.toString("base64")))).toEqual(pdf);
+  });
+
   it("accepts legacy Holded responses whose data is JSON encoded more than once", () => {
     const wrapped = Buffer.from(JSON.stringify({ data: JSON.stringify({ data: pdf.toString("base64") }) }));
     expect(decodeHoldedPdfPayload(wrapped)).toEqual(pdf);
