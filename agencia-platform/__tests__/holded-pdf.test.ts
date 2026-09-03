@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { decodeHoldedPdfPayload, extractSafeHoldedPdfUrl } from "@/lib/integrations/holded";
+import { decodeHoldedPdfPayload, extractSafeHoldedPdfUrl, normalizeHoldedV2Invoices } from "@/lib/integrations/holded";
 
 const pdf = Buffer.from("%PDF-1.7\ninvoice");
 
 describe("decodeHoldedPdfPayload", () => {
+  it("normalizes v2 invoice collections and ISO dates", () => {
+    expect(normalizeHoldedV2Invoices({ data: [{ id: "inv_1", documentNumber: "FAC-1", issueDate: "2026-08-15", total: 121, currency: "EUR", contact: { name: "Cliente" } }] })).toEqual([
+      expect.objectContaining({ id: "inv_1", docNumber: "FAC-1", contactName: "Cliente", total: 121, currency: "EUR", date: 1786752000 })
+    ]);
+  });
   it("accepts a binary PDF response", () => {
     expect(decodeHoldedPdfPayload(pdf)).toEqual(pdf);
   });
