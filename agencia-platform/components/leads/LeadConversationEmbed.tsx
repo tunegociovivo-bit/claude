@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Send, ExternalLink, Paperclip, X } from "lucide-react";
 import { validateWhatsappAttachment } from "@/lib/leads/commercial-reply-alert";
+import { failPendingReply, visibleConversationItems, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
 
 type Msg = {
   id: string;
@@ -40,6 +41,8 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
   const [text, setText] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
+  const [pendingReplies, setPendingReplies] = useState<PendingConversationReply[]>([]);
+  const [sendError, setSendError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +66,8 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
 
   useEffect(() => {
     setLoading(true);
+    setPendingReplies([]);
+    setSendError(null);
     void load();
     const i = setInterval(() => void load(), 12_000);
     return () => clearInterval(i);
@@ -78,9 +83,10 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [items]);
+  }, [items, pendingReplies]);
 
   const chan = channels.find((c) => c.name === replyChannel);
+  const visibleItems = visibleConversationItems(items, pendingReplies);
   const channelDetail = chan?.label || chan?.phone || null;
   const chanLabel = replyChannel
     ? channelDetail && channelDetail !== replyChannel
@@ -96,8 +102,10 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
     const t = text.trim();
     if (!t || sending) return;
     setSending(true);
-    // Optimista: pinta el mensaje ya.
-    setItems((prev) => [...prev, { id: `tmp-${Date.now()}`, direction: "out", body: t, at: new Date().toISOString() }]);
+    setSendError(null);
+    const temporaryId = `tmp-${Date.now()}`;
+    const pending: PendingConversationReply = { id: temporaryId, direction: "out", body: t, at: new Date().toISOString(), deliveryState: "sending" };
+    setPendingReplies((prev) => [...prev, pending]);
     setText("");
     try {
       const r = await fetch("/api/v1/leads/inbox/reply", {
@@ -105,13 +113,16 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone, leadId: leadId ?? undefined, text: t })
       });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        alert(d?.message ?? d?.error?.message ?? "No se pudo enviar el mensaje.");
-      }
-      await load();
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d?.message ?? d?.error?.message ?? "No se pudo enviar el mensaje.");
+      setItems((prev) => prev.some(item => item.id === d.id) ? prev : [...prev, { id: d.id, direction: "out", body: t, at: d.at ?? new Date().toISOString(), instanceName: d.instanceName ?? null }]);
+      setPendingReplies((prev) => prev.filter(reply => reply.id !== temporaryId));
+      void load();
     } catch (e: any) {
-      alert(e?.message ?? "Error de red");
+      const message = e?.message ?? "Error de red";
+      setPendingReplies((prev) => failPendingReply(prev, temporaryId, message));
+      setText((current) => current.trim() ? current : t);
+      setSendError(message);
     } finally {
       setSending(false);
     }
@@ -175,10 +186,10 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
           <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-4">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando conversación…
           </div>
-        ) : items.length === 0 ? (
+        ) : visibleItems.length === 0 ? (
           <div className="text-xs text-slate-400 text-center py-4">Sin mensajes todavía.</div>
         ) : (
-          items.map((m) => (
+          visibleItems.map((m) => (
             <div key={m.id} className={"flex " + (m.direction === "out" ? "justify-end" : "justify-start")}>
               <div
                 className={
@@ -189,6 +200,8 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
                 }
               >
                 {m.body}
+                {"deliveryState" in m && m.deliveryState === "sending" && <div className="mt-1 text-[9px] font-semibold text-amber-700">Enviando…</div>}
+                {"deliveryState" in m && m.deliveryState === "failed" && <div className="mt-1 flex items-center justify-end gap-2 text-[9px] font-semibold text-red-700"><span>No enviado</span><button type="button" className="underline" onClick={()=>{setText(m.body);setPendingReplies(prev=>prev.filter(reply=>reply.id!==m.id));setSendError(null)}}>Reintentar</button></div>}
                 <div className="text-[9px] opacity-50 text-right mt-0.5">{fmtTime(m.at)}</div>
               </div>
             </div>
@@ -198,6 +211,7 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
 
       {/* Responder */}
       <div className="border-t border-emerald-200 p-2 bg-white">
+        {sendError && <div role="alert" className="mb-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] text-red-700"><b>El cliente no ha recibido este mensaje.</b> {sendError}</div>}
         {optedOut && (
           <div className="text-[10px] text-rose-600 mb-1">
             ⚠️ Este contacto pidió no recibir mensajes (opt-out). Responde solo si retomó él la conversación.
