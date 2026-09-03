@@ -53,7 +53,9 @@ export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
   const pending = await prisma.accountancyInvoiceRunItem.findFirst({
     where: { source: "GOOGLE_ADS", status: "PENDING", ...(runId ? { runId } : {}) },
     include: { run: true, client: true },
-    orderBy: { createdAt: "asc" }
+    // Prioriza la ejecución mensual más reciente; los intentos históricos no
+    // deben retrasar la entrega actual.
+    orderBy: { createdAt: "desc" }
   });
   if (!pending) return null;
   const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: pending.id, status: "PENDING" }, data: { status: "RUNNING", startedAt: new Date(), error: null } });
