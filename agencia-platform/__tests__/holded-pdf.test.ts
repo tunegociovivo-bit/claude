@@ -18,6 +18,12 @@ describe("decodeHoldedPdfPayload", () => {
     expect(decodeHoldedPdfPayload(wrapped)).toEqual(pdf);
   });
 
+  it("accepts legacy byte arrays and chunked base64 responses", () => {
+    expect(decodeHoldedPdfPayload(Buffer.from(JSON.stringify({ data: [...pdf] })))).toEqual(pdf);
+    const encoded = pdf.toString("base64");
+    expect(decodeHoldedPdfPayload(Buffer.from(JSON.stringify({ data: [encoded.slice(0, 8), encoded.slice(8)] })))).toEqual(pdf);
+  });
+
   it("rejects unrelated response content", () => {
     expect(() => decodeHoldedPdfPayload(Buffer.from('{"ok":true}'))).toThrow(/PDF/);
   });
