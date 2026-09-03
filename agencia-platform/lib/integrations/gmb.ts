@@ -101,7 +101,7 @@ async function getAccessToken(workspaceId: string): Promise<string> {
   }
 
   // Fallback legacy: conexión de Google Ads (requiere scope business.manage).
-  const conn = await prisma.googleAdsConnection.findUnique({ where: { workspaceId } });
+  const conn = await prisma.googleAdsConnection.findFirst({ where: { workspaceId }, orderBy: { updatedAt: "desc" } });
   if (!conn) throw new Error("Falta conexión Google. Conecta con Google desde el Hub.");
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (!refreshToken) throw new Error("refresh token Google inválido");

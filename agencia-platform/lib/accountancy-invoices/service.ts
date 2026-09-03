@@ -27,6 +27,17 @@ const DEFAULT_CLIENTS = [
   ["LATAM", "GOOGLE_ADS", "660-810-9819"]
 ] as const;
 
+const GOOGLE_CONNECTIONS: Record<string, string> = {
+  "384-789-9827": "tunegociovivo@gmail.com",
+  "249-419-3921": "tunegociovivo@gmail.com",
+  "708-187-4860": "tunegociovivo@gmail.com",
+  "918-792-1793": "tunegociovivo@gmail.com",
+  "mudanzas-lorena": "tunegociovivo@gmail.com",
+  "196-147-6671": "eroskifranquicias.marketing@gmail.com",
+  "631-103-4413": "eroskifranquicias.marketing@gmail.com",
+  "660-810-9819": "eroskifranquicias.marketing@gmail.com"
+};
+
 export async function ensureDefaultAccountancyClients(workspaceId: string) {
   const googleIdMigrations = [
     ["taxi-grande-malaga", "249-419-3921"],
@@ -39,9 +50,12 @@ export async function ensureDefaultAccountancyClients(workspaceId: string) {
     await prisma.accountancyInvoiceClient.updateMany({ where: { workspaceId, source: "GOOGLE_ADS", externalAccountId: oldId }, data: { externalAccountId } });
   }
   await prisma.accountancyInvoiceClient.createMany({
-    data: DEFAULT_CLIENTS.map(([name, source, externalAccountId]) => ({ workspaceId, name, source, externalAccountId })),
+    data: DEFAULT_CLIENTS.map(([name, source, externalAccountId]) => ({ workspaceId, name, source, externalAccountId, connectionRef: source === "GOOGLE_ADS" ? GOOGLE_CONNECTIONS[externalAccountId] : null })),
     skipDuplicates: true
   });
+  for (const [externalAccountId, connectionRef] of Object.entries(GOOGLE_CONNECTIONS)) {
+    await prisma.accountancyInvoiceClient.updateMany({ where: { workspaceId, source: "GOOGLE_ADS", externalAccountId }, data: { connectionRef } });
+  }
   await prisma.accountancyInvoiceSchedule.upsert({
     where: { workspaceId },
     create: { workspaceId, recipients: DEFAULT_RECIPIENTS },
@@ -66,6 +80,7 @@ export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
     if (!customerId) throw new Error("Configura el ID numérico de Google Ads de esta cuenta");
     const invoices = await gadsListInvoices({
       workspaceId: pending.run.workspaceId,
+      connectionRef: pending.client?.connectionRef,
       customerId,
       issueYear: pending.run.periodFrom.getUTCFullYear(),
       issueMonth: pending.run.periodFrom.getUTCMonth() + 1
@@ -75,7 +90,7 @@ export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
     let amountCents = 0;
     for (const invoice of invoices) {
       try {
-        const buffer = await gadsDownloadInvoicePdf({ workspaceId: pending.run.workspaceId, invoice });
+        const buffer = await gadsDownloadInvoicePdf({ workspaceId: pending.run.workspaceId, connectionRef: pending.client?.connectionRef, invoice });
         const name = `google-ads-${customerId}-${invoice.number || invoice.id}.pdf`.replace(/[^a-zA-Z0-9._-]+/g, "_");
         const s3Key = buildS3Key({ workspaceId: pending.run.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id, filename: name });
         await uploadBuffer({ s3Key, body: buffer, contentType: "application/pdf" });
@@ -87,7 +102,7 @@ export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
       }
     }
     const outcome = getSourceDownloadOutcome(invoices.length, files.length, errors);
-    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents, currency: invoices[0]?.currency || "EUR", files, finishedAt: new Date() } });
+    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents, currency: invoices[0]?.currency || "EUR", files, invoiceDetails: invoices.map((invoice) => ({ number: invoice.number, date: invoice.issueDate, amountCents: Math.round(invoice.totalAmountMicros / 10_000), currency: invoice.currency })), finishedAt: new Date() } });
   } catch (error: any) {
     await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: "FAILED", error: String(error?.message || error).slice(0, 1000), finishedAt: new Date() } });
   }
@@ -176,7 +191,8 @@ export async function processPendingHoldedInvoiceRun(runId?: string) {
       files.push(...stored.filter((file): file is NonNullable<typeof file> => file !== null));
     }
     const outcome = getSourceDownloadOutcome(invoices.length, files.length, errors);
-    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents: invoices.filter((invoice) => downloadedInvoiceIds.has(invoice.id)).reduce((sum, invoice) => sum + Math.round(Number(invoice.total || 0) * 100), 0), files, finishedAt: new Date() } });
+    const downloadedInvoices = invoices.filter((invoice) => downloadedInvoiceIds.has(invoice.id));
+    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents: downloadedInvoices.reduce((sum, invoice) => sum + Math.round(Number(invoice.total || 0) * 100), 0), files, invoiceDetails: downloadedInvoices.map((invoice) => ({ number: invoice.docNumber || invoice.id, date: invoice.date ? new Date(invoice.date * 1000).toISOString().slice(0, 10) : "", amountCents: Math.round(Number(invoice.total || 0) * 100), currency: invoice.currency || "EUR", business: invoice.contactName || "" })), finishedAt: new Date() } });
   } catch (error: any) {
     await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: "FAILED", error: String(error?.message || error).slice(0, 1000), finishedAt: new Date() } });
   }

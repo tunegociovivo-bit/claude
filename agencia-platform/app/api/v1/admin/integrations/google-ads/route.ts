@@ -21,8 +21,8 @@ export const dynamic = "force-dynamic";
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
-  const conn = await prisma.googleAdsConnection.findUnique({
-    where: { workspaceId: api.workspaceId }
+  const conn = await prisma.googleAdsConnection.findFirst({
+    where: { workspaceId: api.workspaceId }, orderBy: { updatedAt: "desc" }
   });
   if (!conn) return NextResponse.json({ configured: false });
   try {
@@ -46,7 +46,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
 const putSchema = z.object({
   refreshToken: z.string().min(10).max(500),
   customerId: z.string().regex(/^\d+$/, "customerId solo dígitos, sin guiones"),
-  loginCustomerId: z.string().regex(/^\d+$/).optional()
+  loginCustomerId: z.string().regex(/^\d+$/).optional(),
+  accountEmail: z.string().email().optional()
 });
 
 export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
@@ -55,9 +56,10 @@ export const PUT = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = putSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   await prisma.googleAdsConnection.upsert({
-    where: { workspaceId: api.workspaceId },
+    where: { workspaceId_accountEmail: { workspaceId: api.workspaceId, accountEmail: parsed.data.accountEmail?.toLowerCase() || "legacy" } },
     create: {
       workspaceId: api.workspaceId,
+      accountEmail: parsed.data.accountEmail?.toLowerCase() || "legacy",
       refreshTokenEnc: encryptSecret(parsed.data.refreshToken.trim()),
       customerId: parsed.data.customerId,
       loginCustomerId: parsed.data.loginCustomerId ?? null

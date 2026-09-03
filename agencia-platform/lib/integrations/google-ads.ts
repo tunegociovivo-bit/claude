@@ -26,8 +26,8 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const BASE = `https://googleads.googleapis.com/${API_VERSION}`;
 
 async function getAccessToken(refreshToken: string): Promise<string> {
-  const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new Error("GOOGLE_ADS_CLIENT_ID / SECRET no configurados en env");
   }
@@ -81,12 +81,13 @@ function digits(value: string | null | undefined) {
  */
 export async function gadsListInvoices(opts: {
   workspaceId: string;
+  connectionRef?: string | null;
   customerId: string;
   issueYear: number;
   issueMonth: number;
   loginCustomerId?: string | null;
 }): Promise<GoogleAdsInvoice[]> {
-  const cfg = await getConnConfig(opts.workspaceId);
+  const cfg = await getConnConfig(opts.workspaceId, opts.connectionRef);
   const customerId = digits(opts.customerId);
   if (!customerId) throw new Error("ID de cliente de Google Ads no válido");
   const accessToken = await getAccessToken(cfg.refreshToken);
@@ -131,8 +132,8 @@ export async function gadsListInvoices(opts: {
   return [...new Map(invoices.map((invoice) => [invoice.id, invoice])).values()];
 }
 
-export async function gadsDownloadInvoicePdf(opts: { workspaceId: string; invoice: GoogleAdsInvoice }) {
-  const cfg = await getConnConfig(opts.workspaceId);
+export async function gadsDownloadInvoicePdf(opts: { workspaceId: string; connectionRef?: string | null; invoice: GoogleAdsInvoice }) {
+  const cfg = await getConnConfig(opts.workspaceId, opts.connectionRef);
   const accessToken = await getAccessToken(cfg.refreshToken);
   const response = await fetch(opts.invoice.pdfUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!response.ok) throw new Error(`Google Ads PDF ${response.status}`);
@@ -141,11 +142,12 @@ export async function gadsDownloadInvoicePdf(opts: { workspaceId: string; invoic
   return buffer;
 }
 
-async function getConnConfig(workspaceId: string) {
-  const conn = await prisma.googleAdsConnection.findUnique({
-    where: { workspaceId }
+async function getConnConfig(workspaceId: string, connectionRef?: string | null) {
+  const conn = await prisma.googleAdsConnection.findFirst({
+    where: { workspaceId, ...(connectionRef ? { accountEmail: connectionRef.toLowerCase() } : {}) },
+    orderBy: { updatedAt: "desc" }
   });
-  if (!conn) throw new Error("GoogleAdsConnection no configurada");
+  if (!conn) throw new Error(connectionRef ? `Conexión Google Ads no configurada para ${connectionRef}` : "GoogleAdsConnection no configurada");
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (!refreshToken) throw new Error("refresh token Google Ads inválido");
   const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;

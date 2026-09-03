@@ -22,7 +22,7 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const BASE = "https://searchconsole.googleapis.com/webmasters/v3";
 
 async function getAccessToken(workspaceId: string): Promise<string> {
-  const conn = await prisma.googleAdsConnection.findUnique({ where: { workspaceId } });
+  const conn = await prisma.googleAdsConnection.findFirst({ where: { workspaceId }, orderBy: { updatedAt: "desc" } });
   if (!conn) throw new Error("Falta conexión Google. Necesaria para Search Console.");
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (!refreshToken) throw new Error("refresh token inválido");

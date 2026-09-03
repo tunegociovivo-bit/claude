@@ -17,12 +17,14 @@ async function adminContext() {
 export async function GET() {
   const ctx = await adminContext();
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  const [clients, schedule, runs] = await Promise.all([
+  const [clients, schedule, runs, googleAdsConnections, metaConnectionCount] = await Promise.all([
     prisma.accountancyInvoiceClient.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: [{ enabled: "desc" }, { source: "asc" }, { name: "asc" }] }),
     prisma.accountancyInvoiceSchedule.findUnique({ where: { workspaceId: ctx.workspaceId } }),
-    prisma.accountancyInvoiceRun.findMany({ where: { workspaceId: ctx.workspaceId }, include: { items: { orderBy: [{ status: "asc" }, { source: "asc" }, { clientName: "asc" }] } }, orderBy: { createdAt: "desc" }, take: 12 })
+    prisma.accountancyInvoiceRun.findMany({ where: { workspaceId: ctx.workspaceId }, include: { items: { orderBy: [{ status: "asc" }, { source: "asc" }, { clientName: "asc" }] } }, orderBy: { createdAt: "desc" }, take: 12 }),
+    prisma.googleAdsConnection.findMany({ where: { workspaceId: ctx.workspaceId }, select: { accountEmail: true, label: true, updatedAt: true } }),
+    prisma.metaConnection.count({ where: { workspaceId: ctx.workspaceId } })
   ]);
-  return NextResponse.json({ clients, schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES });
+  return NextResponse.json({ clients, schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount } });
 }
 
 export async function POST(req: NextRequest) {
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
   }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });
-    const client = await prisma.accountancyInvoiceClient.create({ data: { workspaceId: ctx.workspaceId, name: body.name.trim(), source: body.source, externalAccountId: body.externalAccountId?.trim() || null, notes: body.notes?.trim() || null } });
+    const client = await prisma.accountancyInvoiceClient.create({ data: { workspaceId: ctx.workspaceId, name: body.name.trim(), source: body.source, externalAccountId: body.externalAccountId?.trim() || null, connectionRef: body.connectionRef?.trim().toLowerCase() || null, notes: body.notes?.trim() || null } });
     return NextResponse.json(client, { status: 201 });
   }
   return NextResponse.json({ error: "Acción no válida" }, { status: 400 });

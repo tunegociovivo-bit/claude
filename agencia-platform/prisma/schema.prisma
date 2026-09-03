@@ -277,7 +277,7 @@ model Workspace {
   aiProposedTools            AiProposedTool[]
   aiOwnerships               AiOwnership[]
   aiClientWorkflows          AiClientWorkflow[]
-  googleAdsConnection        GoogleAdsConnection?
+  googleAdsConnections       GoogleAdsConnection[]
   pricingServices            PricingService[]
   deals                      Deal[]
   liveMeetingSessions        LiveMeetingSession[]
@@ -294,6 +294,7 @@ model AccountancyInvoiceClient {
   name              String
   source            String
   externalAccountId String?
+  connectionRef     String?
   enabled           Boolean                     @default(true)
   notes             String?
   createdAt         DateTime                    @default(now())
@@ -353,6 +354,7 @@ model AccountancyInvoiceRunItem {
   amountCents  Int                       @default(0)
   currency     String                    @default("EUR")
   files        Json?
+  invoiceDetails Json?
   error        String?
   startedAt    DateTime?
   finishedAt   DateTime?
@@ -3663,7 +3665,9 @@ model GoogleCalendarWatchChannel {
 // desde un MCC (manager account).
 model GoogleAdsConnection {
   id              String   @id @default(cuid())
-  workspaceId     String   @unique
+  workspaceId     String
+  accountEmail    String   @default("legacy")
+  label           String?
   refreshTokenEnc String   @db.Text
   customerId      String // "1234567890" sin guiones
   loginCustomerId String? // si gestionas desde un MCC
@@ -3671,6 +3675,9 @@ model GoogleAdsConnection {
   updatedAt       DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, accountEmail])
+  @@index([workspaceId])
 }
 
 model MetaConnection {

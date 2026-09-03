@@ -22,7 +22,7 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const BASE = "https://analyticsdata.googleapis.com/v1beta";
 
 async function getAccessToken(workspaceId: string): Promise<string> {
-  const conn = await prisma.googleAdsConnection.findUnique({ where: { workspaceId } });
+  const conn = await prisma.googleAdsConnection.findFirst({ where: { workspaceId }, orderBy: { updatedAt: "desc" } });
   if (!conn) throw new Error("Falta conexión Google (GoogleAdsConnection). Necesaria para GA4.");
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (!refreshToken) throw new Error("refresh token inválido");

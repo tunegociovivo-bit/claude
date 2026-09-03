@@ -6,8 +6,9 @@ import { validateRecipients } from "@/lib/accountancy-invoices/domain";
 import { sendEmailFromAccount } from "@/lib/integrations/email-account";
 import { downloadBuffer, isStorageEnabled } from "@/lib/storage/r2";
 import archiver from "archiver";
+import { buildAccountancyReport } from "@/lib/accountancy-invoices/report";
 
-async function buildRunArchive(workspaceId: string, run: { id: string; periodKey: string; items: Array<{ files: unknown }> }) {
+async function buildRunArchive(workspaceId: string, run: { id: string; periodKey: string; items: Array<{ clientName: string; source: string; status: string; invoiceCount: number; amountCents: number; currency: string; invoiceDetails: unknown; error: string | null; files: unknown }> }) {
   if (!isStorageEnabled()) return null;
   const ids = run.items.flatMap((item) => Array.isArray(item.files) ? item.files.map((file: any) => file?.id).filter(Boolean) : []);
   if (!ids.length) return null;
@@ -18,6 +19,7 @@ async function buildRunArchive(workspaceId: string, run: { id: string; periodKey
   const chunks: Buffer[] = [];
   const done = new Promise<void>((resolve, reject) => { archive.on("data", (chunk: Buffer) => chunks.push(chunk)); archive.on("end", resolve); archive.on("error", reject); });
   const usedNames = new Set<string>();
+  archive.append(await buildAccountancyReport(run.periodKey, run.items), { name: `Resumen-facturas-${run.periodKey}.pdf` });
   for (const file of files) {
     let name = file.name;
     for (let suffix = 2; usedNames.has(name); suffix++) name = file.name.replace(/(\.pdf)?$/i, `-${suffix}$1`);
