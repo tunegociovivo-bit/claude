@@ -77,6 +77,30 @@ export type HoldedInvoice = {
   currency?: string;
 };
 
+export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
+  const rows = Array.isArray(payload) ? payload : payload?.data ?? payload?.items ?? payload?.results ?? [];
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row: any) => {
+    const rawDate = row.issueDate ?? row.date ?? row.createdAt;
+    const parsedDate = typeof rawDate === "number"
+      ? (rawDate > 10_000_000_000 ? Math.floor(rawDate / 1000) : rawDate)
+      : rawDate ? Math.floor(new Date(rawDate).getTime() / 1000) : undefined;
+    return {
+      id: String(row.id ?? row.invoiceId),
+      contactName: row.contactName ?? row.contact?.name ?? row.customer?.name,
+      contactEmail: row.contactEmail ?? row.contact?.email ?? row.customer?.email,
+      contact: row.contactId ?? row.contact?.id ?? row.customer?.id,
+      desc: row.description ?? row.desc,
+      date: Number.isFinite(parsedDate) ? parsedDate : undefined,
+      dueDate: row.dueDate ? Math.floor(new Date(row.dueDate).getTime() / 1000) : undefined,
+      total: Number(row.total?.amount ?? row.total ?? row.totals?.total ?? 0),
+      status: typeof row.status === "number" ? row.status : undefined,
+      docNumber: row.documentNumber ?? row.docNumber ?? row.number,
+      currency: row.currency?.code ?? row.currency
+    };
+  }).filter((row: HoldedInvoice) => row.id && row.id !== "undefined");
+}
+
 const INVOICE_STATUS: Record<number, string> = {
   0: "pendiente",
   1: "pagada",
@@ -98,6 +122,20 @@ export async function holdedListInvoices(opts: {
   endTimestamp?: number;
   sort?: "created-asc" | "created-desc";
 }): Promise<HoldedInvoice[]> {
+  const key = await getApiKey(opts.workspaceId);
+  if (key.startsWith("pat_")) {
+    const params = new URLSearchParams({ limit: String(Math.min(opts.limit ?? 100, 500)) });
+    const resp = await fetch(`https://api.holded.com/api/v2/invoices?${params}`, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(30_000), cache: "no-store"
+    });
+    if (!resp.ok) throw new Error(`Holded ${resp.status} /api/v2/invoices: ${(await resp.text()).slice(0, 200)}`);
+    let rows = normalizeHoldedV2Invoices(await resp.json());
+    if (opts.startTimestamp !== undefined) rows = rows.filter((row) => (row.date ?? 0) >= opts.startTimestamp!);
+    if (opts.endTimestamp !== undefined) rows = rows.filter((row) => (row.date ?? 0) <= opts.endTimestamp!);
+    if (opts.sort) rows.sort((a, b) => opts.sort === "created-asc" ? (a.date ?? 0) - (b.date ?? 0) : (b.date ?? 0) - (a.date ?? 0));
+    return rows.slice(0, opts.limit ?? 100);
+  }
   const params = new URLSearchParams();
   if (opts.status !== undefined) params.set("status", String(opts.status));
   if (opts.startTimestamp !== undefined) params.set("starttmp", String(opts.startTimestamp));
@@ -380,6 +418,11 @@ export async function holdedTest(workspaceId: string): Promise<{
   invoicesSample: number;
   contactsSample: number;
 }> {
+  const key = await getApiKey(workspaceId);
+  if (key.startsWith("pat_")) {
+    const invoices = await holdedListInvoices({ workspaceId, limit: 5 });
+    return { ok: true, invoicesSample: invoices.length, contactsSample: 0 };
+  }
   const [invoices, contacts] = await Promise.all([
     holdedListInvoices({ workspaceId, limit: 5 }),
     holdedListContacts({ workspaceId, limit: 5 })
