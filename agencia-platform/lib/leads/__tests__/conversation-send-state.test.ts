@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failPendingReply, visibleConversationItems, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
+import { failPendingReply, visibleConversationItems, whatsappAckLabel, type PendingConversationReply } from "@/lib/leads/conversation-send-state";
 
 const pending: PendingConversationReply = {
   id: "tmp-1",
@@ -18,5 +18,12 @@ describe("conversation optimistic reply state", () => {
   it("keeps transient replies visible when polling replaces server messages", () => {
     const server = [{ id: "saved-1", direction: "in" as const, body: "Hola", at: "2026-09-03T09:59:00.000Z" }];
     expect(visibleConversationItems(server, [pending]).map(message => message.id)).toEqual(["saved-1", "tmp-1"]);
+  });
+
+  it("explains WhatsApp acknowledgement levels without claiming delivery too early", () => {
+    expect(whatsappAckLabel(null)).toBe("Pendiente de confirmación");
+    expect(whatsappAckLabel(1)).toBe("Enviado");
+    expect(whatsappAckLabel(2)).toBe("Entregado");
+    expect(whatsappAckLabel(3)).toBe("Leído");
   });
 });
