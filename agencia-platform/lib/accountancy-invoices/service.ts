@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { getPreviousMonthPeriod, getRunHealth } from "./domain";
+import { getPreviousMonthPeriod, getRunHealth, getSourceDownloadOutcome } from "./domain";
 import { shouldRunMonthlySchedule } from "./domain";
 import { holdedGetInvoicePdf, holdedListInvoices } from "@/lib/integrations/holded";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
@@ -100,19 +100,28 @@ export async function processPendingHoldedInvoiceRun(runId?: string) {
     if (!isStorageEnabled()) throw new Error("Storage no configurado para archivar las facturas");
     const invoices = await holdedListInvoices({ workspaceId: pending.run.workspaceId, startTimestamp: Math.floor(pending.run.periodFrom.getTime() / 1000), endTimestamp: Math.floor(pending.run.periodTo.getTime() / 1000), limit: 500, sort: "created-asc" });
     const files: Array<{ id: string; name: string; url: string }> = [];
+    const downloadedInvoiceIds = new Set<string>();
+    const errors: string[] = [];
     for (let offset = 0; offset < invoices.length; offset += 5) {
       const batch = invoices.slice(offset, offset + 5);
       const stored = await Promise.all(batch.map(async (invoice) => {
-        const buffer = await holdedGetInvoicePdf({ workspaceId: pending.run.workspaceId, invoiceId: invoice.id });
-        const name = `${invoice.docNumber || invoice.id}.pdf`.replace(/[^a-zA-Z0-9._-]+/g, "_");
-        const s3Key = buildS3Key({ workspaceId: pending.run.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id, filename: name });
-        await uploadBuffer({ s3Key, body: buffer, contentType: "application/pdf" });
-        const row = await prisma.file.create({ data: { workspaceId: pending.run.workspaceId, name, mimeType: "application/pdf", sizeBytes: buffer.length, s3Key, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id } });
-        return { id: row.id, name, url: await signedDownloadUrl(s3Key, 7 * 24 * 3600) };
+        try {
+          const buffer = await holdedGetInvoicePdf({ workspaceId: pending.run.workspaceId, invoiceId: invoice.id });
+          const name = `${invoice.docNumber || invoice.id}.pdf`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+          const s3Key = buildS3Key({ workspaceId: pending.run.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id, filename: name });
+          await uploadBuffer({ s3Key, body: buffer, contentType: "application/pdf" });
+          const row = await prisma.file.create({ data: { workspaceId: pending.run.workspaceId, name, mimeType: "application/pdf", sizeBytes: buffer.length, s3Key, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: pending.id } });
+          downloadedInvoiceIds.add(invoice.id);
+          return { id: row.id, name, url: await signedDownloadUrl(s3Key, 7 * 24 * 3600) };
+        } catch (error: any) {
+          errors.push(`${invoice.docNumber || invoice.id}: ${String(error?.message || error).slice(0, 160)}`);
+          return null;
+        }
       }));
-      files.push(...stored);
+      files.push(...stored.filter((file): file is NonNullable<typeof file> => file !== null));
     }
-    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: "DOWNLOADED", invoiceCount: invoices.length, amountCents: invoices.reduce((sum, invoice) => sum + Math.round(Number(invoice.total || 0) * 100), 0), files, finishedAt: new Date() } });
+    const outcome = getSourceDownloadOutcome(invoices.length, files.length, errors);
+    await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents: invoices.filter((invoice) => downloadedInvoiceIds.has(invoice.id)).reduce((sum, invoice) => sum + Math.round(Number(invoice.total || 0) * 100), 0), files, finishedAt: new Date() } });
   } catch (error: any) {
     await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: "FAILED", error: String(error?.message || error).slice(0, 1000), finishedAt: new Date() } });
   }

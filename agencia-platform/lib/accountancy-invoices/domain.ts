@@ -1,5 +1,13 @@
 export type DownloadStatus = "PENDING" | "RUNNING" | "DOWNLOADED" | "FAILED" | "SKIPPED";
 
+export function getSourceDownloadOutcome(total: number, downloaded: number, errors: string[]) {
+  if (!errors.length) return { status: "DOWNLOADED" as const, error: null };
+  const detail = errors.slice(0, 10).join("; ");
+  return downloaded > 0 || total === 0
+    ? { status: "DOWNLOADED" as const, error: `${errors.length} de ${total} facturas no se pudieron descargar: ${detail}` }
+    : { status: "FAILED" as const, error: `No se pudo descargar ninguna de las ${total} facturas: ${detail}` };
+}
+
 export function getPreviousMonthPeriod(now = new Date(), timezone = "Europe/Madrid") {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit" })
     .formatToParts(now)
