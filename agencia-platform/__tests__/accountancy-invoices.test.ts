@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { getPreviousMonthPeriod, getRunHealth, shouldRunMonthlySchedule, validateRecipients } from "@/lib/accountancy-invoices/domain";
+import { getPreviousMonthPeriod, getRunHealth, getSourceDownloadOutcome, shouldRunMonthlySchedule, validateRecipients } from "@/lib/accountancy-invoices/domain";
 
 describe("accountancy invoice automation", () => {
+  it("keeps successful invoices when only some source documents fail", () => {
+    expect(getSourceDownloadOutcome(3, 2, ["F-003: sin PDF"])).toEqual({ status: "DOWNLOADED", error: "1 de 3 facturas no se pudieron descargar: F-003: sin PDF" });
+    expect(getSourceDownloadOutcome(2, 0, ["F-001", "F-002"]).status).toBe("FAILED");
+  });
   it("builds the complete previous calendar month", () => {
     expect(getPreviousMonthPeriod(new Date("2026-09-02T06:30:00.000Z"), "Europe/Madrid")).toEqual({ key: "2026-08", from: "2026-08-01", to: "2026-08-31" });
   });
