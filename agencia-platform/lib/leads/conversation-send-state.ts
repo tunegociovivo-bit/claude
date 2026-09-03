@@ -20,3 +20,10 @@ export function visibleConversationItems<T extends ConversationItem>(server: T[]
   const serverIds = new Set(server.map(item => item.id));
   return [...server, ...pending.filter(item => !serverIds.has(item.id))];
 }
+
+export function whatsappAckLabel(ack: number | null | undefined) {
+  if (typeof ack !== "number" || ack < 1) return "Pendiente de confirmación";
+  if (ack >= 3) return "Leído";
+  if (ack >= 2) return "Entregado";
+  return "Enviado";
+}
