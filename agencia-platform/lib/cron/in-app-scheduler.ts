@@ -194,7 +194,27 @@ export function startInAppScheduler(): void {
   setTimeout(wahaWatchdogTick, 150_000);
   setInterval(wahaWatchdogTick, WAHA_WATCHDOG_MS);
 
+  // Facturas gestoría tiene su propio ciclo: no debe quedar bloqueado por
+  // recordatorios, GMB u otros trabajos lentos del tick general.
+  let accountancyBusy = false;
+  async function accountancyTick() {
+    if (accountancyBusy) return;
+    accountancyBusy = true;
+    try {
+      const { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      await runAccountancySchedules();
+      await processPendingHoldedInvoiceRun();
+      await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
+    } catch (e) {
+      console.warn("[in-app-cron] facturas gestoría independiente:", (e as Error).message);
+    } finally {
+      accountancyBusy = false;
+    }
+  }
+  setTimeout(accountancyTick, 30_000);
+  setInterval(accountancyTick, 2 * 60 * 1000);
+
   console.log(
-    "[in-app-cron] planificador interno activo (general 5 min · leads 1 min · gmb-posts 5 min · waha-watchdog 3 min)."
+    "[in-app-cron] planificador interno activo (general 5 min · facturas 2 min · leads 1 min · gmb-posts 5 min · waha-watchdog 3 min)."
   );
 }
