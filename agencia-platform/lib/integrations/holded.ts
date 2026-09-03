@@ -142,6 +142,14 @@ export function decodeHoldedPdfPayload(payload: Buffer): Buffer {
   };
   const direct = asPdf(payload);
   if (direct) return direct;
+  const rawText = payload.toString("utf8").trim();
+  const rawBase64 = rawText
+    .replace(/^data:application\/pdf(?:;[^,]*)?;base64,/i, "")
+    .replace(/\s+/g, "");
+  if (/^[A-Za-z0-9+/_=-]+$/.test(rawBase64)) {
+    const decodedRaw = asPdf(Buffer.from(rawBase64, "base64"));
+    if (decodedRaw) return decodedRaw;
+  }
   try {
     const json = JSON.parse(payload.toString("utf8"));
     const visit = (value: unknown, depth = 0): Buffer | null => {
