@@ -92,7 +92,8 @@
             errors.push(`${url.slice(0, 60)}: ${e?.message ?? e}`);
           }
         }
-        sendResponse({ ok: true, files, found: urls.length, errors });
+        const emptyConfirmed = /no hay transacciones|no tienes ninguna transacción/i.test(document.body?.innerText || "");
+        sendResponse({ ok: true, files, found: urls.length, errors, emptyConfirmed });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }

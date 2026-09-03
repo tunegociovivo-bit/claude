@@ -570,6 +570,92 @@ async function harvestMetaInvoices() {
   return { ok: true, created, duplicate, error: errored, found: files.length };
 }
 
+let accountancyQueueBusy = false;
+
+function waitForTabComplete(tabId, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); reject(new Error("La página tardó demasiado en cargar")); }, timeoutMs);
+    const listener = (changedId, info) => {
+      if (changedId !== tabId || info.status !== "complete") return;
+      clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); resolve();
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => { if (tab.status === "complete") { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); resolve(); } }).catch(() => {});
+  });
+}
+
+async function uploadAccountancyPdf(itemId, file) {
+  const blob = await (await fetch(`data:application/pdf;base64,${file.base64}`)).blob();
+  const form = new FormData();
+  form.append("itemId", itemId);
+  form.append("file", blob, file.name || "factura.pdf");
+  const response = await authedFetch("/api/v1/admin/accountancy-invoices/upload", { method: "POST", body: form });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || data.error || `No se pudo archivar ${file.name}`);
+  return data;
+}
+
+async function reportAccountancyResult(payload) {
+  const response = await authedFetch("/api/v1/admin/accountancy-invoices/agent", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!response.ok) throw new Error("El Hub no pudo guardar el resultado de la descarga");
+}
+
+async function processAccountancyItem(item) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: item.target.url, active: false });
+    await waitForTabComplete(tab.id);
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    const script = item.target.mode === "META" ? "content/meta-billing.js" : "content/invoice-harvester.js";
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [script] }).catch(() => {});
+    const messageType = item.target.mode === "META" ? "harvest-meta-invoices" : "harvest-accountancy-invoices";
+    const result = await chrome.tabs.sendMessage(tab.id, { type: messageType });
+    if (!result?.ok) throw new Error(result?.error || "No se pudo leer la página de facturación");
+    if (!result.files?.length && !result.emptyConfirmed) throw new Error("No se detectaron facturas PDF. Revisa la sesión, el periodo y la URL de facturación.");
+    const uploaded = [];
+    let amountCents = 0;
+    for (const file of result.files || []) {
+      const archived = await uploadAccountancyPdf(item.id, file);
+      uploaded.push(archived);
+      if (item.target.mode === "META") {
+        const blob = await (await fetch(`data:application/pdf;base64,${file.base64}`)).blob();
+        const form = new FormData(); form.append("file", blob, file.name || "meta-factura.pdf"); form.append("adAccount", item.clientName); form.append("copyToDrive", "1");
+        const ingested = await authedFetch("/api/v1/admin/meta-invoices/ingest", { method: "POST", body: form });
+        const details = await ingested.json().catch(() => ({}));
+        if (ingested.ok) amountCents += Number(details.totalCents || 0);
+      }
+    }
+    await reportAccountancyResult({ id: item.id, status: "DOWNLOADED", invoiceCount: uploaded.length, amountCents, files: uploaded });
+    notify("Facturas descargadas", `${item.clientName}: ${uploaded.length} PDF archivados`);
+  } catch (error) {
+    await reportAccountancyResult({ id: item.id, status: "FAILED", error: String(error?.message || error).slice(0, 900) }).catch(() => {});
+    notify("Factura pendiente", `${item.clientName}: ${String(error?.message || error).slice(0, 120)}`);
+  } finally {
+    if (tab?.id) await chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+async function processAccountancyQueue() {
+  if (accountancyQueueBusy || !(await syncSession())) return;
+  accountancyQueueBusy = true;
+  try {
+    for (let attempts = 0; attempts < 8; attempts++) {
+      const response = await authedFetch("/api/v1/admin/accountancy-invoices/agent");
+      if (!response.ok) break;
+      const data = await response.json();
+      if (data.retry) continue;
+      if (!data.item) break;
+      await processAccountancyItem(data.item);
+    }
+  } finally {
+    accountancyQueueBusy = false;
+  }
+}
+
+async function ensureAccountancyAlarm() {
+  await chrome.alarms.create("accountancy-invoices", { periodInMinutes: 2 });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg?.from === "popup" && msg?.type === "check-session") {
@@ -907,6 +993,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await pollNotifications();
   } else if (alarm.name === "poll-session") {
     await syncSession();
+  } else if (alarm.name === "accountancy-invoices") {
+    await processAccountancyQueue();
   } else if (alarm.name === "upload-watchdog") {
     // Si seguimos en "uploading" 6 min después de parar, la subida se colgó.
     // Sacamos el estado de bloqueo para que el popup vuelva a ser usable.
@@ -934,6 +1022,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Al instalar / actualizar: chequea sesión y abre la pestaña del
 // Hub si no hay cookie. Si hay → ya estamos listos.
 chrome.runtime.onInstalled.addListener(async () => {
+  await ensureAccountancyAlarm();
   const ok = await syncSession();
   if (ok) {
     await ensureNotificationsAlarm();
@@ -943,6 +1032,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  await ensureAccountancyAlarm();
   const ok = await syncSession();
   if (ok) await ensureNotificationsAlarm();
 });

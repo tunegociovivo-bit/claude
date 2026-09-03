@@ -167,6 +167,7 @@ export async function sendViaResend(opts: {
   subject: string;
   text?: string;
   html?: string;
+  attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
 }): Promise<{ id: string }> {
   const apiKey = opts.apiKey ?? process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -181,6 +182,7 @@ export async function sendViaResend(opts: {
   if (opts.replyTo) payload.reply_to = opts.replyTo;
   if (opts.html) payload.html = opts.html;
   if (opts.text || !opts.html) payload.text = opts.text ?? "";
+  if (opts.attachments?.length) payload.attachments = opts.attachments.map((attachment) => ({ filename: attachment.filename, content: attachment.content.toString("base64"), content_type: attachment.contentType }));
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {

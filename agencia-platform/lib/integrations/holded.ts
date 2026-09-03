@@ -118,6 +118,20 @@ export async function holdedGetInvoice(opts: {
   return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`);
 }
 
+/** Descarga el PDF oficial de una factura de Holded. */
+export async function holdedGetInvoicePdf(opts: { workspaceId: string; invoiceId: string }): Promise<Buffer> {
+  const key = await getApiKey(opts.workspaceId);
+  const response = await fetch(`${BASE}/invoicing/v1/documents/invoice/${encodeURIComponent(opts.invoiceId)}/pdf`, {
+    headers: { key, Accept: "application/pdf" },
+    signal: AbortSignal.timeout(30_000),
+    cache: "no-store"
+  });
+  if (!response.ok) throw new Error(`Holded ${response.status}: no se pudo descargar el PDF ${opts.invoiceId}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length < 5 || buffer.subarray(0, 4).toString() !== "%PDF") throw new Error(`Holded devolvió un archivo no PDF para ${opts.invoiceId}`);
+  return buffer;
+}
+
 /** Documento recurrente de Holded (plantilla). Los nombres de campo varían según la
  *  antigüedad/tipo; el importador es DEFENSIVO y normaliza varias variantes. */
 export type HoldedRecurring = {

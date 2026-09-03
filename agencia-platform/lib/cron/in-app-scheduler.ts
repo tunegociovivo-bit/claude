@@ -80,6 +80,13 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] holded/sepa:", (e as Error).message);
     }
     try {
+      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      await runAccountancySchedules();
+      await processPendingHoldedInvoiceRun();
+    } catch (e) {
+      console.warn("[in-app-cron] facturas gestoría:", (e as Error).message);
+    }
+    try {
       const { monitorOfflineBankAgents } = await import("@/lib/facturacion/sepa/agent-watchdog");
       const result = await monitorOfflineBankAgents();
       if (result.notified > 0) console.warn(`[in-app-cron] agentes bancarios offline avisados: ${result.notified}`);

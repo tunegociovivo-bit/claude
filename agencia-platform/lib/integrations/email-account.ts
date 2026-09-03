@@ -347,6 +347,7 @@ export async function sendEmailFromAccount(opts: {
   body: string;
   cc?: string;
   html?: boolean;
+  attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
 }): Promise<{ messageId: string; via?: "smtp" | "relay" }> {
   const { acc, password } = await loadAccount(opts.userId, opts.workspaceId);
   try {
@@ -365,6 +366,7 @@ export async function sendEmailFromAccount(opts: {
           to: opts.to,
           cc: opts.cc,
           subject: opts.subject,
+          attachments: opts.attachments,
           ...(opts.html ? { html: opts.body } : { text: opts.body })
         })
     );
@@ -389,7 +391,8 @@ export async function sendEmailFromAccount(opts: {
       to: opts.to,
       cc: opts.cc,
       subject: opts.subject,
-      ...(opts.html ? { html: opts.body } : { text: opts.body })
+      ...(opts.html ? { html: opts.body } : { text: opts.body }),
+      attachments: opts.attachments
     };
     try {
       // Remitente principal: si el "from" configurado incluye la dirección

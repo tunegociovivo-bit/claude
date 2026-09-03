@@ -37,6 +37,8 @@
     "https://business.facebook.com/*",
     "https://www.facebook.com/*",
     "https://secure.facebook.com/*",
+    "https://ads.google.com/*",
+    "https://app.holded.com/*",
     "https://www.linkedin.com/*",
     "https://meet.google.com/*",
     "https://teams.microsoft.com/*",
@@ -49,6 +51,14 @@
     "https://*.gotomeeting.com/*"
   ],
   "content_scripts": [
+    {
+      "matches": [
+        "https://ads.google.com/*",
+        "https://app.holded.com/*"
+      ],
+      "js": ["content/invoice-harvester.js"],
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://www.linkedin.com/search/results/people/*",
