@@ -3,6 +3,7 @@ import { getPreviousMonthPeriod, getRunHealth, getSourceDownloadOutcome } from "
 import { shouldRunMonthlySchedule } from "./domain";
 import { holdedGetInvoicePdf, holdedListInvoices } from "@/lib/integrations/holded";
 import { gadsDownloadInvoicePdf, gadsListInvoices } from "@/lib/integrations/google-ads";
+import { findMetaBillingPdfAttachments } from "@/lib/integrations/email-account";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 
 export const DEFAULT_RECIPIENTS = ["info@negociovivo.com"];
@@ -117,17 +118,35 @@ export async function processAllPendingGoogleAdsInvoiceRun(runId?: string, limit
 }
 
 export async function processAllPendingMetaInvoiceRun(runId?: string, limit = 20) {
-  const pending = await prisma.accountancyInvoiceRunItem.findMany({ where: { source: "META", status: "PENDING", ...(runId ? { runId } : {}) }, include: { run: true }, orderBy: { createdAt: "desc" }, take: limit });
-  const touchedRuns = new Set<string>();
-  for (const item of pending) {
-    const connections = await prisma.metaConnection.count({ where: { workspaceId: item.run.workspaceId } });
-    const error = connections
-      ? "Meta está conectado para campañas, pero Meta no expone los PDF de facturación mediante su API pública. Hace falta activar el conector permanente de documentos de pago."
-      : "No hay una conexión permanente de Meta configurada para descargar documentos de facturación.";
-    const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: item.id, status: "PENDING" }, data: { status: "FAILED", error, startedAt: new Date(), finishedAt: new Date() } });
-    if (claimed.count) touchedRuns.add(item.runId);
+  const pending = await prisma.accountancyInvoiceRunItem.findMany({ where: { source: "META", status: "PENDING", ...(runId ? { runId } : {}) }, include: { run: true, client: true }, orderBy: { createdAt: "desc" }, take: limit });
+  for (const group of [...new Set(pending.map((item) => item.runId))]) {
+    const items = pending.filter((item) => item.runId === group);
+    const run = items[0].run;
+    const account = await prisma.emailAccount.findFirst({ where: { workspaceId: run.workspaceId }, orderBy: { updatedAt: "desc" } });
+    let attachments: Awaited<ReturnType<typeof findMetaBillingPdfAttachments>> = [];
+    let scanError: string | null = null;
+    if (!account) scanError = "No hay un buzón corporativo conectado para buscar recibos PDF de Meta.";
+    else {
+      try {
+        attachments = await findMetaBillingPdfAttachments({ userId: account.userId, workspaceId: run.workspaceId, from: run.periodFrom, to: run.periodTo, accountIds: items.map((item) => String(item.client?.externalAccountId || "")).filter(Boolean) });
+      } catch (error: any) { scanError = `No se pudo revisar el buzón de facturación: ${String(error?.message || error).slice(0, 500)}`; }
+    }
+    for (const item of items) {
+      const accountId = String(item.client?.externalAccountId || "").replace(/\D/g, "");
+      const matches = attachments.filter((file) => file.accountId.replace(/\D/g, "") === accountId);
+      const files: Array<{ id: string; name: string; url: string }> = [];
+      for (const match of matches) {
+        const name = `meta-${accountId}-${match.filename}`.replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const s3Key = buildS3Key({ workspaceId: run.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id, filename: name });
+        await uploadBuffer({ s3Key, body: match.content, contentType: "application/pdf" });
+        const row = await prisma.file.create({ data: { workspaceId: run.workspaceId, name, mimeType: "application/pdf", sizeBytes: match.content.length, s3Key, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id } });
+        files.push({ id: row.id, name, url: await signedDownloadUrl(s3Key, 7 * 24 * 3600) });
+      }
+      const error = scanError || (!accountId ? "Falta el ID numérico de la cuenta de Meta." : !matches.length ? "No se encontró ningún recibo PDF inequívocamente asociado a esta cuenta en el buzón del periodo." : null);
+      await prisma.accountancyInvoiceRunItem.update({ where: { id: item.id }, data: { status: files.length ? "DOWNLOADED" : "FAILED", error, invoiceCount: files.length, amountCents: matches.reduce((sum, file) => sum + (file.amountCents || 0), 0), files, invoiceDetails: matches.map((file) => ({ number: file.filename.replace(/\.pdf$/i, ""), date: file.messageDate?.toISOString().slice(0, 10) || "", amountCents: file.amountCents || 0, currency: "EUR" })), startedAt: new Date(), finishedAt: new Date() } });
+    }
+    await refreshRunStatus(group);
   }
-  for (const touchedRunId of touchedRuns) await refreshRunStatus(touchedRunId);
   return pending.length;
 }
 

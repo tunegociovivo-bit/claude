@@ -10,6 +10,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
+import { createHash } from "node:crypto";
 
 // Timeouts: sin esto, si el servidor de correo no responde (puerto
 // bloqueado, host caído, firewall que descarta paquetes) la conexión se
@@ -410,6 +411,64 @@ export async function sendEmailFromAccount(opts: {
       throw re;
     }
   }
+}
+
+export type BillingPdfAttachment = {
+  accountId: string;
+  filename: string;
+  content: Buffer;
+  messageDate: Date | null;
+  subject: string;
+  amountCents: number | null;
+  hash: string;
+};
+
+/** Busca recibos PDF de Meta en el buzón configurado, sin mover ni marcar correos. */
+export async function findMetaBillingPdfAttachments(opts: {
+  userId: string;
+  workspaceId: string;
+  from: Date;
+  to: Date;
+  accountIds: string[];
+}): Promise<BillingPdfAttachment[]> {
+  const { acc, password } = await loadAccount(opts.userId, opts.workspaceId);
+  const { ImapFlow } = await import("imapflow");
+  const { simpleParser } = await import("mailparser");
+  const client = new ImapFlow({ host: acc.imapHost, port: acc.imapPort, secure: acc.imapSecure, auth: { user: acc.loginUser, pass: password }, logger: false, ...IMAP_TIMEOUTS });
+  await withTimeout(client.connect(), 15_000, "IMAP");
+  const found: BillingPdfAttachment[] = [];
+  const hashes = new Set<string>();
+  try {
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const uids = (await client.search({ since: opts.from, before: new Date(opts.to.getTime() + 1) }, { uid: true })) || [];
+      for (const uid of uids.slice(-500)) {
+        const message = await client.fetchOne(String(uid), { source: true, internalDate: true }, { uid: true });
+        if (!message || typeof message === "boolean" || !message.source) continue;
+        const parsed = await simpleParser(message.source as Buffer);
+        const subject = String(parsed.subject || "");
+        const from = parsed.from?.text || "";
+        const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
+        if (!/(facebookmail\.com|facebook\.com|meta\.com|meta platforms|recibo.*meta|meta.*recibo)/i.test(searchable)) continue;
+        const normalized = searchable.replace(/[\s-]/g, "");
+        const accountId = opts.accountIds.find((id) => normalized.includes(id.replace(/\D/g, "")));
+        if (!accountId) continue;
+        const amountMatch = searchable.match(/(?:total|importe|amount)[^\d]{0,30}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i);
+        const amountCents = amountMatch ? Math.round(Number(amountMatch[1].replace(/[.\s]/g, "").replace(",", ".")) * 100) : null;
+        for (const attachment of parsed.attachments || []) {
+          const content = Buffer.from(attachment.content);
+          if (attachment.contentType !== "application/pdf" && !/\.pdf$/i.test(attachment.filename || "")) continue;
+          if (content.subarray(0, 4).toString("ascii") !== "%PDF") continue;
+          const hash = createHash("sha256").update(content).digest("hex");
+          if (hashes.has(hash)) continue;
+          hashes.add(hash);
+          const rawDate = parsed.date || message.internalDate;
+          found.push({ accountId, filename: attachment.filename || `meta-${accountId}-${uid}.pdf`, content, messageDate: rawDate ? new Date(rawDate) : null, subject, amountCents, hash });
+        }
+      }
+    } finally { lock.release(); }
+  } finally { await client.logout().catch(() => {}); }
+  return found;
 }
 
 export async function getEmailAccountStatus(userId: string, workspaceId: string) {

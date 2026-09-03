@@ -17,14 +17,15 @@ async function adminContext() {
 export async function GET() {
   const ctx = await adminContext();
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  const [clients, schedule, runs, googleAdsConnections, metaConnectionCount] = await Promise.all([
+  const [clients, schedule, runs, googleAdsConnections, metaConnectionCount, billingMailboxCount] = await Promise.all([
     prisma.accountancyInvoiceClient.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: [{ enabled: "desc" }, { source: "asc" }, { name: "asc" }] }),
     prisma.accountancyInvoiceSchedule.findUnique({ where: { workspaceId: ctx.workspaceId } }),
     prisma.accountancyInvoiceRun.findMany({ where: { workspaceId: ctx.workspaceId }, include: { items: { orderBy: [{ status: "asc" }, { source: "asc" }, { clientName: "asc" }] } }, orderBy: { createdAt: "desc" }, take: 12 }),
     prisma.googleAdsConnection.findMany({ where: { workspaceId: ctx.workspaceId }, select: { accountEmail: true, label: true, updatedAt: true } }),
-    prisma.metaConnection.count({ where: { workspaceId: ctx.workspaceId } })
+    prisma.metaConnection.count({ where: { workspaceId: ctx.workspaceId } }),
+    prisma.emailAccount.count({ where: { workspaceId: ctx.workspaceId } })
   ]);
-  return NextResponse.json({ clients, schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount } });
+  return NextResponse.json({ clients, schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0 } });
 }
 
 export async function POST(req: NextRequest) {
