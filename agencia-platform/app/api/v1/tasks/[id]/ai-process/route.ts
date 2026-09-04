@@ -52,30 +52,42 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
 
   // «Pedir a Sonia» usa primero el planificador persistente. No dejamos que
   // el agente afirme que creó N followups si no existen realmente en BD.
-  const latestRequest = await prisma.comment.findFirst({
-    where: { workspaceId: api.workspaceId, targetType: "TASK", targetId: params.id, authorId: api.userId },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, body: true }
-  });
-  if (latestRequest?.body) {
-    const planned = await planFutureInstructions({
-      workspaceId: api.workspaceId,
-      taskId: params.id,
-      commentId: latestRequest.id,
-      commentText: latestRequest.body
+  // El planificador de instrucciones futuras es una mejora auxiliar. Si el
+  // proveedor de IA, su tabla de auditoría o cualquier dependencia temporal
+  // falla, la petición principal debe seguir llegando a Sonia: antes una
+  // excepción aquí devolvía un 500 y dejaba la tarea sin procesar.
+  try {
+    const latestRequest = await prisma.comment.findFirst({
+      where: { workspaceId: api.workspaceId, targetType: "TASK", targetId: params.id, authorId: api.userId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, body: true }
     });
-    if (planned && !planned.immediateWork && (planned.scheduled > 0 || planned.problems > 0 || planned.alreadyProcessed)) {
-      return NextResponse.json({
-        ok: true,
-        planned: true,
-        scheduled: planned.scheduled,
-        problems: planned.problems,
-        alreadyProcessed: planned.alreadyProcessed,
-        message: planned.alreadyProcessed
-          ? "La petición futura ya estaba persistida; no se ha duplicado."
-          : `Plan persistido y validado: ${planned.scheduled} ejecución(es) programada(s).`
+    if (latestRequest?.body) {
+      const planned = await planFutureInstructions({
+        workspaceId: api.workspaceId,
+        taskId: params.id,
+        commentId: latestRequest.id,
+        commentText: latestRequest.body
       });
+      if (planned && !planned.immediateWork && (planned.scheduled > 0 || planned.problems > 0 || planned.alreadyProcessed)) {
+        return NextResponse.json({
+          ok: true,
+          planned: true,
+          scheduled: planned.scheduled,
+          problems: planned.problems,
+          alreadyProcessed: planned.alreadyProcessed,
+          message: planned.alreadyProcessed
+            ? "La petición futura ya estaba persistida; no se ha duplicado."
+            : `Plan persistido y validado: ${planned.scheduled} ejecución(es) programada(s).`
+        });
+      }
     }
+  } catch (error: any) {
+    console.error("[ai-process] planificador futuro no disponible; continúa el run normal", {
+      taskId: params.id,
+      workspaceId: api.workspaceId,
+      error: String(error?.message ?? error)
+    });
   }
 
   const url = new URL(req.url);
