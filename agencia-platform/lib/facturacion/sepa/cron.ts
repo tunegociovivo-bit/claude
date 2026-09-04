@@ -82,6 +82,13 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
           // histórico basado en la fecha fiscal.
           ...(importedIds.length ? { invoiceIds: importedIds } : {})
         });
+        // Recupera facturas importadas en los últimos siete días que pudieron
+        // quedar entre la sincronización y el escaneo por una caída parcial.
+        // La creación es idempotente y conserva todas las reglas SEPA.
+        r.recoveryScan = await createRequestsForCandidates(ws.id, null, {
+          max: 50,
+          importedAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        });
         // A newly imported invoice may create and email an approval request,
         // but only an explicit administrator decision may consume its token.
         r.requiresExplicitApproval = requiresExplicitApproval({

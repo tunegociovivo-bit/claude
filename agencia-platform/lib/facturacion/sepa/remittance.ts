@@ -53,7 +53,7 @@ export type CandidateInvoice = {
  */
 export async function findCandidateInvoices(
   workspaceId: string,
-  opts?: { take?: number; skip?: number; issuedAfter?: Date; issuedBefore?: Date; invoiceIds?: string[] }
+  opts?: { take?: number; skip?: number; issuedAfter?: Date; issuedBefore?: Date; importedAfter?: Date; invoiceIds?: string[] }
 ): Promise<CandidateInvoice[]> {
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) return [];
@@ -77,6 +77,7 @@ export async function findCandidateInvoices(
       number: { not: null },
       NOT: { number: { startsWith: "R-", mode: "insensitive" } },
       ...(opts?.invoiceIds ? { id: { in: opts.invoiceIds } } : {}),
+      ...(opts?.importedAfter ? { createdAt: { gte: opts.importedAfter } } : {}),
       ...((opts?.issuedAfter || opts?.issuedBefore)
         ? { issueDate: { ...(opts.issuedAfter ? { gte: opts.issuedAfter } : {}), ...(opts.issuedBefore ? { lt: opts.issuedBefore } : {}) } }
         : {})
@@ -295,16 +296,20 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
 export async function createRequestsForCandidates(
   workspaceId: string,
   createdById?: string | null,
-  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date; invoiceIds?: string[] }
+  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date; importedAfter?: Date; invoiceIds?: string[] }
 ): Promise<{ created: number; skipped: number; examined: number; eligible: number; invalidated: number; requestIds: string[] }> {
   const max = Math.min(opts?.max ?? 50, 200);
   // Defensa central: ningún caller puede omitir por accidente el límite de
   // fecha y volver a convertir una importación histórica en remesa nueva.
   const defaultWindow = madridBusinessDayWindow();
-  const issuedAfter = opts?.issuedAfter ?? defaultWindow.start;
-  const issuedBefore = opts?.issuedBefore ?? defaultWindow.end;
+  // La recuperación por importación reciente es la única excepción al filtro
+  // de fecha fiscal. Queda acotada a siete días para no reabrir históricos.
+  const oldestRecovery = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const importedAfter = opts?.importedAfter && opts.importedAfter > oldestRecovery ? opts.importedAfter : opts?.importedAfter ? oldestRecovery : undefined;
+  const issuedAfter = importedAfter ? opts?.issuedAfter : opts?.issuedAfter ?? defaultWindow.start;
+  const issuedBefore = importedAfter ? opts?.issuedBefore : opts?.issuedBefore ?? defaultWindow.end;
   const invalidated = await invalidateKnownFalseHistoricalRequests(workspaceId, createdById);
-  const all = await findCandidateInvoices(workspaceId, { take: 300, issuedAfter, issuedBefore, invoiceIds: opts?.invoiceIds });
+  const all = await findCandidateInvoices(workspaceId, { take: 300, issuedAfter, issuedBefore, importedAfter, invoiceIds: opts?.invoiceIds });
   const eligible = all.filter((c) => c.eligible).slice(0, max);
   let created = 0;
   let skipped = 0;
