@@ -13,10 +13,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { cronAuthOk } from "@/lib/cron-auth";
+import { recoverRecentAnthropicBillingFailures } from "@/lib/ai/nv-ia/billing-recovery";
 
 export const dynamic = "force-dynamic";
 
 const STALE_MINUTES = 10;
+const BILLING_RECOVERY_HOURS = 24;
+const BILLING_RECOVERY_LIMIT = 20;
 
 function authed(req: NextRequest): boolean {
   return cronAuthOk(req);
@@ -43,7 +46,17 @@ export async function GET(req: NextRequest) {
     }
   });
 
-  return NextResponse.json({ ok: true, markedStale: stale.count });
+  // Anthropic can reject a run before Sonia has a chance to use any tool when
+  // the provider account runs out of credit. Since the runner now falls back
+  // to OpenAI, recover those recent runs automatically instead of making the
+  // user press "Pedir a Sonia" again. A newer run for the same task is the
+  // idempotency marker: only the newest failed attempt is replayed once.
+  const recoveredBilling = await recoverRecentAnthropicBillingFailures({
+    hours: BILLING_RECOVERY_HOURS,
+    limit: BILLING_RECOVERY_LIMIT
+  });
+
+  return NextResponse.json({ ok: true, markedStale: stale.count, recoveredBilling });
 }
 
 export const POST = GET;

@@ -3724,7 +3724,10 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
       ctx.taskId;
     const dedupeKey = `wa-file:${ctx.workspaceId}:${originTaskId}:${phone}:${file.name.toLocaleLowerCase("es")}`;
     const draftResult = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupeKey}))`;
+      // pg_advisory_xact_lock devuelve PostgreSQL `void`. `$queryRaw` intenta
+      // deserializar esa columna y Prisma falla; `$executeRaw` ejecuta el
+      // bloqueo sin interpretar un result set.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupeKey}))`;
       const recent = await tx.aiDraft.findMany({
         where: {
           workspaceId: ctx.workspaceId,
