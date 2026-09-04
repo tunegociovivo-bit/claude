@@ -31,4 +31,28 @@ describe("Sonia OpenAI fallback", () => {
   it("detecta el error real de saldo de Anthropic", () => {
     expect(isAnthropicBillingError(new Error("Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing"))).toBe(true);
   });
+
+  it("limita el catálogo a 128 tools y conserva las necesarias para entregar leads", () => {
+    const tools = Array.from({ length: 184 }, (_, index) => ({
+      name: `tool_${index}`,
+      description: `Tool ${index}`,
+      input_schema: { type: "object", properties: {} }
+    })) as any[];
+    tools[160] = { name: "meta_ads_download_leads", description: "Meta leads", input_schema: { type: "object" } };
+    tools[170] = { name: "create_xlsx_workbook", description: "Excel", input_schema: { type: "object" } };
+    tools[180] = { name: "draft_whatsapp_file", description: "WhatsApp file", input_schema: { type: "object" } };
+
+    const body = anthropicParamsToOpenAi({
+      model: "claude-test",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "crea y envía el Excel" }],
+      tools
+    } as any);
+
+    expect(body.tools).toHaveLength(128);
+    const names = body.tools?.map((tool: any) => tool.function.name);
+    expect(names).toContain("meta_ads_download_leads");
+    expect(names).toContain("create_xlsx_workbook");
+    expect(names).toContain("draft_whatsapp_file");
+  });
 });

@@ -3,6 +3,49 @@ import { getOpenAiKeyForWorkspace } from "@/lib/ai/openai";
 import { logAiUsage } from "@/lib/ai/usage";
 
 const FALLBACK_MODEL = "gpt-5";
+const OPENAI_MAX_TOOLS = 128;
+
+const FALLBACK_PRIORITY_TOOLS = [
+  "meta_ads_download_leads",
+  "create_xlsx_workbook",
+  "list_task_files",
+  "draft_whatsapp_file",
+  "send_whatsapp_message",
+  "add_task_comment"
+];
+
+function openAiCompatibleTools(params: Anthropic.MessageCreateParamsNonStreaming): any[] | undefined {
+  const tools = params.tools ?? [];
+  if (tools.length === 0) return undefined;
+
+  const activeToolNames = new Set<string>();
+  for (const message of params.messages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content as any[]) {
+      if (block?.type === "tool_use" && block.name) activeToolNames.add(String(block.name));
+    }
+  }
+
+  const priority = new Set([...activeToolNames, ...FALLBACK_PRIORITY_TOOLS]);
+  const chosen: any[] = [];
+  const included = new Set<string>();
+  const add = (tool: any) => {
+    if (chosen.length >= OPENAI_MAX_TOOLS || included.has(tool.name)) return;
+    chosen.push(tool);
+    included.add(tool.name);
+  };
+  for (const tool of tools) if (priority.has(tool.name)) add(tool);
+  for (const tool of tools) add(tool);
+
+  return chosen.map((tool: any) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema
+    }
+  }));
+}
 
 function textOf(content: unknown): string {
   if (typeof content === "string") return content;
@@ -55,14 +98,7 @@ export function anthropicParamsToOpenAi(params: Anthropic.MessageCreateParamsNon
     model: FALLBACK_MODEL,
     messages,
     max_completion_tokens: params.max_tokens,
-    tools: params.tools?.map((tool: any) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.input_schema
-      }
-    }))
+    tools: openAiCompatibleTools(params)
   };
 }
 
