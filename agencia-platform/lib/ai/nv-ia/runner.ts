@@ -11,6 +11,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic";
+import { callOpenAiAsAnthropic, isAnthropicBillingError } from "./openai-anthropic-compat";
 import { deepSanitizeStrings, stripLoneSurrogates } from "@/lib/ai/sanitize";
 import { prisma } from "@/lib/db/prisma";
 import { logAiUsage } from "@/lib/ai/usage";
@@ -1397,7 +1398,7 @@ export async function executeAgentRun(opts: {
       // disparaba escalación a Claude Code en GitHub — bucle de issues
       // vacíos. Ahora reintentamos hasta 4 veces (1s, 3s, 8s, 20s) y
       // solo si todos fallan propagamos el error.
-      const resp = await callAnthropicWithRetry(client, createParams);
+      const resp = await callAnthropicWithRetry(client, createParams, 4, workspaceId);
       inputTokens += resp.usage.input_tokens ?? 0;
       outputTokens += resp.usage.output_tokens ?? 0;
 
@@ -2067,7 +2068,8 @@ function extractFirstName(
 async function callAnthropicWithRetry(
   client: Anthropic,
   params: Anthropic.MessageCreateParamsNonStreaming,
-  maxAttempts: number = 4
+  maxAttempts: number = 4,
+  workspaceId?: string
 ): Promise<Anthropic.Message> {
   // Delays en ms: 1s, 3s, 8s, 20s (total ~32s de espera máx).
   const delays = [1000, 3000, 8000, 20000];
@@ -2080,6 +2082,10 @@ async function callAnthropicWithRetry(
       return await client.messages.create(safeParams);
     } catch (e: any) {
       lastErr = e;
+      if (workspaceId && isAnthropicBillingError(e)) {
+        console.warn("[sonia] Anthropic sin saldo; cambiando automáticamente a OpenAI");
+        return callOpenAiAsAnthropic(workspaceId, safeParams);
+      }
       const status = Number(e?.status ?? e?.statusCode ?? 0);
       const msg = String(e?.message ?? e ?? "").toLowerCase();
       const isTransient =
