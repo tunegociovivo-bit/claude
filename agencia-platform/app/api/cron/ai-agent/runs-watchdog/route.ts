@@ -13,8 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { cronAuthOk } from "@/lib/cron-auth";
-import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
-import { isRecoverableAnthropicBillingFailure } from "@/lib/ai/nv-ia/billing-recovery";
+import { recoverRecentAnthropicBillingFailures } from "@/lib/ai/nv-ia/billing-recovery";
 
 export const dynamic = "force-dynamic";
 
@@ -52,43 +51,10 @@ export async function GET(req: NextRequest) {
   // to OpenAI, recover those recent runs automatically instead of making the
   // user press "Pedir a Sonia" again. A newer run for the same task is the
   // idempotency marker: only the newest failed attempt is replayed once.
-  const billingCutoff = new Date(Date.now() - BILLING_RECOVERY_HOURS * 60 * 60 * 1000);
-  const failedCandidates = await prisma.aiAgentRun.findMany({
-    where: {
-      status: { in: ["FAILED", "REQUIRES_HUMAN"] },
-      createdAt: { gte: billingCutoff },
-      error: { not: null }
-    },
-    orderBy: { createdAt: "desc" },
-    take: BILLING_RECOVERY_LIMIT
+  const recoveredBilling = await recoverRecentAnthropicBillingFailures({
+    hours: BILLING_RECOVERY_HOURS,
+    limit: BILLING_RECOVERY_LIMIT
   });
-
-  let recoveredBilling = 0;
-  for (const failedRun of failedCandidates) {
-    if (!isRecoverableAnthropicBillingFailure(failedRun)) continue;
-
-    const newerRun = await prisma.aiAgentRun.findFirst({
-      where: {
-        taskId: failedRun.taskId,
-        createdAt: { gt: failedRun.createdAt }
-      },
-      select: { id: true }
-    });
-    if (newerRun) continue;
-
-    const retry = await prisma.aiAgentRun.create({
-      data: {
-        workspaceId: failedRun.workspaceId,
-        taskId: failedRun.taskId,
-        requesterId: failedRun.requesterId,
-        trigger: failedRun.trigger,
-        triggerContext:
-          "Recuperación automática tras rechazo de Anthropic por saldo. Completa la petición original usando el proveedor alternativo OpenAI."
-      }
-    });
-    processRunInBackground(retry.id);
-    recoveredBilling += 1;
-  }
 
   return NextResponse.json({ ok: true, markedStale: stale.count, recoveredBilling });
 }

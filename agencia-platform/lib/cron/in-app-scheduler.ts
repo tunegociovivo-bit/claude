@@ -31,6 +31,15 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] briefing:", (e as Error).message);
     }
     try {
+      // Recupera automáticamente encargos de Sonia rechazados por falta de
+      // saldo de Anthropic. El runner los completará con OpenAI.
+      const { recoverRecentAnthropicBillingFailures } = await import("@/lib/ai/nv-ia/billing-recovery");
+      const recovered = await recoverRecentAnthropicBillingFailures();
+      if (recovered > 0) console.log(`[in-app-cron] Sonia: ${recovered} run(s) recuperados por OpenAI`);
+    } catch (e) {
+      console.warn("[in-app-cron] Sonia billing recovery:", (e as Error).message);
+    }
+    try {
       // Renueva tokens de usuario de Meta próximos a caducar (no-op si no aplica).
       const { refreshMetaUserTokensIfNeeded } = await import("@/lib/integrations/meta-login");
       await refreshMetaUserTokensIfNeeded();
