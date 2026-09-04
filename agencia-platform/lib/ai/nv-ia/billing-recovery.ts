@@ -10,7 +10,7 @@ const ANTHROPIC_BILLING_ERRORS = [
 ];
 
 const OWNER_LEADS_DELIVERY_TASK_ID = "cmssnkeu600o021fdb8xfytz6";
-const OWNER_LEADS_DELIVERY_MARKER = "RECUPERACION_ENTREGA_LEADS_2026_09_04_V4";
+const OWNER_LEADS_DELIVERY_MARKER = "RECUPERACION_ENVIO_WHATSAPP_LEADS_2026_09_04_V5";
 
 export function isRecoverableAnthropicBillingFailure(run: {
   status: string;
@@ -98,7 +98,7 @@ export async function ensureOwnerLeadsDeliveryRetry(): Promise<boolean> {
       taskId: OWNER_LEADS_DELIVERY_TASK_ID,
       requesterId: sourceRun.requesterId,
       trigger: "MANUAL",
-      triggerContext: `${OWNER_LEADS_DELIVERY_MARKER}\nEJECUCIÓN DE RECUPERACIÓN CON RANGO FIJO. Ignora por completo cualquier rango de fechas anterior que aparezca en la descripción, comentarios, adjuntos o ejecuciones previas de esta tarea. El único rango autorizado para esta ejecución es desde 2026-08-31 hasta 2026-09-04, ambos días incluidos. Descarga los leads de las campañas de M&M Travel de Colombia (120210470402160107), Perú (120210470385990107) y Ecuador (120213755763030107) usando exactamente since=2026-08-31 y until=2026-09-04. Genera un Excel consolidado nuevo cuyo nombre incluya 31ago-04sep-2026, adjúntalo a la tarea y envía el ARCHIVO NATIVO por WhatsApp al teléfono personal autorizado +34680167881 usando list_task_files y draft_whatsapp_file. No reutilices ni envíes archivos de agosto con otros rangos. No te limites a redactar un mensaje ni a dejar un enlace: confirma el envío solo si la herramienta devuelve ejecución correcta. Si una herramienta falla, explica el error real en la tarea.`
+      triggerContext: `${OWNER_LEADS_DELIVERY_MARKER}\nRECUPERACIÓN EXCLUSIVA DEL ENVÍO YA PREPARADO. No descargues leads y no generes ningún archivo nuevo. Usa list_task_files para localizar exactamente el adjunto leads-MM-Travel-31ago-04sep-2026-consolidado.xlsx y envía ese ARCHIVO NATIVO por WhatsApp al teléfono personal autorizado +34680167881 mediante draft_whatsapp_file. Confirma el envío únicamente si la herramienta devuelve ejecución correcta; si falla, registra el error literal.`
     }
   });
   processRunInBackground(retry.id);
