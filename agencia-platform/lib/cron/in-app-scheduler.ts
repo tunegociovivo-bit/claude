@@ -33,9 +33,11 @@ export function startInAppScheduler(): void {
     try {
       // Recupera automáticamente encargos de Sonia rechazados por falta de
       // saldo de Anthropic. El runner los completará con OpenAI.
-      const { recoverRecentAnthropicBillingFailures } = await import("@/lib/ai/nv-ia/billing-recovery");
+      const { recoverRecentAnthropicBillingFailures, ensureOwnerLeadsDeliveryRetry } = await import("@/lib/ai/nv-ia/billing-recovery");
       const recovered = await recoverRecentAnthropicBillingFailures();
       if (recovered > 0) console.log(`[in-app-cron] Sonia: ${recovered} run(s) recuperados por OpenAI`);
+      const ownerDeliveryScheduled = await ensureOwnerLeadsDeliveryRetry();
+      if (ownerDeliveryScheduled) console.log("[in-app-cron] Sonia: entrega de leads al propietario reencolada");
     } catch (e) {
       console.warn("[in-app-cron] Sonia billing recovery:", (e as Error).message);
     }

@@ -9,6 +9,9 @@ const ANTHROPIC_BILLING_ERRORS = [
   "purchase credits"
 ];
 
+const OWNER_LEADS_DELIVERY_TASK_ID = "cmssnkeu600o021fdb8xfytz6";
+const OWNER_LEADS_DELIVERY_MARKER = "RECUPERACION_ENTREGA_LEADS_2026_09_04_V1";
+
 export function isRecoverableAnthropicBillingFailure(run: {
   status: string;
   error: string | null;
@@ -64,4 +67,40 @@ export async function recoverRecentAnthropicBillingFailures(options?: {
   }
 
   return recovered;
+}
+
+/**
+ * Reparación puntual solicitada por el propietario: el encargo original decía
+ * "envíame" pero el teléfono estaba en la conversación de soporte, no en la
+ * tarea. Se crea exactamente una ejecución con destinatario y entrega nativa
+ * explícitos. El marker persistido evita repetirla en futuros despliegues.
+ */
+export async function ensureOwnerLeadsDeliveryRetry(): Promise<boolean> {
+  const alreadyScheduled = await prisma.aiAgentRun.findFirst({
+    where: {
+      taskId: OWNER_LEADS_DELIVERY_TASK_ID,
+      triggerContext: { contains: OWNER_LEADS_DELIVERY_MARKER }
+    },
+    select: { id: true }
+  });
+  if (alreadyScheduled) return false;
+
+  const sourceRun = await prisma.aiAgentRun.findFirst({
+    where: { taskId: OWNER_LEADS_DELIVERY_TASK_ID },
+    orderBy: { createdAt: "desc" },
+    select: { workspaceId: true, requesterId: true }
+  });
+  if (!sourceRun) return false;
+
+  const retry = await prisma.aiAgentRun.create({
+    data: {
+      workspaceId: sourceRun.workspaceId,
+      taskId: OWNER_LEADS_DELIVERY_TASK_ID,
+      requesterId: sourceRun.requesterId,
+      trigger: "MANUAL",
+      triggerContext: `${OWNER_LEADS_DELIVERY_MARKER}\nEjecuta ahora el encargo original de esta tarea. Recopila todos los leads desde el lunes 31/08/2026 hasta el viernes 04/09/2026, ambos inclusive. Genera un documento o Excel completo, adjúntalo a la tarea y envía el ARCHIVO NATIVO por WhatsApp al teléfono personal autorizado +34680167881 usando list_task_files y draft_whatsapp_file. No te limites a redactar un mensaje ni a dejar un enlace: confirma el envío solo si la herramienta devuelve ejecución correcta. Si una herramienta falla, explica el error real en la tarea.`
+    }
+  });
+  processRunInBackground(retry.id);
+  return true;
 }
