@@ -10,7 +10,7 @@ const ANTHROPIC_BILLING_ERRORS = [
 ];
 
 const OWNER_LEADS_DELIVERY_TASK_ID = "cmssnkeu600o021fdb8xfytz6";
-const OWNER_LEADS_DELIVERY_MARKER = "RECUPERACION_ENTREGA_LEADS_2026_09_04_V3";
+const OWNER_LEADS_DELIVERY_MARKER = "RECUPERACION_ENTREGA_LEADS_2026_09_04_V4";
 
 export function isRecoverableAnthropicBillingFailure(run: {
   status: string;

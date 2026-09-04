@@ -1916,7 +1916,7 @@ function buildInitialMessage(
       return `${base} ASISTENCIA EN VIVO durante una reunión. ${ctx ? `Contexto: ${ctx}.` : ""} La description tiene la transcripción reciente. NO actúes sobre tools de escritura (drafts, comments) — solo OBSERVA y devuelve sugerencias breves vía add_comment marcado como "[LIVE]". Útil: identificar acción items, datos buscables (clientes mencionados, contratos), tono del cliente.`;
     case "MANUAL":
     default:
-      return `${base} Llama a get_task_context para leerla y procede.`;
+      return `${base} ${ctx ? `INSTRUCCIÓN ESPECÍFICA DE ESTA EJECUCIÓN (AUTORITATIVA): ${ctx}\n` : ""}Llama a get_task_context para leerla y procede. Si la instrucción específica contradice fechas, destinatarios o alcance del historial de la tarea, prevalece la instrucción específica de esta ejecución.`;
   }
 }
 
