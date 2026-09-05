@@ -51,7 +51,9 @@ export async function syncApprovedHoldedInvoices(workspaceId: string, signal?: A
   const nowSeconds = Math.floor(Date.now() / 1000);
   const [datedInputs, latestInputs] = await Promise.all([
     holdedInvoicesAsInputs(workspaceId, {
-      startTimestamp: nowSeconds - 7 * 24 * 60 * 60,
+    // Holded puede crear hoy una factura con fecha fiscal anterior. Treinta
+    // días cubren ese desfase sin descargar el histórico completo.
+    startTimestamp: nowSeconds - 30 * 24 * 60 * 60,
       endTimestamp: nowSeconds + 24 * 60 * 60,
       signal
     }),

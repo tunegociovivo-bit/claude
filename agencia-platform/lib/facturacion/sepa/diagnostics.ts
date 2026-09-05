@@ -8,7 +8,10 @@ export async function syncRecentHoldedApprovals(workspaceId: string) {
   const approvals = holded.createdInvoiceIds.length
     ? await createRequestsForCandidates(workspaceId, null, {
         max: 50,
-        invoiceIds: holded.createdInvoiceIds
+        invoiceIds: holded.createdInvoiceIds,
+        // Los IDs son exactamente los creados por esta sincronización. Esta
+        // marca permite facturas recién creadas pero con fecha fiscal anterior.
+        importedAfter: new Date(Date.now() - 10 * 60 * 1000)
       })
     : { examined: 0, eligible: 0, created: 0, skipped: 0, requestIds: [] };
   return { holded, approvals };
