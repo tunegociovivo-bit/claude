@@ -18,6 +18,7 @@ import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
 import { remittanceRetryDecision } from "../src/santander/retry.js";
 import { existingInstanceBlocksStart } from "../src/single-instance.js";
+import { isRecoverableCdpFailure } from "../src/santander/chrome-recovery.js";
 
 let passed = 0;
 let failed = 0;
@@ -156,6 +157,12 @@ async function main() {
     reconciliationRetryDecision(new Date("2026-08-11T10:00:00Z"), new Date("2026-08-11T09:00:00Z"), 3, "Europe/Madrid") === "EXHAUSTED");
   ok("reinicia el ciclo de intentos al día siguiente",
     reconciliationRetryDecision(new Date("2026-08-12T06:01:00Z"), new Date("2026-08-11T09:00:00Z"), 3, "Europe/Madrid") === "RUN");
+  ok("detecta un CDP congelado como recuperable",
+    isRecoverableCdpFailure(new Error("browserType.connectOverCDP: Timeout 30000ms exceeded")));
+  ok("detecta un puerto CDP caído como recuperable",
+    isRecoverableCdpFailure(new Error("connect ECONNREFUSED 127.0.0.1:9222")));
+  ok("no reinicia Chrome por un error de credenciales",
+    !isRecoverableCdpFailure(new Error("Santander ha rechazado el usuario o la clave local")));
   const sepaRemittance = parseSepaRemittanceRow("11/08/2026 1 181,50 EUR 0049 6611 7530000602 0049 6611 2317784712 Contabilizada ui-btn");
   ok("lee una remesa SEPA contabilizada", sepaRemittance?.amountCents === 18150 && sepaRemittance.remittanceNumber === "004966117530000602");
   const sepaReceipt = parseSepaReceiptRow("0049 6611 7540000WXZ 000001226783926062611103080 423,50 EUR IBAN ES57 2080 0646 5730 4185 1845 Orden liquidada ui-btn");
