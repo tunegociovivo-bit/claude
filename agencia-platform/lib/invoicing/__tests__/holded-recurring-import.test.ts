@@ -105,7 +105,7 @@ describe("edición de plantillas recurrentes", () => {
       intervalUnit: "DAYS", intervalValue: 3, recipientEmail: "new@example.com",
       totalCents: 70000, currency: "USD", nextRunAt: "2026-09-02T00:00:00.000Z", sendAutomatically: true,
       bccEmails: ["info@negociovivo.com", "control@example.com"]
-    })).ok).toBe(true);
+    }, new Date("2026-08-30T00:00:00.000Z"))).ok).toBe(true);
     expect(prisma._rows[0]).toMatchObject({
       totalCents: 70000,
       clientSnapshot: { name: "Calle Ancha Rohrmoser, S.A.", email: "old@example.com", billingEmail: "new@example.com", invoiceBcc: ["info@negociovivo.com", "control@example.com"] },

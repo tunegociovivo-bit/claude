@@ -82,15 +82,6 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
     }
     try {
-      // Backstop local para Holded + solicitudes SEPA. GitHub Actions puede
-      // retrasar los schedules; este tick corre dentro del proceso persistente
-      // de Railway. Todo el ciclo es idempotente por factura/solicitud.
-      const { runSepaCronAllWorkspaces } = await import("@/lib/facturacion/sepa/cron");
-      await runSepaCronAllWorkspaces();
-    } catch (e) {
-      console.warn("[in-app-cron] holded/sepa:", (e as Error).message);
-    }
-    try {
       const { processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
@@ -138,6 +129,26 @@ export function startInAppScheduler(): void {
   // Primer tick 60s tras el arranque (deja estabilizar la app y la BD).
   setTimeout(tick, 60_000);
   setInterval(tick, TICK_MS);
+
+  // Holded + SEPA no puede depender del tick general: una integración lenta
+  // anterior no debe impedir que entren facturas ni que se creen aprobaciones.
+  // El bloqueo local evita solapes; el dominio sigue siendo idempotente por
+  // factura y solicitud ante varias réplicas del servidor.
+  let sepaBusy = false;
+  async function sepaTick() {
+    if (sepaBusy) return;
+    sepaBusy = true;
+    try {
+      const { runSepaCronAllWorkspaces } = await import("@/lib/facturacion/sepa/cron");
+      await runSepaCronAllWorkspaces();
+    } catch (e) {
+      console.warn("[in-app-cron] holded/sepa independiente:", (e as Error).message);
+    } finally {
+      sepaBusy = false;
+    }
+  }
+  setTimeout(sepaTick, 15_000);
+  setInterval(sepaTick, TICK_MS);
 
   // NV Leads Pro: cola de WhatsApp + secuencias + búsquedas. Tick cada
   // minuto (como el WP-Cron del plugin). El ritmo REAL de envío lo marca el
@@ -228,6 +239,6 @@ export function startInAppScheduler(): void {
   setInterval(accountancyTick, 2 * 60 * 1000);
 
   console.log(
-    "[in-app-cron] planificador interno activo (general 5 min · facturas 2 min · leads 1 min · gmb-posts 5 min · waha-watchdog 3 min)."
+    "[in-app-cron] planificador interno activo (general 5 min · Holded/SEPA 5 min independiente · facturas 2 min · leads 1 min · gmb-posts 5 min · waha-watchdog 3 min)."
   );
 }
