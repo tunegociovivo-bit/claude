@@ -1,5 +1,13 @@
 import { prisma } from "@/lib/db/prisma";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
+import { createRequestsForCandidates } from "./remittance";
+
+export async function recoverRecentSepaApprovals(workspaceId: string) {
+  return createRequestsForCandidates(workspaceId, null, {
+    max: 50,
+    importedAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  });
+}
 
 export async function getRecentSepaDiagnostics(workspaceId: string, take = 50) {
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
