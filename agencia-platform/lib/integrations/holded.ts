@@ -20,7 +20,15 @@ const BASE = "https://api.holded.com/api";
 
 export function describeHoldedPayload(value: any, depth = 0): any {
   if (depth > 4) return typeof value;
-  if (Array.isArray(value)) return { type: "array", length: value.length, sampleKeys: value[0] && typeof value[0] === "object" ? Object.keys(value[0]).slice(0, 30) : [] };
+  if (Array.isArray(value)) {
+    const sample = value[0] && typeof value[0] === "object" ? value[0] : null;
+    return {
+      type: "array",
+      length: value.length,
+      sampleKeys: sample ? Object.keys(sample).slice(0, 30) : [],
+      sampleFieldShapes: sample ? Object.fromEntries(["total", "subtotal", "status", "draft"].filter((key) => key in sample).map((key) => [key, describeHoldedPayload(sample[key], depth + 1)])) : {}
+    };
+  }
   if (!value || typeof value !== "object") return typeof value;
   return Object.fromEntries(Object.entries(value).slice(0, 30).map(([key, child]) => [key, describeHoldedPayload(child, depth + 1)]));
 }

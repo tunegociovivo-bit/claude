@@ -16,7 +16,7 @@ describe("decodeHoldedPdfPayload", () => {
     expect(holdedV2TotalLimit(5)).toBe(5);
   });
   it("describes payload shape without exposing invoice values", () => {
-    expect(describeHoldedPayload({ data: [{ id: "secret", total: 999 }] })).toEqual({ data: { type: "array", length: 1, sampleKeys: ["id", "total"] } });
+    expect(describeHoldedPayload({ data: [{ id: "secret", total: 999 }] })).toEqual({ data: { type: "array", length: 1, sampleKeys: ["id", "total"], sampleFieldShapes: { total: "number" } } });
   });
   it("normalizes v2 invoice collections and ISO dates", () => {
     expect(normalizeHoldedV2Invoices({ data: [{ id: "inv_1", documentNumber: "FAC-1", issueDate: "2026-08-15", total: 121, currency: "EUR", contact: { name: "Cliente" } }] })).toEqual([
