@@ -16,6 +16,7 @@ import { MockSantanderAdapter } from "./santander/mock.js";
 import { LiveSantanderAdapter } from "./santander/live.js";
 import { reconciliationRetryDecision, SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
 import { remittanceRetryDecision, remittanceRetryDelayMs } from "./santander/retry.js";
+import { isRecoverableCdpFailure, recoverDedicatedChrome } from "./santander/chrome-recovery.js";
 
 export class Runner {
   private stopped = false;
@@ -69,7 +70,16 @@ export class Runner {
       if (reconciliationRetryDecision(now, lastAttempt, config.retryAttempts, config.timeZone) !== "RUN") return;
       this.lastReconciliationAttemptAt = now;
       const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin, credentialFile: this.cfg.santanderCredentialFile });
-      const movements = await reader.scan(new Date(config.startsAt));
+      let movements;
+      try {
+        movements = await reader.scan(new Date(config.startsAt));
+      } catch (error) {
+        if (!isRecoverableCdpFailure(error)) throw error;
+        this.log.warn("Chrome bancario bloqueado: reiniciando únicamente el perfil dedicado y reintentando ahora.");
+        await recoverDedicatedChrome(this.cfg.chromeCdpUrl);
+        await sleep(3_000, () => this.stopped);
+        movements = await reader.scan(new Date(config.startsAt));
+      }
       const result = await this.hub.reportMovements(movements);
       this.log.info(`Conciliación: ${result.imported} movimientos nuevos, ${result.matched} facturas conciliadas.`);
     } catch (e: any) {
