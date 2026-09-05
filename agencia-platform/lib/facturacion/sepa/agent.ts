@@ -269,7 +269,7 @@ export async function reportProgress(agentId: string, workspaceId: string, jobId
   await logJob(jobId, job.status, data.status, { agentId, note: opts.state === "NEEDS_USER" ? `NEEDS_USER: ${data.needsUserReason}` : data.lastProgress });
   if (opts.state === "NEEDS_USER") {
     const d = await jobEmailData(workspaceId, jobId);
-    if (d) await notifyJobEmail("needs_user", { ...d, reason: data.needsUserReason }).catch(() => {});
+    if (d) await notifyJobEmail("needs_user", { ...d, reason: data.needsUserReason }, workspaceId).catch(() => {});
   }
   return { ok: true };
 }
@@ -305,7 +305,7 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
       data: { status: "PENDING_SIGNATURE", chargeDate: now }
     });
     const d = await jobEmailData(workspaceId, jobId);
-    if (d) await notifyJobEmail("pending_signature", d).catch(() => {});
+    if (d) await notifyJobEmail("pending_signature", d, workspaceId).catch(() => {});
     return { ok: true, status: "PREPARED_PENDING_SIGNATURE" };
   }
 

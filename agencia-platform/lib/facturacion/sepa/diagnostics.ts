@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
-import { createRequestForInvoice, createRequestsForCandidates } from "./remittance";
+import { createRequestForInvoice, createRequestsForCandidates, notifyJobEmail } from "./remittance";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 
 export async function syncRecentHoldedApprovals(workspaceId: string) {
@@ -14,6 +14,15 @@ export async function syncRecentHoldedApprovals(workspaceId: string) {
       })
     : { examined: 0, eligible: 0, created: 0, skipped: 0, requestIds: [] };
   return { holded, approvals };
+}
+
+export async function notifyPendingSignatureInvoices(workspaceId: string, invoiceNumbers: string[]) {
+  const rows = await prisma.sepaRemittanceRequest.findMany({
+    where: { workspaceId, invoiceNumber: { in: invoiceNumbers }, status: "PENDING_SIGNATURE", archivedAt: null },
+    select: { clientName: true, invoiceNumber: true, amountCents: true, currency: true }
+  });
+  for (const row of rows) await notifyJobEmail("pending_signature", row, workspaceId);
+  return { examined: rows.length, sent: rows.length };
 }
 
 export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNumbers: string[]) {

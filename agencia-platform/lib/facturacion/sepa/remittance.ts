@@ -537,7 +537,8 @@ function escapeHtml(s: string): string {
  */
 export async function notifyJobEmail(
   kind: "created" | "needs_user" | "pending_signature",
-  data: { clientName: string; invoiceNumber: string | null; amountCents: number; currency: string; reason?: string }
+  data: { clientName: string; invoiceNumber: string | null; amountCents: number; currency: string; reason?: string },
+  workspaceId?: string
 ): Promise<void> {
   if (!isEmailEnabled()) return;
   const amount = fmtAmount(data.amountCents, data.currency);
@@ -550,7 +551,16 @@ export async function notifyJobEmail(
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.5">
     <p>${map.body}</p><p><strong>${who}</strong></p>
     <p style="font-size:12px;color:#888">El agente nunca firma, confirma ni cobra. Sin datos bancarios en este email.</p></div>`;
-  await sendEmail({ to: approvalRecipient(), subject: map.subject, html, text: `${map.body}\n${data.clientName} · ${data.invoiceNumber ?? "—"} · ${amount}` });
+  const to = approvalRecipient();
+  try {
+    await sendEmail({ to, subject: map.subject, html, text: `${map.body}\n${data.clientName} · ${data.invoiceNumber ?? "—"} · ${amount}`, workspaceId });
+  } catch (error: any) {
+    if (!workspaceId || !/429|daily[_ ]quota|quota.*exceeded/i.test(String(error?.message ?? error))) throw error;
+    const account = await prisma.emailAccount.findFirst({ where: { workspaceId }, orderBy: { updatedAt: "desc" }, select: { userId: true } });
+    if (!account) throw error;
+    const { sendEmailFromAccount } = await import("@/lib/integrations/email-account");
+    await sendEmailFromAccount({ userId: account.userId, workspaceId, to, subject: map.subject, body: html, html: true });
+  }
 }
 
 export type TokenLookup =
@@ -618,7 +628,7 @@ export async function decideByToken(
     } catch (e) {
       await logEvent(req.id, "APPROVED", "APPROVED", opts.userId, "Aviso: no se pudo crear el trabajo bancario", String((e as any)?.message ?? e));
     }
-    await notifyJobEmail("created", req).catch(() => {});
+    await notifyJobEmail("created", req, workspaceId).catch(() => {});
   }
   return { ok: true, status: target as "APPROVED" | "REJECTED" };
 }
