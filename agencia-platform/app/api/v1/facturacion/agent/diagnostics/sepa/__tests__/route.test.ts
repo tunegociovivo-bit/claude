@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const authenticateAgent = vi.fn();
-const getRecentSepaDiagnostics = vi.fn();
+const { authenticateAgent, getRecentSepaDiagnostics } = vi.hoisted(() => ({
+  authenticateAgent: vi.fn(),
+  getRecentSepaDiagnostics: vi.fn()
+}));
 
 vi.mock("@/lib/facturacion/sepa/agent", () => ({ authenticateAgent }));
 vi.mock("@/lib/facturacion/sepa/diagnostics", () => ({ getRecentSepaDiagnostics }));
