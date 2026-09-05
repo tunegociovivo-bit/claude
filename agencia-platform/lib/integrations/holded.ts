@@ -114,21 +114,29 @@ export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
   const rows = direct ?? findRows(payload) ?? [];
   if (!Array.isArray(rows)) return [];
   return rows.map((row: any) => {
+    const rawStatus = String(row.status ?? "").toLowerCase();
+    const normalizedStatus = typeof row.status === "number" ? row.status
+      : row.draft === true || rawStatus === "draft" ? 4
+      : ["paid", "collected"].includes(rawStatus) ? 1
+      : ["cancelled", "canceled", "void"].includes(rawStatus) ? 3
+      : ["overdue", "expired"].includes(rawStatus) ? 2
+      : ["pending", "issued", "sent", "approved", "unpaid"].includes(rawStatus) ? 0
+      : undefined;
     const rawDate = row.issueDate ?? row.date ?? row.createdAt;
     const parsedDate = typeof rawDate === "number"
       ? (rawDate > 10_000_000_000 ? Math.floor(rawDate / 1000) : rawDate)
       : rawDate ? Math.floor(new Date(rawDate).getTime() / 1000) : undefined;
     return {
       id: String(row.id ?? row._id ?? row.invoiceId),
-      contactName: row.contactName ?? row.contact?.name ?? row.customer?.name,
-      contactEmail: row.contactEmail ?? row.contact?.email ?? row.customer?.email,
-      contact: row.contactId ?? row.contact?.id ?? row.customer?.id,
+      contactName: row.contactName ?? row.contact_name ?? row.contact?.name ?? row.customer?.name,
+      contactEmail: row.contactEmail ?? row.contact_email ?? row.contact?.email ?? row.customer?.email,
+      contact: row.contactId ?? row.contact_id ?? row.contact?.id ?? row.customer?.id,
       desc: row.description ?? row.desc,
       date: Number.isFinite(parsedDate) ? parsedDate : undefined,
-      dueDate: row.dueDate ? Math.floor(new Date(row.dueDate).getTime() / 1000) : undefined,
+      dueDate: (row.dueDate ?? row.due_date) ? Math.floor(new Date(row.dueDate ?? row.due_date).getTime() / 1000) : undefined,
       total: Number(row.total?.amount ?? row.total ?? row.totals?.total ?? 0),
-      status: typeof row.status === "number" ? row.status : undefined,
-      docNumber: row.documentNumber ?? row.docNumber ?? row.number,
+      status: normalizedStatus,
+      docNumber: row.documentNumber ?? row.document_number ?? row.docNumber ?? row.number,
       currency: row.currency?.code ?? row.currency
     };
   }).filter((row: HoldedInvoice) => row.id && row.id !== "undefined");

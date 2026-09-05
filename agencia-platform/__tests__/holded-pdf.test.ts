@@ -27,6 +27,11 @@ describe("decodeHoldedPdfPayload", () => {
       expect.objectContaining({ id: "inv_4", docNumber: "FAC-4", total: 484 })
     ]);
   });
+  it("normalizes the snake_case fields returned by the Holded v2 API", () => {
+    expect(normalizeHoldedV2Invoices({ items: [{ id: "inv_5", document_number: "FAC-005", contact_name: "Cliente cinco", contact_id: "c5", description: "Servicio", date: 1788566400, due_date: "2026-10-05", total: 605, currency: "EUR", status: "pending" }] })).toEqual([
+      expect.objectContaining({ id: "inv_5", docNumber: "FAC-005", contactName: "Cliente cinco", contact: "c5", desc: "Servicio", total: 605, status: 0 })
+    ]);
+  });
   it("accepts a binary PDF response", () => {
     expect(decodeHoldedPdfPayload(pdf)).toEqual(pdf);
   });
