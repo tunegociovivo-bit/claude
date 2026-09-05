@@ -30,14 +30,22 @@ export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNum
   });
   let created = 0;
   let skipped = 0;
+  let eligible = 0;
   const requestIds: string[] = [];
+  const errors: Array<{ invoiceId: string; message: string }> = [];
   for (const invoice of invoices) {
-    const result = await createRequestForInvoice(workspaceId, invoice.id, null);
-    requestIds.push(result.requestId);
-    if (result.created) created++;
-    else skipped++;
+    try {
+      const result = await createRequestForInvoice(workspaceId, invoice.id, null);
+      eligible++;
+      requestIds.push(result.requestId);
+      if (result.created) created++;
+      else skipped++;
+    } catch (error: any) {
+      skipped++;
+      errors.push({ invoiceId: invoice.id, message: String(error?.message ?? error) });
+    }
   }
-  return { examined: invoices.length, eligible: invoices.length, created, skipped, invalidated: 0, requestIds };
+  return { examined: invoices.length, eligible, created, skipped, invalidated: 0, requestIds, errors };
 }
 
 export async function getRecentSepaDiagnostics(workspaceId: string, take = 50) {
