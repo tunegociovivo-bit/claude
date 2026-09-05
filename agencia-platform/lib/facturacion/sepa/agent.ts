@@ -13,6 +13,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { generateApprovalToken, hashToken, safeEqualHex } from "./token";
 import { notifyJobEmail } from "./remittance";
+import { notifyPendingSignatureRequestOnce } from "./pending-signature-notification";
 
 async function jobEmailData(workspaceId: string, jobId: string) {
   const j = await prisma.remittanceJob.findFirst({ where: { id: jobId, workspaceId }, select: { clientName: true, invoiceNumber: true, amountCents: true, currency: true } });
@@ -300,12 +301,12 @@ export async function completeJob(agentId: string, workspaceId: string, jobId: s
     if (upd.count === 0) throw new Error("No se pudo cerrar (lease caducado o ya cerrado)");
     await logJob(jobId, job.status, "PREPARED_PENDING_SIGNATURE", { agentId, note: "Preparada y verificada como pendiente de firma (sin firmar ni cobrar)" });
     // Refleja en la solicitud: PENDING_SIGNATURE + fecha de cobro (inmediata al preparar).
+    const requestId = (await requestIdOfJob(workspaceId, jobId)) ?? "";
     await prisma.sepaRemittanceRequest.updateMany({
-      where: { id: (await requestIdOfJob(workspaceId, jobId)) ?? "", workspaceId },
+      where: { id: requestId, workspaceId },
       data: { status: "PENDING_SIGNATURE", chargeDate: now }
     });
-    const d = await jobEmailData(workspaceId, jobId);
-    if (d) await notifyJobEmail("pending_signature", d, workspaceId).catch(() => {});
+    await notifyPendingSignatureRequestOnce(workspaceId, requestId).catch(() => {});
     return { ok: true, status: "PREPARED_PENDING_SIGNATURE" };
   }
 

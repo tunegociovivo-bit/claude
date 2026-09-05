@@ -1218,6 +1218,7 @@ model SepaRemittanceRequest {
   tokenExpiresAt DateTime
   tokenUsedAt    DateTime?
   approvalNotifiedAt DateTime?
+  pendingSignatureNotifiedAt DateTime?
   approvalTokenEncrypted String? @db.Text
   approvalNotificationKey String?
 

@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
-import { createRequestForInvoice, createRequestsForCandidates, notifyJobEmail } from "./remittance";
+import { createRequestForInvoice, createRequestsForCandidates } from "./remittance";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
+import { notifyPendingSignatureRequestOnce } from "./pending-signature-notification";
 
 export async function syncRecentHoldedApprovals(workspaceId: string) {
   const holded = await syncApprovedHoldedInvoices(workspaceId);
@@ -19,10 +20,11 @@ export async function syncRecentHoldedApprovals(workspaceId: string) {
 export async function notifyPendingSignatureInvoices(workspaceId: string, invoiceNumbers: string[]) {
   const rows = await prisma.sepaRemittanceRequest.findMany({
     where: { workspaceId, invoiceNumber: { in: invoiceNumbers }, status: "PENDING_SIGNATURE", archivedAt: null },
-    select: { clientName: true, invoiceNumber: true, amountCents: true, currency: true }
+    select: { id: true }
   });
-  for (const row of rows) await notifyJobEmail("pending_signature", row, workspaceId);
-  return { examined: rows.length, sent: rows.length };
+  let sent = 0;
+  for (const row of rows) if (await notifyPendingSignatureRequestOnce(workspaceId, row.id)) sent++;
+  return { examined: rows.length, sent };
 }
 
 export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNumbers: string[]) {
