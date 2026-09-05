@@ -134,6 +134,10 @@ export function effectiveReconciliationLastAttempt(
   return failedAttempts === 0 && !zeroRetryResetConsumed ? null : serverLastAttempt ?? localLastAttempt;
 }
 
+export function isDirectRemittanceList(text: string): boolean {
+  return /Remesas de un acreedor/i.test(text);
+}
+
 export type SepaRemittanceRow = { dueAt: string; amountCents: number; remittanceNumber: string; status: string };
 
 export function parseSepaRemittanceRow(text: string): SepaRemittanceRow | null {
@@ -369,6 +373,14 @@ export class SantanderReconciliationReader {
 
   private async openRemittanceList(page: any, pageIndex = 0): Promise<any> {
     await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: 20000 });
+    const directList = await this.waitFrame(page, /Remesas de un acreedor/i, 5);
+    if (directList) {
+      return reopenRemittanceListAtPage(
+        async () => directList,
+        (currentFrame, pageNumber) => this.advanceRemittancePage(page, currentFrame, pageNumber),
+        pageIndex
+      );
+    }
     let frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
     if (!frame) throw new Error("Santander no cargó el módulo de remesas");
     const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
