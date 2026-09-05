@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { decodeHoldedPdfPayload, describeHoldedPayload, extractSafeHoldedPdfUrl, normalizeHoldedV2Invoices } from "@/lib/integrations/holded";
+import { decodeHoldedPdfPayload, describeHoldedPayload, extractSafeHoldedPdfUrl, holdedV2PageLimit, normalizeHoldedV2Invoices } from "@/lib/integrations/holded";
 
 const pdf = Buffer.from("%PDF-1.7\ninvoice");
 
 describe("decodeHoldedPdfPayload", () => {
+  it("caps Holded v2 invoice pages at the supported safe size", () => {
+    expect(holdedV2PageLimit(500)).toBe(50);
+    expect(holdedV2PageLimit(5)).toBe(5);
+  });
   it("describes payload shape without exposing invoice values", () => {
     expect(describeHoldedPayload({ data: [{ id: "secret", total: 999 }] })).toEqual({ data: { type: "array", length: 1, sampleKeys: ["id", "total"] } });
   });

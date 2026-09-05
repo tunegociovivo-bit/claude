@@ -25,6 +25,10 @@ export function describeHoldedPayload(value: any, depth = 0): any {
   return Object.fromEntries(Object.entries(value).slice(0, 30).map(([key, child]) => [key, describeHoldedPayload(child, depth + 1)]));
 }
 
+export function holdedV2PageLimit(requested = 50): number {
+  return Math.min(Math.max(1, requested), 50);
+}
+
 export async function probeHoldedInvoicePayload(workspaceId: string) {
   const key = await getApiKey(workspaceId);
   if (!key.startsWith("pat_")) return { api: "v1" };
@@ -166,7 +170,7 @@ export async function holdedListInvoices(opts: {
 }): Promise<HoldedInvoice[]> {
   const key = await getApiKey(opts.workspaceId);
   if (key.startsWith("pat_")) {
-    const params = new URLSearchParams({ limit: String(Math.min(opts.limit ?? 100, 500)) });
+    const params = new URLSearchParams({ limit: String(holdedV2PageLimit(opts.limit)) });
     const resp = await fetch(`https://api.holded.com/api/v2/invoices?${params}`, {
       headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
       signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000), cache: "no-store"
