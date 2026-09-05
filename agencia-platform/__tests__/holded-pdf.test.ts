@@ -9,6 +9,11 @@ describe("decodeHoldedPdfPayload", () => {
       expect.objectContaining({ id: "inv_1", docNumber: "FAC-1", contactName: "Cliente", total: 121, currency: "EUR", date: 1786752000 })
     ]);
   });
+  it("normalizes paginated v2 collections nested under data.items", () => {
+    expect(normalizeHoldedV2Invoices({ data: { items: [{ id: "inv_2", documentNumber: "FAC-2", issueDate: "2026-09-05", total: { amount: 242 }, customer: { name: "Cliente 2" } }] } })).toEqual([
+      expect.objectContaining({ id: "inv_2", docNumber: "FAC-2", contactName: "Cliente 2", total: 242 })
+    ]);
+  });
   it("accepts a binary PDF response", () => {
     expect(decodeHoldedPdfPayload(pdf)).toEqual(pdf);
   });

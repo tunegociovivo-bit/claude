@@ -79,7 +79,9 @@ export type HoldedInvoice = {
 };
 
 export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
-  const rows = Array.isArray(payload) ? payload : payload?.data ?? payload?.items ?? payload?.results ?? [];
+  const candidates = [payload, payload?.data, payload?.items, payload?.results, payload?.invoices,
+    payload?.data?.items, payload?.data?.results, payload?.data?.invoices, payload?.data?.data];
+  const rows = candidates.find(Array.isArray) ?? [];
   if (!Array.isArray(rows)) return [];
   return rows.map((row: any) => {
     const rawDate = row.issueDate ?? row.date ?? row.createdAt;
