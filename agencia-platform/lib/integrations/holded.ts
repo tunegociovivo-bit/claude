@@ -35,9 +35,19 @@ export function parseHoldedAmount(value: any): number {
   if (typeof raw !== "string") return 0;
   const text = raw.trim().replace(/[^\d,.-]/g, "");
   if (!text) return 0;
-  const normalized = text.includes(",")
-    ? text.replace(/\./g, "").replace(",", ".")
-    : text;
+  const comma = text.lastIndexOf(",");
+  const dot = text.lastIndexOf(".");
+  let normalized = text;
+  if (comma >= 0 && dot >= 0) {
+    normalized = comma > dot
+      ? text.replace(/\./g, "").replace(",", ".")
+      : text.replace(/,/g, "");
+  } else if (comma >= 0) {
+    if (text.length - comma - 1 === 3) return 0;
+    normalized = text.replace(",", ".");
+  } else if (dot >= 0 && text.length - dot - 1 === 3) {
+    return 0;
+  }
   const amount = Number(normalized);
   return Number.isFinite(amount) ? amount : 0;
 }
