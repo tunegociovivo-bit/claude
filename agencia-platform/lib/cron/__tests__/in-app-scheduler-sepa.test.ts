@@ -11,18 +11,18 @@ vi.mock("@/lib/facturacion/sepa/cron", () => ({ runSepaCronAllWorkspaces: runSep
 describe("in-app scheduler SEPA backstop", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("runs the Holded and remittance cycle on the general five-minute tick", async () => {
-    let generalTick: (() => Promise<void>) | undefined;
+  it("runs Holded and remittances independently from a blocked general tick", async () => {
+    let sepaTick: (() => Promise<void>) | undefined;
     vi.stubGlobal("setTimeout", vi.fn((callback: () => Promise<void>, delay: number) => {
-      if (delay === 60_000) generalTick = callback;
+      if (delay === 15_000) sepaTick = callback;
       return 1 as any;
     }));
     vi.stubGlobal("setInterval", vi.fn(() => 1 as any));
 
     const { startInAppScheduler } = await import("../in-app-scheduler");
     startInAppScheduler();
-    expect(generalTick).toBeTypeOf("function");
-    await generalTick!();
+    expect(sepaTick).toBeTypeOf("function");
+    await sepaTick!();
 
     expect(runSepa).toHaveBeenCalledTimes(1);
   });
