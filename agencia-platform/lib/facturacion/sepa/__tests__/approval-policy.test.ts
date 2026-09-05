@@ -19,6 +19,10 @@ describe("SEPA approval reissue policy", () => {
   });
 
   it("does not replace an active approval link", () => {
-    expect(canReissueApproval({ status: "PENDING_APPROVAL", archived: false })).toBe(false);
+    expect(canReissueApproval({ status: "PENDING_APPROVAL", archived: false, notified: true })).toBe(false);
+  });
+
+  it("recovers a pending request whose approval email was never completed", () => {
+    expect(canReissueApproval({ status: "PENDING_APPROVAL", archived: false, notified: false })).toBe(true);
   });
 });

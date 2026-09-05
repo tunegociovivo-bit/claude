@@ -1217,6 +1217,7 @@ model SepaRemittanceRequest {
   tokenHash      String    @unique
   tokenExpiresAt DateTime
   tokenUsedAt    DateTime?
+  approvalNotifiedAt DateTime?
 
   // Trazas de decisión.
   approvedById String?

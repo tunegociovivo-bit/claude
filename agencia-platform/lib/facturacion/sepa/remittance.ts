@@ -105,9 +105,15 @@ export async function findCandidateInvoices(
   // ¿Cuáles ya tienen solicitud? (una query, no N+1)
   const existing = await prisma.sepaRemittanceRequest.findMany({
     where: { workspaceId, invoiceId: { in: invoices.map((i) => i.id) }, archivedAt: null },
-    select: { invoiceId: true }
+    select: { invoiceId: true, status: true, approvalNotifiedAt: true }
   });
-  const withRequest = new Set(existing.map((e) => e.invoiceId));
+  const withRequest = new Set(existing
+    .filter((request) => !canReissueApproval({
+      status: request.status,
+      archived: false,
+      notified: Boolean(request.approvalNotifiedAt)
+    }))
+    .map((request) => request.invoiceId));
 
   return invoices.map((inv) => {
     const c = evaluateCandidacy({
@@ -195,12 +201,16 @@ export async function createRequestForInvoice(
   // ¿Ya existe una solicitud para esta factura? (unique companyId+invoiceId)
   const prev = await prisma.sepaRemittanceRequest.findUnique({
     where: { workspaceId_companyId_invoiceId: { workspaceId, companyId: nv.id, invoiceId } },
-    select: { id: true, status: true, archivedAt: true }
+    select: { id: true, status: true, archivedAt: true, approvalNotifiedAt: true }
   });
   if (prev) {
     // Solo re-armamos las caducadas/fallidas (nuevo enlace); el resto es idempotente
     // (una decidida/pendiente/aprobada NO se recrea; una RECHAZADA se respeta).
-    if (canReissueApproval({ status: prev.status, archived: Boolean(prev.archivedAt) })) {
+    if (canReissueApproval({
+      status: prev.status,
+      archived: Boolean(prev.archivedAt),
+      notified: Boolean(prev.approvalNotifiedAt)
+    })) {
       signal?.throwIfAborted();
       await prisma.sepaRemittanceRequest.update({
         where: { id: prev.id },
@@ -209,6 +219,7 @@ export async function createRequestForInvoice(
           tokenHash,
           tokenExpiresAt: expiresAt,
           tokenUsedAt: null,
+          approvalNotifiedAt: null,
           amountCents: inv.totalCents,
           mandateRef: inv.client?.sepaMandateRef ?? null,
           ibanMasked: inv.client?.sepaIbanMasked ?? null,
@@ -225,7 +236,10 @@ export async function createRequestForInvoice(
       });
       await logEvent(prev.id, prev.status, "PENDING_APPROVAL", createdById, "Solicitud re-armada (nuevo enlace)");
       signal?.throwIfAborted();
-      await notifyApproval(prev.id, token, inv, createdById, signal);
+      const notified = await notifyApproval(prev.id, token, inv, createdById, signal);
+      if (notified) {
+        await prisma.sepaRemittanceRequest.update({ where: { id: prev.id }, data: { approvalNotifiedAt: new Date() } });
+      }
       return { created: true, requestId: prev.id };
     }
     return { created: false, requestId: prev.id };
@@ -270,7 +284,10 @@ export async function createRequestForInvoice(
 
   await logEvent(requestId, null, "PENDING_APPROVAL", createdById, "Solicitud creada");
   signal?.throwIfAborted();
-  await notifyApproval(requestId, token, inv, createdById, signal);
+  const notified = await notifyApproval(requestId, token, inv, createdById, signal);
+  if (notified) {
+    await prisma.sepaRemittanceRequest.update({ where: { id: requestId }, data: { approvalNotifiedAt: new Date() } });
+  }
   return { created: true, requestId };
 }
 
@@ -278,11 +295,11 @@ export async function createRequestForInvoice(
  * Envía el email de aprobación y AUDITA el resultado (enviado / RESEND
  * desactivado / error), para que siempre haya traza de por qué llegó o no.
  */
-async function notifyApproval(requestId: string, token: string, inv: any, createdById?: string | null, signal?: AbortSignal): Promise<void> {
+async function notifyApproval(requestId: string, token: string, inv: any, createdById?: string | null, signal?: AbortSignal): Promise<boolean> {
   signal?.throwIfAborted();
   if (!isEmailEnabled()) {
     await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, "Email NO enviado: RESEND no configurado");
-    return;
+    return true;
   }
   try {
     await sendApprovalEmail({
@@ -296,8 +313,11 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
       idempotencyKey: `sepa-approval-${requestId}-${token.slice(0, 16)}`
     });
     await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, `Email de aprobación enviado a ${approvalRecipient()}`);
+    return true;
   } catch (err: any) {
+    signal?.throwIfAborted();
     await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, "Fallo al enviar email", String(err?.message ?? err));
+    return false;
   }
 }
 
