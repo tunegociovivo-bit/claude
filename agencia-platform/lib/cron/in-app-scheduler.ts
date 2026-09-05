@@ -9,6 +9,8 @@
  * prefieres gestionar los crons por fuera).
  */
 import { runReminders, runBriefing } from "./scheduler";
+import { randomUUID } from "node:crypto";
+import { acquireCronLease, CronTimeoutError, releaseCronLease, runWithTimeout } from "./distributed-lease";
 
 let started = false;
 
@@ -135,15 +137,30 @@ export function startInAppScheduler(): void {
   // El bloqueo local evita solapes; el dominio sigue siendo idempotente por
   // factura y solicitud ante varias réplicas del servidor.
   let sepaBusy = false;
+  const sepaLeaseOwner = randomUUID();
   async function sepaTick() {
     if (sepaBusy) return;
     sepaBusy = true;
+    let acquired = false;
+    let timedOut = false;
     try {
+      acquired = await acquireCronLease("in-app/holded-sepa", sepaLeaseOwner, 10 * 60 * 1000);
+      if (!acquired) return;
       const { runSepaCronAllWorkspaces } = await import("@/lib/facturacion/sepa/cron");
-      await runSepaCronAllWorkspaces();
+      await runWithTimeout(() => runSepaCronAllWorkspaces(), 4 * 60 * 1000);
     } catch (e) {
+      timedOut = e instanceof CronTimeoutError;
       console.warn("[in-app-cron] holded/sepa independiente:", (e as Error).message);
     } finally {
+      // Ante timeout se conserva el lease hasta su vencimiento. La promesa
+      // subyacente puede seguir viva y liberarlo aquí permitiría un duplicado.
+      if (acquired && !timedOut) {
+        try {
+          await releaseCronLease("in-app/holded-sepa", sepaLeaseOwner);
+        } catch (e) {
+          console.warn("[in-app-cron] liberando lease Holded/SEPA:", (e as Error).message);
+        }
+      }
       sepaBusy = false;
     }
   }

@@ -5608,6 +5608,8 @@ model CronHeartbeat {
   lastRunAt DateTime  @default(now())
   runs      Int       @default(0)
   alertedAt DateTime?
+  leaseOwner String?
+  leaseUntil DateTime?
 }
 
 /// Anti-fraude por ticket: cuando el cliente fotografía el ticket, la IA lee
