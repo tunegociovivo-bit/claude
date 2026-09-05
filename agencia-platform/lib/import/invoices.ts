@@ -379,7 +379,12 @@ export async function applyInvoiceImport(
       // existente sin crear duplicados ni tocar un cliente correcto.
       if (item.input.number && item.input.clientName) {
         const existing = await prisma.invoice.findFirst({
-          where: { workspaceId, number: { equals: item.input.number, mode: "insensitive" }, deletedAt: null },
+          where: {
+            workspaceId,
+            number: { equals: item.input.number, mode: "insensitive" },
+            deletedAt: null,
+            ...(issuerId ? { issuerId } : {})
+          },
           select: { id: true, clientId: true, clientSnapshot: true, totalCents: true, updatedAt: true }
         });
         const currentName = String((existing?.clientSnapshot as any)?.name ?? "").trim();
