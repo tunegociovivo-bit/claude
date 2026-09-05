@@ -6,16 +6,11 @@ import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 export async function syncRecentHoldedApprovals(workspaceId: string) {
   const holded = await syncApprovedHoldedInvoices(workspaceId);
   const approvals = holded.createdInvoiceIds.length
-    ? await createRequestsForCandidates(workspaceId, null, {
+      ? await createRequestsForCandidates(workspaceId, null, {
         max: 50,
-        invoiceIds: holded.createdInvoiceIds,
-        // Los IDs son exactamente los creados por esta sincronización. Esta
-        // marca permite facturas recién creadas pero con fecha fiscal anterior.
-        importedAfter: new Date(Date.now() - 10 * 60 * 1000),
-        // Segunda barrera para instalaciones/restauraciones sin baseline: una
-        // importación masiva jamás genera cobros de documentos antiguos.
-        issuedAfter: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        issuedBefore: new Date(Date.now() + 24 * 60 * 60 * 1000)
+        // Solo estos IDs recién importados y, por la defensa central de
+        // createRequestsForCandidates, solo con fecha fiscal de hoy.
+        invoiceIds: holded.createdInvoiceIds
       })
     : { examined: 0, eligible: 0, created: 0, skipped: 0, requestIds: [] };
   return { holded, approvals };
