@@ -540,7 +540,6 @@ export async function notifyJobEmail(
   data: { clientName: string; invoiceNumber: string | null; amountCents: number; currency: string; reason?: string },
   workspaceId?: string
 ): Promise<void> {
-  if (!isEmailEnabled()) return;
   const amount = fmtAmount(data.amountCents, data.currency);
   const who = `${escapeHtml(data.clientName)} · ${escapeHtml(data.invoiceNumber ?? "—")} · ${amount}`;
   const map = {
@@ -553,7 +552,7 @@ export async function notifyJobEmail(
     <p style="font-size:12px;color:#888">El agente nunca firma, confirma ni cobra. Sin datos bancarios en este email.</p></div>`;
   const to = approvalRecipient();
   try {
-    await sendEmail({ to, subject: map.subject, html, text: `${map.body}\n${data.clientName} · ${data.invoiceNumber ?? "—"} · ${amount}`, workspaceId });
+    await sendEmail({ to, subject: map.subject, html, text: `${map.body}\n${data.clientName} · ${data.invoiceNumber ?? "—"} · ${amount}`, workspaceId, idempotencyKey: `sepa-job-${kind}-${data.invoiceNumber ?? data.clientName}-${data.amountCents}` });
   } catch (error: any) {
     if (!workspaceId || !/429|daily[_ ]quota|quota.*exceeded/i.test(String(error?.message ?? error))) throw error;
     const account = await prisma.emailAccount.findFirst({ where: { workspaceId }, orderBy: { updatedAt: "desc" }, select: { userId: true } });

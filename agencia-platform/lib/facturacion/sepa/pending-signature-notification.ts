@@ -9,15 +9,20 @@ import { notifyJobEmail } from "./remittance";
  */
 export async function notifyPendingSignatureRequestOnce(workspaceId: string, requestId: string): Promise<boolean> {
   const claimedAt = new Date();
+  const staleBefore = new Date(claimedAt.getTime() - 10 * 60 * 1000);
   const claim = await prisma.sepaRemittanceRequest.updateMany({
     where: {
       id: requestId,
       workspaceId,
       status: "PENDING_SIGNATURE",
       archivedAt: null,
-      pendingSignatureNotifiedAt: null
+      pendingSignatureNotifiedAt: null,
+      OR: [
+        { pendingSignatureNotificationClaimedAt: null },
+        { pendingSignatureNotificationClaimedAt: { lt: staleBefore } }
+      ]
     },
-    data: { pendingSignatureNotifiedAt: claimedAt }
+    data: { pendingSignatureNotificationClaimedAt: claimedAt }
   });
   if (claim.count === 0) return false;
 
@@ -29,11 +34,15 @@ export async function notifyPendingSignatureRequestOnce(workspaceId: string, req
 
   try {
     await notifyJobEmail("pending_signature", row, workspaceId);
+    await prisma.sepaRemittanceRequest.updateMany({
+      where: { id: requestId, workspaceId, pendingSignatureNotificationClaimedAt: claimedAt },
+      data: { pendingSignatureNotifiedAt: new Date(), pendingSignatureNotificationClaimedAt: null }
+    });
     return true;
   } catch (error) {
     await prisma.sepaRemittanceRequest.updateMany({
-      where: { id: requestId, workspaceId, pendingSignatureNotifiedAt: claimedAt },
-      data: { pendingSignatureNotifiedAt: null }
+      where: { id: requestId, workspaceId, pendingSignatureNotificationClaimedAt: claimedAt },
+      data: { pendingSignatureNotificationClaimedAt: null }
     });
     throw error;
   }

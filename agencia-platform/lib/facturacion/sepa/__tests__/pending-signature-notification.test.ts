@@ -17,7 +17,7 @@ describe("notifyPendingSignatureRequestOnce", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("envía un único aviso aunque la recuperación se ejecute varias veces", async () => {
-    updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
     findUnique.mockResolvedValue({
       id: "req-1", clientName: "Cliente", invoiceNumber: "FAC-1",
       amountCents: 1000, currency: "EUR"
@@ -39,6 +39,6 @@ describe("notifyPendingSignatureRequestOnce", () => {
 
     await expect(notifyPendingSignatureRequestOnce("ws-1", "req-1")).rejects.toThrow("smtp caído");
     expect(updateMany).toHaveBeenCalledTimes(2);
-    expect(updateMany.mock.calls[1][0].data).toEqual({ pendingSignatureNotifiedAt: null });
+    expect(updateMany.mock.calls[1][0].data).toEqual({ pendingSignatureNotificationClaimedAt: null });
   });
 });
