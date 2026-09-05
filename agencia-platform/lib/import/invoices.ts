@@ -359,6 +359,9 @@ export async function applyInvoiceImport(
   inputs: InvoiceInput[],
   issuerId?: string
 ): Promise<{ created: number; skipped: number }> {
+  // Incidente acotado del 05/09/2026: la primera lectura v2 importó estas
+  // facturas con total cero antes de soportar el formato monetario nuevo.
+  const zeroTotalRepairNumbers = new Set(Array.from({ length: 9 }, (_, index) => `fac-${String(3057 + index).padStart(6, "0")}`));
   const plan = await buildInvoicePlan(workspaceId, inputs);
   // Si se importa dentro de una empresa concreta, usamos esa; si no, la
   // emisora por defecto del workspace.
@@ -385,11 +388,14 @@ export async function applyInvoiceImport(
             deletedAt: null,
             ...(issuerId ? { issuerId } : {})
           },
-          select: { id: true, clientId: true, clientSnapshot: true, totalCents: true, updatedAt: true }
+          select: { id: true, clientId: true, clientSnapshot: true, totalCents: true, status: true, updatedAt: true }
         });
         const currentName = String((existing?.clientSnapshot as any)?.name ?? "").trim();
         const needsClientLink = !!existing && !existing.clientId && !!item.clientMatchId;
-        const needsZeroTotalRepair = !!existing && existing.totalCents === 0 && (item.input.totalCents ?? 0) > 0;
+        const needsZeroTotalRepair = !!existing
+          && existing.totalCents === 0
+          && (item.input.totalCents ?? 0) > 0
+          && zeroTotalRepairNumbers.has(item.input.number.trim().toLowerCase());
         if (existing && (!currentName || needsClientLink || needsZeroTotalRepair)) {
           const client = item.clientMatchId
             ? await prisma.client.findUnique({ where: { id: item.clientMatchId } })
@@ -413,7 +419,8 @@ export async function applyInvoiceImport(
                 subtotalCents: repairedTotals.subtotalCents,
                 discountCents: repairedTotals.discountCents,
                 taxCents: repairedTotals.taxCents,
-                totalCents: repairedTotals.totalCents
+                totalCents: repairedTotals.totalCents,
+                ...(existing.status === "PAID" ? { paidCents: repairedTotals.totalCents } : {})
               } : {})
             }
           });
