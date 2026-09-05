@@ -18,6 +18,24 @@ import { decryptSecret } from "@/lib/ai/crypto";
 
 const BASE = "https://api.holded.com/api";
 
+export function describeHoldedPayload(value: any, depth = 0): any {
+  if (depth > 4) return typeof value;
+  if (Array.isArray(value)) return { type: "array", length: value.length, sampleKeys: value[0] && typeof value[0] === "object" ? Object.keys(value[0]).slice(0, 30) : [] };
+  if (!value || typeof value !== "object") return typeof value;
+  return Object.fromEntries(Object.entries(value).slice(0, 30).map(([key, child]) => [key, describeHoldedPayload(child, depth + 1)]));
+}
+
+export async function probeHoldedInvoicePayload(workspaceId: string) {
+  const key = await getApiKey(workspaceId);
+  if (!key.startsWith("pat_")) return { api: "v1" };
+  const resp = await fetch("https://api.holded.com/api/v2/invoices?limit=5", {
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(30_000), cache: "no-store"
+  });
+  const payload = await resp.json().catch(() => null);
+  return { api: "v2", status: resp.status, shape: describeHoldedPayload(payload) };
+}
+
 async function getApiKey(workspaceId: string): Promise<string> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   const encrypted = (ws?.settings as any)?.integrations?.holded?.apiKey;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateAgent } from "@/lib/facturacion/sepa/agent";
 import { getRecentSepaDiagnostics, recoverRecentSepaApprovals, syncRecentHoldedApprovals } from "@/lib/facturacion/sepa/diagnostics";
+import { probeHoldedInvoicePayload } from "@/lib/integrations/holded";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,9 @@ export async function POST(req: NextRequest) {
   const agent = await authenticateAgent(req.headers.get("authorization") ?? "");
   if (!agent) return NextResponse.json({ error: { code: "unauthorized", message: "Agente no autorizado" } }, { status: 401 });
   const body = await req.json().catch(() => ({}));
+  if (body?.action === "probe-holded") {
+    return NextResponse.json({ ok: true, probe: await probeHoldedInvoicePayload(agent.workspaceId) });
+  }
   if (body?.action === "sync") {
     const result = await syncRecentHoldedApprovals(agent.workspaceId);
     return NextResponse.json({ ok: true, ...result });
