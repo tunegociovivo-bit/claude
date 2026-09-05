@@ -22,6 +22,7 @@ export class Runner {
   private stopped = false;
   private hub: HubClient;
   private lastReconciliationAttemptAt: Date | null = null;
+  private lastForceRequestAt: string | null = null;
 
   constructor(private cfg: AgentConfig, private log: Logger) {
     this.hub = new HubClient(cfg);
@@ -66,12 +67,15 @@ export class Runner {
       if (!shouldRunDailyReconciliation(now, config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
       // Si Santander no está disponible, no reabrir una ventana en cada ciclo
       // de sondeo. Un intento fallido queda enfriado durante 30 minutos.
+      const isNewForceRequest = Boolean(config.forceRequestedAt && config.forceRequestedAt !== this.lastForceRequestAt);
       const lastAttempt = effectiveReconciliationLastAttempt(
         config.retryAttempts,
         config.lastFailureAt ? new Date(config.lastFailureAt) : null,
-        this.lastReconciliationAttemptAt
+        this.lastReconciliationAttemptAt,
+        !isNewForceRequest
       );
       if (reconciliationRetryDecision(now, lastAttempt, config.retryAttempts, config.timeZone) !== "RUN") return;
+      if (isNewForceRequest) this.lastForceRequestAt = config.forceRequestedAt;
       this.lastReconciliationAttemptAt = now;
       const reader = new SantanderReconciliationReader({ cdpUrl: this.cfg.chromeCdpUrl, santanderOrigin: this.cfg.santanderOrigin, credentialFile: this.cfg.santanderCredentialFile });
       let movements;

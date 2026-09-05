@@ -30,6 +30,7 @@ export interface ReconciliationConfig {
   lastSyncAt: string | null;
   retryAttempts: number;
   lastFailureAt: string | null;
+  forceRequestedAt: string | null;
 }
 
 export class HubClient {

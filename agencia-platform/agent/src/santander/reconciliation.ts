@@ -126,11 +126,12 @@ export function reconciliationRetryDecision(now: Date, lastAttemptAt: Date | nul
 export function effectiveReconciliationLastAttempt(
   failedAttempts: number,
   serverLastAttempt: Date | null,
-  localLastAttempt: Date | null
+  localLastAttempt: Date | null,
+  zeroRetryResetConsumed = false
 ): Date | null {
   // El POST de resincronización pone el contador del HUB a cero. Esa orden
   // explícita debe saltarse también el enfriamiento que solo vive en memoria.
-  return failedAttempts === 0 ? null : serverLastAttempt ?? localLastAttempt;
+  return failedAttempts === 0 && !zeroRetryResetConsumed ? null : serverLastAttempt ?? localLastAttempt;
 }
 
 export type SepaRemittanceRow = { dueAt: string; amountCents: number; remittanceNumber: string; status: string };
