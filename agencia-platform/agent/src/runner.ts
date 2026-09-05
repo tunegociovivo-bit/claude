@@ -134,7 +134,6 @@ export class Runner {
 
     try {
       const maxAttempts = 3;
-      let chromeRecovered = false;
       let outcome: StepOutcome = { kind: "FAILED", error: "No se inició la automatización bancaria" };
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const adapter = this.makeAdapter();
@@ -149,14 +148,6 @@ export class Runner {
         }
         if (outcome.kind !== "NEEDS_USER") break;
         const reason = pausedReason || outcome.reason;
-        if (!chromeRecovered && isRecoverableCdpFailure(new Error(reason))) {
-          chromeRecovered = true;
-          this.log.warn(`[${job.jobId}] Chrome bancario bloqueado: reiniciando el perfil dedicado y reintentando.`);
-          await recoverDedicatedChrome(this.cfg.chromeCdpUrl);
-          await this.hub.progress(job.jobId, "RUNNING", { progress: "Chrome bancario recuperado; reintentando la remesa" });
-          await sleep(3_000, () => this.stopped);
-          continue;
-        }
         if (remittanceRetryDecision(reason, attempt, maxAttempts) !== "RETRY") {
           this.log.warn(`[${job.jobId}] NEEDS_USER: ${reason}`);
           await this.hub.progress(job.jobId, "NEEDS_USER", { reason });
