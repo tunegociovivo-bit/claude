@@ -81,7 +81,18 @@ export type HoldedInvoice = {
 export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
   const candidates = [payload, payload?.data, payload?.items, payload?.results, payload?.invoices,
     payload?.data?.items, payload?.data?.results, payload?.data?.invoices, payload?.data?.data];
-  const rows = candidates.find(Array.isArray) ?? [];
+  const direct = candidates.find((value) => Array.isArray(value) && value.some((row: any) => row?.id || row?.invoiceId));
+  const findRows = (value: any, depth = 0): any[] | null => {
+    if (depth > 5 || value == null) return null;
+    if (Array.isArray(value)) return value.some((row: any) => row?.id || row?.invoiceId) ? value : null;
+    if (typeof value !== "object") return null;
+    for (const child of Object.values(value)) {
+      const found = findRows(child, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  const rows = direct ?? findRows(payload) ?? [];
   if (!Array.isArray(rows)) return [];
   return rows.map((row: any) => {
     const rawDate = row.issueDate ?? row.date ?? row.createdAt;

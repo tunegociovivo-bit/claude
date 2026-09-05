@@ -14,6 +14,11 @@ describe("decodeHoldedPdfPayload", () => {
       expect.objectContaining({ id: "inv_2", docNumber: "FAC-2", contactName: "Cliente 2", total: 242 })
     ]);
   });
+  it("finds invoice rows inside deeper v2 pagination wrappers", () => {
+    expect(normalizeHoldedV2Invoices({ response: { payload: { records: [{ invoiceId: "inv_3", number: "FAC-3", date: 1788566400, total: 363 }] } } })).toEqual([
+      expect.objectContaining({ id: "inv_3", docNumber: "FAC-3", total: 363 })
+    ]);
+  });
   it("accepts a binary PDF response", () => {
     expect(decodeHoldedPdfPayload(pdf)).toEqual(pdf);
   });
