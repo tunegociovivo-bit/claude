@@ -1,6 +1,18 @@
 import { prisma } from "@/lib/db/prisma";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
 import { createRequestsForCandidates } from "./remittance";
+import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
+
+export async function syncRecentHoldedApprovals(workspaceId: string) {
+  const holded = await syncApprovedHoldedInvoices(workspaceId);
+  const approvals = holded.createdInvoiceIds.length
+    ? await createRequestsForCandidates(workspaceId, null, {
+        max: 50,
+        invoiceIds: holded.createdInvoiceIds
+      })
+    : { examined: 0, eligible: 0, created: 0, skipped: 0, requestIds: [] };
+  return { holded, approvals };
+}
 
 export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNumbers: string[]) {
   const importedAfter = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);

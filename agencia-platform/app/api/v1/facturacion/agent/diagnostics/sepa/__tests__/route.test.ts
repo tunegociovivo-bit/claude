@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateAgent, getRecentSepaDiagnostics, recoverRecentSepaApprovals } = vi.hoisted(() => ({
+const { authenticateAgent, getRecentSepaDiagnostics, recoverRecentSepaApprovals, syncRecentHoldedApprovals } = vi.hoisted(() => ({
   authenticateAgent: vi.fn(),
   getRecentSepaDiagnostics: vi.fn(),
-  recoverRecentSepaApprovals: vi.fn()
+  recoverRecentSepaApprovals: vi.fn(),
+  syncRecentHoldedApprovals: vi.fn()
 }));
 
 vi.mock("@/lib/facturacion/sepa/agent", () => ({ authenticateAgent }));
-vi.mock("@/lib/facturacion/sepa/diagnostics", () => ({ getRecentSepaDiagnostics, recoverRecentSepaApprovals }));
+vi.mock("@/lib/facturacion/sepa/diagnostics", () => ({ getRecentSepaDiagnostics, recoverRecentSepaApprovals, syncRecentHoldedApprovals }));
 
 import { GET, POST } from "../route";
 
@@ -54,5 +55,16 @@ describe("GET /api/v1/facturacion/agent/diagnostics/sepa", () => {
     }));
     expect(response.status).toBe(400);
     expect(recoverRecentSepaApprovals).not.toHaveBeenCalled();
+  });
+
+  it("sincroniza Holded y crea solicitudes solo para facturas importadas en esa ejecución", async () => {
+    syncRecentHoldedApprovals.mockResolvedValue({ holded: { created: 2, createdInvoiceIds: ["i1", "i2"] }, approvals: { created: 2 } });
+    const response = await POST(new NextRequest("https://hub.example/api/v1/facturacion/agent/diagnostics/sepa", {
+      method: "POST", headers: { authorization: "Bearer local-agent-token", "content-type": "application/json" },
+      body: JSON.stringify({ action: "sync" })
+    }));
+    expect(response.status).toBe(200);
+    expect(syncRecentHoldedApprovals).toHaveBeenCalledWith("ws-1");
+    expect(await response.json()).toMatchObject({ ok: true, approvals: { created: 2 } });
   });
 });
