@@ -14,6 +14,13 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const agent = await authenticateAgent(req.headers.get("authorization") ?? "");
   if (!agent) return NextResponse.json({ error: { code: "unauthorized", message: "Agente no autorizado" } }, { status: 401 });
-  const result = await recoverRecentSepaApprovals(agent.workspaceId);
+  const body = await req.json().catch(() => ({}));
+  const invoiceNumbers: string[] = Array.isArray(body?.invoiceNumbers)
+    ? Array.from(new Set<string>(body.invoiceNumbers.map((value: unknown) => String(value).trim()).filter((value: string) => /^FAC-\d+$/i.test(value)))).slice(0, 50)
+    : [];
+  if (!invoiceNumbers.length) {
+    return NextResponse.json({ error: { code: "invoice_numbers_required", message: "Indica las facturas concretas que deben recuperarse" } }, { status: 400 });
+  }
+  const result = await recoverRecentSepaApprovals(agent.workspaceId, invoiceNumbers);
   return NextResponse.json({ ok: true, ...result });
 }

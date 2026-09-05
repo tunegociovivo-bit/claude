@@ -2,10 +2,22 @@ import { prisma } from "@/lib/db/prisma";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
 import { createRequestsForCandidates } from "./remittance";
 
-export async function recoverRecentSepaApprovals(workspaceId: string) {
+export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNumbers: string[]) {
+  const importedAfter = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      workspaceId,
+      deletedAt: null,
+      issuer: { name: NEGOCIO_VIVO_ISSUER_NAME, deletedAt: null },
+      createdAt: { gte: importedAfter },
+      number: { in: invoiceNumbers }
+    },
+    select: { id: true }
+  });
   return createRequestsForCandidates(workspaceId, null, {
     max: 50,
-    importedAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    importedAfter,
+    invoiceIds: invoices.map((invoice) => invoice.id)
   });
 }
 
