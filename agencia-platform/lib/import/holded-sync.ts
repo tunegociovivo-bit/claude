@@ -111,22 +111,28 @@ function mapStatus(s?: number): string {
  *  que lo tratamos como total (taxRate 0 para preservar el importe exacto). */
 export async function holdedInvoicesAsInputs(
   workspaceId: string,
-  options: { startTimestamp?: number; endTimestamp?: number; limit?: number } = {}
+  options: { startTimestamp?: number; endTimestamp?: number; limit?: number; signal?: AbortSignal } = {}
 ): Promise<InvoiceInput[]> {
+  options.signal?.throwIfAborted();
   const invoices = await holdedListInvoices({
     workspaceId,
     limit: options.limit ?? 5000,
     startTimestamp: options.startTimestamp,
     endTimestamp: options.endTimestamp,
-    sort: "created-desc"
+    sort: "created-desc",
+    signal: options.signal
   });
   // La razón social de Holded puede no coincidir con el nombre comercial
   // del HUB. El email exacto del contacto es la clave estable para enlazarlos.
-  const contacts = await holdedListContacts({ workspaceId, limit: 5000 }).catch(() => []);
+  const contacts = await holdedListContacts({ workspaceId, limit: 5000, signal: options.signal }).catch((error) => {
+    options.signal?.throwIfAborted();
+    return [];
+  });
   const contactsById = new Map(contacts.map((contact) => [String(contact.id), contact]));
   let detailFetches = 0;
   const MAX_INVOICE_DETAILS = 250;
   const enriched = await mapWithConcurrency(invoices, 10, async (invoice) => {
+    options.signal?.throwIfAborted();
     const embeddedName = embeddedInvoiceContactName(invoice);
     const listedContactId = invoiceContactId(invoice);
     const listedContact = contactsById.get(listedContactId);
@@ -143,16 +149,17 @@ export async function holdedInvoicesAsInputs(
     if (detailFetches >= MAX_INVOICE_DETAILS) return invoice;
     detailFetches++;
     try {
-      const detail = await holdedGetInvoice({ workspaceId, invoiceId: invoice.id });
+      const detail = await holdedGetInvoice({ workspaceId, invoiceId: invoice.id, signal: options.signal });
       const detailName = embeddedInvoiceContactName(detail);
       if (detailName) return { ...invoice, ...detail, contactName: detailName };
       const contactId = invoiceContactId(detail) || listedContactId;
       if (!contactId) return { ...invoice, ...detail };
-      const contact = contactsById.get(contactId) ?? await holdedGetContact(workspaceId, contactId);
+      const contact = contactsById.get(contactId) ?? await holdedGetContact(workspaceId, contactId, options.signal);
       const contactName = contactNameFrom(contact);
       const contactEmail = embeddedInvoiceContactEmail(detail) || firstNonEmpty(contact?.email);
       return { ...invoice, ...detail, contactName: contactName || undefined, contactEmail: contactEmail || undefined } as HoldedInvoice;
     } catch {
+      options.signal?.throwIfAborted();
       // La ausencia de nombre no debe impedir importar la factura. La siguiente
       // sincronización volverá a intentar completar el dato.
       return invoice;

@@ -12,13 +12,15 @@ import { reclaimExpiredLeases, setAgentClaimingEnabled } from "./agent";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 import { madridBusinessDayWindow } from "./recency";
 
-export async function runSepaCronAllWorkspaces(): Promise<any[]> {
+export async function runSepaCronAllWorkspaces(signal?: AbortSignal): Promise<any[]> {
+  signal?.throwIfAborted();
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
   // Piloto automático por defecto. Las variables a `false` quedan como
   // interruptores de emergencia; la firma bancaria sigue siendo humana.
   const autoScan = process.env.SEPA_AUTO_SCAN !== "false";
   const report: any[] = [];
   for (const ws of workspaces) {
+    signal?.throwIfAborted();
     const r: any = { workspaceId: ws.id };
     // Limpieza acotada del incidente del 12/08/2026: una ejecución importó y
     // encoló huecos históricos. Se conserva la auditoría y solo se archivan
@@ -51,23 +53,29 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
       r.incidentArchived = ids.length;
     }
     try {
-      r.holded = await syncApprovedHoldedInvoices(ws.id);
+      r.holded = await syncApprovedHoldedInvoices(ws.id, signal);
     } catch (e: any) {
+      signal?.throwIfAborted();
       // Un fallo de Holded no impide caducar enlaces ni recuperar leases.
       r.holdedError = String(e?.message ?? e);
     }
     try {
+      signal?.throwIfAborted();
       r.expired = await expireStaleRequests(ws.id);
     } catch (e: any) {
+      signal?.throwIfAborted();
       r.expireError = String(e?.message ?? e);
     }
     try {
+      signal?.throwIfAborted();
       r.leases = await reclaimExpiredLeases(ws.id); // re-encola trabajos con lease caducado
     } catch (e: any) {
+      signal?.throwIfAborted();
       r.leaseError = String(e?.message ?? e);
     }
     if (autoScan) {
       try {
+        signal?.throwIfAborted();
         // El cron solo notifica facturas emitidas hoy (fecha fiscal real),
         // aunque una sincronización haya importado documentos históricos.
         // Incluye ayer como recuperación ante una caída o una factura emitida
@@ -82,6 +90,7 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
           // histórico basado en la fecha fiscal.
           ...(importedIds.length ? { invoiceIds: importedIds } : {})
         });
+        signal?.throwIfAborted();
         // Recupera facturas importadas en los últimos siete días que pudieron
         // quedar entre la sincronización y el escaneo por una caída parcial.
         // La creación es idempotente y conserva todas las reglas SEPA.
@@ -97,6 +106,7 @@ export async function runSepaCronAllWorkspaces(): Promise<any[]> {
           legacyAutoApproveFlag: process.env.SEPA_AUTO_APPROVE === "true"
         });
       } catch (e: any) {
+        signal?.throwIfAborted();
         r.scanError = String(e?.message ?? e);
       }
     }

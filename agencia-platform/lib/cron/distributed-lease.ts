@@ -9,10 +9,11 @@ export class CronTimeoutError extends Error {
 }
 
 export async function acquireCronLease(name: string, owner: string, ttlMs: number): Promise<boolean> {
-  const leaseUntil = new Date(Date.now() + ttlMs);
+  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error("Duración de lease inválida");
+  const ttlSeconds = ttlMs / 1000;
   const rows = await prisma.$queryRaw<Array<{ name: string }>>(Prisma.sql`
     INSERT INTO "CronHeartbeat" ("name", "lastRunAt", "runs", "leaseOwner", "leaseUntil")
-    VALUES (${name}, NOW(), 0, ${owner}, ${leaseUntil})
+    VALUES (${name}, NOW(), 0, ${owner}, NOW() + (${ttlSeconds} * INTERVAL '1 second'))
     ON CONFLICT ("name") DO UPDATE
       SET "leaseOwner" = EXCLUDED."leaseOwner",
           "leaseUntil" = EXCLUDED."leaseUntil"

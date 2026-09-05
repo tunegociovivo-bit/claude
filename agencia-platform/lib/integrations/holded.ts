@@ -35,6 +35,7 @@ async function holdedFetch<T = any>(
   const key = await getApiKey(workspaceId);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30_000);
+  const signal = init.signal ? AbortSignal.any([ctrl.signal, init.signal]) : ctrl.signal;
   try {
     const resp = await fetch(`${BASE}${path}`, {
       ...init,
@@ -44,7 +45,7 @@ async function holdedFetch<T = any>(
         Accept: "application/json",
         ...(init.headers ?? {})
       },
-      signal: ctrl.signal,
+      signal,
       cache: "no-store"
     });
     clearTimeout(timer);
@@ -121,13 +122,14 @@ export async function holdedListInvoices(opts: {
   startTimestamp?: number;
   endTimestamp?: number;
   sort?: "created-asc" | "created-desc";
+  signal?: AbortSignal;
 }): Promise<HoldedInvoice[]> {
   const key = await getApiKey(opts.workspaceId);
   if (key.startsWith("pat_")) {
     const params = new URLSearchParams({ limit: String(Math.min(opts.limit ?? 100, 500)) });
     const resp = await fetch(`https://api.holded.com/api/v2/invoices?${params}`, {
       headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(30_000), cache: "no-store"
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000), cache: "no-store"
     });
     if (!resp.ok) throw new Error(`Holded ${resp.status} /api/v2/invoices: ${(await resp.text()).slice(0, 200)}`);
     let rows = normalizeHoldedV2Invoices(await resp.json());
@@ -144,7 +146,8 @@ export async function holdedListInvoices(opts: {
   const qs = params.toString();
   const data = await holdedFetch<HoldedInvoice[]>(
     opts.workspaceId,
-    `/invoicing/v1/documents/invoice${qs ? "?" + qs : ""}`
+    `/invoicing/v1/documents/invoice${qs ? "?" + qs : ""}`,
+    { signal: opts.signal }
   );
   return Array.isArray(data) ? data.slice(0, opts.limit ?? 100) : [];
 }
@@ -152,8 +155,9 @@ export async function holdedListInvoices(opts: {
 export async function holdedGetInvoice(opts: {
   workspaceId: string;
   invoiceId: string;
+  signal?: AbortSignal;
 }): Promise<HoldedInvoice & { items?: any[] }> {
-  return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`);
+  return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`, { signal: opts.signal });
 }
 
 function nestedStrings(value: unknown, depth = 0): string[] {
@@ -330,16 +334,17 @@ export type HoldedContact = {
 };
 
 /** Detalle completo de un contacto (incluye billAddress, vatnumber, etc.). */
-export async function holdedGetContact(workspaceId: string, id: string): Promise<any> {
-  return holdedFetch<any>(workspaceId, `/invoicing/v1/contacts/${id}`);
+export async function holdedGetContact(workspaceId: string, id: string, signal?: AbortSignal): Promise<any> {
+  return holdedFetch<any>(workspaceId, `/invoicing/v1/contacts/${id}`, { signal });
 }
 
 export async function holdedListContacts(opts: {
   workspaceId: string;
   query?: string;
   limit?: number;
+  signal?: AbortSignal;
 }): Promise<HoldedContact[]> {
-  const data = await holdedFetch<HoldedContact[]>(opts.workspaceId, "/invoicing/v1/contacts");
+  const data = await holdedFetch<HoldedContact[]>(opts.workspaceId, "/invoicing/v1/contacts", { signal: opts.signal });
   if (!Array.isArray(data)) return [];
   let filtered = data;
   if (opts.query) {

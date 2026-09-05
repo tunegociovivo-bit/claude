@@ -147,7 +147,7 @@ export function startInAppScheduler(): void {
       acquired = await acquireCronLease("in-app/holded-sepa", sepaLeaseOwner, 10 * 60 * 1000);
       if (!acquired) return;
       const { runSepaCronAllWorkspaces } = await import("@/lib/facturacion/sepa/cron");
-      await runWithTimeout(() => runSepaCronAllWorkspaces(), 4 * 60 * 1000);
+      await runWithTimeout((signal) => runSepaCronAllWorkspaces(signal), 4 * 60 * 1000);
     } catch (e) {
       timedOut = e instanceof CronTimeoutError;
       console.warn("[in-app-cron] holded/sepa independiente:", (e as Error).message);

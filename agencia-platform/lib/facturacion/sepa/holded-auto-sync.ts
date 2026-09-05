@@ -22,7 +22,7 @@ export function rectifyingSequence(number: string | undefined): number | null {
  * Sincroniza las facturas aprobadas de Holded con el HUB antes de buscar
  * candidatas SEPA. El importador ya es idempotente por número de factura.
  */
-export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
+export async function syncApprovedHoldedInvoices(workspaceId: string, signal?: AbortSignal): Promise<{
   fetched: number;
   eligible: number;
   created: number;
@@ -30,6 +30,7 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   configured: boolean;
   createdInvoiceIds: string[];
 }> {
+  signal?.throwIfAborted();
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { settings: true }
@@ -51,12 +52,14 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
   const [datedInputs, latestInputs] = await Promise.all([
     holdedInvoicesAsInputs(workspaceId, {
       startTimestamp: nowSeconds - 7 * 24 * 60 * 60,
-      endTimestamp: nowSeconds + 24 * 60 * 60
+      endTimestamp: nowSeconds + 24 * 60 * 60,
+      signal
     }),
     // La fecha fiscal puede ser distinta del día en que Holded crea el
     // documento. La lista ordenada por creación evita perder esas facturas.
-    holdedInvoicesAsInputs(workspaceId, { limit: 100 })
+    holdedInvoicesAsInputs(workspaceId, { limit: 100, signal })
   ]);
+  signal?.throwIfAborted();
   const byNumber = new Map<string, InvoiceInput>();
   for (const input of [...datedInputs, ...latestInputs]) {
     const key = input.number?.trim().toLowerCase();
@@ -87,6 +90,7 @@ export async function syncApprovedHoldedInvoices(workspaceId: string): Promise<{
       || (rectifyingSequence(input.number) ?? 0) > highestRectifyingSequence;
   });
   const startedAt = new Date();
+  signal?.throwIfAborted();
   const result = await applyInvoiceImport(workspaceId, eligible, issuer.id);
   const numbers = eligible.map((item) => item.number!).filter(Boolean);
   const createdRows = numbers.length

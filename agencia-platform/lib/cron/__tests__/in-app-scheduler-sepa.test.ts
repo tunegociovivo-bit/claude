@@ -4,13 +4,14 @@ const { runSepa, runReminders } = vi.hoisted(() => ({
   runSepa: vi.fn().mockResolvedValue([]),
   runReminders: vi.fn().mockResolvedValue(undefined)
 }));
+const schedulerSignal = new AbortController().signal;
 
 vi.mock("../scheduler", () => ({ runReminders, runBriefing: vi.fn() }));
 vi.mock("@/lib/facturacion/sepa/cron", () => ({ runSepaCronAllWorkspaces: runSepa }));
 vi.mock("../distributed-lease", () => ({
   acquireCronLease: vi.fn().mockResolvedValue(true),
   releaseCronLease: vi.fn().mockResolvedValue(undefined),
-  runWithTimeout: vi.fn((task: () => Promise<unknown>) => task()),
+  runWithTimeout: vi.fn((task: (signal: AbortSignal) => Promise<unknown>) => task(schedulerSignal)),
   CronTimeoutError: class CronTimeoutError extends Error {}
 }));
 
@@ -31,5 +32,6 @@ describe("in-app scheduler SEPA backstop", () => {
     await sepaTick!();
 
     expect(runSepa).toHaveBeenCalledTimes(1);
+    expect(runSepa).toHaveBeenCalledWith(schedulerSignal);
   });
 });
