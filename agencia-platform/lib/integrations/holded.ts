@@ -25,8 +25,8 @@ export function describeHoldedPayload(value: any, depth = 0): any {
   return Object.fromEntries(Object.entries(value).slice(0, 30).map(([key, child]) => [key, describeHoldedPayload(child, depth + 1)]));
 }
 
-export function holdedV2PageLimit(requested = 50): number {
-  return Math.min(Math.max(1, requested), 50);
+export function holdedV2TotalLimit(requested = 100): number {
+  return Math.min(Math.max(1, requested), 500);
 }
 
 export async function probeHoldedInvoicePayload(workspaceId: string) {
@@ -170,17 +170,31 @@ export async function holdedListInvoices(opts: {
 }): Promise<HoldedInvoice[]> {
   const key = await getApiKey(opts.workspaceId);
   if (key.startsWith("pat_")) {
-    const params = new URLSearchParams({ limit: String(holdedV2PageLimit(opts.limit)) });
-    const resp = await fetch(`https://api.holded.com/api/v2/invoices?${params}`, {
-      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000), cache: "no-store"
-    });
-    if (!resp.ok) throw new Error(`Holded ${resp.status} /api/v2/invoices: ${(await resp.text()).slice(0, 200)}`);
-    let rows = normalizeHoldedV2Invoices(await resp.json());
+    const totalLimit = holdedV2TotalLimit(opts.limit);
+    const collected: HoldedInvoice[] = [];
+    const seenCursors = new Set<string>();
+    let cursor = "";
+    while (collected.length < totalLimit) {
+      const params = new URLSearchParams({ limit: String(Math.min(50, totalLimit - collected.length)) });
+      if (cursor) params.set("cursor", cursor);
+      const resp = await fetch(`https://api.holded.com/api/v2/invoices?${params}`, {
+        headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+        signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000), cache: "no-store"
+      });
+      if (!resp.ok) throw new Error(`Holded ${resp.status} /api/v2/invoices: ${(await resp.text()).slice(0, 200)}`);
+      const payload = await resp.json();
+      const page = normalizeHoldedV2Invoices(payload);
+      collected.push(...page);
+      const nextCursor = typeof payload?.cursor === "string" ? payload.cursor : "";
+      if (!payload?.has_more || !nextCursor || seenCursors.has(nextCursor) || page.length === 0) break;
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+    let rows = collected;
     if (opts.startTimestamp !== undefined) rows = rows.filter((row) => (row.date ?? 0) >= opts.startTimestamp!);
     if (opts.endTimestamp !== undefined) rows = rows.filter((row) => (row.date ?? 0) <= opts.endTimestamp!);
     if (opts.sort) rows.sort((a, b) => opts.sort === "created-asc" ? (a.date ?? 0) - (b.date ?? 0) : (b.date ?? 0) - (a.date ?? 0));
-    return rows.slice(0, opts.limit ?? 100);
+    return rows.slice(0, totalLimit);
   }
   const params = new URLSearchParams();
   if (opts.status !== undefined) params.set("status", String(opts.status));
