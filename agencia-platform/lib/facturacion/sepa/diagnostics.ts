@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { evaluateCandidacy, NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
-import { createRequestsForCandidates } from "./remittance";
+import { createRequestForInvoice, createRequestsForCandidates } from "./remittance";
 import { syncApprovedHoldedInvoices } from "./holded-auto-sync";
 
 export async function syncRecentHoldedApprovals(workspaceId: string) {
@@ -28,11 +28,16 @@ export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNum
     },
     select: { id: true }
   });
-  return createRequestsForCandidates(workspaceId, null, {
-    max: 50,
-    importedAfter,
-    invoiceIds: invoices.map((invoice) => invoice.id)
-  });
+  let created = 0;
+  let skipped = 0;
+  const requestIds: string[] = [];
+  for (const invoice of invoices) {
+    const result = await createRequestForInvoice(workspaceId, invoice.id, null);
+    requestIds.push(result.requestId);
+    if (result.created) created++;
+    else skipped++;
+  }
+  return { examined: invoices.length, eligible: invoices.length, created, skipped, invalidated: 0, requestIds };
 }
 
 export async function getRecentSepaDiagnostics(workspaceId: string, take = 50) {

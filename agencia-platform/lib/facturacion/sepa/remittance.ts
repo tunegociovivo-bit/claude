@@ -256,7 +256,7 @@ export async function createRequestForInvoice(
       });
       await logEvent(prev.id, prev.status, "PENDING_APPROVAL", createdById, "Solicitud re-armada (nuevo enlace)");
       signal?.throwIfAborted();
-      const notified = await notifyApproval(prev.id, token, inv, createdById, signal, notificationKey);
+      const notified = await notifyApproval(workspaceId, prev.id, token, inv, createdById, signal, notificationKey);
       if (notified) {
         await prisma.sepaRemittanceRequest.update({
           where: { id: prev.id },
@@ -313,7 +313,7 @@ export async function createRequestForInvoice(
 
   await logEvent(requestId, null, "PENDING_APPROVAL", createdById, "Solicitud creada");
   signal?.throwIfAborted();
-  const notified = await notifyApproval(requestId, token, inv, createdById, signal, notificationKey);
+  const notified = await notifyApproval(workspaceId, requestId, token, inv, createdById, signal, notificationKey);
   if (notified) {
     await prisma.sepaRemittanceRequest.update({
       where: { id: requestId },
@@ -328,6 +328,7 @@ export async function createRequestForInvoice(
  * desactivado / error), para que siempre haya traza de por qué llegó o no.
  */
 async function notifyApproval(
+  workspaceId: string,
   requestId: string,
   token: string,
   inv: any,
@@ -342,6 +343,7 @@ async function notifyApproval(
   }
   try {
     await sendApprovalEmail({
+      workspaceId,
       to: approvalRecipient(),
       token,
       clientName: inv.client?.name ?? "",
@@ -484,6 +486,7 @@ function fmtAmount(cents: number, currency: string): string {
 }
 
 async function sendApprovalEmail(opts: {
+  workspaceId: string;
   to: string;
   token: string;
   clientName: string;
@@ -509,7 +512,19 @@ async function sendApprovalEmail(opts: {
   </div>`;
   const text = `Remesa SEPA pendiente de aprobación.\nCliente: ${opts.clientName}\nFactura: ${opts.invoiceNumber ?? "—"}\nImporte: ${amount}\nRevisar (un solo uso, caduca en 24h, requiere login): ${link}\nAprobar NO ejecuta el cobro.`;
   opts.signal?.throwIfAborted();
-  await sendEmail({ to: opts.to, subject, html, text, signal: opts.signal, idempotencyKey: opts.idempotencyKey });
+  try {
+    await sendEmail({ to: opts.to, subject, html, text, signal: opts.signal, idempotencyKey: opts.idempotencyKey });
+  } catch (error: any) {
+    if (!/429|daily[_ ]quota|quota.*exceeded/i.test(String(error?.message ?? error))) throw error;
+    const account = await prisma.emailAccount.findFirst({
+      where: { workspaceId: opts.workspaceId },
+      orderBy: { updatedAt: "desc" },
+      select: { userId: true }
+    });
+    if (!account) throw error;
+    const { sendEmailFromAccount } = await import("@/lib/integrations/email-account");
+    await sendEmailFromAccount({ userId: account.userId, workspaceId: opts.workspaceId, to: opts.to, subject, body: html, html: true });
+  }
 }
 
 function escapeHtml(s: string): string {
