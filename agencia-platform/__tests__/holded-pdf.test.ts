@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { decodeHoldedPdfPayload, describeHoldedPayload, extractSafeHoldedPdfUrl, holdedV2TotalLimit, normalizeHoldedV2Invoices } from "@/lib/integrations/holded";
+import { decodeHoldedPdfPayload, describeHoldedPayload, extractSafeHoldedPdfUrl, holdedV2TotalLimit, normalizeHoldedV2Invoices, parseHoldedAmount } from "@/lib/integrations/holded";
 
 const pdf = Buffer.from("%PDF-1.7\ninvoice");
 
 describe("decodeHoldedPdfPayload", () => {
+  it("parses numeric, object and localized Holded totals", () => {
+    expect(parseHoldedAmount({ value: "1.234,56 EUR" })).toBe(1234.56);
+    expect(parseHoldedAmount({ amount: "242.00" })).toBe(242);
+    expect(parseHoldedAmount(363)).toBe(363);
+  });
   it("caps the complete Holded v2 pagination at 500 invoices", () => {
     expect(holdedV2TotalLimit(5_000)).toBe(500);
     expect(holdedV2TotalLimit(5)).toBe(5);

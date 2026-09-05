@@ -29,6 +29,19 @@ export function holdedV2TotalLimit(requested = 100): number {
   return Math.min(Math.max(1, requested), 500);
 }
 
+export function parseHoldedAmount(value: any): number {
+  const raw = value?.amount ?? value?.value ?? value?.total ?? value;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  if (typeof raw !== "string") return 0;
+  const text = raw.trim().replace(/[^\d,.-]/g, "");
+  if (!text) return 0;
+  const normalized = text.includes(",")
+    ? text.replace(/\./g, "").replace(",", ".")
+    : text;
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 export async function probeHoldedInvoicePayload(workspaceId: string) {
   const key = await getApiKey(workspaceId);
   if (!key.startsWith("pat_")) return { api: "v1" };
@@ -138,7 +151,7 @@ export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
       desc: row.description ?? row.desc,
       date: Number.isFinite(parsedDate) ? parsedDate : undefined,
       dueDate: (row.dueDate ?? row.due_date) ? Math.floor(new Date(row.dueDate ?? row.due_date).getTime() / 1000) : undefined,
-      total: Number(row.total?.amount ?? row.total ?? row.totals?.total ?? 0),
+      total: parseHoldedAmount(row.total ?? row.total_amount ?? row.totals?.total),
       status: normalizedStatus,
       docNumber: row.documentNumber ?? row.document_number ?? row.docNumber ?? row.number,
       currency: row.currency?.code ?? row.currency
