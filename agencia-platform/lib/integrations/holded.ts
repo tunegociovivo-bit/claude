@@ -177,6 +177,9 @@ export async function holdedListInvoices(opts: {
     while (collected.length < totalLimit) {
       const params = new URLSearchParams({ limit: String(Math.min(50, totalLimit - collected.length)) });
       if (cursor) params.set("cursor", cursor);
+      if (opts.sort) params.set("sort", opts.sort);
+      if (opts.startTimestamp !== undefined) params.set("starttmp", String(opts.startTimestamp));
+      if (opts.endTimestamp !== undefined) params.set("endtmp", String(opts.endTimestamp));
       const resp = await fetch(`https://api.holded.com/api/v2/invoices?${params}`, {
         headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
         signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000), cache: "no-store"
