@@ -386,6 +386,16 @@ export class SantanderReconciliationReader {
     const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
     if (!await consultation.isVisible().catch(() => false)) throw new Error("Santander no mostró la consulta de remesas");
     await consultation.click();
+    // Santander conserva el último filtro y en algunas sesiones omite la
+    // pantalla "Tipo de remesa", entrando directamente al listado CORE.
+    const directAfterConsultation = await this.waitFrame(page, /Remesas de un acreedor/i, 12);
+    if (directAfterConsultation) {
+      return reopenRemittanceListAtPage(
+        async () => directAfterConsultation,
+        (currentFrame, pageNumber) => this.advanceRemittancePage(page, currentFrame, pageNumber),
+        pageIndex
+      );
+    }
     frame = await this.waitFrame(page, /Tipo de remesa/i);
     if (!frame) throw new Error("Santander no cargó los filtros de remesas");
     await frame.getByRole("listbox", { name: /Elige una opción/i }).click();
