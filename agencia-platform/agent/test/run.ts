@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, FrameRefreshRequiredError, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -153,6 +153,8 @@ async function main() {
     reconciliationRetryDecision(new Date("2026-08-11T08:30:00Z"), new Date("2026-08-11T08:00:00Z"), 1, "Europe/Madrid") === "RUN");
   ok("una resincronización forzada arranca inmediatamente al reiniciar el contador",
     reconciliationRetryDecision(new Date("2026-08-11T08:05:00Z"), new Date("2026-08-11T08:00:00Z"), 0, "Europe/Madrid") === "RUN");
+  ok("una resincronización forzada descarta el enfriamiento local del agente",
+    effectiveReconciliationLastAttempt(0, null, new Date("2026-08-11T08:00:00Z")) === null);
   ok("detiene los reintentos tras tres fallos para evitar bucles",
     reconciliationRetryDecision(new Date("2026-08-11T10:00:00Z"), new Date("2026-08-11T09:00:00Z"), 3, "Europe/Madrid") === "EXHAUSTED");
   ok("reinicia el ciclo de intentos al día siguiente",
