@@ -81,10 +81,11 @@ export type HoldedInvoice = {
 export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
   const candidates = [payload, payload?.data, payload?.items, payload?.results, payload?.invoices,
     payload?.data?.items, payload?.data?.results, payload?.data?.invoices, payload?.data?.data];
-  const direct = candidates.find((value) => Array.isArray(value) && value.some((row: any) => row?.id || row?.invoiceId));
+  const hasInvoiceId = (row: any) => row?.id || row?._id || row?.invoiceId;
+  const direct = candidates.find((value) => Array.isArray(value) && value.some(hasInvoiceId));
   const findRows = (value: any, depth = 0): any[] | null => {
     if (depth > 5 || value == null) return null;
-    if (Array.isArray(value)) return value.some((row: any) => row?.id || row?.invoiceId) ? value : null;
+    if (Array.isArray(value)) return value.some(hasInvoiceId) ? value : null;
     if (typeof value !== "object") return null;
     for (const child of Object.values(value)) {
       const found = findRows(child, depth + 1);
@@ -100,7 +101,7 @@ export function normalizeHoldedV2Invoices(payload: any): HoldedInvoice[] {
       ? (rawDate > 10_000_000_000 ? Math.floor(rawDate / 1000) : rawDate)
       : rawDate ? Math.floor(new Date(rawDate).getTime() / 1000) : undefined;
     return {
-      id: String(row.id ?? row.invoiceId),
+      id: String(row.id ?? row._id ?? row.invoiceId),
       contactName: row.contactName ?? row.contact?.name ?? row.customer?.name,
       contactEmail: row.contactEmail ?? row.contact?.email ?? row.customer?.email,
       contact: row.contactId ?? row.contact?.id ?? row.customer?.id,

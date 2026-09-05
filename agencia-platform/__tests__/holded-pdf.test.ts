@@ -19,6 +19,11 @@ describe("decodeHoldedPdfPayload", () => {
       expect.objectContaining({ id: "inv_3", docNumber: "FAC-3", total: 363 })
     ]);
   });
+  it("accepts Holded document identifiers exposed as _id", () => {
+    expect(normalizeHoldedV2Invoices({ data: { records: [{ _id: "inv_4", docNumber: "FAC-4", date: 1788566400, total: 484 }] } })).toEqual([
+      expect.objectContaining({ id: "inv_4", docNumber: "FAC-4", total: 484 })
+    ]);
+  });
   it("accepts a binary PDF response", () => {
     expect(decodeHoldedPdfPayload(pdf)).toEqual(pdf);
   });
