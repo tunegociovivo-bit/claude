@@ -380,17 +380,19 @@ export async function applyInvoiceImport(
       if (item.input.number && item.input.clientName) {
         const existing = await prisma.invoice.findFirst({
           where: { workspaceId, number: { equals: item.input.number, mode: "insensitive" }, deletedAt: null },
-          select: { id: true, clientId: true, clientSnapshot: true, updatedAt: true }
+          select: { id: true, clientId: true, clientSnapshot: true, totalCents: true, updatedAt: true }
         });
         const currentName = String((existing?.clientSnapshot as any)?.name ?? "").trim();
         const needsClientLink = !!existing && !existing.clientId && !!item.clientMatchId;
-        if (existing && (!currentName || needsClientLink)) {
+        const needsZeroTotalRepair = !!existing && existing.totalCents === 0 && (item.input.totalCents ?? 0) > 0;
+        if (existing && (!currentName || needsClientLink || needsZeroTotalRepair)) {
           const client = item.clientMatchId
             ? await prisma.client.findUnique({ where: { id: item.clientMatchId } })
             : null;
           const clientSnap = client
             ? snapshotClient(client)
             : { name: item.input.clientName, taxId: item.input.clientTaxId ?? null, countryCode: "ESP" };
+          const repairedTotals = needsZeroTotalRepair ? computeTotals([buildLine(item.input)]) : null;
           await prisma.invoice.updateMany({
             where: {
               id: existing.id,
@@ -400,7 +402,14 @@ export async function applyInvoiceImport(
             },
             data: {
               clientId: existing.clientId ?? item.clientMatchId ?? null,
-              ...(!currentName ? { clientSnapshot: clientSnap as any } : {})
+              ...(!currentName ? { clientSnapshot: clientSnap as any } : {}),
+              ...(repairedTotals ? {
+                lines: [buildLine(item.input)] as any,
+                subtotalCents: repairedTotals.subtotalCents,
+                discountCents: repairedTotals.discountCents,
+                taxCents: repairedTotals.taxCents,
+                totalCents: repairedTotals.totalCents
+              } : {})
             }
           });
         }
