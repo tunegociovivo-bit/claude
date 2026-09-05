@@ -88,7 +88,8 @@ export async function runSepaCronAllWorkspaces(signal?: AbortSignal): Promise<an
           issuedBefore: window.end,
           // Si este tick importó facturas, procesa exactamente esas y no un
           // histórico basado en la fecha fiscal.
-          ...(importedIds.length ? { invoiceIds: importedIds } : {})
+          ...(importedIds.length ? { invoiceIds: importedIds } : {}),
+          signal
         });
         signal?.throwIfAborted();
         // Recupera facturas importadas en los últimos siete días que pudieron
@@ -96,7 +97,8 @@ export async function runSepaCronAllWorkspaces(signal?: AbortSignal): Promise<an
         // La creación es idempotente y conserva todas las reglas SEPA.
         r.recoveryScan = await createRequestsForCandidates(ws.id, null, {
           max: 50,
-          importedAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          importedAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          signal
         });
         // A newly imported invoice may create and email an approval request,
         // but only an explicit administrator decision may consume its token.

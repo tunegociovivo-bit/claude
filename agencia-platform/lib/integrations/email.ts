@@ -97,6 +97,8 @@ export async function sendEmail(opts: {
   replyTo?: string;
   /** Evita duplicar un correo cuando se reintenta una misma operación. */
   idempotencyKey?: string;
+  /** Cancela los reintentos cuando el trabajo propietario ha vencido. */
+  signal?: AbortSignal;
 }): Promise<{ id: string }> {
   // Resuelve la clave por bóveda (prioridad) o env. Sin workspaceId → comportamiento previo
   // (solo env). Así callers existentes no cambian, y el path de leads usa la bóveda.
@@ -120,6 +122,7 @@ export async function sendEmail(opts: {
   // timeouts de red). Los 4xx deterministas (400/401/403/422) no se reintentan.
   let lastErr = "";
   for (let attempt = 1; attempt <= 3; attempt++) {
+    opts.signal?.throwIfAborted();
     try {
       const resp = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -129,7 +132,9 @@ export async function sendEmail(opts: {
           ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {})
         },
         body: payload,
-        signal: AbortSignal.timeout(15000)
+        signal: opts.signal
+          ? AbortSignal.any([opts.signal, AbortSignal.timeout(15000)])
+          : AbortSignal.timeout(15000)
       });
       if (resp.ok) return resp.json();
       const body = await resp.text().catch(() => "");
@@ -137,13 +142,20 @@ export async function sendEmail(opts: {
       const retryable = resp.status === 429 || resp.status >= 500;
       if (!retryable || attempt === 3) throw new Error(lastErr);
     } catch (e: any) {
+      opts.signal?.throwIfAborted();
       lastErr = e?.message ?? String(e);
       if (attempt === 3) {
         console.warn("[email] fallo tras 3 intentos:", lastErr);
         throw new Error(lastErr);
       }
     }
-    await new Promise((r) => setTimeout(r, attempt === 1 ? 800 : 2500));
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, attempt === 1 ? 800 : 2500);
+      opts.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(opts.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+      }, { once: true });
+    });
   }
   throw new Error(lastErr || "Resend: error desconocido");
 }

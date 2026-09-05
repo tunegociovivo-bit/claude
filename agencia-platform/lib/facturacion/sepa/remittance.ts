@@ -150,8 +150,10 @@ async function logEvent(requestId: string, from: string | null, to: string, user
 export async function createRequestForInvoice(
   workspaceId: string,
   invoiceId: string,
-  createdById?: string | null
+  createdById?: string | null,
+  signal?: AbortSignal
 ): Promise<{ created: boolean; requestId: string }> {
+  signal?.throwIfAborted();
   const nv = await getNegocioVivoIssuer(workspaceId);
   if (!nv) throw new Error("No existe la empresa emisora Negocio Vivo S.C.A. en este workspace.");
 
@@ -199,6 +201,7 @@ export async function createRequestForInvoice(
     // Solo re-armamos las caducadas/fallidas (nuevo enlace); el resto es idempotente
     // (una decidida/pendiente/aprobada NO se recrea; una RECHAZADA se respeta).
     if (canReissueApproval({ status: prev.status, archived: Boolean(prev.archivedAt) })) {
+      signal?.throwIfAborted();
       await prisma.sepaRemittanceRequest.update({
         where: { id: prev.id },
         data: {
@@ -221,7 +224,8 @@ export async function createRequestForInvoice(
         }
       });
       await logEvent(prev.id, prev.status, "PENDING_APPROVAL", createdById, "Solicitud re-armada (nuevo enlace)");
-      await notifyApproval(prev.id, token, inv, createdById);
+      signal?.throwIfAborted();
+      await notifyApproval(prev.id, token, inv, createdById, signal);
       return { created: true, requestId: prev.id };
     }
     return { created: false, requestId: prev.id };
@@ -229,6 +233,7 @@ export async function createRequestForInvoice(
 
   let requestId: string;
   try {
+    signal?.throwIfAborted();
     const req = await prisma.sepaRemittanceRequest.create({
       data: {
         workspaceId,
@@ -264,7 +269,8 @@ export async function createRequestForInvoice(
   }
 
   await logEvent(requestId, null, "PENDING_APPROVAL", createdById, "Solicitud creada");
-  await notifyApproval(requestId, token, inv, createdById);
+  signal?.throwIfAborted();
+  await notifyApproval(requestId, token, inv, createdById, signal);
   return { created: true, requestId };
 }
 
@@ -272,7 +278,8 @@ export async function createRequestForInvoice(
  * Envía el email de aprobación y AUDITA el resultado (enviado / RESEND
  * desactivado / error), para que siempre haya traza de por qué llegó o no.
  */
-async function notifyApproval(requestId: string, token: string, inv: any, createdById?: string | null): Promise<void> {
+async function notifyApproval(requestId: string, token: string, inv: any, createdById?: string | null, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   if (!isEmailEnabled()) {
     await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, "Email NO enviado: RESEND no configurado");
     return;
@@ -284,7 +291,9 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
       clientName: inv.client?.name ?? "",
       invoiceNumber: inv.number,
       amountCents: inv.totalCents,
-      currency: inv.currency
+      currency: inv.currency,
+      signal,
+      idempotencyKey: `sepa-approval-${requestId}-${token.slice(0, 16)}`
     });
     await logEvent(requestId, "PENDING_APPROVAL", "PENDING_APPROVAL", createdById, `Email de aprobación enviado a ${approvalRecipient()}`);
   } catch (err: any) {
@@ -296,7 +305,7 @@ async function notifyApproval(requestId: string, token: string, inv: any, create
 export async function createRequestsForCandidates(
   workspaceId: string,
   createdById?: string | null,
-  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date; importedAfter?: Date; invoiceIds?: string[] }
+  opts?: { max?: number; issuedAfter?: Date; issuedBefore?: Date; importedAfter?: Date; invoiceIds?: string[]; signal?: AbortSignal }
 ): Promise<{ created: number; skipped: number; examined: number; eligible: number; invalidated: number; requestIds: string[] }> {
   const max = Math.min(opts?.max ?? 50, 200);
   // Defensa central: ningún caller puede omitir por accidente el límite de
@@ -314,19 +323,31 @@ export async function createRequestsForCandidates(
   let created = 0;
   let skipped = 0;
   const requestIds: string[] = [];
-  for (const cand of eligible) {
+  await processCandidatesUntilAborted(eligible, async (cand) => {
     try {
-      const r = await createRequestForInvoice(workspaceId, cand.invoiceId, createdById);
+      const r = await createRequestForInvoice(workspaceId, cand.invoiceId, createdById, opts?.signal);
       if (r.created) {
         created++;
         requestIds.push(r.requestId);
       }
       else skipped++;
     } catch {
+      opts?.signal?.throwIfAborted();
       skipped++;
     }
-  }
+  }, opts?.signal);
   return { created, skipped, examined: all.length, eligible: eligible.length, invalidated, requestIds };
+}
+
+export async function processCandidatesUntilAborted<T extends { invoiceId: string }>(
+  candidates: T[],
+  processor: (candidate: T) => Promise<unknown>,
+  signal?: AbortSignal
+): Promise<void> {
+  for (const candidate of candidates) {
+    signal?.throwIfAborted();
+    await processor(candidate);
+  }
 }
 
 /** Aprobación interna para el piloto automático. Nunca firma ni cobra. */
@@ -410,6 +431,8 @@ async function sendApprovalEmail(opts: {
   invoiceNumber: string | null;
   amountCents: number;
   currency: string;
+  signal?: AbortSignal;
+  idempotencyKey?: string;
 }): Promise<void> {
   if (!isEmailEnabled()) return; // sin Resend no se envía (queda registrado por el llamador)
   const link = `${baseUrl()}/facturacion/aprobaciones/${encodeURIComponent(opts.token)}`;
@@ -426,7 +449,8 @@ async function sendApprovalEmail(opts: {
     <p style="font-size:12px;color:#888">Este enlace es de un solo uso y caduca en 24 horas. Requiere iniciar sesión. Aprobar NO ejecuta el cobro.</p>
   </div>`;
   const text = `Remesa SEPA pendiente de aprobación.\nCliente: ${opts.clientName}\nFactura: ${opts.invoiceNumber ?? "—"}\nImporte: ${amount}\nRevisar (un solo uso, caduca en 24h, requiere login): ${link}\nAprobar NO ejecuta el cobro.`;
-  await sendEmail({ to: opts.to, subject, html, text });
+  opts.signal?.throwIfAborted();
+  await sendEmail({ to: opts.to, subject, html, text, signal: opts.signal, idempotencyKey: opts.idempotencyKey });
 }
 
 function escapeHtml(s: string): string {
