@@ -8,10 +8,11 @@ $resolvedProfile = [System.IO.Path]::GetFullPath($UserDataDir)
 if (-not $resolvedProfile.EndsWith("NVAgentChrome", [System.StringComparison]::OrdinalIgnoreCase)) {
   throw "El perfil a reiniciar no es NVAgentChrome"
 }
+$escapedProfile = [Regex]::Escape($resolvedProfile)
+$profileArgument = '(?i)--user-data-dir=(?:"' + $escapedProfile + '"|' + $escapedProfile + ')(?:\s|$)'
 
 $dedicated = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" | Where-Object {
-  $_.CommandLine -and
-  $_.CommandLine.IndexOf($resolvedProfile, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  $_.CommandLine -and $_.CommandLine -match $profileArgument
 }
 foreach ($process in $dedicated) {
   Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
@@ -20,8 +21,7 @@ foreach ($process in $dedicated) {
 $deadline = (Get-Date).AddSeconds(10)
 while ((Get-Date) -lt $deadline) {
   $alive = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" | Where-Object {
-    $_.CommandLine -and
-    $_.CommandLine.IndexOf($resolvedProfile, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    $_.CommandLine -and $_.CommandLine -match $profileArgument
   }
   if (-not $alive) { break }
   Start-Sleep -Milliseconds 250
