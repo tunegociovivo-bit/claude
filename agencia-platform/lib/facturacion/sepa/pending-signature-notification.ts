@@ -33,7 +33,7 @@ export async function notifyPendingSignatureRequestOnce(workspaceId: string, req
   if (!row) return false;
 
   try {
-    await notifyJobEmail("pending_signature", row, workspaceId);
+    await notifyJobEmail("pending_signature", { ...row, notificationKey: `sepa-pending-signature-${workspaceId}-${requestId}` }, workspaceId);
     await prisma.sepaRemittanceRequest.updateMany({
       where: { id: requestId, workspaceId, pendingSignatureNotificationClaimedAt: claimedAt },
       data: { pendingSignatureNotifiedAt: new Date(), pendingSignatureNotificationClaimedAt: null }
