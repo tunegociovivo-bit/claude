@@ -40,10 +40,19 @@ describe("GET /api/v1/facturacion/agent/diagnostics/sepa", () => {
   it("recupera solo aprobaciones recientes dentro del workspace del agente", async () => {
     recoverRecentSepaApprovals.mockResolvedValue({ examined: 3, eligible: 2, created: 2, skipped: 0, invalidated: 0, requestIds: ["r1", "r2"] });
     const response = await POST(new NextRequest("https://hub.example/api/v1/facturacion/agent/diagnostics/sepa", {
-      method: "POST", headers: { authorization: "Bearer local-agent-token" }
+      method: "POST", headers: { authorization: "Bearer local-agent-token", "content-type": "application/json" },
+      body: JSON.stringify({ invoiceNumbers: ["FAC-003055", "FAC-003056"] })
     }));
     expect(response.status).toBe(200);
-    expect(recoverRecentSepaApprovals).toHaveBeenCalledWith("ws-1");
+    expect(recoverRecentSepaApprovals).toHaveBeenCalledWith("ws-1", ["FAC-003055", "FAC-003056"]);
     expect(await response.json()).toMatchObject({ ok: true, created: 2 });
+  });
+
+  it("rechaza una recuperación sin números de factura explícitos", async () => {
+    const response = await POST(new NextRequest("https://hub.example/api/v1/facturacion/agent/diagnostics/sepa", {
+      method: "POST", headers: { authorization: "Bearer local-agent-token", "content-type": "application/json" }, body: "{}"
+    }));
+    expect(response.status).toBe(400);
+    expect(recoverRecentSepaApprovals).not.toHaveBeenCalled();
   });
 });
