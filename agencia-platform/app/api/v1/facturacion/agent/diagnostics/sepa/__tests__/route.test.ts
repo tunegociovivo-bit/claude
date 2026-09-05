@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateAgent, getRecentSepaDiagnostics } = vi.hoisted(() => ({
+const { authenticateAgent, getRecentSepaDiagnostics, recoverRecentSepaApprovals } = vi.hoisted(() => ({
   authenticateAgent: vi.fn(),
-  getRecentSepaDiagnostics: vi.fn()
+  getRecentSepaDiagnostics: vi.fn(),
+  recoverRecentSepaApprovals: vi.fn()
 }));
 
 vi.mock("@/lib/facturacion/sepa/agent", () => ({ authenticateAgent }));
-vi.mock("@/lib/facturacion/sepa/diagnostics", () => ({ getRecentSepaDiagnostics }));
+vi.mock("@/lib/facturacion/sepa/diagnostics", () => ({ getRecentSepaDiagnostics, recoverRecentSepaApprovals }));
 
-import { GET } from "../route";
+import { GET, POST } from "../route";
 
 describe("GET /api/v1/facturacion/agent/diagnostics/sepa", () => {
   beforeEach(() => {
@@ -34,5 +35,15 @@ describe("GET /api/v1/facturacion/agent/diagnostics/sepa", () => {
     const response = await GET(new NextRequest("https://hub.example/api/v1/facturacion/agent/diagnostics/sepa"));
     expect(response.status).toBe(401);
     expect(getRecentSepaDiagnostics).not.toHaveBeenCalled();
+  });
+
+  it("recupera solo aprobaciones recientes dentro del workspace del agente", async () => {
+    recoverRecentSepaApprovals.mockResolvedValue({ examined: 3, eligible: 2, created: 2, skipped: 0, invalidated: 0, requestIds: ["r1", "r2"] });
+    const response = await POST(new NextRequest("https://hub.example/api/v1/facturacion/agent/diagnostics/sepa", {
+      method: "POST", headers: { authorization: "Bearer local-agent-token" }
+    }));
+    expect(response.status).toBe(200);
+    expect(recoverRecentSepaApprovals).toHaveBeenCalledWith("ws-1");
+    expect(await response.json()).toMatchObject({ ok: true, created: 2 });
   });
 });
