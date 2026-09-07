@@ -57,4 +57,15 @@ describe("lead inbox classification safeguards", () => {
       reason: "IA"
     }).classification).toBe("auto_reply");
   });
+
+  it.each([
+    "No me contactéis más, pero sí eliminad mis datos",
+    "No me escribas nunca, pero sí confirma la baja"
+  ])("never weakens a permanent opt-out because it contains 'pero sí': %s", (message) => {
+    expect(applyDeterministicClassificationGuard(message, {
+      classification: "interested",
+      confidence: 0.9,
+      reason: "IA"
+    }).classification).toBe("opt_out");
+  });
 });
