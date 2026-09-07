@@ -26,4 +26,26 @@ describe("buildUnreadLeadReplyCounts", () => {
 
     expect(counts).toEqual({ "task-lead": 2 });
   });
+
+  it("prefers an exact lead id when two leads share the same phone", () => {
+    const counts = buildUnreadLeadReplyCounts([
+      { id: "task-a", customData: { source: "leads", leadId: "lead-a", leadPhone: "34600111222" } },
+      { id: "task-b", customData: { source: "leads", leadId: "lead-b", leadPhone: "34600111222" } }
+    ], [
+      { leadId: "lead-b", phoneNormalized: "34600111222", fromPhone: "34600111222" }
+    ]);
+
+    expect(counts).toEqual({ "task-b": 1 });
+  });
+
+  it("does not guess when a phone-only reply matches several tasks", () => {
+    const counts = buildUnreadLeadReplyCounts([
+      { id: "task-a", customData: { source: "leads", leadPhone: "34600111222" } },
+      { id: "task-b", customData: { source: "leads", leadPhone: "+34 600 111 222" } }
+    ], [
+      { leadId: null, phoneNormalized: null, fromPhone: "+34 600 111 222@c.us" }
+    ]);
+
+    expect(counts).toEqual({});
+  });
 });
