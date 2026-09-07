@@ -89,7 +89,11 @@ export async function getWahaMessageAck(opts: {
   if ((await getWhatsappProvider(opts.workspaceId)) !== "waha") return null;
   const cfg = await getWahaConfig(opts.workspaceId);
   const url = `${cfg.baseUrl}/api/${encodeURIComponent(opts.session)}/chats/${encodeURIComponent(opts.chatId)}/messages/${encodeURIComponent(opts.messageId)}`;
-  const response = await fetch(url, { headers: { Accept: "application/json", "X-Api-Key": cfg.apiKey }, cache: "no-store" });
+  const response = await fetch(url, {
+    headers: { Accept: "application/json", "X-Api-Key": cfg.apiKey },
+    cache: "no-store",
+    signal: AbortSignal.timeout(5000)
+  });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`WAHA message status ${response.status}`);
   return extractWahaAck(await response.json().catch(() => null));
