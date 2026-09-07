@@ -71,6 +71,15 @@ export function extractWahaAck(data: any): number | null {
   return ({ ERROR: -1, PENDING: 0, SERVER: 1, DEVICE: 2, READ: 3, PLAYED: 4 } as Record<string, number>)[name] ?? null;
 }
 
+export function shouldReplaceWahaAck(current: number | null | undefined, incoming: number) {
+  if (incoming === -1) return current == null || current < 2;
+  return current == null || incoming > current;
+}
+
+export function shouldPollWahaAck(ack: number | null | undefined) {
+  return ack == null || (ack >= 0 && ack < 3);
+}
+
 export async function getWahaMessageAck(opts: {
   workspaceId: string;
   session: string;

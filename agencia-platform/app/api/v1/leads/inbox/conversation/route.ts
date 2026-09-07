@@ -15,7 +15,7 @@ import { realPhoneFromMeta, isLidFromMeta, looksLikePhone } from "@/lib/leads/li
 import { conversationWhere, resolveConversationIdentity } from "@/lib/leads/conversation-identity";
 import { conversationTaskWhere } from "@/lib/leads/conversation-task";
 import { mergeLeadConversationItems, type LeadConversationItem } from "@/lib/leads/conversation-items";
-import { getWahaMessageAck, getWhatsappProvider } from "@/lib/leads/waha";
+import { getWahaMessageAck, getWhatsappProvider, shouldPollWahaAck, shouldReplaceWahaAck } from "@/lib/leads/waha";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +61,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   ]);
 
   const pendingAckCutoff = new Date(Date.now() - 2 * 60 * 1000);
-  const pendingAcks = inboxMsgs.filter(message => message.direction === "out" && message.externalMessageId && message.ack == null && (!message.ackAt || message.ackAt < pendingAckCutoff)).slice(-5);
+  const pendingAcks = inboxMsgs.filter(message => message.direction === "out" && message.externalMessageId && shouldPollWahaAck(message.ack) && (!message.ackAt || message.ackAt < pendingAckCutoff)).slice(-5);
   if (pendingAcks.length && await getWhatsappProvider(api.workspaceId).catch(() => null) === "waha") {
     await Promise.all(pendingAcks.map(async message => {
       const metadata = message.meta && typeof message.meta === "object" && !Array.isArray(message.meta) ? message.meta as Record<string, unknown> : {};
@@ -69,12 +69,10 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       const chatId = storedChatId || (message.fromPhone.includes("@") ? message.fromPhone : `${message.phoneNormalized || message.fromPhone}@c.us`);
       const ack = await getWahaMessageAck({ workspaceId: api.workspaceId, session: message.instanceName || "default", chatId, messageId: message.externalMessageId! }).catch(() => null);
       const checkedAt = new Date();
-      await prisma.leadInboxMessage.updateMany({
-        where: { id: message.id, workspaceId: api.workspaceId, OR: [{ ack: null }, ...(ack == null ? [] : [{ ack: { lt: ack } }])] },
-        data: { ...(ack == null ? {} : { ack }), ackAt: checkedAt }
-      }).catch(() => null);
+      const ackCondition = ack === -1 ? { OR: [{ ack: null }, { ack: { in: [0, 1] } }] } : ack == null ? {} : { OR: [{ ack: null }, { ack: { lt: ack } }] };
+      await prisma.leadInboxMessage.updateMany({ where: { id: message.id, workspaceId: api.workspaceId, ...ackCondition }, data: { ...(ack == null ? {} : { ack }), ackAt: checkedAt } }).catch(() => null);
       message.ackAt = checkedAt;
-      if (ack != null && (message.ack == null || ack > message.ack)) message.ack = ack;
+      if (ack != null && shouldReplaceWahaAck(message.ack, ack)) message.ack = ack;
     }));
   }
 
