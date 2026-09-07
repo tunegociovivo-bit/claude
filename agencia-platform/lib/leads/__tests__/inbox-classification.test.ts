@@ -70,4 +70,15 @@ describe("lead inbox classification safeguards", () => {
       reason: "IA"
     }).classification).toBe("opt_out");
   });
+
+  it.each([
+    "Estoy de baja, pero sí me interesa; llámame la semana que viene",
+    "La conversión está baja, pero sí queremos mejorarla"
+  ])("does not confuse the Spanish noun/adjective 'baja' with an unsubscribe command: %s", (message) => {
+    expect(applyDeterministicClassificationGuard(message, {
+      classification: "interested",
+      confidence: 0.9,
+      reason: "Interés explícito"
+    }).classification).toBe("interested");
+  });
 });
