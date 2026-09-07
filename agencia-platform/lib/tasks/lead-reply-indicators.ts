@@ -24,11 +24,18 @@ export function buildUnreadLeadReplyCounts(tasks: LeadTask[], replies: InboundRe
   const counts: Record<string, number> = {};
   for (const reply of replies) {
     const replyPhone = normalizedPhone(reply.phoneNormalized) ?? normalizedPhone(reply.fromPhone);
-    for (const reference of references) {
-      const matchesLead = !!reference.leadId && reference.leadId === reply.leadId;
-      const matchesPhone = !!reference.phone && reference.phone === replyPhone;
-      if (matchesLead || matchesPhone) counts[reference.taskId] = (counts[reference.taskId] ?? 0) + 1;
-    }
+    const exactLeadMatches = reply.leadId
+      ? references.filter((reference) => reference.leadId === reply.leadId)
+      : [];
+    const matches = exactLeadMatches.length > 0
+      ? exactLeadMatches
+      : references.filter((reference) =>
+          !!replyPhone && reference.phone === replyPhone && (!reply.leadId || !reference.leadId)
+        );
+    // Un teléfono puede estar duplicado o reasignado. Sin leadId exacto solo
+    // iluminamos una tarjeta si la identidad es inequívoca.
+    if (exactLeadMatches.length === 0 && matches.length !== 1) continue;
+    for (const reference of matches) counts[reference.taskId] = (counts[reference.taskId] ?? 0) + 1;
   }
   return counts;
 }

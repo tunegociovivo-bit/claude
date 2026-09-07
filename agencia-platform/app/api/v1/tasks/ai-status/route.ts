@@ -80,17 +80,11 @@ async function handler(api: any, ids: string[]) {
     select: { id: true, customData: true }
   });
   const leadReferences = leadTasks.map(leadReferenceFromTask).filter((reference): reference is NonNullable<typeof reference> => !!reference);
-  const leadIds = [...new Set(leadReferences.map((reference) => reference.leadId).filter((id): id is string => !!id))];
-  const phones = [...new Set(leadReferences.map((reference) => reference.phone).filter((phone): phone is string => !!phone))];
   const unreadReplies = leadReferences.length === 0 ? [] : await prisma.leadInboxMessage.findMany({
     where: {
       workspaceId: api.workspaceId,
       direction: "in",
-      read: false,
-      OR: [
-        ...(leadIds.length ? [{ leadId: { in: leadIds } }] : []),
-        ...(phones.length ? [{ phoneNormalized: { in: phones } }, { fromPhone: { in: phones } }] : [])
-      ]
+      read: false
     },
     select: { leadId: true, phoneNormalized: true, fromPhone: true }
   });
