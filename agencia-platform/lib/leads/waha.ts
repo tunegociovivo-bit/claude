@@ -63,6 +63,29 @@ export function extractWahaMessageId(data: any): string {
   return String(cand);
 }
 
+export function extractWahaAck(data: any): number | null {
+  if (!data) return null;
+  const numeric = data.ack ?? data.payload?.ack ?? data._data?.ack;
+  if (typeof numeric === "number" && numeric >= -1 && numeric <= 4) return numeric;
+  const name = String(data.ackName ?? data.payload?.ackName ?? data._data?.ackName ?? "").toUpperCase();
+  return ({ ERROR: -1, PENDING: 0, SERVER: 1, DEVICE: 2, READ: 3, PLAYED: 4 } as Record<string, number>)[name] ?? null;
+}
+
+export async function getWahaMessageAck(opts: {
+  workspaceId: string;
+  session: string;
+  chatId: string;
+  messageId: string;
+}): Promise<number | null> {
+  if ((await getWhatsappProvider(opts.workspaceId)) !== "waha") return null;
+  const cfg = await getWahaConfig(opts.workspaceId);
+  const url = `${cfg.baseUrl}/api/${encodeURIComponent(opts.session)}/chats/${encodeURIComponent(opts.chatId)}/messages/${encodeURIComponent(opts.messageId)}`;
+  const response = await fetch(url, { headers: { Accept: "application/json", "X-Api-Key": cfg.apiKey }, cache: "no-store" });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`WAHA message status ${response.status}`);
+  return extractWahaAck(await response.json().catch(() => null));
+}
+
 /**
  * Normaliza un teléfono al formato E.164 sin "+" (que WAHA pide).
  * Ej: "+34 666 12 34 56" → "34666123456"

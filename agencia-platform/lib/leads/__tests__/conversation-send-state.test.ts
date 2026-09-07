@@ -22,6 +22,7 @@ describe("conversation optimistic reply state", () => {
 
   it("explains WhatsApp acknowledgement levels without claiming delivery too early", () => {
     expect(whatsappAckLabel(null)).toBe("Pendiente de confirmación");
+    expect(whatsappAckLabel(-1)).toBe("No entregado");
     expect(whatsappAckLabel(1)).toBe("Enviado");
     expect(whatsappAckLabel(2)).toBe("Entregado");
     expect(whatsappAckLabel(3)).toBe("Leído");
