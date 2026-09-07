@@ -34,7 +34,10 @@ function hasPositiveContrastOrTiming(text: string) {
 }
 
 function isOptOutReply(text: string) {
-  const permanentOptOut = /(^|\b)(?:stop|baja)\b/.test(text)
+  const explicitUnsubscribeCommand = /\bstop\b/.test(text)
+    || /^\s*baja\b(?=\s*[,.;:!?]|\s*$)/.test(text)
+    || /\b(?:dame|dadme|denme|darme|darnos|solicito|solicitamos|quiero|queremos)\s+(?:(?:darme|darnos)\s+)?(?:de|la)\s+baja\b/.test(text);
+  const permanentOptOut = explicitUnsubscribeCommand
     || /\bno\s+(?:quiero|queremos)\s+(?:m[aá]s\s+)?mensajes\b/.test(text)
     || /\bno\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|contactes|contact[ée]is|llames|llam[ée]is)\s+(?:m[aá]s|de nuevo|nunca)\b/.test(text)
     || /\b(?:deja|dejad|dejen)\s+de\s+(?:escribir|contactar|llamar)\b/.test(text);
