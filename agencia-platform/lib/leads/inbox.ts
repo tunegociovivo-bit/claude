@@ -26,11 +26,23 @@ function normalizedReply(text: string) {
   return text.toLowerCase().trim();
 }
 
+function hasPositiveContrastOrTiming(text: string) {
+  return /\bpero\s+(?:s[ií]|quiero|queremos|me interesa|nos interesa|podemos|hablemos|ll[aá]m)/.test(text)
+    || /\b(?:ahora|hoy|en este momento)\b[^.?!;]*(?:no|imposible)[^.?!;]*(?:ma[ñn]ana|luego|m[aá]s tarde|otro d[ií]a)/.test(text)
+    || /\bno\s+(?:me|nos)\s+llam(?:es|[ée]is)\s+(?:ahora|hoy|en este momento)\b/.test(text)
+    || /\b(?:ma[ñn]ana|luego|m[aá]s tarde|otro d[ií]a)\b[^.?!;]*(?:s[ií]|ll[aá]m|contact)/.test(text);
+}
+
 function isOptOutReply(text: string) {
-  return /(^|\b)(stop|baja|no.?escribir|no.?escrib[áa]is|no.?me.?escrib|d[ée]jenme|deja.?de|no.?quiero.?mensajes|no.?contact|no me llam)/.test(text);
+  if (hasPositiveContrastOrTiming(text)) return false;
+  return /(^|\b)(stop|baja)\b/.test(text)
+    || /\bno\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|contactes|contact[ée]is|llames|llam[ée]is)(?:\s+(?:m[aá]s|de nuevo|nunca))?\b/.test(text)
+    || /\b(?:deja|dejad|dejen)\s+de\s+(?:escribir|contactar|llamar)\b/.test(text)
+    || /\bno\s+(?:quiero|queremos)\s+(?:m[aá]s\s+)?mensajes\b/.test(text);
 }
 
 function isExplicitRejection(text: string) {
+  if (hasPositiveContrastOrTiming(text)) return false;
   return /\b(?:no|tampoco)\s+(?:(?:me|nos)\s+)?(?:interesa(?:n)?|necesit(?:o|amos)|quier(?:o|emos))\b/.test(text)
     || /\bno\s+(?:estoy|estamos)\s+interesad[oa]s?\b/.test(text)
     || /\b(?:sin|ning[uú]n)\s+inter[eé]s\b/.test(text);
@@ -52,11 +64,11 @@ export function applyDeterministicClassificationGuard(text: string, proposed: In
   if (isOptOutReply(normalized)) {
     return { classification: "opt_out", confidence: 0.99, reason: "Solicitud explícita de no contacto" };
   }
-  if (isExplicitRejection(normalized)) {
-    return { classification: "positive_no", confidence: 0.99, reason: "Rechazo explícito detectado" };
-  }
   if (isAutomaticReply(normalized)) {
     return { classification: "auto_reply", confidence: 0.98, reason: "Respuesta automática detectada" };
+  }
+  if (isExplicitRejection(normalized)) {
+    return { classification: "positive_no", confidence: 0.99, reason: "Rechazo explícito detectado" };
   }
   return proposed;
 }
