@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractWahaAck } from "@/lib/leads/waha";
+import { extractWahaAck, shouldReplaceWahaAck } from "@/lib/leads/waha";
 
 describe("WAHA acknowledgement parsing", () => {
   it("reads numeric acknowledgement from current and nested responses", () => {
@@ -18,5 +18,13 @@ describe("WAHA acknowledgement parsing", () => {
   it("returns null when the provider gives no usable acknowledgement", () => {
     expect(extractWahaAck({ id: "message-id" })).toBeNull();
     expect(extractWahaAck(null)).toBeNull();
+  });
+
+  it("records errors while preserving evidence of delivery", () => {
+    expect(shouldReplaceWahaAck(null, -1)).toBe(true);
+    expect(shouldReplaceWahaAck(1, -1)).toBe(true);
+    expect(shouldReplaceWahaAck(2, -1)).toBe(false);
+    expect(shouldReplaceWahaAck(2, 3)).toBe(true);
+    expect(shouldReplaceWahaAck(3, 1)).toBe(false);
   });
 });
