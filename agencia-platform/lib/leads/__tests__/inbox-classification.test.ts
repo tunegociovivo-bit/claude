@@ -60,7 +60,9 @@ describe("lead inbox classification safeguards", () => {
 
   it.each([
     "No me contactéis más, pero sí eliminad mis datos",
-    "No me escribas nunca, pero sí confirma la baja"
+    "No me escribas nunca, pero sí confirma la baja",
+    "BAJA, pero sí confirma la baja",
+    "No quiero más mensajes, pero sí confirma"
   ])("never weakens a permanent opt-out because it contains 'pero sí': %s", (message) => {
     expect(applyDeterministicClassificationGuard(message, {
       classification: "interested",
