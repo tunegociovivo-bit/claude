@@ -36,4 +36,25 @@ describe("lead inbox classification safeguards", () => {
   it("applies the same rejection protection to the no-AI fallback", () => {
     expect(classifyHeuristic("Hola, pero no me interesa posicionarme, gracias").classification).toBe("positive_no");
   });
+
+  it.each([
+    "No me llames ahora; mañana a las 10 sí",
+    "No necesito SEO, pero sí campañas de Meta",
+    "No nos interesa Google, pero queremos hablar de redes"
+  ])("does not discard positive contrast or a temporary objection: %s", (message) => {
+    expect(applyDeterministicClassificationGuard(message, {
+      classification: "interested",
+      confidence: 0.9,
+      reason: "Interés en una alternativa o momento concreto"
+    }).classification).toBe("interested");
+  });
+
+  it("prioritises a clear automatic acknowledgement over rejection vocabulary", () => {
+    const message = "No necesitamos que responda. Gracias por contactarnos. Nuestro horario de atención es de 9 a 21h y nos pondremos en contacto.";
+    expect(applyDeterministicClassificationGuard(message, {
+      classification: "interested",
+      confidence: 0.7,
+      reason: "IA"
+    }).classification).toBe("auto_reply");
+  });
 });
