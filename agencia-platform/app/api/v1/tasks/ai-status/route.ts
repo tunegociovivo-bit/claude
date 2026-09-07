@@ -80,14 +80,24 @@ async function handler(api: any, ids: string[]) {
     select: { id: true, customData: true }
   });
   const leadReferences = leadTasks.map(leadReferenceFromTask).filter((reference): reference is NonNullable<typeof reference> => !!reference);
-  const unreadReplies = leadReferences.length === 0 ? [] : await prisma.leadInboxMessage.findMany({
-    where: {
-      workspaceId: api.workspaceId,
-      direction: "in",
-      read: false
-    },
-    select: { leadId: true, phoneNormalized: true, fromPhone: true }
-  });
+  const leadIds = [...new Set(leadReferences.map((reference) => reference.leadId).filter((id): id is string => !!id))];
+  const phones = [...new Set(leadReferences.map((reference) => reference.phone).filter((phone): phone is string => !!phone))];
+  const unreadReplies: Array<{ leadId: string | null; phoneNormalized: string | null; fromPhone: string }> =
+    leadReferences.length === 0 ? [] : await prisma.$queryRaw`
+      SELECT "leadId", "phoneNormalized", "fromPhone"
+      FROM "LeadInboxMessage"
+      WHERE "workspaceId" = ${api.workspaceId}
+        AND direction = 'in'
+        AND read = false
+        AND (
+          "leadId" = ANY(${leadIds}::text[])
+          OR "phoneNormalized" = ANY(${phones}::text[])
+          OR (
+            "phoneNormalized" IS NULL
+            AND regexp_replace(split_part("fromPhone", '@', 1), '[^0-9]', '', 'g') = ANY(${phones}::text[])
+          )
+        )
+    `;
   const unreadLeadReplyCounts = buildUnreadLeadReplyCounts(leadTasks, unreadReplies);
   // Reparación única para confirmaciones legacy falsas («programados 2» pero
   // solo se creó una task). Persiste el plan real y elimina el followup huérfano.
