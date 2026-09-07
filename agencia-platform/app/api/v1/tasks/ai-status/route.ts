@@ -23,6 +23,7 @@ import { getEscalationStatus } from "@/lib/ai/nv-ia/escalate-status";
 import { processRunInBackground } from "@/lib/ai/nv-ia/process-run";
 import { repairFutureScheduledFollowupDates, triggerDueScheduledFollowups } from "@/lib/ai/nv-ia/scheduled-followups";
 import { planFutureInstructions } from "@/lib/ai/nv-ia/future-instructions";
+import { buildUnreadLeadReplyCounts, leadReferenceFromTask } from "@/lib/tasks/lead-reply-indicators";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,29 @@ async function handler(api: any, ids: string[]) {
     const aiUserId = await getAiUserId(api.workspaceId);
     return NextResponse.json({ items: [], aiUserId: aiUserId ?? null });
   }
+
+  const { taskVisibilityWhere } = await import("@/lib/api/task-access");
+  const visibility = await taskVisibilityWhere(api.workspaceId, api.userId);
+  const leadTasks = await prisma.task.findMany({
+    where: { workspaceId: api.workspaceId, id: { in: ids }, deletedAt: null, ...(visibility ?? {}) } as any,
+    select: { id: true, customData: true }
+  });
+  const leadReferences = leadTasks.map(leadReferenceFromTask).filter((reference): reference is NonNullable<typeof reference> => !!reference);
+  const leadIds = [...new Set(leadReferences.map((reference) => reference.leadId).filter((id): id is string => !!id))];
+  const phones = [...new Set(leadReferences.map((reference) => reference.phone).filter((phone): phone is string => !!phone))];
+  const unreadReplies = leadReferences.length === 0 ? [] : await prisma.leadInboxMessage.findMany({
+    where: {
+      workspaceId: api.workspaceId,
+      direction: "in",
+      read: false,
+      OR: [
+        ...(leadIds.length ? [{ leadId: { in: leadIds } }] : []),
+        ...(phones.length ? [{ phoneNormalized: { in: phones } }, { fromPhone: { in: phones } }] : [])
+      ]
+    },
+    select: { leadId: true, phoneNormalized: true, fromPhone: true }
+  });
+  const unreadLeadReplyCounts = buildUnreadLeadReplyCounts(leadTasks, unreadReplies);
   // Reparación única para confirmaciones legacy falsas («programados 2» pero
   // solo se creó una task). Persiste el plan real y elimina el followup huérfano.
   const suspectRuns = await prisma.aiAgentRun.findMany({
@@ -265,11 +289,12 @@ async function handler(api: any, ids: string[]) {
           aiStatus: "ai_replied" as const,
           workedByAi: true,
           mine,
+          unreadLeadReplyCount: unreadLeadReplyCounts[id] ?? 0,
           lastAiCommentAt: lastComment!.createdAt.toISOString(),
           lastAiCommentPreview: lastComment!.body.slice(0, 140)
         };
       }
-      return { taskId: id, aiStatus: null, workedByAi: false, mine };
+      return { taskId: id, aiStatus: null, workedByAi: false, mine, unreadLeadReplyCount: unreadLeadReplyCounts[id] ?? 0 };
     }
     const escalation = extractEscalationFromLog(r.log);
     let visual:
@@ -354,7 +379,8 @@ async function handler(api: any, ids: string[]) {
         return t ? estimateCostMicros(DEFAULT_MODEL, t.input, t.output) : 0;
       })(),
       lastAiCommentAt: lastCommentIsAi ? lastComment!.createdAt.toISOString() : null,
-      lastAiCommentPreview: lastCommentIsAi ? lastComment!.body.slice(0, 140) : null
+      lastAiCommentPreview: lastCommentIsAi ? lastComment!.body.slice(0, 140) : null,
+      unreadLeadReplyCount: unreadLeadReplyCounts[id] ?? 0
     };
   }));
 
