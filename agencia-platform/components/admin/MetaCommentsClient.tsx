@@ -6,7 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
 import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
 import { campaignOptionsForClient, filterMetaCommentInbox } from "@/lib/meta/comment-inbox";
-import { runWithConcurrency } from "@/lib/meta/bulk-moderation";
+import { formatBulkModerationStatus, runWithConcurrency } from "@/lib/meta/bulk-moderation";
 
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; aiContext: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
@@ -49,6 +49,7 @@ export default function MetaCommentsClient() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const [moderationResult, setModerationResult] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [bulkStatus, setBulkStatus] = useState<{ message: string; error?: string } | null>(null);
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -245,11 +246,12 @@ export default function MetaCommentsClient() {
 
   async function bulkAction(action: "regenerate_draft" | "reply" | "delete_comment") {
     if (!selectedVisible.length) return;
-    if (action === "delete_comment" && (!confirm(`¿Eliminar definitivamente de Meta ${selectedVisible.length} comentarios?`) || !confirm("Confirma de nuevo: desaparecerán también de Meta y no se puede deshacer."))) return;
+    if (action === "delete_comment" && !confirm(`¿Eliminar definitivamente de Meta ${selectedVisible.length} comentarios? Desaparecerán también de Meta y no se puede deshacer.`)) return;
     if (action === "reply" && !confirm(`¿Publicar ${selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()).length} respuestas en Meta?`)) return;
     const targets = action === "reply" ? selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()) : selectedVisible;
     if (!targets.length) { setError("Los comentarios seleccionados no tienen borradores pendientes para publicar."); return; }
     setBusy(`bulk:${action}`); setError(null); setModerationResult(null); setBulkProgress({ completed: 0, total: targets.length });
+    setBulkStatus({ message: formatBulkModerationStatus({ action: action === "reply" ? "reply" : "delete_comment", completed: 0, total: targets.length }) });
     if (action === "regenerate_draft") {
       try {
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "regenerate_drafts", commentIds: targets.map((item) => item.id) }) });
@@ -270,15 +272,22 @@ export default function MetaCommentsClient() {
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? "Operación rechazada");
         if (action === "delete_comment" && (data?.confirmedByMeta !== true || data?.deletedCommentId !== item.id)) throw new Error("Meta no confirmó la eliminación");
-        return null;
-      } catch { return item.id; }
-    }, (completed, total) => setBulkProgress({ completed, total }));
-    const failed = results.filter((id): id is string => Boolean(id));
+        return { id: item.id, error: null };
+      } catch (cause: any) { return { id: item.id, error: String(cause?.message ?? cause) }; }
+    }, (completed, total) => {
+      setBulkProgress({ completed, total });
+      setBulkStatus({ message: formatBulkModerationStatus({ action, completed, total }) });
+    });
+    const failures = results.filter((result) => result.error);
+    const failed = failures.map((result) => result.id);
+    setSelectedCommentIds(new Set(failed));
+    setBulkStatus({ message: formatBulkModerationStatus({ action, completed: targets.length, total: targets.length, failed: failed.length }), error: failures[0]?.error ?? undefined });
     try {
       await load();
-      setSelectedCommentIds(new Set(failed));
       if (failed.length) setError(`${targets.length - failed.length} procesados; ${failed.length} no se pudieron completar y permanecen seleccionados para revisarlos.`);
       else setModerationResult(action === "delete_comment" ? `${targets.length} comentarios eliminados y confirmados por Meta.` : `${targets.length} respuestas publicadas correctamente en Meta.`);
+    } catch (cause: any) {
+      setError(`La operación terminó, pero no se pudo refrescar la lista: ${String(cause?.message ?? cause)}`);
     } finally {
       setBusy(null); setBulkProgress(null);
     }
@@ -327,6 +336,7 @@ export default function MetaCommentsClient() {
     {moderationResult && <div role="status" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800"><span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {moderationResult}</span><button type="button" aria-label="Cerrar confirmación" onClick={() => setModerationResult(null)} className="rounded p-1 hover:bg-emerald-100"><X className="h-4 w-4" /></button></div>}
     <div className="mb-4 flex flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => { setClientFilter(event.target.value); setCampaignFilter("all"); setSelectedCommentIds(new Set()); }} className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select><select aria-label="Filtrar comentarios por campaña" value={campaignFilter} onChange={(event) => { setCampaignFilter(event.target.value); setSelectedCommentIds(new Set()); }} className="mr-2 max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todas las campañas</option>{campaignOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>{[["pending", "Pendientes"], ["negative", "Negativos pendientes"], ["replied", "Respondidos"]].map(([key, label]) => <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
     {visible.length > 0 && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3"><label className="mr-auto flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={selectedVisible.length === visible.length} onChange={(event) => setSelectedCommentIds(event.target.checked ? new Set(visible.map((item) => item.id)) : new Set())} className="h-4 w-4" /> Seleccionar visibles ({selectedVisible.length}/{visible.length})</label><button onClick={() => void bulkAction("regenerate_draft")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" /> Generar respuestas IA</button><button onClick={() => void bulkAction("reply")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Send className="h-3.5 w-3.5" /> {busy === "bulk:reply" && bulkProgress ? `Publicando ${bulkProgress.completed}/${bulkProgress.total}…` : "Publicar respuestas"}</button><button onClick={() => void bulkAction("delete_comment")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">{busy === "bulk:delete_comment" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} {busy === "bulk:delete_comment" && bulkProgress ? `Eliminando ${bulkProgress.completed}/${bulkProgress.total}…` : "Eliminar seleccionados"}</button></div>}
+    {bulkStatus && <div role="status" className={`mb-4 rounded-xl border p-3 text-sm font-medium ${bulkStatus.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}><div>{bulkStatus.message}</div>{bulkStatus.error && <div className="mt-1 break-words text-xs font-normal">Motivo de Meta: {bulkStatus.error}</div>}</div>}
     {visible.length === 0 ? <div className="rounded-xl border bg-white p-10 text-center text-slate-500"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" /><div className="font-medium text-slate-700">No hay comentarios en este filtro</div><div className="mt-1 text-sm">Pulsa “Sincronizar ahora” para consultar Meta.</div></div> : <div className="space-y-4">{visible.map((item) => <article id={`meta-comment-${item.id}`} key={item.id} className={`scroll-mt-6 rounded-xl border bg-white p-5 ${item.sentiment === "negative" ? "border-rose-300" : ""}`}>
       <div className="mb-3 flex flex-wrap items-start gap-2"><input aria-label={`Seleccionar comentario de ${item.authorName ?? "Usuario de Meta"}`} type="checkbox" checked={selectedCommentIds.has(item.id)} onChange={(event) => setSelectedCommentIds((current) => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })} className="mt-1 h-4 w-4" /><div className="flex-1"><div className="font-semibold">{item.authorName ?? "Usuario de Meta"}</div><div className="text-xs text-slate-500">{clientNameOf(item.feed)} · Campaña: {item.feed.campaignName ?? item.feed.campaignId} · Anuncio: {item.adName ?? "Sin nombre"} · {new Date(item.commentCreatedAt).toLocaleString("es-ES")}</div></div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${item.sentiment === "negative" ? "bg-rose-100 text-rose-700" : item.sentiment === "positive" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{item.sentiment === "negative" && <AlertTriangle className="h-3 w-3" />}{item.sentiment === "negative" ? "Negativo" : item.sentiment === "positive" ? "Positivo" : "Neutral"}</span></div>
       <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{item.message}</div>
