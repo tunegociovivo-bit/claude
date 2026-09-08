@@ -2,10 +2,9 @@ import { z } from "zod";
 
 const santanderRemittanceNumberSchema = z.string()
   .trim()
-  .min(3)
-  .max(40)
   .regex(/^[A-Za-z0-9 ]+$/)
-  .transform((value) => value.replace(/\s+/g, "").toUpperCase());
+  .transform((value) => value.replace(/\s+/g, "").toUpperCase())
+  .pipe(z.string().min(3).max(40).regex(/^[A-Z0-9]+$/));
 
 export const bankMovementInputSchema = z.object({
   externalId: z.string().min(1).max(200),

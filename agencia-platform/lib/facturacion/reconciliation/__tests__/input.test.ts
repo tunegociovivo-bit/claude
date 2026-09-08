@@ -23,5 +23,23 @@ describe("bank reconciliation input", () => {
       remittanceNumber: "   ",
       debtorIbanLast4: "0770"
     })).toThrow();
+
+    expect(() => bankMovementInputSchema.parse({
+      externalId: "movement-too-short",
+      bookedAt: "2026-09-02T12:00:00.000Z",
+      amountCents: 336267,
+      remittanceNumber: "A B"
+    })).toThrow();
+  });
+
+  it("normalizes a Santander remittance identifier with spaces", () => {
+    const movement = bankMovementInputSchema.parse({
+      externalId: "movement-spaced",
+      bookedAt: "2026-09-02T12:00:00.000Z",
+      amountCents: 336267,
+      remittanceNumber: "0049 6611 753 000065c"
+    });
+
+    expect(movement.remittanceNumber).toBe("00496611753000065C");
   });
 });
