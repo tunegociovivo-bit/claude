@@ -211,7 +211,7 @@ export default function MetaCommentsClient() {
       const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo completar la moderación en Meta");
       if (deleting && (data?.confirmedByMeta !== true || data?.deletedCommentId !== item.id)) throw new Error("Meta no ha confirmado la eliminación. El comentario sigue visible para que puedas reintentarlo.");
       await load();
-      setModerationResult(deleting ? `Comentario de ${item.authorName ?? "Usuario de Meta"} eliminado y confirmado por Meta.` : `Usuario ${item.authorName ?? "de Meta"} bloqueado correctamente.`);
+      setModerationResult(deleting ? data?.moderationMode === "hidden" ? `Meta no permitió borrarlo, pero el comentario de ${item.authorName ?? "Usuario de Meta"} quedó ocultado públicamente.` : `Comentario de ${item.authorName ?? "Usuario de Meta"} eliminado y confirmado por Meta.` : `Usuario ${item.authorName ?? "de Meta"} bloqueado correctamente.`);
     } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setBusy(null); }
   }
 
@@ -295,20 +295,21 @@ export default function MetaCommentsClient() {
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? data?.message ?? "Operación rechazada");
         if (action === "delete_comment" && (data?.confirmedByMeta !== true || data?.deletedCommentId !== item.id)) throw new Error("Meta no confirmó la eliminación");
-        return { id: item.id, error: null };
-      } catch (cause: any) { return { id: item.id, error: String(cause?.message ?? cause) }; }
+        return { id: item.id, error: null, mode: data?.moderationMode as string | undefined };
+      } catch (cause: any) { return { id: item.id, error: String(cause?.message ?? cause), mode: undefined }; }
     }, (completed, total) => {
       setBulkProgress({ completed, total });
       setBulkStatus({ message: formatBulkModerationStatus({ action, completed, total }) });
     });
     const failures = results.filter((result) => result.error);
     const failed = failures.map((result) => result.id);
+    const hidden = results.filter((result) => result.mode === "hidden").length;
     setSelectedCommentIds(new Set(failed));
-    setBulkStatus({ message: formatBulkModerationStatus({ action, completed: targets.length, total: targets.length, failed: failed.length }), error: failures[0]?.error ?? undefined });
+    setBulkStatus({ message: hidden > 0 && failed.length === 0 ? `${targets.length} retirados de Meta: ${targets.length - hidden} eliminados y ${hidden} ocultados públicamente.` : formatBulkModerationStatus({ action, completed: targets.length, total: targets.length, failed: failed.length }), error: failures[0]?.error ?? undefined });
     try {
       await load();
       if (failed.length) setError(`${targets.length - failed.length} procesados; ${failed.length} no se pudieron completar y permanecen seleccionados para revisarlos.`);
-      else setModerationResult(action === "delete_comment" ? `${targets.length} comentarios eliminados y confirmados por Meta.` : `${targets.length} respuestas publicadas correctamente en Meta.`);
+      else setModerationResult(action === "delete_comment" ? hidden > 0 ? `${targets.length} comentarios retirados: ${targets.length - hidden} eliminados y ${hidden} ocultados públicamente.` : `${targets.length} comentarios eliminados y confirmados por Meta.` : `${targets.length} respuestas publicadas correctamente en Meta.`);
     } catch (cause: any) {
       setError(`La operación terminó, pero no se pudo refrescar la lista: ${String(cause?.message ?? cause)}`);
     } finally {

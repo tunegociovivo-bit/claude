@@ -622,7 +622,7 @@ export function metaDeletionObjectIds(externalCommentId: string, platform: strin
   return [...new Set(ids.filter(Boolean))];
 }
 
-export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
+export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null): Promise<"deleted" | "hidden"> {
   try {
     const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
     const connectionIds = [connectionId, ...(await listWorkspaceMetaTokens(workspaceId)).map((item) => item.id)].filter((id): id is string => Boolean(id));
@@ -640,10 +640,25 @@ export async function deleteMetaComment(workspaceId: string, externalCommentId: 
         try {
           const result = await graph(workspaceId, objectId, { method: "DELETE" }, token);
           assertMetaDeletionConfirmed(result);
-          return;
+          return "deleted";
         } catch (cause) {
           if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
           throw cause;
+        }
+      }
+    }
+    if (platform === "facebook") {
+      const body = new URLSearchParams({ is_hidden: "true" });
+      for (const objectId of metaDeletionObjectIds(externalCommentId, platform)) {
+        for (const token of [...new Set(tokenCandidates)]) {
+          try {
+            const result = await graph(workspaceId, objectId, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
+            assertMetaDeletionConfirmed(result);
+            return "hidden";
+          } catch (cause) {
+            if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
+            throw cause;
+          }
         }
       }
     }
