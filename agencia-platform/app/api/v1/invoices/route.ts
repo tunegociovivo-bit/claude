@@ -30,7 +30,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     ];
   }
 
-  const items = await prisma.invoice.findMany({
+  const invoices = await prisma.invoice.findMany({
     where,
     select: {
       id: true,
@@ -54,6 +54,49 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     },
     orderBy: [{ number: "desc" }, { createdAt: "desc" }],
     take: 500
+  });
+  const invoiceIds = invoices.map((invoice) => invoice.id);
+  const [requests, jobs, reconciliations] = invoiceIds.length ? await Promise.all([
+    prisma.sepaRemittanceRequest.findMany({
+      where: { workspaceId: api.workspaceId, invoiceId: { in: invoiceIds }, archivedAt: null },
+      select: { invoiceId: true, status: true, approvalNotifiedAt: true }
+    }),
+    prisma.remittanceJob.findMany({
+      where: { workspaceId: api.workspaceId, invoiceId: { in: invoiceIds } },
+      select: { invoiceId: true, status: true, updatedAt: true },
+      orderBy: { updatedAt: "desc" }
+    }),
+    prisma.bankTransaction.findMany({
+      where: { workspaceId: api.workspaceId, matchedInvoiceId: { in: invoiceIds }, status: "MATCHED" },
+      select: { matchedInvoiceId: true, status: true, matchedAt: true, matchConfidence: true },
+      orderBy: { matchedAt: "desc" }
+    })
+  ]) : [[], [], []];
+  const requestByInvoice = new Map(requests.map((request) => [request.invoiceId, request]));
+  const jobByInvoice = new Map<string, (typeof jobs)[number]>();
+  for (const job of jobs) if (!jobByInvoice.has(job.invoiceId)) jobByInvoice.set(job.invoiceId, job);
+  const reconciliationByInvoice = new Map<string, (typeof reconciliations)[number]>();
+  for (const reconciliation of reconciliations) {
+    if (reconciliation.matchedInvoiceId && !reconciliationByInvoice.has(reconciliation.matchedInvoiceId)) {
+      reconciliationByInvoice.set(reconciliation.matchedInvoiceId, reconciliation);
+    }
+  }
+  const items = invoices.map((invoice) => {
+    const request = requestByInvoice.get(invoice.id);
+    const reconciliation = reconciliationByInvoice.get(invoice.id);
+    return {
+      ...invoice,
+      remittance: request ? {
+        status: request.status,
+        approvalNotifiedAt: request.approvalNotifiedAt,
+        jobStatus: jobByInvoice.get(invoice.id)?.status ?? null
+      } : null,
+      reconciliation: reconciliation ? {
+        status: reconciliation.status,
+        matchedAt: reconciliation.matchedAt,
+        matchConfidence: reconciliation.matchConfidence
+      } : null
+    };
   });
   const sequence = (number: string | null) => Number(number?.match(/(\d+)(?!.*\d)/)?.[1] ?? -1);
   items.sort((a, b) => sequence(b.number) - sequence(a.number)

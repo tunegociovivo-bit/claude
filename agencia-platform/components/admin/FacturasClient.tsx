@@ -30,6 +30,7 @@ import {
   type InvoiceRecurrenceUnit,
   type InvoiceAutomationWorkflow
 } from "@/lib/invoicing/invoice-form";
+import { getInvoiceOperations, type OperationTone } from "@/lib/invoicing/invoice-operations";
 import {
   Plus,
   Building2,
@@ -77,12 +78,15 @@ type InvoiceRow = {
   paymentMethod: string;
   totalCents: number;
   paidCents: number;
+  paidAt?: string | null;
   recurring: boolean;
   deliveryError?: string | null;
   deletedAt?: string | null;
   clientSnapshot: { name?: string } | null;
   client: { id: string; name: string } | null;
   issuer: { id: string; name: string } | null;
+  remittance: { status: string; approvalNotifiedAt: string | null; jobStatus: string | null } | null;
+  reconciliation: { status: string; matchedAt: string | null; matchConfidence: string | null } | null;
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -310,19 +314,20 @@ export default function FacturasClient({
               <th className="text-left px-3 py-2">Fecha</th>
               <th className="text-right px-3 py-2">Total</th>
               <th className="text-left px-3 py-2">Estado</th>
+              <th className="text-left px-3 py-2 min-w-[250px]">Seguimiento</th>
               <th className="text-right px-3 py-2">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
                   Cargando…
                 </td>
               </tr>
             ) : invoices.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
                   {showTrash ? "La papelera está vacía." : "No hay documentos. Crea tu primera factura."}
                 </td>
               </tr>
@@ -350,6 +355,9 @@ export default function FacturasClient({
                       {STATUS_LABEL[inv.status] ?? inv.status}
                     </span>
                     {inv.deliveryError && <div className="mt-1 text-[11px] text-rose-600">Error de envío: requiere reintento</div>}
+                  </td>
+                  <td className="px-3 py-2">
+                      <InvoiceOperationsStatus invoice={inv} remittanceExcluded={Boolean(inv.number && sepaExcluded.has(inv.number.toUpperCase()))} />
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1 text-slate-500">
@@ -467,6 +475,51 @@ export default function FacturasClient({
           onChanged={reloadIssuers}
         />
       )}
+    </div>
+  );
+}
+
+const OPERATION_TONE_STYLE: Record<OperationTone, string> = {
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  info: "border-sky-200 bg-sky-50 text-sky-700",
+  warning: "border-amber-200 bg-amber-50 text-amber-800",
+  danger: "border-rose-200 bg-rose-50 text-rose-700",
+  neutral: "border-slate-200 bg-slate-50 text-slate-500"
+};
+
+function InvoiceOperationsStatus({ invoice, remittanceExcluded }: { invoice: InvoiceRow; remittanceExcluded: boolean }) {
+  const operations = getInvoiceOperations({
+    type: invoice.type,
+    status: invoice.status,
+    number: invoice.number,
+    paymentMethod: invoice.paymentMethod,
+    totalCents: invoice.totalCents,
+    paidCents: invoice.paidCents,
+    paidAt: invoice.paidAt ?? null,
+    remittanceExcluded,
+    remittance: invoice.remittance,
+    reconciliation: invoice.reconciliation
+  });
+  const summaryTone: OperationTone = operations.overall === "COMPLETE"
+    ? "success"
+    : operations.overall === "ACTION_REQUIRED"
+      ? operations.summary === "Firma requerida" || operations.summary === "Error de remesa" || operations.summary === "Sin solicitud de remesa" || operations.summary === "Correo de aprobación pendiente"
+        ? "danger"
+        : "warning"
+      : operations.overall === "IN_PROGRESS" ? "info" : "neutral";
+
+  return (
+    <div className="space-y-1.5" title={operations.stages.map((stage) => stage.label).join(" · ")}>
+      <div className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold ${OPERATION_TONE_STYLE[summaryTone]}`}>
+        {operations.summary}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {operations.stages.map((stage) => (
+          <span key={stage.key} className={`rounded border px-1.5 py-0.5 text-[10px] leading-tight ${OPERATION_TONE_STYLE[stage.tone]}`}>
+            {stage.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
