@@ -616,6 +616,12 @@ export function assertMetaDeletionConfirmed(result: unknown): asserts result is 
   }
 }
 
+export function assertMetaHideConfirmed(result: unknown): void {
+  if (result === true) return;
+  if (result && typeof result === "object" && (result as { success?: unknown }).success === true) return;
+  throw new Error("Meta no confirmó que el comentario haya quedado oculto. El Hub lo conservará para evitar ocultarlo por error.");
+}
+
 export function metaDeletionObjectIds(externalCommentId: string, platform: string) {
   const ids = [externalCommentId];
   if (platform === "facebook" && externalCommentId.includes("_")) ids.push(externalCommentId.split("_").at(-1)!);
@@ -653,7 +659,7 @@ export async function deleteMetaComment(workspaceId: string, externalCommentId: 
         for (const token of [...new Set(tokenCandidates)]) {
           try {
             const result = await graph(workspaceId, objectId, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
-            assertMetaDeletionConfirmed(result);
+            assertMetaHideConfirmed(result);
             return "hidden";
           } catch (cause) {
             if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
