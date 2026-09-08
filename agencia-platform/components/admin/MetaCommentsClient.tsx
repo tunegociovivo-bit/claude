@@ -250,8 +250,7 @@ export default function MetaCommentsClient() {
     if (action === "reply" && !confirm(`¿Publicar ${selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()).length} respuestas en Meta?`)) return;
     const targets = action === "reply" ? selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()) : selectedVisible;
     if (!targets.length) { setError("Los comentarios seleccionados no tienen borradores pendientes para publicar."); return; }
-    setBusy(`bulk:${action}`); setError(null); setModerationResult(null); setBulkProgress({ completed: 0, total: targets.length });
-    setBulkStatus({ message: formatBulkModerationStatus({ action: action === "reply" ? "reply" : "delete_comment", completed: 0, total: targets.length }) });
+    setBusy(`bulk:${action}`); setError(null); setModerationResult(null); setBulkStatus(null);
     if (action === "regenerate_draft") {
       try {
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "regenerate_drafts", commentIds: targets.map((item) => item.id) }) });
@@ -265,6 +264,8 @@ export default function MetaCommentsClient() {
       finally { setBusy(null); setBulkProgress(null); }
       return;
     }
+    setBulkProgress({ completed: 0, total: targets.length });
+    setBulkStatus({ message: formatBulkModerationStatus({ action, completed: 0, total: targets.length }) });
     const results = await runWithConcurrency(targets, 3, async (item) => {
       try {
         const payload = action === "reply" ? { action, commentId: item.id, message: drafts[item.id].trim() } : { action, commentId: item.id };
