@@ -58,13 +58,13 @@ export function getInvoiceOperations(invoice: InvoiceOperationsInput): InvoiceOp
   const reconciledBySepa = reconciled && invoice.reconciliation?.matchConfidence?.startsWith("SEPA_");
   const signed = requestStatus === "SIGNED" || reconciledBySepa;
   const approved = requestStatus ? APPROVED.has(requestStatus) : false;
-  const failed = requestStatus === "FAILED" || jobStatus === "FAILED" || jobStatus === "NEEDS_USER";
-  const pendingSignature = !reconciledBySepa && (requestStatus === "PENDING_SIGNATURE" || jobStatus === "PREPARED_PENDING_SIGNATURE");
+  const failed = !signed && (requestStatus === "FAILED" || jobStatus === "FAILED" || jobStatus === "NEEDS_USER");
+  const pendingSignature = !signed && (requestStatus === "PENDING_SIGNATURE" || jobStatus === "PREPARED_PENDING_SIGNATURE");
   const terminalSummary = requestStatus === "REJECTED"
     ? "Remesa rechazada"
     : requestStatus === "EXPIRED"
       ? "Aprobación caducada"
-      : jobStatus === "CANCELLED" ? "Trabajo cancelado" : null;
+      : !signed && jobStatus === "CANCELLED" ? "Trabajo cancelado" : null;
 
   const approvalStage: InvoiceOperationStage = approved || signed
     ? { key: "approval", label: "Aprobación completada", tone: "success" }
