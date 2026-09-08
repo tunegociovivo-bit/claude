@@ -59,8 +59,9 @@ export function startInAppScheduler(): void {
       if (acquired) {
         // Renovación mientras el lote sigue activo: ninguna otra réplica puede
         // entrar aunque haya muchas campañas. Al acabar dejamos 15 min de pausa.
+        let renewalInFlight: Promise<unknown> = Promise.resolve();
         const renewTimer = setInterval(() => {
-          void renewCronLease(metaLeaseName, metaLeaseOwner, 5 * 60 * 1000)
+          renewalInFlight = renewalInFlight.then(() => renewCronLease(metaLeaseName, metaLeaseOwner, 5 * 60 * 1000))
             .catch((error) => console.warn("[in-app-cron] meta lease renew:", error?.message ?? error));
         }, 2 * 60 * 1000);
         try {
@@ -69,6 +70,7 @@ export function startInAppScheduler(): void {
           if (result.created > 0) console.log(`[in-app-cron] comentarios Meta nuevos: ${result.created}`);
         } finally {
           clearInterval(renewTimer);
+          await renewalInFlight;
           await renewCronLease(metaLeaseName, metaLeaseOwner, 15 * 60 * 1000).catch(() => false);
         }
       }
