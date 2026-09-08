@@ -85,7 +85,7 @@ type InvoiceRow = {
   clientSnapshot: { name?: string } | null;
   client: { id: string; name: string } | null;
   issuer: { id: string; name: string } | null;
-  remittance: { status: string; approvalNotifiedAt: string | null; jobStatus: string | null } | null;
+  remittance: { id: string; status: string; approvalNotifiedAt: string | null; jobStatus: string | null } | null;
   reconciliation: { status: string; matchedAt: string | null; matchConfidence: string | null } | null;
 };
 
@@ -206,6 +206,14 @@ export default function FacturasClient({
     if (!result) return;
     setSepaExcluded(new Set((result.numbers ?? []).map((item: string) => item.toUpperCase())));
     setExcludeNumber("");
+  }
+
+  async function confirmRemittanceSigned(requestId: string) {
+    const result = await action("/api/v1/facturacion/remesas/confirm-signed", "POST", {
+      confirmation: "CONFIRM_SIGNED",
+      requestIds: [requestId]
+    });
+    if (result?.ok) loadInvoices();
   }
 
   const totalsByStatus = useMemo(() => {
@@ -357,7 +365,11 @@ export default function FacturasClient({
                     {inv.deliveryError && <div className="mt-1 text-[11px] text-rose-600">Error de envío: requiere reintento</div>}
                   </td>
                   <td className="px-3 py-2">
-                      <InvoiceOperationsStatus invoice={inv} remittanceExcluded={Boolean(inv.number && sepaExcluded.has(inv.number.toUpperCase()))} />
+                      <InvoiceOperationsStatus
+                        invoice={inv}
+                        remittanceExcluded={Boolean(inv.number && sepaExcluded.has(inv.number.toUpperCase()))}
+                        onConfirmSigned={confirmRemittanceSigned}
+                      />
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1 text-slate-500">
@@ -487,7 +499,15 @@ const OPERATION_TONE_STYLE: Record<OperationTone, string> = {
   neutral: "border-slate-200 bg-slate-50 text-slate-500"
 };
 
-function InvoiceOperationsStatus({ invoice, remittanceExcluded }: { invoice: InvoiceRow; remittanceExcluded: boolean }) {
+function InvoiceOperationsStatus({
+  invoice,
+  remittanceExcluded,
+  onConfirmSigned
+}: {
+  invoice: InvoiceRow;
+  remittanceExcluded: boolean;
+  onConfirmSigned: (requestId: string) => Promise<void>;
+}) {
   const operations = getInvoiceOperations({
     type: invoice.type,
     status: invoice.status,
@@ -520,6 +540,19 @@ function InvoiceOperationsStatus({ invoice, remittanceExcluded }: { invoice: Inv
           </span>
         ))}
       </div>
+      {operations.summary === "Firma requerida" && invoice.number && invoice.remittance?.id && (
+        <button
+          type="button"
+          className="text-[11px] font-medium text-rose-700 underline decoration-rose-300 underline-offset-2 hover:text-rose-900"
+          onClick={async (event) => {
+            event.stopPropagation();
+            if (!confirm(`Confirma que la remesa de ${invoice.number} ya está firmada en Santander.`)) return;
+            await onConfirmSigned(invoice.remittance!.id);
+          }}
+        >
+          Confirmar que ya está firmada
+        </button>
+      )}
     </div>
   );
 }

@@ -59,7 +59,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   const [requests, jobs, reconciliations] = invoiceIds.length ? await Promise.all([
     prisma.sepaRemittanceRequest.findMany({
       where: { workspaceId: api.workspaceId, invoiceId: { in: invoiceIds }, archivedAt: null },
-      select: { invoiceId: true, status: true, approvalNotifiedAt: true }
+      select: { id: true, invoiceId: true, status: true, approvalNotifiedAt: true }
     }),
     prisma.remittanceJob.findMany({
       where: { workspaceId: api.workspaceId, invoiceId: { in: invoiceIds } },
@@ -87,6 +87,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     return {
       ...invoice,
       remittance: request ? {
+        id: request.id,
         status: request.status,
         approvalNotifiedAt: request.approvalNotifiedAt,
         jobStatus: jobByInvoice.get(invoice.id)?.status ?? null
