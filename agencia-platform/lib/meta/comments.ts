@@ -20,7 +20,11 @@ async function graph(workspaceId: string, path: string, init?: RequestInit, expl
   for (let attempt = 0; attempt < 3; attempt++) {
     const separator = requestPath.includes("?") ? "&" : "?";
     const url = `${GRAPH}/${requestPath}${separator}access_token=${encodeURIComponent(token)}`;
-    const response = await fetch(url, { ...init, cache: "no-store" });
+    const response = await fetch(url, {
+      ...init,
+      cache: "no-store",
+      signal: init?.signal ?? AbortSignal.timeout(20_000)
+    });
     const json = await response.json().catch(() => ({}));
     if (response.ok) return json;
     const error = new MetaGraphError(

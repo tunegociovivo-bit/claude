@@ -10,7 +10,7 @@
  */
 import { runReminders, runBriefing } from "./scheduler";
 import { randomUUID } from "node:crypto";
-import { acquireCronLease, CronTimeoutError, releaseCronLease, runWithTimeout } from "./distributed-lease";
+import { acquireCronLease, CronTimeoutError, releaseCronLease, renewCronLease, runWithTimeout } from "./distributed-lease";
 
 let started = false;
 
@@ -53,12 +53,24 @@ export function startInAppScheduler(): void {
     try {
       // Una sola réplica sincroniza Meta y como máximo cada 15 minutos. Antes
       // cada proceso lo hacía cada 5 minutos, multiplicando peticiones y avisos.
+      const metaLeaseName = "in-app/meta-comments";
       const metaLeaseOwner = randomUUID();
-      const acquired = await acquireCronLease("in-app/meta-comments", metaLeaseOwner, 15 * 60 * 1000);
+      const acquired = await acquireCronLease(metaLeaseName, metaLeaseOwner, 5 * 60 * 1000);
       if (acquired) {
-        const { syncAllActiveMetaCommentFeeds } = await import("@/lib/meta/comments");
-        const result = await syncAllActiveMetaCommentFeeds();
-        if (result.created > 0) console.log(`[in-app-cron] comentarios Meta nuevos: ${result.created}`);
+        // Renovación mientras el lote sigue activo: ninguna otra réplica puede
+        // entrar aunque haya muchas campañas. Al acabar dejamos 15 min de pausa.
+        const renewTimer = setInterval(() => {
+          void renewCronLease(metaLeaseName, metaLeaseOwner, 5 * 60 * 1000)
+            .catch((error) => console.warn("[in-app-cron] meta lease renew:", error?.message ?? error));
+        }, 2 * 60 * 1000);
+        try {
+          const { syncAllActiveMetaCommentFeeds } = await import("@/lib/meta/comments");
+          const result = await syncAllActiveMetaCommentFeeds();
+          if (result.created > 0) console.log(`[in-app-cron] comentarios Meta nuevos: ${result.created}`);
+        } finally {
+          clearInterval(renewTimer);
+          await renewCronLease(metaLeaseName, metaLeaseOwner, 15 * 60 * 1000).catch(() => false);
+        }
       }
     } catch (e) {
       console.warn("[in-app-cron] meta comments:", (e as Error).message);
