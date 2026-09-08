@@ -65,6 +65,10 @@ function isCampaignAccessError(error: unknown): boolean {
   return error instanceof MetaGraphError && (error.status === 400 || error.status === 403);
 }
 
+export class MetaDeletionError extends Error {
+  constructor(message: string) { super(message); this.name = "MetaDeletionError"; }
+}
+
 export function reduceMetaRequestPath(path: string) {
   return path
     .replace(/\.limit\((\d+)\)/g, (_match, raw) => `.limit(${Math.min(Number(raw), 25)})`)
@@ -613,11 +617,17 @@ export function assertMetaDeletionConfirmed(result: unknown): asserts result is 
 }
 
 export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
-  const tokens = await pageTokens(workspaceId, connectionId);
-  const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
-  const token = pageId ? tokens.facebook.get(pageId) : undefined;
-  const result = await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
-  assertMetaDeletionConfirmed(result);
+  try {
+    const tokens = await pageTokens(workspaceId, connectionId);
+    const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
+    const token = pageId ? tokens.facebook.get(pageId) : undefined;
+    const result = await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
+    assertMetaDeletionConfirmed(result);
+  } catch (cause) {
+    if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) throw new MetaDeletionError(cause.message);
+    console.error("[meta-comments] Error interno eliminando comentario", cause);
+    throw new MetaDeletionError("Meta no pudo completar la eliminación. Reinténtalo en unos minutos.");
+  }
 }
 
 export async function blockMetaCommentAuthor(workspaceId: string, authorId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {

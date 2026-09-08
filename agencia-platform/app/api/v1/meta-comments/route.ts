@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
-import { blockMetaCommentAuthor, deleteMetaComment, notifyMetaOperational, regenerateMetaCommentDraft, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
+import { blockMetaCommentAuthor, deleteMetaComment, MetaDeletionError, notifyMetaOperational, regenerateMetaCommentDraft, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection } from "@/lib/meta/connection";
@@ -166,7 +166,7 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
       try {
         await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
       } catch (cause) {
-        const reason = cause instanceof Error ? cause.message.slice(0, 1000) : "Meta rechazó la operación sin indicar el motivo";
+        const reason = cause instanceof MetaDeletionError ? cause.message : "Meta no pudo completar la eliminación. Reinténtalo en unos minutos.";
         throw new ApiError(502, "meta_delete_failed", `No se pudo eliminar el comentario en Meta: ${reason}`);
       }
       await prisma.metaAdComment.update({ where: { id: comment.id }, data: { deletedAt: new Date(), status: "deleted" } });
