@@ -163,7 +163,12 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     const comment = await prisma.metaAdComment.findFirst({ where: { id: moderation.commentId, workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { metaConnectionId: true } } } });
     if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
     if (moderation.action === "delete_comment") {
-      await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
+      try {
+        await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
+      } catch (cause) {
+        const reason = cause instanceof Error ? cause.message.slice(0, 1000) : "Meta rechazó la operación sin indicar el motivo";
+        throw new ApiError(502, "meta_delete_failed", `No se pudo eliminar el comentario en Meta: ${reason}`);
+      }
       await prisma.metaAdComment.update({ where: { id: comment.id }, data: { deletedAt: new Date(), status: "deleted" } });
       await auditFromReq(req, api, { action: "meta_comment.delete", targetType: "META_COMMENT", targetId: comment.id, meta: { externalCommentId: comment.externalCommentId, platform: comment.platform } });
       return NextResponse.json({ ok: true, deletedCommentId: comment.id, confirmedByMeta: true });

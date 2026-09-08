@@ -293,7 +293,7 @@ export default function MetaCommentsClient() {
         const payload = action === "reply" ? { action, commentId: item.id, message: drafts[item.id].trim() } : { action, commentId: item.id };
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await response.json();
-        if (!response.ok) throw new Error(data?.error?.message ?? "Operación rechazada");
+        if (!response.ok) throw new Error(data?.error?.message ?? data?.message ?? "Operación rechazada");
         if (action === "delete_comment" && (data?.confirmedByMeta !== true || data?.deletedCommentId !== item.id)) throw new Error("Meta no confirmó la eliminación");
         return { id: item.id, error: null };
       } catch (cause: any) { return { id: item.id, error: String(cause?.message ?? cause) }; }
