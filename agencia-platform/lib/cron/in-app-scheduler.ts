@@ -51,9 +51,15 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] meta token refresh:", (e as Error).message);
     }
     try {
-      const { syncAllActiveMetaCommentFeeds } = await import("@/lib/meta/comments");
-      const result = await syncAllActiveMetaCommentFeeds();
-      if (result.created > 0) console.log(`[in-app-cron] comentarios Meta nuevos: ${result.created}`);
+      // Una sola réplica sincroniza Meta y como máximo cada 15 minutos. Antes
+      // cada proceso lo hacía cada 5 minutos, multiplicando peticiones y avisos.
+      const metaLeaseOwner = randomUUID();
+      const acquired = await acquireCronLease("in-app/meta-comments", metaLeaseOwner, 15 * 60 * 1000);
+      if (acquired) {
+        const { syncAllActiveMetaCommentFeeds } = await import("@/lib/meta/comments");
+        const result = await syncAllActiveMetaCommentFeeds();
+        if (result.created > 0) console.log(`[in-app-cron] comentarios Meta nuevos: ${result.created}`);
+      }
     } catch (e) {
       console.warn("[in-app-cron] meta comments:", (e as Error).message);
     }
