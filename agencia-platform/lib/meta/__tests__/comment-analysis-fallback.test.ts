@@ -32,4 +32,24 @@ describe("Meta comment analysis fallback", () => {
       draft: "Gracias por tu comentario. ¿Podemos ayudarte por mensaje privado?"
     });
   });
+
+  it("rejects malformed AI fields instead of letting persistence crash", async () => {
+    const result = await runMetaCommentAnalysisPipeline(
+      comments,
+      async () => [{ id: "c1", sentiment: "negative", reason: 42, draft: "Lo sentimos" } as any],
+      async () => { throw new Error("secondary unavailable"); }
+    );
+    expect(result).toEqual([fallbackMetaCommentAnalysis(comments[0])]);
+  });
+
+  it.each([
+    "Muy mal servicio",
+    "No lo recomiendo",
+    "Estoy decepcionado",
+    "No contestáis nunca",
+    "Quiero una devolución",
+    "Me cobraron de más"
+  ])("flags common reputation complaints during local fallback: %s", (message) => {
+    expect(fallbackMetaCommentAnalysis({ id: "negative", message }).sentiment).toBe("negative");
+  });
 });
