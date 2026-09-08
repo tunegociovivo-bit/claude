@@ -616,13 +616,39 @@ export function assertMetaDeletionConfirmed(result: unknown): asserts result is 
   }
 }
 
+export function metaDeletionObjectIds(externalCommentId: string, platform: string) {
+  const ids = [externalCommentId];
+  if (platform === "facebook" && externalCommentId.includes("_")) ids.push(externalCommentId.split("_").at(-1)!);
+  return [...new Set(ids.filter(Boolean))];
+}
+
 export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
   try {
-    const tokens = await pageTokens(workspaceId, connectionId);
     const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
-    const token = pageId ? tokens.facebook.get(pageId) : undefined;
-    const result = await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
-    assertMetaDeletionConfirmed(result);
+    const connectionIds = [connectionId, ...(await listWorkspaceMetaTokens(workspaceId)).map((item) => item.id)].filter((id): id is string => Boolean(id));
+    const tokenCandidates: Array<string | undefined> = [];
+    for (const id of [...new Set(connectionIds)]) {
+      const tokens = await pageTokens(workspaceId, id).catch(() => null);
+      if (!tokens) continue;
+      if (platform === "facebook") tokenCandidates.push(pageId ? tokens.facebook.get(pageId) : undefined);
+      else tokenCandidates.push(...tokens.instagram.values());
+    }
+    if (!tokenCandidates.length) tokenCandidates.push(undefined);
+    let lastMetaError: MetaGraphError | Error | null = null;
+    for (const objectId of metaDeletionObjectIds(externalCommentId, platform)) {
+      for (const token of [...new Set(tokenCandidates)]) {
+        try {
+          const result = await graph(workspaceId, objectId, { method: "DELETE" }, token);
+          assertMetaDeletionConfirmed(result);
+          return;
+        } catch (cause) {
+          if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
+          throw cause;
+        }
+      }
+    }
+    if (lastMetaError) throw lastMetaError;
+    throw new Error("No existe un token autorizado para moderar este comentario.");
   } catch (cause) {
     if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) throw new MetaDeletionError(cause.message);
     console.error("[meta-comments] Error interno eliminando comentario", cause);
