@@ -3,7 +3,7 @@ export type MetaCommentAnalysis = { id: string; sentiment: "positive" | "neutral
 
 export function fallbackMetaCommentAnalysis(comment: MetaCommentForAnalysis): MetaCommentAnalysis {
   const message = String(comment.message ?? "").toLowerCase();
-  const negative = /(estafa|fraude|enga[ñn]o|no funciona|p[eé]simo|horrible|fatal|verg[uü]enza|denuncia|queja|mala experiencia)/.test(message);
+  const negative = /(estafa|fraude|enga[ñn]o|no funciona|p[eé]simo|horrible|fatal|verg[uü]enza|denuncia|queja|mala experiencia|mal servicio|no (?:lo |la |os |las )?recomiendo|decepcionad[oa]|no (?:me )?contest(?:a|an|[áa]is)|devoluci[oó]n|(?:me )?cobrar(?:on)? de m[aá]s)/.test(message);
   const positive = !negative && /(gracias|genial|excelente|fant[aá]stic|enhorabuena|me encanta|muy bien)/.test(message);
   if (negative) {
     return {
@@ -29,7 +29,9 @@ function completeAndValid(comments: MetaCommentForAnalysis[], analyses: MetaComm
   const byId = new Map(analyses.map((analysis) => [String(analysis?.id ?? ""), analysis]));
   const normalized = comments.map((comment) => byId.get(comment.id)).filter((analysis): analysis is MetaCommentAnalysis =>
     !!analysis
+    && typeof analysis.id === "string"
     && ["positive", "neutral", "negative"].includes(analysis.sentiment)
+    && typeof analysis.reason === "string"
     && typeof analysis.draft === "string"
     && analysis.draft.trim().length > 0
   );
