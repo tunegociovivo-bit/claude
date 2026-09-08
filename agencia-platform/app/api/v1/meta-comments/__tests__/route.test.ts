@@ -77,6 +77,14 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
     expect(body.error.message).toContain("Reinténtalo");
   });
 
+  it("distingue cuando Meta oculta el comentario porque no permite borrarlo", async () => {
+    prisma.metaAdComment.findFirst.mockResolvedValue({ id: "comment-1", externalCommentId: "meta-1", postId: "page_post", platform: "facebook", feed: { metaConnectionId: "connection-1" } });
+    deleteCommentMock.mockResolvedValue("hidden");
+    const response = await call({ action: "delete_comment", commentId: "comment-1" });
+    expect(await response.json()).toMatchObject({ ok: true, moderationMode: "hidden", confirmedByMeta: true });
+    expect(prisma.metaAdComment.update).toHaveBeenCalledWith({ where: { id: "comment-1" }, data: expect.objectContaining({ status: "hidden" }) });
+  });
+
   it("genera y persiste otro borrador con aislamiento por workspace", async () => {
     const response = await call({ action: "regenerate_draft", commentId: "comment-1" });
     expect(response.status).toBe(200);
