@@ -213,7 +213,22 @@ export default function FacturasClient({
       confirmation: "CONFIRM_SIGNED",
       requestIds: [requestId]
     });
-    if (result?.ok) loadInvoices();
+    if (result?.ok) {
+      if (!result.confirmed) alert("No se modificó la remesa porque su estado cambió o existe un trabajo bancario activo.");
+      loadInvoices();
+    }
+  }
+
+  async function confirmAllPendingSignatures() {
+    if (!confirm("Confirma que TODAS las remesas que figuran pendientes de firma ya están firmadas en Santander.")) return;
+    const result = await action("/api/v1/facturacion/remesas/confirm-signed", "POST", {
+      confirmation: "CONFIRM_SIGNED",
+      allPendingSignature: true
+    });
+    if (result?.ok) {
+      alert(`${result.confirmed ?? 0} remesas marcadas como firmadas.`);
+      loadInvoices();
+    }
   }
 
   const totalsByStatus = useMemo(() => {
@@ -233,8 +248,8 @@ export default function FacturasClient({
         >
           <Plus className="h-4 w-4" /> Nueva factura
         </button>
-        <button
-          onClick={() => setIssuersOpen(true)}
+          <button
+            onClick={() => setIssuersOpen(true)}
           className="inline-flex items-center gap-1.5 bg-white border text-sm px-3 py-2 rounded-lg hover:bg-slate-50"
         >
           <Building2 className="h-4 w-4" /> Emisores ({issuers.length})
@@ -259,6 +274,13 @@ export default function FacturasClient({
             title="Registrar una factura para que nunca genere remesa automática, aunque aún no se haya importado"
           >
             <Ban className="h-3.5 w-3.5" /> Excluir remesa
+          </button>
+          <button
+            onClick={confirmAllPendingSignatures}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-100"
+            title="Usar después de comprobar en Santander que todas las remesas pendientes ya están firmadas"
+          >
+            <CheckCircle2 className="h-4 w-4" /> Confirmar firmas pendientes
           </button>
         </div>
         <div className="flex-1" />
@@ -540,17 +562,17 @@ function InvoiceOperationsStatus({
           </span>
         ))}
       </div>
-      {operations.summary === "Firma requerida" && invoice.number && invoice.remittance?.id && (
+      {(operations.summary === "Firma requerida" || (invoice.remittance?.status === "PENDING_APPROVAL" && !invoice.remittance.jobStatus)) && invoice.number && invoice.remittance?.id && (
         <button
           type="button"
           className="text-[11px] font-medium text-rose-700 underline decoration-rose-300 underline-offset-2 hover:text-rose-900"
           onClick={async (event) => {
             event.stopPropagation();
-            if (!confirm(`Confirma que la remesa de ${invoice.number} ya está firmada en Santander.`)) return;
+            if (!confirm(`Confirma que la remesa de ${invoice.number} ya está firmada en Santander${invoice.remittance?.status === "PENDING_APPROVAL" ? " y fue emitida manualmente" : ""}.`)) return;
             await onConfirmSigned(invoice.remittance!.id);
           }}
         >
-          Confirmar que ya está firmada
+          {invoice.remittance?.status === "PENDING_APPROVAL" ? "Marcar remesa manual como firmada" : "Confirmar que ya está firmada"}
         </button>
       )}
     </div>
