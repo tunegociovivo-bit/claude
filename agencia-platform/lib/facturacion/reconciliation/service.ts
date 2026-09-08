@@ -201,6 +201,7 @@ async function repairSyntheticSepaDuplicates(workspaceId: string) {
 }
 
 async function reconcileUniqueSepaSummaries(workspaceId: string) {
+  let matched = 0;
   const summaries = await prisma.bankTransaction.findMany({
     where: {
       workspaceId,
@@ -257,35 +258,13 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
             where: { id: invoice.id, workspaceId, status: "ISSUED", paidCents: 0 },
             data: { status: "PAID", paidCents: invoice.totalCents, paidAt: summary.bookedAt }
           });
+          matched += claimed.count;
         });
         continue;
       }
     }
-    const candidates = await prisma.invoice.findMany({
-      where: {
-        workspaceId,
-        status: "ISSUED",
-        deletedAt: null,
-        issueDate: { lte: summary.bookedAt },
-        totalCents: summary.amountCents,
-        paidCents: 0
-      },
-      select: { id: true, totalCents: true },
-      take: 2
-    });
-    if (candidates.length !== 1) continue;
-    await prisma.$transaction(async (tx) => {
-      const claimed = await tx.bankTransaction.updateMany({
-        where: { id: summary.id, workspaceId, status: "UNMATCHED" },
-        data: { status: "MATCHED", matchedInvoiceId: candidates[0].id, matchConfidence: "SEPA_UNIQUE_AMOUNT", matchedAt: new Date() }
-      });
-      if (!claimed.count) return;
-      await tx.invoice.updateMany({
-        where: { id: candidates[0].id, workspaceId, status: "ISSUED", paidCents: 0 },
-        data: { status: "PAID", paidCents: candidates[0].totalCents, paidAt: summary.bookedAt }
-      });
-    });
   }
+  return matched;
 }
 
 function clientName(snapshot: unknown): string {
@@ -424,6 +403,11 @@ export async function importAndReconcileMovements(workspaceId: string, movements
     imported++;
     if (candidate) matched++;
   }
+
+  // Los abonos agregados de cuenta no incluyen cliente ni factura. Una vez
+  // importados, se vinculan en esta misma ejecución con la solicitud SEPA
+  // única por importe y ventana de liquidación; los ambiguos siguen en revisión.
+  matched += await reconcileUniqueSepaSummaries(workspaceId);
 
   await prisma.bankReconciliationConfig.update({
     where: { workspaceId },

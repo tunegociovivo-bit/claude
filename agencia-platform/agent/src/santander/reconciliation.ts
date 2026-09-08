@@ -187,6 +187,13 @@ export function parseSantanderMovementText(text: string, now = new Date()): Brow
   return { externalId, bookedAt: booked.toISOString(), amountCents, currency: "EUR", counterpartyName: withoutDateAmount.slice(0, 200) || null, reference };
 }
 
+export function shouldImportAccountMovement(movement: BrowserMovement | null): movement is BrowserMovement {
+  // El abono agregado de una remesa es el respaldo cuando Santander no deja
+  // abrir el detalle de recibos. El HUB lo mantiene sin conciliar si la
+  // coincidencia por fecha e importe no es única.
+  return movement !== null;
+}
+
 export class SantanderReconciliationReader {
   constructor(private opts: { cdpUrl: string; santanderOrigin: string; credentialFile: string }) {}
 
@@ -582,9 +589,7 @@ export class SantanderReconciliationReader {
     const unique = new Map<string, BrowserMovement>();
     for (const text of rows) {
       const movement = parseSantanderMovementText(text);
-      if (!movement || new Date(movement.bookedAt) < startsAt) continue;
-      // Los abonos SEPA se concilian desde el detalle de recibos, nunca desde el agregado de cuenta.
-      if (movement.amountCents > 0 && /Emision Remesa Sepa Sdd/i.test(movement.reference)) continue;
+      if (!shouldImportAccountMovement(movement) || new Date(movement.bookedAt) < startsAt) continue;
       unique.set(movement.externalId, movement);
     }
     return [...unique.values()];
