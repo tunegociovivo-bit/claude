@@ -64,6 +64,18 @@ describe("getInvoiceOperations", () => {
     expect(result.stages.every((stage) => stage.tone === "success")).toBe(true);
   });
 
+  it("no vuelve a pedir firma por conservar el trabajo histórico preparado", () => {
+    const result = getInvoiceOperations({
+      ...base,
+      remittance: { status: "SIGNED", approvalNotifiedAt: "2026-09-08T08:00:00.000Z", jobStatus: "PREPARED_PENDING_SIGNATURE" }
+    });
+    expect(result.overall).toBe("IN_PROGRESS");
+    expect(result.summary).toBe("Pendiente de cobro");
+    expect(result.stages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "signature", label: "Remesa firmada", tone: "success" })
+    ]));
+  });
+
   it("considera cerrada una remesa conciliada aunque Santander no haya avanzado el estado interno de firma", () => {
     const result = getInvoiceOperations({
       ...base,
