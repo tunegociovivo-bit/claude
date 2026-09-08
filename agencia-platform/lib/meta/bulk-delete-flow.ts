@@ -1,9 +1,9 @@
-export type BulkDeleteState = "idle" | "confirming" | "running";
-export type BulkDeleteEvent = "request" | "confirm" | "cancel" | "finish";
+export type BulkDeleteFlow = { phase: "idle" | "confirming" | "running"; ids: string[] };
+export type BulkDeleteEvent = { type: "request"; ids: string[] } | { type: "confirm" | "cancel" | "finish" };
 
-export function bulkDeleteTransition(state: BulkDeleteState, event: BulkDeleteEvent): BulkDeleteState {
-  if (event === "request" && state === "idle") return "confirming";
-  if (event === "confirm" && state === "confirming") return "running";
-  if (event === "cancel" || event === "finish") return "idle";
+export function bulkDeleteTransition(state: BulkDeleteFlow, event: BulkDeleteEvent): BulkDeleteFlow {
+  if (event.type === "request" && state.phase === "idle" && event.ids.length) return { phase: "confirming", ids: [...event.ids] };
+  if (event.type === "confirm" && state.phase === "confirming") return { phase: "running", ids: state.ids };
+  if (event.type === "cancel" || event.type === "finish") return { phase: "idle", ids: [] };
   return state;
 }
