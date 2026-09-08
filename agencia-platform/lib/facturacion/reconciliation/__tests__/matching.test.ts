@@ -54,4 +54,16 @@ describe("conciliación bancaria desde la fecha de corte", () => {
       [{ invoiceId: "too-old", amountCents: 54450, chargeDate: new Date("2026-08-08T08:00:00Z") }]
     )).toBeNull();
   });
+
+  it("rejects an archived SEPA request even when amount and date are unique", () => {
+    expect(matchUniqueSepaSummary(
+      { amountCents: 336267, bookedAt: new Date("2026-09-02T12:00:00Z") },
+      [{
+        invoiceId: "invoice-archived",
+        amountCents: 336267,
+        chargeDate: new Date("2026-08-31T08:00:00Z"),
+        archivedAt: new Date("2026-09-01T08:00:00Z")
+      }]
+    )).toBeNull();
+  });
 });
