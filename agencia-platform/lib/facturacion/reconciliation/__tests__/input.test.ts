@@ -14,4 +14,14 @@ describe("bank reconciliation input", () => {
     expect(parsed.remittanceNumber).toBe("00496611753000065C");
     expect(parsed.debtorIbanLast4).toBe("0770");
   });
+
+  it("rejects an empty or malformed remittance identifier", () => {
+    expect(() => bankMovementInputSchema.parse({
+      externalId: "movement-invalid",
+      bookedAt: "2026-09-02T12:00:00.000Z",
+      amountCents: 336267,
+      remittanceNumber: "   ",
+      debtorIbanLast4: "0770"
+    })).toThrow();
+  });
 });
