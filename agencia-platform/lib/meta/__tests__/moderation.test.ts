@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertMetaDeletionConfirmed, metaDeletionObjectIds } from "@/lib/meta/comments";
+import { assertMetaDeletionConfirmed, assertMetaHideConfirmed, metaDeletionObjectIds } from "@/lib/meta/comments";
 
 describe("confirmacion de borrado de comentarios en Meta", () => {
   it("acepta exclusivamente la confirmacion explicita de Meta", () => {
@@ -16,5 +16,11 @@ describe("confirmacion de borrado de comentarios en Meta", () => {
       "1234378315234491"
     ]);
     expect(metaDeletionObjectIds("17890000000001", "instagram")).toEqual(["17890000000001"]);
+  });
+
+  it("acepta la confirmación booleana que devuelve Meta al ocultar", () => {
+    expect(() => assertMetaHideConfirmed(true)).not.toThrow();
+    expect(() => assertMetaHideConfirmed({ success: true })).not.toThrow();
+    expect(() => assertMetaHideConfirmed(false)).toThrow(/no confirmó/i);
   });
 });

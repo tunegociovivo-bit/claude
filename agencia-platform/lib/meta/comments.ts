@@ -616,13 +616,19 @@ export function assertMetaDeletionConfirmed(result: unknown): asserts result is 
   }
 }
 
+export function assertMetaHideConfirmed(result: unknown): void {
+  if (result === true) return;
+  if (result && typeof result === "object" && (result as { success?: unknown }).success === true) return;
+  throw new Error("Meta no confirmó que el comentario haya quedado oculto. El Hub lo conservará para evitar ocultarlo por error.");
+}
+
 export function metaDeletionObjectIds(externalCommentId: string, platform: string) {
   const ids = [externalCommentId];
   if (platform === "facebook" && externalCommentId.includes("_")) ids.push(externalCommentId.split("_").at(-1)!);
   return [...new Set(ids.filter(Boolean))];
 }
 
-export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
+export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null): Promise<"deleted" | "hidden"> {
   try {
     const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
     const connectionIds = [connectionId, ...(await listWorkspaceMetaTokens(workspaceId)).map((item) => item.id)].filter((id): id is string => Boolean(id));
@@ -640,10 +646,25 @@ export async function deleteMetaComment(workspaceId: string, externalCommentId: 
         try {
           const result = await graph(workspaceId, objectId, { method: "DELETE" }, token);
           assertMetaDeletionConfirmed(result);
-          return;
+          return "deleted";
         } catch (cause) {
           if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
           throw cause;
+        }
+      }
+    }
+    if (platform === "facebook") {
+      const body = new URLSearchParams({ is_hidden: "true" });
+      for (const objectId of metaDeletionObjectIds(externalCommentId, platform)) {
+        for (const token of [...new Set(tokenCandidates)]) {
+          try {
+            const result = await graph(workspaceId, objectId, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
+            assertMetaHideConfirmed(result);
+            return "hidden";
+          } catch (cause) {
+            if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
+            throw cause;
+          }
         }
       }
     }

@@ -163,15 +163,16 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
     const comment = await prisma.metaAdComment.findFirst({ where: { id: moderation.commentId, workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { metaConnectionId: true } } } });
     if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
     if (moderation.action === "delete_comment") {
+      let moderationMode: "deleted" | "hidden";
       try {
-        await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
+        moderationMode = await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
       } catch (cause) {
         const reason = cause instanceof MetaDeletionError ? cause.message : "Meta no pudo completar la eliminación. Reinténtalo en unos minutos.";
         throw new ApiError(502, "meta_delete_failed", `No se pudo eliminar el comentario en Meta: ${reason}`);
       }
-      await prisma.metaAdComment.update({ where: { id: comment.id }, data: { deletedAt: new Date(), status: "deleted" } });
-      await auditFromReq(req, api, { action: "meta_comment.delete", targetType: "META_COMMENT", targetId: comment.id, meta: { externalCommentId: comment.externalCommentId, platform: comment.platform } });
-      return NextResponse.json({ ok: true, deletedCommentId: comment.id, confirmedByMeta: true });
+      await prisma.metaAdComment.update({ where: { id: comment.id }, data: { deletedAt: new Date(), status: moderationMode } });
+      await auditFromReq(req, api, { action: moderationMode === "deleted" ? "meta_comment.delete" : "meta_comment.hide", targetType: "META_COMMENT", targetId: comment.id, meta: { externalCommentId: comment.externalCommentId, platform: comment.platform } });
+      return NextResponse.json({ ok: true, deletedCommentId: comment.id, confirmedByMeta: true, moderationMode });
     }
     if (!comment.authorId) throw new ApiError(409, "author_unavailable", "Meta no ha proporcionado la identidad del autor; no se puede bloquear con seguridad");
     await blockMetaCommentAuthor(api.workspaceId, comment.authorId, comment.postId, comment.platform, comment.feed.metaConnectionId);
