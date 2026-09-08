@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
 import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
 import { campaignOptionsForClient, filterMetaCommentInbox } from "@/lib/meta/comment-inbox";
+import { runWithConcurrency } from "@/lib/meta/bulk-moderation";
 
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; aiContext: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
@@ -47,6 +48,7 @@ export default function MetaCommentsClient() {
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [importResult, setImportResult] = useState<string | null>(null);
   const [moderationResult, setModerationResult] = useState<string | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(null);
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -247,7 +249,7 @@ export default function MetaCommentsClient() {
     if (action === "reply" && !confirm(`¿Publicar ${selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()).length} respuestas en Meta?`)) return;
     const targets = action === "reply" ? selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()) : selectedVisible;
     if (!targets.length) { setError("Los comentarios seleccionados no tienen borradores pendientes para publicar."); return; }
-    setBusy(`bulk:${action}`); setError(null); setModerationResult(null);
+    setBusy(`bulk:${action}`); setError(null); setModerationResult(null); setBulkProgress({ completed: 0, total: targets.length });
     if (action === "regenerate_draft") {
       try {
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "regenerate_drafts", commentIds: targets.map((item) => item.id) }) });
@@ -258,24 +260,28 @@ export default function MetaCommentsClient() {
         setSelectedCommentIds(new Set(failedIds));
         if (failedIds.length) setError(`${failedIds.length} de ${targets.length} comentarios no se pudieron regenerar. Permanecen seleccionados para revisarlos.`);
       } catch (cause: any) { setError(String(cause?.message ?? cause)); }
-      finally { setBusy(null); }
+      finally { setBusy(null); setBulkProgress(null); }
       return;
     }
-    const failed: string[] = [];
-    for (const item of targets) {
+    const results = await runWithConcurrency(targets, 3, async (item) => {
       try {
         const payload = action === "reply" ? { action, commentId: item.id, message: drafts[item.id].trim() } : { action, commentId: item.id };
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? "Operación rechazada");
         if (action === "delete_comment" && (data?.confirmedByMeta !== true || data?.deletedCommentId !== item.id)) throw new Error("Meta no confirmó la eliminación");
-      } catch { failed.push(item.id); }
+        return null;
+      } catch { return item.id; }
+    }, (completed, total) => setBulkProgress({ completed, total }));
+    const failed = results.filter((id): id is string => Boolean(id));
+    try {
+      await load();
+      setSelectedCommentIds(new Set(failed));
+      if (failed.length) setError(`${targets.length - failed.length} procesados; ${failed.length} no se pudieron completar y permanecen seleccionados para revisarlos.`);
+      else setModerationResult(action === "delete_comment" ? `${targets.length} comentarios eliminados y confirmados por Meta.` : `${targets.length} respuestas publicadas correctamente en Meta.`);
+    } finally {
+      setBusy(null); setBulkProgress(null);
     }
-    await load();
-    setSelectedCommentIds(new Set(failed));
-    if (failed.length) setError(`${failed.length} de ${targets.length} comentarios no se pudieron procesar. Permanecen seleccionados para revisarlos.`);
-    else setModerationResult(action === "delete_comment" ? `${targets.length} comentarios eliminados y confirmados por Meta.` : `${targets.length} respuestas publicadas correctamente en Meta.`);
-    setBusy(null);
   }
   const feed = feeds.find((item) => item.campaignId === selectedCampaignId);
 
@@ -320,7 +326,7 @@ export default function MetaCommentsClient() {
     {(error || feed?.lastError) && <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><b>No se ha podido completar la sincronización:</b> {error ?? feed?.lastError}<div className="mt-1 text-xs">El Hub probará automáticamente las conexiones vinculadas. La conexión correcta debe tener acceso a la cuenta publicitaria (ads_read) y a la página del anuncio (pages_read_engagement y pages_manage_engagement).</div><button onClick={() => setConnectionOpen(true)} className="mt-3 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100">Gestionar conexiones Meta</button></div>}
     {moderationResult && <div role="status" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800"><span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {moderationResult}</span><button type="button" aria-label="Cerrar confirmación" onClick={() => setModerationResult(null)} className="rounded p-1 hover:bg-emerald-100"><X className="h-4 w-4" /></button></div>}
     <div className="mb-4 flex flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => { setClientFilter(event.target.value); setCampaignFilter("all"); setSelectedCommentIds(new Set()); }} className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select><select aria-label="Filtrar comentarios por campaña" value={campaignFilter} onChange={(event) => { setCampaignFilter(event.target.value); setSelectedCommentIds(new Set()); }} className="mr-2 max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todas las campañas</option>{campaignOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>{[["pending", "Pendientes"], ["negative", "Negativos pendientes"], ["replied", "Respondidos"]].map(([key, label]) => <button key={key} onClick={() => setFilter(key)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
-    {visible.length > 0 && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3"><label className="mr-auto flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={selectedVisible.length === visible.length} onChange={(event) => setSelectedCommentIds(event.target.checked ? new Set(visible.map((item) => item.id)) : new Set())} className="h-4 w-4" /> Seleccionar visibles ({selectedVisible.length}/{visible.length})</label><button onClick={() => void bulkAction("regenerate_draft")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" /> Generar respuestas IA</button><button onClick={() => void bulkAction("reply")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Send className="h-3.5 w-3.5" /> Publicar respuestas</button><button onClick={() => void bulkAction("delete_comment")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar seleccionados</button></div>}
+    {visible.length > 0 && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3"><label className="mr-auto flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={selectedVisible.length === visible.length} onChange={(event) => setSelectedCommentIds(event.target.checked ? new Set(visible.map((item) => item.id)) : new Set())} className="h-4 w-4" /> Seleccionar visibles ({selectedVisible.length}/{visible.length})</label><button onClick={() => void bulkAction("regenerate_draft")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" /> Generar respuestas IA</button><button onClick={() => void bulkAction("reply")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Send className="h-3.5 w-3.5" /> {busy === "bulk:reply" && bulkProgress ? `Publicando ${bulkProgress.completed}/${bulkProgress.total}…` : "Publicar respuestas"}</button><button onClick={() => void bulkAction("delete_comment")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">{busy === "bulk:delete_comment" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} {busy === "bulk:delete_comment" && bulkProgress ? `Eliminando ${bulkProgress.completed}/${bulkProgress.total}…` : "Eliminar seleccionados"}</button></div>}
     {visible.length === 0 ? <div className="rounded-xl border bg-white p-10 text-center text-slate-500"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" /><div className="font-medium text-slate-700">No hay comentarios en este filtro</div><div className="mt-1 text-sm">Pulsa “Sincronizar ahora” para consultar Meta.</div></div> : <div className="space-y-4">{visible.map((item) => <article id={`meta-comment-${item.id}`} key={item.id} className={`scroll-mt-6 rounded-xl border bg-white p-5 ${item.sentiment === "negative" ? "border-rose-300" : ""}`}>
       <div className="mb-3 flex flex-wrap items-start gap-2"><input aria-label={`Seleccionar comentario de ${item.authorName ?? "Usuario de Meta"}`} type="checkbox" checked={selectedCommentIds.has(item.id)} onChange={(event) => setSelectedCommentIds((current) => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })} className="mt-1 h-4 w-4" /><div className="flex-1"><div className="font-semibold">{item.authorName ?? "Usuario de Meta"}</div><div className="text-xs text-slate-500">{clientNameOf(item.feed)} · Campaña: {item.feed.campaignName ?? item.feed.campaignId} · Anuncio: {item.adName ?? "Sin nombre"} · {new Date(item.commentCreatedAt).toLocaleString("es-ES")}</div></div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${item.sentiment === "negative" ? "bg-rose-100 text-rose-700" : item.sentiment === "positive" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{item.sentiment === "negative" && <AlertTriangle className="h-3 w-3" />}{item.sentiment === "negative" ? "Negativo" : item.sentiment === "positive" ? "Positivo" : "Neutral"}</span></div>
       <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{item.message}</div>
