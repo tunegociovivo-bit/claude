@@ -606,11 +606,18 @@ export async function replyToMetaComment(workspaceId: string, externalCommentId:
   return String(result.id ?? "");
 }
 
+export function assertMetaDeletionConfirmed(result: unknown): asserts result is { success: true } {
+  if (!result || typeof result !== "object" || (result as { success?: unknown }).success !== true) {
+    throw new Error("Meta no confirmó la eliminación del comentario. El Hub lo conservará para evitar ocultarlo por error.");
+  }
+}
+
 export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
   const tokens = await pageTokens(workspaceId, connectionId);
   const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
   const token = pageId ? tokens.facebook.get(pageId) : undefined;
-  await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
+  const result = await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
+  assertMetaDeletionConfirmed(result);
 }
 
 export async function blockMetaCommentAuthor(workspaceId: string, authorId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {

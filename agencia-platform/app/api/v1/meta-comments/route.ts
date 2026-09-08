@@ -166,7 +166,7 @@ export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { a
       await deleteMetaComment(api.workspaceId, comment.externalCommentId, comment.postId, comment.platform, comment.feed.metaConnectionId);
       await prisma.metaAdComment.update({ where: { id: comment.id }, data: { deletedAt: new Date(), status: "deleted" } });
       await auditFromReq(req, api, { action: "meta_comment.delete", targetType: "META_COMMENT", targetId: comment.id, meta: { externalCommentId: comment.externalCommentId, platform: comment.platform } });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, deletedCommentId: comment.id, confirmedByMeta: true });
     }
     if (!comment.authorId) throw new ApiError(409, "author_unavailable", "Meta no ha proporcionado la identidad del autor; no se puede bloquear con seguridad");
     await blockMetaCommentAuthor(api.workspaceId, comment.authorId, comment.postId, comment.platform, comment.feed.metaConnectionId);
