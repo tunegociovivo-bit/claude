@@ -32,6 +32,17 @@ export async function releaseCronLease(name: string, owner: string): Promise<voi
   `);
 }
 
+export async function renewCronLease(name: string, owner: string, ttlMs: number): Promise<boolean> {
+  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error("Duración de lease inválida");
+  const ttlSeconds = ttlMs / 1000;
+  const updated = await prisma.$executeRaw(Prisma.sql`
+    UPDATE "CronHeartbeat"
+       SET "leaseUntil" = NOW() + (${ttlSeconds} * INTERVAL '1 second')
+     WHERE "name" = ${name} AND "leaseOwner" = ${owner}
+  `);
+  return updated === 1;
+}
+
 export async function runWithTimeout<T>(
   task: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number

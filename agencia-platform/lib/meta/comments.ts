@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection, readWorkspaceMetaToken } from "@/lib/meta/connection";
+import { createHash, randomUUID } from "node:crypto";
+import { acquireCronLease } from "@/lib/cron/distributed-lease";
+import { parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -14,19 +17,26 @@ class MetaGraphError extends Error {
 async function graph(workspaceId: string, path: string, init?: RequestInit, explicitToken?: string) {
   const token = explicitToken ?? await readWorkspaceMetaToken(workspaceId);
   if (!token) throw new Error("No hay conexión Meta activa en el workspace.");
-  const separator = path.includes("?") ? "&" : "?";
-  const url = `${GRAPH}/${path}${separator}access_token=${encodeURIComponent(token)}`;
+  let requestPath = path;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await fetch(url, { ...init, cache: "no-store" });
+    const separator = requestPath.includes("?") ? "&" : "?";
+    const url = `${GRAPH}/${requestPath}${separator}access_token=${encodeURIComponent(token)}`;
+    const response = await fetch(url, {
+      ...init,
+      cache: "no-store",
+      signal: init?.signal ?? AbortSignal.timeout(20_000)
+    });
     const json = await response.json().catch(() => ({}));
     if (response.ok) return json;
     const error = new MetaGraphError(
-      `Meta ${response.status} en ${path.split("?")[0]}: ${json?.error?.message ?? "error desconocido"}`,
+      `Meta ${response.status} en ${requestPath.split("?")[0]}: ${json?.error?.message ?? "error desconocido"}`,
       response.status,
-      path.split("?")[0],
+      requestPath.split("?")[0],
       typeof json?.error?.code === "number" ? json.error.code : undefined
     );
-    const transient = response.status === 429 || response.status >= 500;
+    const capacityError = isMetaTransientCapacityError(error);
+    if (capacityError) requestPath = reduceMetaRequestPath(requestPath);
+    const transient = capacityError || response.status === 429 || response.status >= 500;
     if (!transient || attempt === 2) throw error;
     await new Promise((resolve) => setTimeout(resolve, 400 * (2 ** attempt)));
   }
@@ -55,12 +65,28 @@ function isCampaignAccessError(error: unknown): boolean {
   return error instanceof MetaGraphError && (error.status === 400 || error.status === 403);
 }
 
+export class MetaDeletionError extends Error {
+  constructor(message: string) { super(message); this.name = "MetaDeletionError"; }
+}
+
+export function reduceMetaRequestPath(path: string) {
+  return path
+    .replace(/\.limit\((\d+)\)/g, (_match, raw) => `.limit(${Math.min(Number(raw), 25)})`)
+    .replace(/([?&]limit=)(\d+)/g, (_match, prefix, raw) => `${prefix}${Math.min(Number(raw), 25)}`);
+}
+
 export function isSkippableMetaCommentTargetError(error: { status?: number; message?: string } | null | undefined) {
   return error?.status === 400 && /unsupported(?:\s+get)?\s+request(?:\s*-\s*method type:\s*get)?/i.test(error.message ?? "");
 }
 
 export function isMetaApplicationRateLimitError(error: { status?: number; code?: number; message?: string } | null | undefined) {
   return error?.code === 4 || /application request limit reached/i.test(error?.message ?? "");
+}
+
+export function isMetaTransientCapacityError(error: { status?: number; code?: number; message?: string } | null | undefined) {
+  return error?.status === 429
+    || isMetaApplicationRateLimitError(error)
+    || /please reduce the amount of data|too many calls|temporar(?:y|ily) unavailable/i.test(error?.message ?? "");
 }
 
 async function campaignAdsWithAvailableConnection(
@@ -228,6 +254,11 @@ async function loadPageTokens(workspaceId: string, connectionId?: string | null)
   return { facebook, instagram, instagramByFacebookPage, facebookAuthorIds, instagramUsernames };
 }
 
+export function metaSyncAlertLeaseName(feedId: string, message: string) {
+  const digest = createHash("sha256").update(metaSyncErrorFingerprint(message)).digest("hex").slice(0, 20);
+  return `meta-comments-alert:${feedId}:${digest}`;
+}
+
 async function pageTokens(workspaceId: string, connectionId?: string | null): Promise<AuthorizedMetaPages> {
   const key = `${workspaceId}:${connectionId ?? "default"}`;
   const now = Date.now();
@@ -281,7 +312,7 @@ export function findOwnMetaReply(
 }
 
 type Range = { from: Date; to: Date };
-type Analysis = { id: string; sentiment: string; reason: string; draft: string };
+type Analysis = MetaCommentAnalysis;
 
 export function buildMetaCommentAnalysisPrompt(clientName: string, comments: Array<{ id: string; message?: string | null }>, aiContext?: string | null) {
   const context = aiContext?.trim().slice(0, 5000);
@@ -296,14 +327,29 @@ async function analyzeComments(workspaceId: string, clientName: string, comments
   const analyses = new Map<string, Analysis>();
   for (let offset = 0; offset < comments.length; offset += 15) {
     const batch = comments.slice(offset, offset + 15);
-    const result = await completeJson<{ items: Analysis[] }>({
-      workspaceId, model: "claude-haiku-4-5-20251001",
-      system: "Clasifica cada comentario de anuncio como positive, neutral o negative y redacta una respuesta breve en español de España. Para negativos: empatía, no discutir y ofrecer resolver por privado. No inventes datos. Devuelve todos los ids recibidos en JSON.",
-      user: buildMetaCommentAnalysisPrompt(clientName, batch, aiContext),
-      schema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, sentiment: { type: "string", enum: ["positive", "neutral", "negative"] }, reason: { type: "string" }, draft: { type: "string" } }, required: ["id", "sentiment", "reason", "draft"] } } }, required: ["items"] },
-      maxTokens: 2500
-    });
-    for (const analysis of result.items ?? []) analyses.set(String(analysis.id), analysis);
+    const system = "Clasifica cada comentario de anuncio como positive, neutral o negative y redacta una respuesta breve en español de España. Para negativos: empatía, no discutir y ofrecer resolver por privado. No inventes datos. Devuelve todos los ids recibidos en JSON.";
+    const user = buildMetaCommentAnalysisPrompt(clientName, batch, aiContext);
+    const result = await runMetaCommentAnalysisPipeline(
+      batch,
+      async () => (await completeJson<{ items: Analysis[] }>({
+        workspaceId, model: "claude-haiku-4-5-20251001", system, user,
+        schema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, sentiment: { type: "string", enum: ["positive", "neutral", "negative"] }, reason: { type: "string" }, draft: { type: "string" } }, required: ["id", "sentiment", "reason", "draft"] } } }, required: ["items"] },
+        maxTokens: 2500
+      })).items ?? [],
+      async () => {
+        const { openaiChatCompletion } = await import("@/lib/ai/openai");
+        const text = await openaiChatCompletion({
+          workspaceId,
+          model: "gpt-4o-mini",
+          prompt: `${system}\n\n${user}\n\nDevuelve exclusivamente JSON con esta forma: {"items":[{"id":"...","sentiment":"positive|neutral|negative","reason":"...","draft":"..."}]}`,
+          temperature: 0.2,
+          maxTokens: 2500,
+          feature: "meta_comment_analysis_fallback"
+        });
+        return parseMetaCommentAnalysisJson(text);
+      }
+    );
+    for (const analysis of result) analyses.set(String(analysis.id), analysis);
   }
   return analyses;
 }
@@ -498,15 +544,18 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
-    if (isMetaApplicationRateLimitError(error)) {
+    if (isMetaTransientCapacityError(error)) {
       await prisma.metaCommentFeed.update({
         where: { id: feed.id },
-        data: { lastError: "Sincronización aplazada automáticamente: Meta ha alcanzado temporalmente su límite de aplicación." }
+        data: { lastError: "Sincronización aplazada automáticamente: Meta ha limitado temporalmente el volumen de la consulta." }
       });
       return { discovered: 0, created: 0, remaining: 0, deferred: true, diagnostics: { ads: 0, facebookTargets: 0, instagramTargets: 0, adsWithoutPost: 0, unsupportedTargets: 0 } };
     }
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: errorMessage } });
-    if (shouldNotifyMetaSyncFailure(feed, errorMessage)) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});
+    if (shouldNotifyMetaSyncFailure(feed, errorMessage)) {
+      const claimed = await acquireCronLease(metaSyncAlertLeaseName(feed.id, errorMessage), randomUUID(), 6 * 60 * 60_000).catch(() => false);
+      if (claimed) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});
+    }
     throw error;
   }
 }
@@ -561,11 +610,50 @@ export async function replyToMetaComment(workspaceId: string, externalCommentId:
   return String(result.id ?? "");
 }
 
+export function assertMetaDeletionConfirmed(result: unknown): asserts result is { success: true } {
+  if (!result || typeof result !== "object" || (result as { success?: unknown }).success !== true) {
+    throw new Error("Meta no confirmó la eliminación del comentario. El Hub lo conservará para evitar ocultarlo por error.");
+  }
+}
+
+export function metaDeletionObjectIds(externalCommentId: string, platform: string) {
+  const ids = [externalCommentId];
+  if (platform === "facebook" && externalCommentId.includes("_")) ids.push(externalCommentId.split("_").at(-1)!);
+  return [...new Set(ids.filter(Boolean))];
+}
+
 export async function deleteMetaComment(workspaceId: string, externalCommentId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
-  const tokens = await pageTokens(workspaceId, connectionId);
-  const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
-  const token = pageId ? tokens.facebook.get(pageId) : undefined;
-  await graph(workspaceId, externalCommentId, { method: "DELETE" }, token);
+  try {
+    const pageId = postId && platform === "facebook" ? postId.split("_")[0] : null;
+    const connectionIds = [connectionId, ...(await listWorkspaceMetaTokens(workspaceId)).map((item) => item.id)].filter((id): id is string => Boolean(id));
+    const tokenCandidates: Array<string | undefined> = [];
+    for (const id of [...new Set(connectionIds)]) {
+      const tokens = await pageTokens(workspaceId, id).catch(() => null);
+      if (!tokens) continue;
+      if (platform === "facebook") tokenCandidates.push(pageId ? tokens.facebook.get(pageId) : undefined);
+      else tokenCandidates.push(...tokens.instagram.values());
+    }
+    if (!tokenCandidates.length) tokenCandidates.push(undefined);
+    let lastMetaError: MetaGraphError | Error | null = null;
+    for (const objectId of metaDeletionObjectIds(externalCommentId, platform)) {
+      for (const token of [...new Set(tokenCandidates)]) {
+        try {
+          const result = await graph(workspaceId, objectId, { method: "DELETE" }, token);
+          assertMetaDeletionConfirmed(result);
+          return;
+        } catch (cause) {
+          if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) { lastMetaError = cause; continue; }
+          throw cause;
+        }
+      }
+    }
+    if (lastMetaError) throw lastMetaError;
+    throw new Error("No existe un token autorizado para moderar este comentario.");
+  } catch (cause) {
+    if (cause instanceof MetaGraphError || (cause instanceof Error && cause.message.startsWith("Meta no confirmó"))) throw new MetaDeletionError(cause.message);
+    console.error("[meta-comments] Error interno eliminando comentario", cause);
+    throw new MetaDeletionError("Meta no pudo completar la eliminación. Reinténtalo en unos minutos.");
+  }
 }
 
 export async function blockMetaCommentAuthor(workspaceId: string, authorId: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {

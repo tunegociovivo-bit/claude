@@ -22,6 +22,7 @@ export function visibleConversationItems<T extends ConversationItem>(server: T[]
 }
 
 export function whatsappAckLabel(ack: number | null | undefined) {
+  if (ack === -1) return "No entregado";
   if (typeof ack !== "number" || ack < 1) return "Pendiente de confirmación";
   if (ack >= 3) return "Leído";
   if (ack >= 2) return "Entregado";

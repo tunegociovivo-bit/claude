@@ -218,7 +218,7 @@ export default function LeadConversationEmbed({ phone, leadId }: { phone: string
                 {m.body}
                 {"deliveryState" in m && m.deliveryState === "sending" && <div className="mt-1 text-[9px] font-semibold text-amber-700">Enviando…</div>}
                 {"deliveryState" in m && m.deliveryState === "failed" && <div className="mt-1 flex items-center justify-end gap-2 text-[9px] font-semibold text-red-700"><span>No enviado</span><button type="button" className="underline" onClick={()=>{setText(m.body);setPendingReplies(prev=>prev.filter(reply=>reply.id!==m.id));setSendError(null)}}>Reintentar</button></div>}
-                {m.direction === "out" && !("deliveryState" in m) && <div className={`mt-1 text-right text-[9px] font-semibold ${(m.ack??0)>=2?'text-emerald-700':'text-slate-500'}`}>{whatsappAckLabel(m.ack)}</div>}
+                {m.direction === "out" && !("deliveryState" in m) && <div className={`mt-1 text-right text-[9px] font-semibold ${m.ack===-1?'text-red-700':(m.ack??0)>=2?'text-emerald-700':'text-slate-500'}`}>{whatsappAckLabel(m.ack)}</div>}
                 <div className="text-[9px] opacity-50 text-right mt-0.5">{fmtTime(m.at)}</div>
               </div>
             </div>

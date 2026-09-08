@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateMock, prisma, regenerateDraftMock } = vi.hoisted(() => ({
+const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, MetaDeletionErrorMock } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
   regenerateDraftMock: vi.fn(),
+  deleteCommentMock: vi.fn(),
+  MetaDeletionErrorMock: class MetaDeletionError extends Error {},
   prisma: {
     metaAdComment: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() }
   }
@@ -19,7 +21,8 @@ vi.mock("@/lib/api/rate-limit", () => ({
 }));
 vi.mock("@/lib/meta/comments", () => ({
   blockMetaCommentAuthor: vi.fn(),
-  deleteMetaComment: vi.fn(),
+  deleteMetaComment: deleteCommentMock,
+  MetaDeletionError: MetaDeletionErrorMock,
   notifyMetaOperational: vi.fn(),
   regenerateMetaCommentDraft: regenerateDraftMock,
   replyToMetaComment: vi.fn(),
@@ -52,6 +55,26 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
     });
     regenerateDraftMock.mockResolvedValue("Nuestro horario es de 9 a 18. ¿Te ayudamos?");
     prisma.metaAdComment.update.mockImplementation(async ({ data }: any) => ({ id: "comment-1", ...data }));
+  });
+
+  it("explica el error real cuando Meta rechaza eliminar un comentario", async () => {
+    prisma.metaAdComment.findFirst.mockResolvedValue({ id: "comment-1", externalCommentId: "meta-1", postId: "page_post", platform: "facebook", feed: { metaConnectionId: "connection-1" } });
+    deleteCommentMock.mockRejectedValue(new MetaDeletionErrorMock("Meta 400 en meta-1: el comentario no admite eliminación"));
+
+    const response = await call({ action: "delete_comment", commentId: "comment-1" });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: "meta_delete_failed", message: expect.stringContaining("Meta 400") } });
+    expect(prisma.metaAdComment.update).not.toHaveBeenCalled();
+  });
+
+  it("no expone detalles internos inesperados al navegador", async () => {
+    prisma.metaAdComment.findFirst.mockResolvedValue({ id: "comment-1", externalCommentId: "meta-1", postId: null, platform: "instagram", feed: { metaConnectionId: "connection-1" } });
+    deleteCommentMock.mockRejectedValue(new Error("DATABASE_URL=secreto host=interno"));
+    const response = await call({ action: "delete_comment", commentId: "comment-1" });
+    const body = await response.json();
+    expect(body.error.message).not.toContain("DATABASE_URL");
+    expect(body.error.message).toContain("Reinténtalo");
   });
 
   it("genera y persiste otro borrador con aislamiento por workspace", async () => {

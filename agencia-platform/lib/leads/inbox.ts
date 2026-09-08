@@ -20,6 +20,64 @@ export type InboxClass =
   | "positive_no"
   | "auto_reply";
 
+type InboxClassification = { classification: InboxClass; confidence: number; reason: string };
+
+function normalizedReply(text: string) {
+  return text.toLowerCase().trim();
+}
+
+function hasPositiveContrastOrTiming(text: string) {
+  return /\bpero\s+(?:s[ií]|quiero|queremos|me interesa|nos interesa|podemos|hablemos|ll[aá]m)/.test(text)
+    || /\b(?:ahora|hoy|en este momento)\b[^.?!;]*(?:no|imposible)[^.?!;]*(?:ma[ñn]ana|luego|m[aá]s tarde|otro d[ií]a)/.test(text)
+    || /\bno\s+(?:me|nos)\s+llam(?:es|[ée]is)\s+(?:ahora|hoy|en este momento)\b/.test(text)
+    || /\b(?:ma[ñn]ana|luego|m[aá]s tarde|otro d[ií]a)\b[^.?!;]*(?:s[ií]|ll[aá]m|contact)/.test(text);
+}
+
+function isOptOutReply(text: string) {
+  const explicitUnsubscribeCommand = /\bstop\b/.test(text)
+    || /^\s*baja\b(?=\s*[,.;:!?]|\s*$)/.test(text)
+    || /\b(?:dame|dadme|denme|darme|darnos|solicito|solicitamos|quiero|queremos)\s+(?:(?:darme|darnos)\s+)?(?:de|la)\s+baja\b/.test(text);
+  const permanentOptOut = explicitUnsubscribeCommand
+    || /\bno\s+(?:quiero|queremos)\s+(?:m[aá]s\s+)?mensajes\b/.test(text)
+    || /\bno\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|contactes|contact[ée]is|llames|llam[ée]is)\s+(?:m[aá]s|de nuevo|nunca)\b/.test(text)
+    || /\b(?:deja|dejad|dejen)\s+de\s+(?:escribir|contactar|llamar)\b/.test(text);
+  if (permanentOptOut) return true;
+  if (hasPositiveContrastOrTiming(text)) return false;
+  return /\bno\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|contactes|contact[ée]is|llames|llam[ée]is)\b/.test(text);
+}
+
+function isExplicitRejection(text: string) {
+  if (hasPositiveContrastOrTiming(text)) return false;
+  return /\b(?:no|tampoco)\s+(?:(?:me|nos)\s+)?(?:interesa(?:n)?|necesit(?:o|amos)|quier(?:o|emos))\b/.test(text)
+    || /\bno\s+(?:estoy|estamos)\s+interesad[oa]s?\b/.test(text)
+    || /\b(?:sin|ning[uú]n)\s+inter[eé]s\b/.test(text);
+}
+
+function isAutomaticReply(text: string) {
+  const standardAutoReply = /(estamos.?ausentes|fuera.?de.?oficina|out of office|no se encuentra disponible|respuesta autom)/.test(text);
+  const acknowledgement = /(gracias por contactar(?:nos)?|hemos recibido (?:tu|su) mensaje)/.test(text);
+  const operationalDetail = /(horario de atenci[oó]n|nos pondremos en contacto|responderemos (?:lo antes|en breve)|cita.*(?:enlace|link))/.test(text);
+  return standardAutoReply || (acknowledgement && operationalDetail);
+}
+
+/**
+ * Cinturón de seguridad de alta precisión. La IA puede aportar contexto, pero
+ * nunca puede convertir una negativa explícita o un autorespondedor en interés.
+ */
+export function applyDeterministicClassificationGuard(text: string, proposed: InboxClassification): InboxClassification {
+  const normalized = normalizedReply(text);
+  if (isOptOutReply(normalized)) {
+    return { classification: "opt_out", confidence: 0.99, reason: "Solicitud explícita de no contacto" };
+  }
+  if (isAutomaticReply(normalized)) {
+    return { classification: "auto_reply", confidence: 0.98, reason: "Respuesta automática detectada" };
+  }
+  if (isExplicitRejection(normalized)) {
+    return { classification: "positive_no", confidence: 0.99, reason: "Rechazo explícito detectado" };
+  }
+  return proposed;
+}
+
 async function notifyCommercialProjectReply(opts: {
   workspaceId: string;
   leadId: string | null;
@@ -94,17 +152,17 @@ async function notifyCommercialProjectReply(opts: {
  * falla, se usa esta.
  */
 export function classifyHeuristic(text: string): { classification: InboxClass; confidence: number; reason: string } {
-  const t = text.toLowerCase().trim();
+  const t = normalizedReply(text);
   // Opt-out
-  if (/(^|\b)(stop|baja|no.?escribir|no.?escrib[áa]is|no.?me.?escrib|d[ée]jenme|deja.?de|no.?quiero.?mensajes|no.?contact|no me llam)/.test(t)) {
+  if (isOptOutReply(t)) {
     return { classification: "opt_out", confidence: 0.9, reason: "Palabra clave de baja detectada" };
   }
   // Auto-reply típico
-  if (/(estamos.?ausentes|fuera.?de.?oficina|out of office|no se encuentra disponible|respuesta autom)/.test(t)) {
+  if (isAutomaticReply(t)) {
     return { classification: "auto_reply", confidence: 0.85, reason: "Patrón de respuesta automática" };
   }
   // Opt-out educado / positive_no
-  if (/^(no\s+gracias|no\s+interesa|gracias\s+pero\s+no|de\s+momento\s+no)/.test(t)) {
+  if (isExplicitRejection(t) || /^(no\s+gracias|no\s+interesa|gracias\s+pero\s+no|de\s+momento\s+no)/.test(t)) {
     return { classification: "positive_no", confidence: 0.75, reason: "Rechazo educado" };
   }
   // Pregunta / info_request
@@ -142,13 +200,17 @@ export async function classifyWithIA(opts: {
 }): Promise<{ classification: InboxClass; confidence: number; reason: string }> {
   const system = `Eres un asistente que clasifica respuestas WhatsApp de prospección B2B en español.
 Categorías:
-- interested: muestra interés ("me interesa", "cuéntame", "envíame")
+- interested: interés positivo e inequívoco ("sí, me interesa", "llámame", "cuéntame", "envíame información")
 - objection: pone una pega ("caro", "ahora no", "ya tengo")
 - info_request: pide información concreta
 - opt_out: pide ser eliminado / no más mensajes ("STOP", "BAJA")
 - positive_no: rechaza educadamente sin enfadarse ("no gracias")
 - off_topic: nada que ver, error, ruido
 - auto_reply: respuesta automática del WhatsApp ("estoy fuera...")
+REGLAS PRIORITARIAS:
+- Cualquier "no me/nos interesa", "no estoy/estamos interesados", "no necesito" o equivalente es positive_no, aunque incluya palabras como "interesa", "posicionamiento" o "gracias".
+- Un acuse con horario y "nos pondremos en contacto" es auto_reply, no interested.
+- Ante la duda entre interested y otra categoría, NO elijas interested.
 Devuelve JSON con la categoría, confidence 0-1 y una razón breve.`;
   const user = `Lead: ${opts.leadName ?? "(desconocido)"}\nMensaje:\n${opts.text}`;
   try {
@@ -159,7 +221,7 @@ Devuelve JSON con la categoría, confidence 0-1 y una razón breve.`;
       schema: SCHEMA as any,
       maxTokens: 256
     });
-    return out;
+    return applyDeterministicClassificationGuard(opts.text, out);
   } catch (e) {
     if (e instanceof AIDisabledError) {
       return classifyHeuristic(opts.text);

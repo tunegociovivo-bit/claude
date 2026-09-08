@@ -51,6 +51,7 @@ type KanbanColumn = { id: string; label: string; color: string; order: number; i
  * /api/v1/tasks/ai-status. Se propaga a TaskCard para pintar borde
  * de color + badge informativo. */
 type AiStatusInfo = {
+  unreadLeadReplyCount?: number;
   /**
    * Estado visual para la card:
    *   working          → morado, Sonia trabajando
@@ -473,7 +474,7 @@ export default function TareasClient({
           // Incluimos la task si tiene estado visual activo O si Sonia ya la
           // ha trabajado (workedByAi) — esto último para pintar el robot
           // persistente aunque el estado visual ya sea null.
-          if (it.aiStatus || it.workedByAi) {
+          if (it.aiStatus || it.workedByAi || Number(it.unreadLeadReplyCount) > 0) {
             next[it.taskId] = {
               aiStatus: it.aiStatus ?? null,
               workedByAi: !!it.workedByAi,
@@ -493,7 +494,8 @@ export default function TareasClient({
               lastStepText: it.lastStepText,
               lastToolName: it.lastToolName,
               lastAiCommentAt: it.lastAiCommentAt,
-              lastAiCommentPreview: it.lastAiCommentPreview
+              lastAiCommentPreview: it.lastAiCommentPreview,
+              unreadLeadReplyCount: Number(it.unreadLeadReplyCount) || 0
             };
           }
         }
@@ -2245,6 +2247,8 @@ function TaskCard({
   aiUserId?: string | null;
 }) {
   const aiStatus = aiInfo?.aiStatus ?? null;
+  const unreadLeadReplyCount = aiInfo?.unreadLeadReplyCount ?? 0;
+  const hasUnreadLeadReply = unreadLeadReplyCount > 0;
   const [copied, setCopied] = useState(false);
   const [flash, setFlash] = useState<{ id: string; text: string; done: boolean; urgent?: boolean }[]>(
     () => (Array.isArray(task.flashTasks) ? task.flashTasks : [])
@@ -2373,9 +2377,18 @@ function TaskCard({
     }
   }
 
+  const cardStyle: React.CSSProperties = hasUnreadLeadReply && alarmLevel !== "urgent"
+    ? {
+        ...soniaStyle,
+        boxShadow: "0 0 0 4px #f97316, 0 0 24px 7px rgba(249,115,22,0.5)",
+        backgroundColor: "#fff7ed",
+        animation: "sonia-pulse 1.1s ease-in-out infinite"
+      }
+    : soniaStyle;
+
   return (
     <div
-      style={soniaStyle}
+      style={cardStyle}
       className={clsx(
         "rounded-lg border p-3 transition cursor-pointer relative group",
         // Alarma visual según proximidad del dueDate. Sólo aplica a
@@ -2420,6 +2433,11 @@ function TaskCard({
       )}
       {task.leadMeta && (
         <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+          {hasUnreadLeadReply && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded bg-orange-600 text-white shadow-sm">
+              🔔 Cliente respondió · {unreadLeadReplyCount} {unreadLeadReplyCount === 1 ? "mensaje nuevo" : "mensajes nuevos"}
+            </span>
+          )}
           <span
             className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200"
             title={`Tarea creada desde el generador de leads (WhatsApp)${task.leadMeta.phone ? ` · ${task.leadMeta.phone}` : ""}`}

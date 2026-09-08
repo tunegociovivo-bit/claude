@@ -146,13 +146,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
                   : ackName === "SERVER"
                     ? 1
                     : 0;
+      const ackCondition = lvl === -1 ? { OR: [{ ack: null }, { ack: { in: [0, 1] } }] } : { OR: [{ ack: null }, { ack: { lt: lvl } }] };
       await prisma.leadInboxMessage.updateMany({
         where: {
           workspaceId: ws.id,
           direction: "out",
           externalMessageId: ackId,
-          // No degradar: solo si el nuevo nivel es mayor (o aún no hay ack).
-          OR: [{ ack: null }, { ack: { lt: lvl } }]
+          // Un ERROR sustituye pendiente/servidor, pero nunca borra evidencia de entrega.
+          ...ackCondition
         },
         data: { ack: lvl, ackAt: new Date() }
       });
