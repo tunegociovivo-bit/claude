@@ -3,6 +3,7 @@ import { completeJson } from "@/lib/ai/anthropic";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection, readWorkspaceMetaToken } from "@/lib/meta/connection";
 import { createHash, randomUUID } from "node:crypto";
 import { acquireCronLease } from "@/lib/cron/distributed-lease";
+import { parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -307,7 +308,7 @@ export function findOwnMetaReply(
 }
 
 type Range = { from: Date; to: Date };
-type Analysis = { id: string; sentiment: string; reason: string; draft: string };
+type Analysis = MetaCommentAnalysis;
 
 export function buildMetaCommentAnalysisPrompt(clientName: string, comments: Array<{ id: string; message?: string | null }>, aiContext?: string | null) {
   const context = aiContext?.trim().slice(0, 5000);
@@ -322,14 +323,29 @@ async function analyzeComments(workspaceId: string, clientName: string, comments
   const analyses = new Map<string, Analysis>();
   for (let offset = 0; offset < comments.length; offset += 15) {
     const batch = comments.slice(offset, offset + 15);
-    const result = await completeJson<{ items: Analysis[] }>({
-      workspaceId, model: "claude-haiku-4-5-20251001",
-      system: "Clasifica cada comentario de anuncio como positive, neutral o negative y redacta una respuesta breve en español de España. Para negativos: empatía, no discutir y ofrecer resolver por privado. No inventes datos. Devuelve todos los ids recibidos en JSON.",
-      user: buildMetaCommentAnalysisPrompt(clientName, batch, aiContext),
-      schema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, sentiment: { type: "string", enum: ["positive", "neutral", "negative"] }, reason: { type: "string" }, draft: { type: "string" } }, required: ["id", "sentiment", "reason", "draft"] } } }, required: ["items"] },
-      maxTokens: 2500
-    });
-    for (const analysis of result.items ?? []) analyses.set(String(analysis.id), analysis);
+    const system = "Clasifica cada comentario de anuncio como positive, neutral o negative y redacta una respuesta breve en español de España. Para negativos: empatía, no discutir y ofrecer resolver por privado. No inventes datos. Devuelve todos los ids recibidos en JSON.";
+    const user = buildMetaCommentAnalysisPrompt(clientName, batch, aiContext);
+    const result = await runMetaCommentAnalysisPipeline(
+      batch,
+      async () => (await completeJson<{ items: Analysis[] }>({
+        workspaceId, model: "claude-haiku-4-5-20251001", system, user,
+        schema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, sentiment: { type: "string", enum: ["positive", "neutral", "negative"] }, reason: { type: "string" }, draft: { type: "string" } }, required: ["id", "sentiment", "reason", "draft"] } } }, required: ["items"] },
+        maxTokens: 2500
+      })).items ?? [],
+      async () => {
+        const { openaiChatCompletion } = await import("@/lib/ai/openai");
+        const text = await openaiChatCompletion({
+          workspaceId,
+          model: "gpt-4o-mini",
+          prompt: `${system}\n\n${user}\n\nDevuelve exclusivamente JSON con esta forma: {"items":[{"id":"...","sentiment":"positive|neutral|negative","reason":"...","draft":"..."}]}`,
+          temperature: 0.2,
+          maxTokens: 2500,
+          feature: "meta_comment_analysis_fallback"
+        });
+        return parseMetaCommentAnalysisJson(text);
+      }
+    );
+    for (const analysis of result) analyses.set(String(analysis.id), analysis);
   }
   return analyses;
 }
