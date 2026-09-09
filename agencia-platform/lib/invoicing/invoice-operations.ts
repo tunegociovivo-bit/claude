@@ -32,10 +32,8 @@ export type InvoiceOperations = {
 const APPROVED = new Set(["APPROVED", "PREPARING", "PENDING_SIGNATURE", "SIGNED"]);
 
 export function getInvoiceOperations(invoice: InvoiceOperationsInput): InvoiceOperations {
-  const notApplicable = !invoice.remittance && (invoice.remittanceExcluded
-    || invoice.type === "RECTIFICATIVA"
+  const notApplicable = !invoice.remittance && (invoice.type === "RECTIFICATIVA"
     || /^R-/i.test(invoice.number ?? "")
-    || invoice.paymentMethod !== "REMITTANCE"
     || invoice.status === "DRAFT"
     || invoice.status === "CANCELLED");
 
@@ -48,6 +46,26 @@ export function getInvoiceOperations(invoice: InvoiceOperationsInput): InvoiceOp
         { key: "approved", label: "Aprobación no aplicable", tone: "neutral" },
         { key: "signature", label: "Firma no aplicable", tone: "neutral" },
         { key: "reconciliation", label: invoice.status === "PAID" ? "Cobrada" : "Sin conciliación SEPA", tone: "neutral" }
+      ]
+    };
+  }
+
+  const reconciliationOnly = !invoice.remittance
+    && (invoice.remittanceExcluded || invoice.paymentMethod !== "REMITTANCE");
+  if (reconciliationOnly) {
+    const reconciled = invoice.reconciliation?.status === "MATCHED";
+    return {
+      overall: reconciled ? "COMPLETE" : "IN_PROGRESS",
+      summary: reconciled
+        ? "Cobrada y conciliada"
+        : invoice.remittanceExcluded ? "Excluida de remesas" : "Pendiente de cobro",
+      stages: [
+        { key: "approval", label: "Remesa no aplicable", tone: "neutral" },
+        { key: "approved", label: "AprobaciÃ³n no aplicable", tone: "neutral" },
+        { key: "signature", label: "Firma no aplicable", tone: "neutral" },
+        reconciled
+          ? { key: "reconciliation", label: "Conciliada", tone: "success" }
+          : { key: "reconciliation", label: "Pendiente de conciliar", tone: "warning" }
       ]
     };
   }

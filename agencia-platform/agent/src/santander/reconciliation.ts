@@ -576,21 +576,33 @@ export class SantanderReconciliationReader {
 
   private async scanAccountMovements(page: any, startsAt: Date): Promise<BrowserMovement[]> {
     await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/cuentas/subhome`, { waitUntil: "domcontentloaded", timeout: 20000 });
-    const frame = await this.waitFrame(page, /Movimientos/i);
+    let frame = await this.waitFrame(page, /Movimientos/i);
     if (!frame) throw new Error("Santander no cargó los movimientos de la cuenta");
-    const rows: string[] = await frame.locator("p").evaluateAll((nodes: Element[]) => nodes.map((node) => {
+    await this.applyDateFilter(frame, startsAt, new Date()).catch(() => {});
+    const unique = new Map<string, BrowserMovement>();
+    const seenPages = new Set<string>();
+    for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
+      frame = await this.waitFrame(page, /Movimientos/i) ?? frame;
+      const rows: string[] = await frame.locator("p").evaluateAll((nodes: Element[]) => nodes.map((node) => {
       let current: Element | null = node;
       for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
         const text = (current as HTMLElement).innerText?.replace(/\s+/g, " ").trim() ?? "";
         if (/\d{2}\/\d{2}\/\d{4}/.test(text) && /[+-]\s*\d[\d.]*,\d{2}\s*EUR/i.test(text) && text.length < 1200) return text;
       }
       return "";
-    })).catch(() => []);
-    const unique = new Map<string, BrowserMovement>();
-    for (const text of rows) {
-      const movement = parseSantanderMovementText(text);
-      if (!shouldImportAccountMovement(movement) || new Date(movement.bookedAt) < startsAt) continue;
-      unique.set(movement.externalId, movement);
+      })).catch(() => []);
+      const signature = rows.join("|");
+      if (!signature || seenPages.has(signature)) break;
+      seenPages.add(signature);
+      for (const text of rows) {
+        const movement = parseSantanderMovementText(text);
+        if (!shouldImportAccountMovement(movement) || new Date(movement.bookedAt) < startsAt) continue;
+        unique.set(movement.externalId, movement);
+      }
+      const next = frame.getByRole("button", { name: /^(Ver siguientes|Siguiente)$/i }).first();
+      if (!await next.isVisible().catch(() => false) || !await next.isEnabled().catch(() => false)) break;
+      await next.click();
+      await frame.waitForTimeout(700);
     }
     return [...unique.values()];
   }

@@ -268,6 +268,52 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
   return matched;
 }
 
+async function reconcilePreviouslyUnmatchedIncomingPayments(workspaceId: string, startsAt: Date) {
+  let matched = 0;
+  const pending = await prisma.bankTransaction.findMany({
+    where: { workspaceId, status: "UNMATCHED", amountCents: { gt: 0 }, bookedAt: { gte: startsAt } },
+    select: { id: true, amountCents: true, bookedAt: true, reference: true, counterpartyName: true }
+  });
+
+  for (const movement of pending) {
+    if (/Emision Remesa Sepa|Remesa SEPA/i.test(movement.reference ?? "")) continue;
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        workspaceId,
+        status: "ISSUED",
+        deletedAt: null,
+        totalCents: { gt: 0 },
+        issueDate: { lte: movement.bookedAt }
+      },
+      select: { id: true, number: true, clientSnapshot: true, totalCents: true, paidCents: true, issueDate: true },
+      orderBy: { issueDate: "desc" },
+      take: 500
+    });
+    const candidate = matchIncomingPayment({
+      amountCents: movement.amountCents,
+      reference: movement.reference ?? "",
+      counterpartyName: movement.counterpartyName ?? ""
+    }, invoices.map((invoice) => ({ ...invoice, clientName: clientName(invoice.clientSnapshot) })));
+    if (!candidate) continue;
+    const invoice = invoices.find((item) => item.id === candidate.invoiceId);
+    if (!invoice) continue;
+
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.bankTransaction.updateMany({
+        where: { id: movement.id, workspaceId, status: "UNMATCHED" },
+        data: { status: "MATCHED", matchedInvoiceId: invoice.id, matchConfidence: candidate.confidence, matchedAt: new Date() }
+      });
+      if (!claimed.count) return;
+      await tx.invoice.updateMany({
+        where: { id: invoice.id, workspaceId, status: "ISSUED", paidCents: 0 },
+        data: { status: "PAID", paidCents: invoice.totalCents, paidAt: movement.bookedAt }
+      });
+      matched += claimed.count;
+    });
+  }
+  return matched;
+}
+
 function clientName(snapshot: unknown): string {
   const data = snapshot && typeof snapshot === "object" ? snapshot as Record<string, unknown> : {};
   return String(data.legalName ?? data.name ?? "").trim();
@@ -280,6 +326,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
   await repairUnmatchedExactReferences(workspaceId);
   await repairSyntheticSepaDuplicates(workspaceId);
   await reconcileUniqueSepaSummaries(workspaceId);
+  await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
   if (!config.enabled) return { imported: 0, matched: 0, ignored: movements.length };
   let imported = 0;
   let matched = 0;
@@ -409,6 +456,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
   // importados, se vinculan en esta misma ejecución con la solicitud SEPA
   // única por importe y ventana de liquidación; los ambiguos siguen en revisión.
   matched += await reconcileUniqueSepaSummaries(workspaceId);
+  matched += await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
 
   await prisma.bankReconciliationConfig.update({
     where: { workspaceId },
@@ -463,6 +511,7 @@ export async function reconciliationDashboard(workspaceId: string) {
   await repairUnmatchedExactReferences(workspaceId);
   await repairSyntheticSepaDuplicates(workspaceId);
   await reconcileUniqueSepaSummaries(workspaceId);
+  await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
   const [items, matched, unmatched] = await Promise.all([
     prisma.bankTransaction.findMany({
       where: { workspaceId, bookedAt: { gte: config.startsAt }, status: { in: ["MATCHED", "UNMATCHED"] } },
