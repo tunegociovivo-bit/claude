@@ -241,6 +241,10 @@ export function isSafeRemittanceMenuLabel(label: string): boolean {
   return /^Remesas$/i.test(label.trim());
 }
 
+export function isSafeRemittanceConsultationLabel(label: string): boolean {
+  return /^Consulta$/i.test(label.trim());
+}
+
 export function missingReceiptEvidenceMessage(pageText: string): string {
   return /sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(pageText)
     ? "Santander cerró la sesión durante la conciliación"
@@ -249,10 +253,15 @@ export function missingReceiptEvidenceMessage(pageText: string): string {
 
 export function isReceiptListFrame(frameUrl: string, text: string, remittanceNumber: string): boolean {
   const expected = remittanceNumber.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  const normalized = text.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const displayed = text.match(/N[ÚU]MERO DE REMESA\s+([A-Z0-9 ]+?)\s+FECHA DE VENCIMIENTO/i)?.[1]?.replace(/[^a-z0-9]/gi, "").toUpperCase();
   return /\/rmtqry\/sepa-direct-debits\/receipts-list-sepa-debits(?:[/?#]|$)/i.test(frameUrl)
     && /Recibos de una remesa/i.test(text)
-    && normalized.includes(expected);
+    && displayed === expected;
+}
+
+export function isRemittanceListFrame(frameUrl: string, text: string): boolean {
+  return /\/paas\/(?:envrem\/consulta|rmtqry\/sepa-direct-debits\/remit-list-sepa-debits)(?:[/?#]|$)/i.test(frameUrl)
+    && /Remesas de un acreedor/i.test(text);
 }
 
 export class SantanderReconciliationReader {
@@ -281,7 +290,7 @@ export class SantanderReconciliationReader {
           rowTexts = await runWithRefreshedFrame(
             async () => {
               const refreshedFrame = await acquireRemittanceListFrame(
-                () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+                () => this.waitRemittanceListFrame(page, 60),
                 () => this.openRemittanceList(page, pageIndex)
               );
               frame = refreshedFrame;
@@ -313,7 +322,7 @@ export class SantanderReconciliationReader {
             const row = await runWithRefreshedFrame(
               async () => {
                 const refreshedFrame = await acquireRemittanceListFrame(
-                  () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+                  () => this.waitRemittanceListFrame(page, 60),
                   () => this.openRemittanceList(page, pageIndex)
                 );
                 frame = refreshedFrame;
@@ -322,7 +331,11 @@ export class SantanderReconciliationReader {
               async (currentFrame) => {
                 const currentRow = currentFrame.getByRole("row", { name: new RegExp(remittance.remittanceNumber.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
                 await this.dismissBlockingModal(page, currentFrame);
-                await clickAfterDismissingModal(page, currentRow.getByRole("button"), () => this.dismissBlockingModal(page, currentFrame));
+                // El botón principal de PrimeNG conserva a veces la acción de la
+                // remesa anterior. Abrir explícitamente el desplegable de esta
+                // fila obliga a Santander a vincular "Recibos" con la remesa actual.
+                const rowMenu = currentRow.locator("button.ui-splitbutton-menubutton").first();
+                await clickAfterDismissingModal(page, rowMenu, () => this.dismissBlockingModal(page, currentFrame));
                 return currentRow;
               }
             );
@@ -330,13 +343,13 @@ export class SantanderReconciliationReader {
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
           if (!await browserValueOr(() => receipts.isVisible(), false)) {
             const pageText = (await Promise.all(page.frames().map((candidate: any) => browserValueOr(() => candidate.locator("body").innerText(), "")))).join(" ");
-            throw new Error(missingReceiptEvidenceMessage(pageText));
+            throw new Error(`${missingReceiptEvidenceMessage(pageText)} (${remittance.remittanceNumber})`);
           }
           await receipts.click();
           const receiptFrame = await this.waitReceiptFrame(page, remittance.remittanceNumber);
           if (!receiptFrame) {
             const pageText = (await Promise.all(page.frames().map((candidate: any) => browserValueOr(() => candidate.locator("body").innerText(), "")))).join(" ");
-            throw new Error(missingReceiptEvidenceMessage(pageText));
+            throw new Error(`${missingReceiptEvidenceMessage(pageText)} (${remittance.remittanceNumber})`);
           }
           const receiptBody = await browserValueOr(() => receiptFrame.locator("body").innerText(), "");
           if (/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(receiptBody)) throw new Error("Santander cerró la sesión durante la conciliación");
@@ -383,7 +396,7 @@ export class SantanderReconciliationReader {
             if (opened) {
               frame = await restoreRemittanceListFrame(
                 async () => { await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }); },
-                () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+                () => this.waitRemittanceListFrame(page, 60),
                 () => this.openRemittanceList(page, pageIndex)
               );
             }
@@ -394,7 +407,7 @@ export class SantanderReconciliationReader {
         const pagination = await runWithRefreshedFrame(
           async () => {
             const refreshedFrame = await acquireRemittanceListFrame(
-              () => this.waitFrame(page, /Remesas de un acreedor/i, 60),
+              () => this.waitRemittanceListFrame(page, 60),
               () => this.openRemittanceList(page, pageIndex)
             );
             frame = refreshedFrame;
@@ -462,7 +475,7 @@ export class SantanderReconciliationReader {
 
   private async openRemittanceList(page: any, pageIndex = 0): Promise<any> {
     await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: 20000 });
-    const directList = await this.waitFrame(page, /Remesas de un acreedor/i, 5);
+    const directList = await this.waitRemittanceListFrame(page, 5);
     if (directList) {
       return reopenRemittanceListAtPage(
         async () => directList,
@@ -479,21 +492,39 @@ export class SantanderReconciliationReader {
         frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
       }
     }
-    if (!frame) throw new Error("Santander no cargó el módulo de remesas");
-    const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
-    if (!await consultation.isVisible().catch(() => false)) throw new Error("Santander no mostró la consulta de remesas");
-    await consultation.click();
-    // Santander conserva el último filtro y en algunas sesiones omite la
-    // pantalla "Tipo de remesa", entrando directamente al listado CORE.
-    const directAfterConsultation = await this.waitFrame(page, /Remesas de un acreedor/i, 12);
-    if (directAfterConsultation) {
-      return reopenRemittanceListAtPage(
-        async () => directAfterConsultation,
-        (currentFrame, pageNumber) => this.advanceRemittancePage(page, currentFrame, pageNumber),
-        pageIndex
-      );
+    let filtersFrame: any = null;
+    if (!frame) {
+      const consultationLink = page.getByRole("link", { name: /^Consulta$/i }).first();
+      if (await consultationLink.isVisible().catch(() => false)) {
+        const label = await consultationLink.innerText().catch(() => "");
+        if (isSafeRemittanceConsultationLabel(label)) await consultationLink.click();
+        const directAfterLink = await this.waitRemittanceListFrame(page, 12);
+        if (directAfterLink) {
+          return reopenRemittanceListAtPage(
+            async () => directAfterLink,
+            (currentFrame, pageNumber) => this.advanceRemittancePage(page, currentFrame, pageNumber),
+            pageIndex
+          );
+        }
+        filtersFrame = await this.waitFrame(page, /Tipo de remesa/i, 120);
+      }
+    } else {
+      const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
+      if (!await consultation.isVisible().catch(() => false)) throw new Error("Santander no mostró la consulta de remesas");
+      await consultation.click();
+      // Santander conserva el último filtro y en algunas sesiones omite la
+      // pantalla "Tipo de remesa", entrando directamente al listado CORE.
+      const directAfterConsultation = await this.waitRemittanceListFrame(page, 12);
+      if (directAfterConsultation) {
+        return reopenRemittanceListAtPage(
+          async () => directAfterConsultation,
+          (currentFrame, pageNumber) => this.advanceRemittancePage(page, currentFrame, pageNumber),
+          pageIndex
+        );
+      }
+      filtersFrame = await this.waitFrame(page, /Tipo de remesa/i, 120);
     }
-    frame = await this.waitFrame(page, /Tipo de remesa/i, 120);
+    frame = filtersFrame;
     if (!frame) throw new Error("Santander no cargó los filtros de remesas");
     await frame.getByRole("listbox", { name: /Elige una opción/i }).click();
     await frame.getByRole("option", { name: /^Domiciliaciones$/i }).click();
@@ -506,7 +537,7 @@ export class SantanderReconciliationReader {
     const accountToggle = account.locator("xpath=ancestor::*[.//button][1]//button").first();
     await accountToggle.click();
     await frame.getByRole("button", { name: /^Remesas$/i }).click();
-    frame = await this.waitFrame(page, /Remesas de un acreedor/i);
+    frame = await this.waitRemittanceListFrame(page);
     if (!frame) throw new Error("Santander no cargó el listado de remesas");
     return reopenRemittanceListAtPage(
       async () => frame,
@@ -528,18 +559,18 @@ export class SantanderReconciliationReader {
     await next.press("Enter");
     for (let attempt = 0; attempt < 20; attempt++) {
       await frame.waitForTimeout(400);
-      const refreshed = await this.waitFrame(page, /Remesas de un acreedor/i, 5);
+      const refreshed = await this.waitRemittanceListFrame(page, 5);
       if (!refreshed) continue;
       const after = (await browserValueOr(() => refreshed.getByRole("row").allInnerTexts(), [])).join("|");
       if (after && after !== before) return refreshed;
     }
-    frame = await this.waitFrame(page, /Remesas de un acreedor/i, 10) ?? frame;
+    frame = await this.waitRemittanceListFrame(page, 10) ?? frame;
     next = frame.getByRole("button", { name: /^Ver siguientes$/i });
     if (await next.count() === 1 && await browserValueOr(() => next.isEnabled(), false)) {
       await next.click({ force: true });
       for (let attempt = 0; attempt < 20; attempt++) {
         await frame.waitForTimeout(400);
-        const refreshed = await this.waitFrame(page, /Remesas de un acreedor/i, 5);
+        const refreshed = await this.waitRemittanceListFrame(page, 5);
         if (!refreshed) continue;
         const after = (await browserValueOr(() => refreshed.getByRole("row").allInnerTexts(), [])).join("|");
         if (after && after !== before) return refreshed;
@@ -683,6 +714,17 @@ export class SantanderReconciliationReader {
     await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
     await this.waitReceiptFrame(page, remittanceNumber, 60);
     return debtor;
+  }
+
+  private async waitRemittanceListFrame(page: any, attempts = 40): Promise<any | null> {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      for (const frame of page.frames()) {
+        const text = await frame.locator("body").innerText().catch(() => "");
+        if (isRemittanceListFrame(frame.url(), text)) return frame;
+      }
+      await page.waitForTimeout(300);
+    }
+    return null;
   }
 
   private async waitReceiptFrame(page: any, remittanceNumber: string, attempts = 50): Promise<any | null> {
