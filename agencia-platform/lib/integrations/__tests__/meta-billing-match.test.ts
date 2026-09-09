@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { identifyMetaBillingAccount, isTrustedMetaBillingSender } from "../meta-billing-match";
+import { hasAuthenticatedMetaSender, identifyMetaBillingAccount, isTrustedMetaBillingSender } from "../meta-billing-match";
 
 describe("identifyMetaBillingAccount", () => {
   const accountIds = ["290451863303865", "2074249599540370"];
@@ -48,5 +48,12 @@ describe("identifyMetaBillingAccount", () => {
     expect(isTrustedMetaBillingSender(["receipt@facebookmail.com"])).toBe(true);
     expect(isTrustedMetaBillingSender(["billing@support.meta.com"])).toBe(true);
     expect(isTrustedMetaBillingSender(["fake-facebookmail.com@attacker.example"])).toBe(false);
+  });
+
+  it("requires a passing aligned authentication result", () => {
+    expect(hasAuthenticatedMetaSender("mx; dkim=pass header.i=@facebookmail.com; dmarc=pass header.from=facebookmail.com")).toBe(true);
+    expect(hasAuthenticatedMetaSender("mx; spf=pass smtp.mailfrom=notice.meta.com")).toBe(true);
+    expect(hasAuthenticatedMetaSender("mx; dkim=fail header.i=@facebookmail.com; dmarc=fail")).toBe(false);
+    expect(hasAuthenticatedMetaSender("mx; dkim=pass header.i=@attacker.example")).toBe(false);
   });
 });
