@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
+import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
 
 const cutoff = new Date("2026-08-09T22:00:00.000Z"); // 10/08/2026 00:00 Europe/Madrid
 
@@ -8,6 +8,12 @@ const invoices = [
   { id: "old", number: "FAC-002861", clientName: "RS advocats", totalCents: 36300, paidCents: 0, issueDate: new Date("2026-05-09T00:00:00Z") },
   { id: "other", number: "FAC-003099", clientName: "Otro cliente", totalCents: 36300, paidCents: 0, issueDate: new Date("2026-08-10T00:00:00Z") }
 ];
+
+it("uses request creation date for a manually prepared remittance without chargeDate", () => {
+  const createdAt = new Date("2026-09-08T13:34:00Z");
+  expect(effectiveSepaCandidateDate(null, createdAt)).toEqual(createdAt);
+  expect(effectiveSepaCandidateDate(new Date("2026-09-09T08:00:00Z"), createdAt)).toEqual(new Date("2026-09-09T08:00:00Z"));
+});
 
 describe("conciliación bancaria desde la fecha de corte", () => {
   it("ignora movimientos anteriores, pero importa cargos como gastos", () => {
