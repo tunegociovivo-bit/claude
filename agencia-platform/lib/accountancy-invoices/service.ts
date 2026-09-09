@@ -120,7 +120,17 @@ export async function processAllPendingGoogleAdsInvoiceRun(runId?: string, limit
 export async function processAllPendingMetaInvoiceRun(runId?: string, limit = 20) {
   const pending = await prisma.accountancyInvoiceRunItem.findMany({ where: { source: "META", status: "PENDING", ...(runId ? { runId } : {}) }, include: { run: true, client: true }, orderBy: { createdAt: "desc" }, take: limit });
   for (const group of [...new Set(pending.map((item) => item.runId))]) {
-    const items = pending.filter((item) => item.runId === group);
+    const candidates = pending.filter((item) => item.runId === group);
+    const claimedIds: string[] = [];
+    for (const item of candidates) {
+      const claimed = await prisma.accountancyInvoiceRunItem.updateMany({
+        where: { id: item.id, status: "PENDING" },
+        data: { status: "RUNNING", startedAt: new Date(), error: null }
+      });
+      if (claimed.count) claimedIds.push(item.id);
+    }
+    const items = candidates.filter((item) => claimedIds.includes(item.id));
+    if (!items.length) continue;
     const run = items[0].run;
     const account = await prisma.emailAccount.findFirst({ where: { workspaceId: run.workspaceId }, orderBy: { updatedAt: "desc" } });
     let attachments: Awaited<ReturnType<typeof findMetaBillingPdfAttachments>> = [];
@@ -152,20 +162,30 @@ export async function processAllPendingMetaInvoiceRun(runId?: string, limit = 20
 
 export async function createAccountancyInvoiceRun(workspaceId: string, trigger: "MANUAL" | "SCHEDULED", now = new Date()) {
   const period = getPreviousMonthPeriod(now);
+  const activeKey = `${workspaceId}:${period.key}:${trigger}`;
+  const active = await prisma.accountancyInvoiceRun.findUnique({ where: { activeKey }, include: { items: true } });
+  if (active) return active;
   const clients = await prisma.accountancyInvoiceClient.findMany({ where: { workspaceId, enabled: true }, orderBy: [{ source: "asc" }, { name: "asc" }] });
   const schedule = await prisma.accountancyInvoiceSchedule.findUnique({ where: { workspaceId } });
-  return prisma.accountancyInvoiceRun.create({
-    data: {
-      workspaceId,
-      periodKey: period.key,
-      periodFrom: new Date(`${period.from}T00:00:00.000Z`),
-      periodTo: new Date(`${period.to}T23:59:59.999Z`),
-      trigger,
-      recipients: schedule?.recipients ?? DEFAULT_RECIPIENTS,
-      items: { create: clients.map((client) => ({ clientId: client.id, clientName: client.name, source: client.source })) }
-    },
-    include: { items: true }
-  });
+  try {
+    return await prisma.accountancyInvoiceRun.create({
+      data: {
+        workspaceId, activeKey,
+        periodKey: period.key,
+        periodFrom: new Date(`${period.from}T00:00:00.000Z`),
+        periodTo: new Date(`${period.to}T23:59:59.999Z`),
+        trigger,
+        recipients: schedule?.recipients ?? DEFAULT_RECIPIENTS,
+        items: { create: clients.map((client) => ({ clientId: client.id, clientName: client.name, source: client.source })) }
+      },
+      include: { items: true }
+    });
+  } catch (error: any) {
+    if (error?.code !== "P2002") throw error;
+    const concurrent = await prisma.accountancyInvoiceRun.findUnique({ where: { activeKey }, include: { items: true } });
+    if (!concurrent) throw error;
+    return concurrent;
+  }
 }
 
 export async function refreshRunStatus(runId: string) {
@@ -174,7 +194,7 @@ export async function refreshRunStatus(runId: string) {
   const status = getRunHealth(run.items);
   const updated = await prisma.accountancyInvoiceRun.update({
     where: { id: runId },
-    data: { status, ...(status === "SUCCESS" || status === "PARTIAL" || status === "FAILED" ? { finishedAt: new Date() } : {}) }
+    data: { status, ...(status === "SUCCESS" || status === "PARTIAL" || status === "FAILED" ? { finishedAt: new Date(), activeKey: null } : {}) }
   });
   if (updated.trigger === "SCHEDULED" && ["SUCCESS", "PARTIAL", "FAILED"].includes(updated.status)) {
     setImmediate(() => import("./delivery").then(({ deliverScheduledAccountancyRun }) => deliverScheduledAccountancyRun(runId)).catch((error) => console.warn("[facturas-gestoria] envío automático:", error?.message || error)));

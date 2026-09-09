@@ -329,6 +329,7 @@ model AccountancyInvoiceRun {
   periodTo     DateTime
   trigger      String
   status       String                      @default("PENDING")
+  activeKey    String?                     @unique
   recipients   Json?
   archiveFiles Json?
   emailedAt    DateTime?
