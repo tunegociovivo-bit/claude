@@ -35,6 +35,7 @@
   "host_permissions": [
     "https://hub.negociovivo.app/*",
     "https://business.facebook.com/*",
+    "https://adsmanager.facebook.com/*",
     "https://www.facebook.com/*",
     "https://secure.facebook.com/*",
     "https://ads.google.com/*",
@@ -89,6 +90,7 @@
     {
       "matches": [
         "https://business.facebook.com/*",
+        "https://adsmanager.facebook.com/*",
         "https://www.facebook.com/*",
         "https://secure.facebook.com/*"
       ],
@@ -99,6 +101,7 @@
     {
       "matches": [
         "https://business.facebook.com/*",
+        "https://adsmanager.facebook.com/*",
         "https://www.facebook.com/*",
         "https://secure.facebook.com/*"
       ],

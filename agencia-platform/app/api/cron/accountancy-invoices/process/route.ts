@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cronAuthOk } from "@/lib/cron-auth";
 import { prisma } from "@/lib/db/prisma";
 import { runManualInvoiceProcessors } from "@/lib/accountancy-invoices/manual-run";
-import { processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun } from "@/lib/accountancy-invoices/service";
+import { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun } from "@/lib/accountancy-invoices/service";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,8 +16,7 @@ export async function GET(req: NextRequest) {
   });
   await runManualInvoiceProcessors("", [
     () => processPendingHoldedInvoiceRun(),
-    () => processAllPendingGoogleAdsInvoiceRun(undefined, 2),
-    () => processAllPendingMetaInvoiceRun(undefined, 4)
+    () => processAllPendingGoogleAdsInvoiceRun(undefined, 2)
   ]);
   return NextResponse.json({ ok: true });
 }

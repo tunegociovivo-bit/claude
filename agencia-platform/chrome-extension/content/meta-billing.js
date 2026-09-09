@@ -17,6 +17,8 @@
 (() => {
   if (window.__hubMetaBillingLoaded) return;
   window.__hubMetaBillingLoaded = true;
+  const capturedFiles = [];
+  const capturedKeys = new Set();
 
   // Puente: el interceptor (world MAIN) publica los PDFs capturados por
   // window.postMessage; los reenviamos al background para subirlos al Hub.
@@ -24,6 +26,11 @@
     if (e.source !== window) return;
     const d = e.data;
     if (d && d.source === "hub-meta-pdf" && d.base64) {
+      const key = `${d.name || "meta-factura.pdf"}:${d.base64.length}`;
+      if (!capturedKeys.has(key)) {
+        capturedKeys.add(key);
+        capturedFiles.push({ name: d.name || "meta-factura.pdf", base64: d.base64 });
+      }
       try {
         chrome.runtime.sendMessage({ from: "content", type: "meta-pdf-captured", name: d.name, base64: d.base64 });
       } catch {}
@@ -54,6 +61,30 @@
       }
     });
     return [...urls];
+  }
+
+  function collectVisibleInvoiceButtons() {
+    const controls = [...document.querySelectorAll("button,[role='button'],a,span")]
+      .filter((element) => /^\s*(?:descargar|download)\s+(?:pdf|factura|invoice|recibo|receipt)\s*$/i.test(element.textContent || ""))
+      .map((element) => element.closest("button,[role='button'],a") || element)
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+    return [...new Set(controls)];
+  }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function captureButtonDownloads() {
+    const controls = collectVisibleInvoiceButtons().slice(0, 50);
+    for (const control of controls) {
+      const before = capturedFiles.length;
+      control.click();
+      for (let attempt = 0; attempt < 12 && capturedFiles.length === before; attempt++) await wait(250);
+    }
+    await wait(500);
+    return { controls: controls.length, files: [...capturedFiles] };
   }
 
   async function fetchAsBase64(url) {
@@ -93,7 +124,12 @@
           }
         }
         const emptyConfirmed = /no hay transacciones|no tienes ninguna transacción/i.test(document.body?.innerText || "");
-        sendResponse({ ok: true, files, found: urls.length, errors, emptyConfirmed });
+        const buttonDownloads = await captureButtonDownloads();
+        for (const file of buttonDownloads.files) {
+          const key = `${file.name}:${file.base64.length}`;
+          if (!files.some((existing) => `${existing.name}:${existing.base64.length}` === key)) files.push(file);
+        }
+        sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, errors, emptyConfirmed });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       }
