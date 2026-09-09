@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasAuthenticatedMetaSender, identifyMetaBillingAccount, isTrustedMetaBillingSender } from "../meta-billing-match";
+import { hasAuthenticatedMetaSender, identifyMetaBillingAccount, isScannableBillingMailbox, isTrustedMetaBillingSender } from "../meta-billing-match";
 
 describe("identifyMetaBillingAccount", () => {
   const accountIds = ["290451863303865", "2074249599540370"];
@@ -58,5 +58,13 @@ describe("identifyMetaBillingAccount", () => {
     expect(hasAuthenticatedMetaSender("mail.negociovivo.com; dkim=pass header.i=@attacker.example", trusted)).toBe(false);
     expect(hasAuthenticatedMetaSender("attacker.example; dkim=pass header.i=@meta.com", trusted)).toBe(false);
     expect(hasAuthenticatedMetaSender("mail.negociovivo.com; dkim=pass header.i=@meta.com.attacker.example", trusted)).toBe(false);
+  });
+
+  it("scans client folders but excludes outgoing and discarded mail", () => {
+    expect(isScannableBillingMailbox({ path: "INBOX.AUTOMATIC CHOICE" })).toBe(true);
+    expect(isScannableBillingMailbox({ path: "INBOX.EUROSISTEMAS" })).toBe(true);
+    expect(isScannableBillingMailbox({ path: "INBOX.Sent", specialUse: "\\Sent" })).toBe(false);
+    expect(isScannableBillingMailbox({ path: "INBOX.Trash", specialUse: "\\Trash" })).toBe(false);
+    expect(isScannableBillingMailbox({ path: "INBOX.spam", specialUse: "\\Junk" })).toBe(false);
   });
 });
