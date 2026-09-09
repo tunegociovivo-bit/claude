@@ -27,7 +27,7 @@
     if (e.source !== window) return;
     const d = e.data;
     if (d && d.source === "hub-meta-pdf" && d.base64) {
-      const key = `${d.name || "meta-factura.pdf"}:${d.base64.length}`;
+      const key = `${d.name || "meta-factura.pdf"}:${d.base64.length}:${d.base64.slice(0, 48)}:${d.base64.slice(-48)}`;
       if (!capturedKeys.has(key)) {
         capturedKeys.add(key);
         capturedFiles.push({ name: d.name || "meta-factura.pdf", base64: d.base64 });
@@ -82,11 +82,14 @@
   async function captureButtonDownloads() {
     const controls = collectVisibleInvoiceButtons().slice(0, 50);
     for (const control of controls) {
-      const before = capturedFiles.length;
       control.click();
-      for (let attempt = 0; attempt < 12 && capturedFiles.length === before; attempt++) await wait(250);
+      await wait(200);
     }
-    await wait(500);
+    const deadline = Date.now() + 45_000;
+    while (capturedFiles.length < controls.length && Date.now() < deadline) await wait(250);
+    if (capturedFiles.length < controls.length) {
+      throw new Error(`No respondieron todos los botones de descarga de Meta (${capturedFiles.length}/${controls.length}). Se reintentarÃ¡ sin marcar el trabajo como completado.`);
+    }
     return { controls: controls.length, files: [...capturedFiles] };
   }
 
@@ -132,8 +135,8 @@
         const emptyConfirmed = /no hay transacciones|no tienes ninguna transacción/i.test(document.body?.innerText || "");
         const buttonDownloads = await captureButtonDownloads();
         for (const file of buttonDownloads.files) {
-          const key = `${file.name}:${file.base64.length}`;
-          if (!files.some((existing) => `${existing.name}:${existing.base64.length}` === key)) files.push(file);
+          const key = `${file.name}:${file.base64.length}:${file.base64.slice(0, 48)}:${file.base64.slice(-48)}`;
+          if (!files.some((existing) => `${existing.name}:${existing.base64.length}:${existing.base64.slice(0, 48)}:${existing.base64.slice(-48)}` === key)) files.push(file);
         }
         sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, errors, emptyConfirmed });
       } catch (e) {
