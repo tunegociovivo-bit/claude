@@ -560,17 +560,19 @@ export async function reconciliationDashboard(workspaceId: string) {
 
 export async function requestReconciliation(workspaceId: string) {
   const config = await ensureReconciliationConfig(workspaceId);
-  // Reintenta primero las coincidencias sobre movimientos ya almacenados. Esto
-  // permite reparar una factura aunque la lectura del portal bancario se demore
-  // o no aporte movimientos nuevos en esta ejecucion.
-  await repairDuplicateSepaReceipts(workspaceId);
-  await repairMisreferencedTransfers(workspaceId);
-  await repairUnmatchedExactReferences(workspaceId);
-  await repairSyntheticSepaDuplicates(workspaceId);
-  await reconcileUniqueSepaSummaries(workspaceId);
-  await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
-  return prisma.bankReconciliationConfig.update({
+  const requested = await prisma.bankReconciliationConfig.update({
     where: { workspaceId },
     data: { lastSyncAt: null, lastError: null, profile: profileForForcedReconciliation(config.profile) as Prisma.InputJsonValue }
   });
+  if (!config.enabled) return requested;
+
+  // La solicitud ya esta persistida: aunque esta reparacion inmediata falle,
+  // el agente conserva el encargo de escanear Santander como fallback.
+  try {
+    await reconcileUniqueSepaSummaries(workspaceId);
+    await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
+  } catch (error) {
+    console.error("No se pudieron reconciliar inmediatamente los movimientos almacenados", error);
+  }
+  return requested;
 }
