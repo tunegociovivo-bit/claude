@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement } from "./matching";
+import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
 import { sendEmail } from "@/lib/integrations/email";
 import { profileForForcedReconciliation } from "./state";
 
@@ -340,9 +340,9 @@ export async function importAndReconcileMovements(workspaceId: string, movements
     }
     const existing = await prisma.bankTransaction.findUnique({
       where: { workspaceId_provider_externalId: { workspaceId, provider: "SANTANDER", externalId: movement.externalId } },
-      select: { id: true }
+      select: { id: true, status: true }
     });
-    if (existing) continue;
+    if (existing && !shouldReprocessExistingBankTransaction(existing.status, Boolean(movement.remittanceNumber && movement.debtorIbanLast4))) continue;
 
     if (movement.amountCents < 0) {
       const issuer = await prisma.invoiceIssuer.findFirst({ where: { workspaceId, deletedAt: null }, orderBy: { isDefault: "desc" }, select: { id: true } });
@@ -382,6 +382,18 @@ export async function importAndReconcileMovements(workspaceId: string, movements
           select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true }
         })
       : [];
+    const activeRequests = movement.remittanceNumber && movement.debtorIbanLast4
+      ? await prisma.sepaRemittanceRequest.findMany({
+          where: {
+            workspaceId,
+            archivedAt: null,
+            status: { in: ["APPROVED", "PREPARING", "PENDING_SIGNATURE", "SIGNED"] },
+            amountCents: movement.amountCents,
+            chargeDate: { gte: config.startsAt }
+          },
+          select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true }
+        })
+      : [];
     const invoices = await prisma.invoice.findMany({
       where: {
         workspaceId,
@@ -400,11 +412,11 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       counterpartyName: clean(movement.counterpartyName, 200) ?? ""
     }, invoices.map((invoice) => ({ ...invoice, clientName: clientName(invoice.clientSnapshot) })));
     const sepaCandidate = movement.debtorIbanLast4
-      ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, bookedAt }, preparedJobs)
+      ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, bookedAt }, [...preparedJobs, ...activeRequests])
       : null;
     const candidate = sepaCandidate ?? genericCandidate;
     const aggregateTransaction = movement.remittanceNumber && movement.debtorIbanLast4
-      ? await prisma.bankTransaction.findFirst({
+      ? existing ?? await prisma.bankTransaction.findFirst({
           where: {
             workspaceId,
             provider: "SANTANDER",

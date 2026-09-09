@@ -31,7 +31,12 @@ export function matchSepaReceipt(payment: { amountCents: number; debtorIbanLast4
     return job.amountCents === payment.amountCents && Boolean(last4) && last4 === payment.debtorIbanLast4
       && Boolean(job.chargeDate) && localDay(job.chargeDate!) === localDay(payment.bookedAt);
   });
-  return matches.length === 1 ? { invoiceId: matches[0].invoiceId, confidence: "SEPA_RECEIPT" } : null;
+  const invoiceIds = [...new Set(matches.map((job) => job.invoiceId))];
+  return invoiceIds.length === 1 ? { invoiceId: invoiceIds[0], confidence: "SEPA_RECEIPT" } : null;
+}
+
+export function shouldReprocessExistingBankTransaction(status: string, hasVerifiedReceiptIdentifiers: boolean): boolean {
+  return status === "UNMATCHED" && hasVerifiedReceiptIdentifiers;
 }
 
 export function matchUniqueSepaSummary(payment: { amountCents: number; bookedAt: Date }, requests: SepaRequestCandidate[]): PaymentMatch | null {
