@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, isDirectRemittanceList, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldImportAccountMovement, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
+import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, isDirectRemittanceList, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldImportAccountMovement, shouldRunDailyReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -142,6 +142,7 @@ async function main() {
   }
   const incoming = parseSantanderMovementText("10/08/2026 RS ADVOCATS Cobro FAC-003024 +363,00 EUR");
   ok("lee un abono Santander", incoming?.amountCents === 36300 && incoming.reference.includes("FAC-003024"));
+  ok("detecta abonos positivos sin signo en el historial Santander", isSantanderMovementRowText("02/09/2026 Emision Remesa Sepa Sdd 3.362,67 EUR"));
   ok("lee un cargo Santander para registrarlo como gasto", parseSantanderMovementText("10/08/2026 COMISIÓN -12,00 EUR")?.amountCents === -1200);
 
   ok("conserva el abono agregado SEPA como respaldo si falla el detalle de recibos",
