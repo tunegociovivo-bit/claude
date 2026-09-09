@@ -105,8 +105,27 @@ describe("getInvoiceOperations", () => {
 
   it("no exige remesa a rectificativas ni facturas con otro método de pago", () => {
     expect(getInvoiceOperations({ ...base, type: "RECTIFICATIVA", number: "R-003101" }).overall).toBe("NOT_APPLICABLE");
-    expect(getInvoiceOperations({ ...base, paymentMethod: "TRANSFER" }).overall).toBe("NOT_APPLICABLE");
+    expect(getInvoiceOperations({ ...base, paymentMethod: "TRANSFER" }).overall).toBe("IN_PROGRESS");
     expect(getInvoiceOperations({ ...base, remittanceExcluded: true }).summary).toBe("Excluida de remesas");
+  });
+
+  it("tracks payment reconciliation for invoices paid by bank transfer", () => {
+    const pending = getInvoiceOperations({ ...base, paymentMethod: "TRANSFER" });
+    expect(pending.summary).toBe("Pendiente de cobro");
+    expect(pending.stages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "reconciliation", label: "Pendiente de conciliar", tone: "warning" })
+    ]));
+
+    const paid = getInvoiceOperations({
+      ...base,
+      paymentMethod: "TRANSFER",
+      status: "PAID",
+      paidCents: 36_300,
+      paidAt: "2026-09-09T08:00:00.000Z",
+      reconciliation: { status: "MATCHED", matchedAt: "2026-09-09T08:00:00.000Z", matchConfidence: "EXACT_REFERENCE" }
+    });
+    expect(paid.overall).toBe("COMPLETE");
+    expect(paid.summary).toBe("Cobrada y conciliada");
   });
 
   it("no oculta un trabajo activo aunque la factura se excluya después", () => {
