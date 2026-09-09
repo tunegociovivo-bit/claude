@@ -211,6 +211,21 @@ export function isSantanderMovementRowText(text: string): boolean {
     && text.length < 1200;
 }
 
+export function selectReusableSantanderPage<T extends { url(): string }>(pages: T[], santanderOrigin: string): T | null {
+  return pages.find((page) => {
+    if (!isAuthenticatedSantanderUrl(page.url(), santanderOrigin)) return false;
+    const pathname = new URL(page.url()).pathname;
+    return pathname === "/paas/nwe/app/posglobal"
+      || pathname.startsWith("/paas/nwe/app/cuentas/")
+      || pathname === "/paas/nwe/app/portal/distribuidoras/remesas";
+  }) ?? null;
+}
+
+export function hasVerifiedSantanderSessionText(text: string): boolean {
+  return /posici[oó]n global|saldo disponible|mis cuentas|consulta de remesas|remesas de un acreedor/i.test(text)
+    && !/sesi.n ha caducado|desconexi.n por inactividad/i.test(text);
+}
+
 export class SantanderReconciliationReader {
   constructor(private opts: { cdpUrl: string; santanderOrigin: string; credentialFile: string }) {}
 
@@ -218,11 +233,16 @@ export class SantanderReconciliationReader {
     const { chromium } = await import("playwright-core");
     const browser = await chromium.connectOverCDP(this.opts.cdpUrl);
     let page: any = null;
+    let ownsPage = false;
     try {
       const context = browser.contexts()[0];
       if (!context) throw new Error("Chrome dedicado no está disponible");
       if (!await this.ensureAuthenticated(context)) throw new Error("No se pudo iniciar sesión en Santander con la credencial local");
-      page = await context.newPage();
+      page = selectReusableSantanderPage(context.pages(), this.opts.santanderOrigin);
+      if (!page) {
+        page = await context.newPage();
+        ownsPage = true;
+      }
       let frame = await this.openRemittanceList(page);
       const unique = new Map<string, BrowserMovement>();
       const seenPages = new Set<string>();
@@ -363,12 +383,21 @@ export class SantanderReconciliationReader {
       }
       return [...unique.values()];
     } finally {
-      if (page) await page.close().catch(() => {});
+      if (page && ownsPage) await page.close().catch(() => {});
       await browser.close().catch(() => {});
     }
   }
 
   private async ensureAuthenticated(context: any): Promise<boolean> {
+    // A valid app tab wins over stale login copies. Submitting a second login
+    // can invalidate Santander's already authenticated browser session.
+    const activeSession: any = selectReusableSantanderPage(context.pages(), this.opts.santanderOrigin);
+    if (activeSession) {
+      const frameTexts = await Promise.all(activeSession.frames().map((frame: any) => frame.locator("body").innerText().catch(() => "")));
+      const text = frameTexts.join("\n");
+      if (hasVerifiedSantanderSessionText(text)) return true;
+      await activeSession.goto(`${this.opts.santanderOrigin}/paas/loginnwe/?forcedLogout=true`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+    }
     // Una pantalla de login/reconexión es la señal autoritativa. Puede coexistir
     // con pestañas internas cuya URL parece autenticada pero cuya sesión caducó.
     const loginPages = context.pages().filter((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
@@ -381,12 +410,6 @@ export class SantanderReconciliationReader {
       return this.submitStoredLogin(page);
     }
 
-    const authenticated = context.pages().find((candidate: any) => isAuthenticatedSantanderUrl(candidate.url(), this.opts.santanderOrigin));
-    if (authenticated) {
-      const text = await authenticated.locator("body").innerText().catch(() => "");
-      if (!/sesi.n ha caducado|desconexi.n por inactividad/i.test(text)) return true;
-      await authenticated.goto(`${this.opts.santanderOrigin}/paas/loginnwe/?forcedLogout=true`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
-    }
     page = context.pages().find((candidate: any) => candidate.url().startsWith(`${this.opts.santanderOrigin}/paas/loginnwe/`));
     if (!page) {
       page = await context.newPage();

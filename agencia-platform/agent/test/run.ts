@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, isDirectRemittanceList, isForceReconciliationPending, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldImportAccountMovement, shouldRunDailyReconciliation, shouldStartReconciliation } from "../src/santander/reconciliation.js";
+import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, hasVerifiedSantanderSessionText, isDirectRemittanceList, isForceReconciliationPending, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, selectReusableSantanderPage, shouldImportAccountMovement, shouldRunDailyReconciliation, shouldStartReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -231,6 +231,15 @@ async function main() {
   ok("reconoce el módulo autenticado de remesas", isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es/paas/nwe/app/portal/distribuidoras/remesas", safeLogin.allowedOrigin));
   ok("no confunde el login con una sesión autenticada", !isAuthenticatedSantanderUrl(safeLogin.currentUrl, safeLogin.allowedOrigin));
   ok("no acepta una aplicación en un dominio parecido", !isAuthenticatedSantanderUrl("https://empresas3.gruposantander.es.ejemplo.com/paas/nwe/app/posglobal", safeLogin.allowedOrigin));
+  const authenticatedPage = { url: () => "https://empresas3.gruposantander.es/paas/nwe/app/cuentas/subhome" };
+  const loginPage = { url: () => "https://empresas3.gruposantander.es/paas/loginnwe/?forcedLogout=true" };
+  const foreignPage = { url: () => "https://hub.negociovivo.app/facturacion" };
+  ok("reutiliza la pestaña autenticada de Santander", selectReusableSantanderPage([foreignPage, loginPage, authenticatedPage], safeLogin.allowedOrigin) === authenticatedPage);
+  ok("no reutiliza una pantalla de login", selectReusableSantanderPage([foreignPage, loginPage], safeLogin.allowedOrigin) === null);
+  ok("no interrumpe una remesa en preparación", selectReusableSantanderPage([{ url: () => "https://empresas3.gruposantander.es/paas/nwe/app/enviorem/" }], safeLogin.allowedOrigin) === null);
+  ok("verifica una sesión por una marca visual positiva", hasVerifiedSantanderSessionText("Mis cuentas\nSaldo disponible"));
+  ok("rechaza un shell interno vacío como sesión", !hasVerifiedSantanderSessionText(""));
+  ok("rechaza una sesión caducada aunque conserve el menú", !hasVerifiedSantanderSessionText("Mis cuentas\nLa sesión ha caducado"));
   ok("no confía solo en una URL autenticada si falta la marca visual de sesión", shouldAttemptSavedLogin(false));
   ok("no intenta acceder de nuevo si la sesión está verificada visualmente", !shouldAttemptSavedLogin(true));
   ok("espera mientras Santander completa el acceso", shouldWaitForLoginCompletion(false, false, 0, 30));
