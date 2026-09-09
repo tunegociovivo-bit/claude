@@ -453,21 +453,31 @@ export async function findMetaBillingPdfAttachments(opts: {
           smaller: 15 * 1024 * 1024,
           or: [{ from: "facebookmail.com" }, { from: "facebook.com" }, { from: "meta.com" }],
         }, { uid: true })) || [];
-        for (const uid of uids) {
-        if (found.length >= 500) break;
-        const metadata = await client.fetchOne(String(uid), { size: true }, { uid: true });
-        if (!metadata || typeof metadata === "boolean" || !metadata.size || metadata.size > 15 * 1024 * 1024) continue;
-        const message = await client.fetchOne(String(uid), { source: { maxLength: 15 * 1024 * 1024 }, internalDate: true }, { uid: true });
-        if (!message || typeof message === "boolean" || !message.source) continue;
-        const parsed = await simpleParser(message.source as Buffer);
-        const subject = String(parsed.subject || "");
-        const from = parsed.from?.text || "";
-        const senderAddresses = (parsed.from?.value || []).map((entry) => String(entry.address || ""));
-        const authenticationResults = String(parsed.headers.get("authentication-results") || "");
         const mailboxDomain = String(acc.email || acc.loginUser || "").split("@").pop() || "";
         const trustedAuthservIds = [...new Set([acc.imapHost, mailboxDomain].map((value) => String(value || "").trim()).filter(Boolean))];
-        const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
-        if (!isTrustedMetaBillingSender(senderAddresses) || !hasAuthenticatedMetaSender(authenticationResults, trustedAuthservIds)) continue;
+        // Authenticate from lightweight headers before downloading bodies/PDFs.
+        // Batches keep memory bounded without dropping invoices from large folders.
+        for (let offset = 0; offset < uids.length && found.length < 500; offset += 500) {
+          const metadataRows = await client.fetchAll(
+            uids.slice(offset, offset + 500),
+            { uid: true, size: true, headers: ["from", "authentication-results"] },
+            { uid: true },
+          );
+          for (const metadata of metadataRows) {
+            if (found.length >= 500) break;
+            if (!metadata.uid || !metadata.headers || !metadata.size || metadata.size > 15 * 1024 * 1024) continue;
+            const securityHeaders = await simpleParser(metadata.headers as Buffer);
+            const senderAddresses = (securityHeaders.from?.value || []).map((entry) => String(entry.address || ""));
+            const authenticationResults = String(securityHeaders.headers.get("authentication-results") || "");
+            if (!isTrustedMetaBillingSender(senderAddresses) || !hasAuthenticatedMetaSender(authenticationResults, trustedAuthservIds)) continue;
+
+            const uid = metadata.uid;
+            const message = await client.fetchOne(String(uid), { source: { maxLength: 15 * 1024 * 1024 }, internalDate: true }, { uid: true });
+            if (!message || typeof message === "boolean" || !message.source) continue;
+            const parsed = await simpleParser(message.source as Buffer);
+            const subject = String(parsed.subject || "");
+            const from = parsed.from?.text || "";
+            const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
         const amountMatch = searchable.match(/(?:total|importe|amount)[^\d]{0,30}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i);
         const amountCents = amountMatch ? Math.round(Number(amountMatch[1].replace(/[.\s]/g, "").replace(",", ".")) * 100) : null;
         for (const attachment of parsed.attachments || []) {
@@ -494,6 +504,7 @@ export async function findMetaBillingPdfAttachments(opts: {
           hashes.add(hash);
           const rawDate = parsed.date || message.internalDate;
           found.push({ accountId, filename: attachment.filename || `meta-${accountId}-${uid}.pdf`, content, messageDate: rawDate ? new Date(rawDate) : null, subject, amountCents, hash });
+          }
         }
         }
       } finally { lock.release(); }
