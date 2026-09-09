@@ -25,4 +25,15 @@ describe("Meta billing browser collector", () => {
     expect(collector).toContain("collectVisibleInvoiceButtons");
     expect(collector).toContain("capturedFiles");
   });
+
+  it("suppresses the immediate ingest while a queued harvest owns the PDF", () => {
+    const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
+    expect(collector).toContain("harvestInProgress");
+    expect(collector).toContain("if (!harvestInProgress)");
+  });
+
+  it("fails the queued item when Meta invoice ingestion fails", () => {
+    const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
+    expect(worker).toContain("if (!ingested.ok) throw new Error");
+  });
 });
