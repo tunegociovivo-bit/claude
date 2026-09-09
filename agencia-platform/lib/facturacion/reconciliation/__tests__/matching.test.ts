@@ -48,6 +48,16 @@ describe("conciliación bancaria desde la fecha de corte", () => {
     )).toBeNull();
   });
 
+  it("ignores historical remittances whose invoice is no longer outstanding", () => {
+    expect(matchUniqueSepaSummary(
+      { amountCents: 169400, bookedAt: new Date("2026-09-09T12:00:00Z") },
+      [
+        { invoiceId: "fac-003017", amountCents: 169400, chargeDate: new Date("2026-09-07T08:00:00Z"), outstanding: false },
+        { invoiceId: "fac-003068", amountCents: 169400, chargeDate: new Date("2026-09-08T08:00:00Z"), outstanding: true }
+      ]
+    )).toMatchObject({ invoiceId: "fac-003068", confidence: "SEPA_RECEIPT" });
+  });
+
   it("rejects requests outside the safe settlement window", () => {
     expect(matchUniqueSepaSummary(
       { amountCents: 54450, bookedAt: new Date("2026-08-13T12:00:00Z") },

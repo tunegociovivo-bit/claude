@@ -242,7 +242,21 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
       },
       select: { invoiceId: true, amountCents: true, chargeDate: true, archivedAt: true }
     });
-    const requestMatch = matchUniqueSepaSummary({ amountCents: summary.amountCents, bookedAt: summary.bookedAt }, nearbyRequests);
+    const outstandingInvoices = nearbyRequests.length ? await prisma.invoice.findMany({
+      where: {
+        workspaceId,
+        id: { in: [...new Set(nearbyRequests.map((request) => request.invoiceId))] },
+        status: "ISSUED",
+        paidCents: 0,
+        deletedAt: null
+      },
+      select: { id: true }
+    }) : [];
+    const outstandingInvoiceIds = new Set(outstandingInvoices.map((invoice) => invoice.id));
+    const requestMatch = matchUniqueSepaSummary(
+      { amountCents: summary.amountCents, bookedAt: summary.bookedAt },
+      nearbyRequests.map((request) => ({ ...request, outstanding: outstandingInvoiceIds.has(request.invoiceId) }))
+    );
     if (requestMatch) {
       const invoice = await prisma.invoice.findFirst({
         where: { id: requestMatch.invoiceId, workspaceId, status: "ISSUED", deletedAt: null, paidCents: 0 },

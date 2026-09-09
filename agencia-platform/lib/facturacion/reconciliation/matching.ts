@@ -19,7 +19,7 @@ export type PaymentMatch = {
 };
 
 export type SepaJobCandidate = { invoiceId: string; amountCents: number; ibanMasked: string | null; chargeDate: Date | null };
-export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null; archivedAt?: Date | null };
+export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null; archivedAt?: Date | null; outstanding?: boolean };
 
 function localDay(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -46,6 +46,7 @@ export function matchUniqueSepaSummary(payment: { amountCents: number; bookedAt:
   const earliestCharge = payment.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000;
   const latestCharge = payment.bookedAt.getTime() + 12 * 60 * 60 * 1000;
   const matches = requests.filter((request) => !request.archivedAt
+    && request.outstanding !== false
     && request.amountCents === payment.amountCents
     && Boolean(request.chargeDate)
     && request.chargeDate!.getTime() >= earliestCharge
