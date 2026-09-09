@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Mail, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { getAccountancyRunProgress } from "@/lib/accountancy-invoices/progress";
 
 type Client = { id: string; name: string; source: string; externalAccountId?: string | null; connectionRef?: string | null; enabled: boolean };
 type RunItem = { id: string; clientName: string; source: string; status: string; invoiceCount: number; amountCents: number; error?: string | null };
@@ -16,6 +17,7 @@ export default function AccountancyInvoicesClient() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({ name: "", source: "META", externalAccountId: "", connectionRef: "" });
   const [recipients, setRecipients] = useState("info@negociovivo.com");
+  const [clock, setClock] = useState(() => Date.now());
   const load = async () => { const res = await fetch("/api/accountancy-invoices", { cache: "no-store" }); const json = await res.json(); if (!res.ok) throw new Error(json.error); setData(json); setRecipients((json.schedule.recipients || []).join(", ")); };
   useEffect(() => { load().catch((e) => setError(e.message)); }, []);
   const latest = data?.runs[0];
@@ -24,7 +26,13 @@ export default function AccountancyInvoicesClient() {
     const timer = window.setInterval(() => { void load().catch((e) => setError(e.message)); }, 5000);
     return () => window.clearInterval(timer);
   }, [latest?.id, latest?.status]);
+  useEffect(() => {
+    if (!latest || !["PENDING", "RUNNING"].includes(latest.status)) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [latest?.id, latest?.status]);
   const failed = useMemo(() => latest?.items.filter((item) => item.status === "FAILED") ?? [], [latest]);
+  const progress = latest ? getAccountancyRunProgress(latest, new Date(clock)) : null;
   async function request(url: string, method: string, body?: unknown) { setBusy(true); setError(""); try { const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); const json = await res.json(); if (!res.ok) throw new Error(json.error); await load(); return json; } catch (e: any) { setError(e.message || "Error inesperado"); } finally { setBusy(false); } }
   if (!data) return <div className="rounded-xl border bg-white p-8 text-slate-500">Cargando control de facturas…</div>;
   return <div className="space-y-6">
@@ -34,6 +42,7 @@ export default function AccountancyInvoicesClient() {
     {failed.length > 0 && <section className="rounded-2xl border-4 border-red-500 bg-red-50 p-5 shadow-lg"><h2 className="flex items-center gap-2 text-xl font-black text-red-800"><XCircle /> {failed.length} cuentas con facturas no descargadas</h2><div className="mt-3 grid gap-2 md:grid-cols-2">{failed.map((item) => <div key={item.id} className="rounded-lg bg-white p-3 font-semibold text-red-900">{item.clientName} · {sourceLabels[item.source] || item.source}<div className="text-sm font-normal">{item.error || "No se pudo completar la descarga"}</div></div>)}</div></section>}
     <div className="grid gap-4 lg:grid-cols-3">
       <section className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Ejecución mensual</h2><p className="text-sm text-slate-500">Descarga siempre el mes natural anterior.</p></div><button disabled={busy} onClick={() => request("/api/accountancy-invoices", "POST", { action: "run" })} className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white hover:bg-brand-700 disabled:opacity-50"><Download className="h-5 w-5" /> Descargar ahora</button></div>
+        {latest && progress && ["PENDING", "RUNNING"].includes(latest.status) && <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4" role="status" aria-live="polite"><div className="flex items-center justify-between gap-3"><span className="font-bold text-blue-900"><RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />Descarga en curso</span><span className="text-sm font-semibold text-blue-800">Tiempo estimado: {progress.etaMinutes} min</span></div><div className="mt-3 h-3 overflow-hidden rounded-full bg-blue-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progress.percent}%` }} /></div><p className="mt-2 text-sm text-blue-800">{progress.completed} de {progress.total} cuentas procesadas · {progress.percent}%</p></div>}
         <div className="mt-5 grid gap-3 sm:grid-cols-3"><label className="text-sm font-semibold text-slate-700">Día del mes<input type="number" min={1} max={28} value={data.schedule.dayOfMonth} onChange={(e) => setData({ ...data, schedule: { ...data.schedule, dayOfMonth: Number(e.target.value) } })} className="mt-1 w-full rounded-lg border p-2" /></label><label className="text-sm font-semibold text-slate-700">Hora<input type="time" value={data.schedule.time} onChange={(e) => setData({ ...data, schedule: { ...data.schedule, time: e.target.value } })} className="mt-1 w-full rounded-lg border p-2" /></label><label className="flex items-end gap-2 rounded-lg bg-slate-50 p-3 font-semibold"><input type="checkbox" checked={data.schedule.enabled} onChange={(e) => setData({ ...data, schedule: { ...data.schedule, enabled: e.target.checked } })} /> Programación activa</label></div>
         <button disabled={busy} onClick={() => request("/api/accountancy-invoices", "PATCH", { action: "schedule", ...data.schedule, recipients })} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-brand-300 px-4 py-2 font-semibold text-brand-700"><CalendarClock className="h-4 w-4" /> Guardar programación</button>
       </section>

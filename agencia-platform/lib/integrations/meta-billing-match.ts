@@ -31,3 +31,10 @@ export function hasAuthenticatedMetaSender(authenticationResults: string, truste
   const trustedDomain = String.raw`(?:[a-z0-9-]+\.)*(?:facebookmail\.com|facebook\.com|meta\.com)(?=\s|;|$)`;
   return new RegExp(String.raw`(?:dkim=pass[^;\r\n]*(?:header\.(?:i|d)=@?|d=)${trustedDomain}|dmarc=pass[^;\r\n]*header\.from=${trustedDomain}|spf=pass[^;\r\n]*smtp\.mailfrom=[^;\s@]*@?${trustedDomain})`, "i").test(value);
 }
+
+export function isScannableBillingMailbox(mailbox: { path: string; specialUse?: string | null; noSelect?: boolean }) {
+  if (mailbox.noSelect) return false;
+  const specialUse = String(mailbox.specialUse || "").toLowerCase();
+  if (["\\sent", "\\trash", "\\junk", "\\drafts"].includes(specialUse)) return false;
+  return !/(^|[./])(?:sent|enviados|trash|papelera|spam|junk|drafts|borradores)([./]|$)/i.test(mailbox.path);
+}

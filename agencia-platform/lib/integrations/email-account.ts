@@ -11,7 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { createHash } from "node:crypto";
-import { hasAuthenticatedMetaSender, identifyMetaBillingAccount, isTrustedMetaBillingSender } from "./meta-billing-match";
+import { hasAuthenticatedMetaSender, identifyMetaBillingAccount, isScannableBillingMailbox, isTrustedMetaBillingSender } from "./meta-billing-match";
 
 // Timeouts: sin esto, si el servidor de correo no responde (puerto
 // bloqueado, host caído, firewall que descarta paquetes) la conexión se
@@ -442,10 +442,21 @@ export async function findMetaBillingPdfAttachments(opts: {
   const found: BillingPdfAttachment[] = [];
   const hashes = new Set<string>();
   try {
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const uids = (await client.search({ since: opts.from, before: new Date(opts.to.getTime() + 1) }, { uid: true })) || [];
-      for (const uid of uids.slice(-500)) {
+    const mailboxes = (await client.list()).filter((mailbox: any) => isScannableBillingMailbox(mailbox));
+    let remainingMessages = 500;
+    for (const mailbox of mailboxes) {
+      if (remainingMessages <= 0) break;
+      const lock = await client.getMailboxLock(mailbox.path);
+      try {
+        const uids = (await client.search({
+          since: opts.from,
+          before: new Date(opts.to.getTime() + 1),
+          smaller: 15 * 1024 * 1024,
+          or: [{ from: "facebookmail.com" }, { from: "facebook.com" }, { from: "meta.com" }],
+        }, { uid: true })) || [];
+        const selectedUids = uids.slice(-remainingMessages);
+        remainingMessages -= selectedUids.length;
+        for (const uid of selectedUids) {
         const metadata = await client.fetchOne(String(uid), { size: true }, { uid: true });
         if (!metadata || typeof metadata === "boolean" || !metadata.size || metadata.size > 15 * 1024 * 1024) continue;
         const message = await client.fetchOne(String(uid), { source: { maxLength: 15 * 1024 * 1024 }, internalDate: true }, { uid: true });
@@ -473,7 +484,7 @@ export async function findMetaBillingPdfAttachments(opts: {
               const parsedText: any = await withTimeout<any>(parser.getText({ first: 3 }), 5_000, "PDF de Meta");
               pdfText = String(parsedText?.text || "").slice(0, 250_000);
             }
-            finally { await parser.destroy?.(); }
+            finally { if (typeof parser.destroy === "function") await parser.destroy(); }
           } catch {
             // Some image-only PDFs cannot be parsed. The email body may still
             // contain the account ID, so keep matching against both sources.
@@ -486,8 +497,9 @@ export async function findMetaBillingPdfAttachments(opts: {
           const rawDate = parsed.date || message.internalDate;
           found.push({ accountId, filename: attachment.filename || `meta-${accountId}-${uid}.pdf`, content, messageDate: rawDate ? new Date(rawDate) : null, subject, amountCents, hash });
         }
-      }
-    } finally { lock.release(); }
+        }
+      } finally { lock.release(); }
+    }
   } finally { await client.logout().catch(() => {}); }
   return found;
 }
