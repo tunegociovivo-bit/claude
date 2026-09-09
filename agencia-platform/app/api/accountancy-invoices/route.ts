@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
-import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, SOURCES } from "@/lib/accountancy-invoices/service";
-import { validateRecipients } from "@/lib/accountancy-invoices/domain";
-import { runManualInvoiceProcessors } from "@/lib/accountancy-invoices/manual-run";
+import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, SOURCES } from "@/lib/accountancy-invoices/service";
+import { getPreviousMonthPeriod, validateRecipients } from "@/lib/accountancy-invoices/domain";
 
 async function adminContext() {
   const session = await getServerSession(authOptions);
@@ -34,17 +33,15 @@ export async function POST(req: NextRequest) {
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const body = await req.json();
   if (body.action === "run") {
-    const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
-    await runManualInvoiceProcessors(run.id, [
-      processPendingHoldedInvoiceRun,
-      processAllPendingGoogleAdsInvoiceRun,
-      processAllPendingMetaInvoiceRun
-    ]);
-    const completed = await prisma.accountancyInvoiceRun.findUnique({
-      where: { id: run.id },
-      include: { items: { orderBy: [{ status: "asc" }, { source: "asc" }, { clientName: "asc" }] } }
+    const periodKey = getPreviousMonthPeriod().key;
+    const existing = await prisma.accountancyInvoiceRun.findFirst({
+      where: { workspaceId: ctx.workspaceId, periodKey, trigger: "MANUAL", status: { in: ["PENDING", "RUNNING"] } },
+      include: { items: true },
+      orderBy: { createdAt: "desc" }
     });
-    return NextResponse.json(completed ?? run, { status: 201 });
+    if (existing) return NextResponse.json(existing, { status: 202 });
+    const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
+    return NextResponse.json(run, { status: 202 });
   }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });

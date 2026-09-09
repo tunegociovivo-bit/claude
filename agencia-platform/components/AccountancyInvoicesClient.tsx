@@ -19,6 +19,11 @@ export default function AccountancyInvoicesClient() {
   const load = async () => { const res = await fetch("/api/accountancy-invoices", { cache: "no-store" }); const json = await res.json(); if (!res.ok) throw new Error(json.error); setData(json); setRecipients((json.schedule.recipients || []).join(", ")); };
   useEffect(() => { load().catch((e) => setError(e.message)); }, []);
   const latest = data?.runs[0];
+  useEffect(() => {
+    if (!latest || !["PENDING", "RUNNING"].includes(latest.status)) return;
+    const timer = window.setInterval(() => { void load().catch((e) => setError(e.message)); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [latest?.id, latest?.status]);
   const failed = useMemo(() => latest?.items.filter((item) => item.status === "FAILED") ?? [], [latest]);
   async function request(url: string, method: string, body?: unknown) { setBusy(true); setError(""); try { const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); const json = await res.json(); if (!res.ok) throw new Error(json.error); await load(); return json; } catch (e: any) { setError(e.message || "Error inesperado"); } finally { setBusy(false); } }
   if (!data) return <div className="rounded-xl border bg-white p-8 text-slate-500">Cargando control de facturas…</div>;

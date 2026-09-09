@@ -23,8 +23,12 @@ describe("ejecución manual de facturas de gestoría", () => {
     expect(completed.sort()).toEqual(["google", "holded", "meta"]);
   });
 
-  it("propaga el fallo del descargador para que la API no deje un PENDING silencioso", async () => {
-    await expect(runManualInvoiceProcessors("run-2", [async () => { throw new Error("fallo controlado"); }]))
-      .rejects.toThrow("fallo controlado");
+  it("permite que los demás descargadores terminen aunque uno falle", async () => {
+    const completed: string[] = [];
+    await expect(runManualInvoiceProcessors("run-2", [
+      async () => { throw new Error("fallo controlado"); },
+      async () => { completed.push("segundo"); }
+    ])).resolves.toBeUndefined();
+    expect(completed).toEqual(["segundo"]);
   });
 });

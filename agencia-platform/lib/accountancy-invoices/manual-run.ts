@@ -6,5 +6,5 @@ export type InvoiceRunProcessor = (runId: string) => Promise<unknown>;
  * servidor termina la respuesta y dejan los elementos en PENDING para siempre.
  */
 export async function runManualInvoiceProcessors(runId: string, processors: InvoiceRunProcessor[]): Promise<void> {
-  await Promise.all(processors.map((processor) => processor(runId)));
+  await Promise.allSettled(processors.map((processor) => processor(runId)));
 }
