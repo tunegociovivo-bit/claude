@@ -1,0 +1,19 @@
+name: Facturas para gestoria
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: accountancy-invoices
+      cancel-in-progress: false
+    steps:
+      - name: Procesar cola persistente
+        run: |
+          curl --retry 2 --retry-delay 10 --max-time 290 -fsSL \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://hub.negociovivo.app/api/cron/accountancy-invoices/process
