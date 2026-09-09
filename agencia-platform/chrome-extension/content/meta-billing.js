@@ -19,6 +19,7 @@
   window.__hubMetaBillingLoaded = true;
   const capturedFiles = [];
   const capturedKeys = new Set();
+  let harvestInProgress = false;
 
   // Puente: el interceptor (world MAIN) publica los PDFs capturados por
   // window.postMessage; los reenviamos al background para subirlos al Hub.
@@ -31,9 +32,11 @@
         capturedKeys.add(key);
         capturedFiles.push({ name: d.name || "meta-factura.pdf", base64: d.base64 });
       }
-      try {
-        chrome.runtime.sendMessage({ from: "content", type: "meta-pdf-captured", name: d.name, base64: d.base64 });
-      } catch {}
+      if (!harvestInProgress) {
+        try {
+          chrome.runtime.sendMessage({ from: "content", type: "meta-pdf-captured", name: d.name, base64: d.base64 });
+        } catch {}
+      }
     }
   });
 
@@ -113,6 +116,9 @@
     if (msg?.type !== "harvest-meta-invoices") return;
     (async () => {
       try {
+        harvestInProgress = true;
+        capturedFiles.length = 0;
+        capturedKeys.clear();
         const urls = collectInvoiceUrls();
         const files = [];
         const errors = [];
@@ -132,6 +138,10 @@
         sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, errors, emptyConfirmed });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) });
+      } finally {
+        // The queue closes its background tab. For a manual harvest, keep a
+        // short grace period so a delayed Meta response cannot be ingested twice.
+        setTimeout(() => { harvestInProgress = false; }, 30_000);
       }
     })();
     return true; // respuesta asíncrona

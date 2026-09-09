@@ -622,6 +622,7 @@ async function processAccountancyItem(item) {
         const form = new FormData(); form.append("file", blob, file.name || "meta-factura.pdf"); form.append("adAccount", item.clientName); form.append("copyToDrive", "1");
         const ingested = await authedFetch("/api/v1/admin/meta-invoices/ingest", { method: "POST", body: form });
         const details = await ingested.json().catch(() => ({}));
+        if (!ingested.ok) throw new Error(details.message || details.error || `No se pudo registrar ${file.name} como factura de Meta`);
         if (ingested.ok) amountCents += Number(details.totalCents || 0);
       }
     }
