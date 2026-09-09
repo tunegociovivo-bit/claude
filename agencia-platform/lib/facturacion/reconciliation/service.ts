@@ -560,6 +560,15 @@ export async function reconciliationDashboard(workspaceId: string) {
 
 export async function requestReconciliation(workspaceId: string) {
   const config = await ensureReconciliationConfig(workspaceId);
+  // Reintenta primero las coincidencias sobre movimientos ya almacenados. Esto
+  // permite reparar una factura aunque la lectura del portal bancario se demore
+  // o no aporte movimientos nuevos en esta ejecucion.
+  await repairDuplicateSepaReceipts(workspaceId);
+  await repairMisreferencedTransfers(workspaceId);
+  await repairUnmatchedExactReferences(workspaceId);
+  await repairSyntheticSepaDuplicates(workspaceId);
+  await reconcileUniqueSepaSummaries(workspaceId);
+  await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
   return prisma.bankReconciliationConfig.update({
     where: { workspaceId },
     data: { lastSyncAt: null, lastError: null, profile: profileForForcedReconciliation(config.profile) as Prisma.InputJsonValue }
