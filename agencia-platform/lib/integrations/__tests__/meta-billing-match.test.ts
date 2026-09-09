@@ -51,9 +51,12 @@ describe("identifyMetaBillingAccount", () => {
   });
 
   it("requires a passing aligned authentication result", () => {
-    expect(hasAuthenticatedMetaSender("mx; dkim=pass header.i=@facebookmail.com; dmarc=pass header.from=facebookmail.com")).toBe(true);
-    expect(hasAuthenticatedMetaSender("mx; spf=pass smtp.mailfrom=notice.meta.com")).toBe(true);
-    expect(hasAuthenticatedMetaSender("mx; dkim=fail header.i=@facebookmail.com; dmarc=fail")).toBe(false);
-    expect(hasAuthenticatedMetaSender("mx; dkim=pass header.i=@attacker.example")).toBe(false);
+    const trusted = ["mail.negociovivo.com"];
+    expect(hasAuthenticatedMetaSender("mail.negociovivo.com; dkim=pass header.i=@facebookmail.com; dmarc=pass header.from=facebookmail.com", trusted)).toBe(true);
+    expect(hasAuthenticatedMetaSender("mail.negociovivo.com; spf=pass smtp.mailfrom=notice.meta.com", trusted)).toBe(true);
+    expect(hasAuthenticatedMetaSender("mail.negociovivo.com; dkim=fail header.i=@facebookmail.com; dmarc=fail", trusted)).toBe(false);
+    expect(hasAuthenticatedMetaSender("mail.negociovivo.com; dkim=pass header.i=@attacker.example", trusted)).toBe(false);
+    expect(hasAuthenticatedMetaSender("attacker.example; dkim=pass header.i=@meta.com", trusted)).toBe(false);
+    expect(hasAuthenticatedMetaSender("mail.negociovivo.com; dkim=pass header.i=@meta.com.attacker.example", trusted)).toBe(false);
   });
 });
