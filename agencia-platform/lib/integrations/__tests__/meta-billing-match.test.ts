@@ -66,5 +66,7 @@ describe("identifyMetaBillingAccount", () => {
     expect(isScannableBillingMailbox({ path: "INBOX.Sent", specialUse: "\\Sent" })).toBe(false);
     expect(isScannableBillingMailbox({ path: "INBOX.Trash", specialUse: "\\Trash" })).toBe(false);
     expect(isScannableBillingMailbox({ path: "INBOX.spam", specialUse: "\\Junk" })).toBe(false);
+    expect(isScannableBillingMailbox({ path: "INBOX.All Mail", specialUse: "\\All" })).toBe(false);
+    expect(isScannableBillingMailbox({ path: "INBOX.Archive", specialUse: "\\Archive" })).toBe(false);
   });
 });
