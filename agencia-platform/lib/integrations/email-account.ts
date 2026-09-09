@@ -453,10 +453,7 @@ export async function findMetaBillingPdfAttachments(opts: {
           smaller: 15 * 1024 * 1024,
           or: [{ from: "facebookmail.com" }, { from: "facebook.com" }, { from: "meta.com" }],
         }, { uid: true })) || [];
-        // Bound untrusted candidates per folder; the global limit counts only
-        // authenticated, deduplicated PDF receipts added to `found`.
-        const selectedUids = uids.slice(-50);
-        for (const uid of selectedUids) {
+        for (const uid of uids) {
         if (found.length >= 500) break;
         const metadata = await client.fetchOne(String(uid), { size: true }, { uid: true });
         if (!metadata || typeof metadata === "boolean" || !metadata.size || metadata.size > 15 * 1024 * 1024) continue;
