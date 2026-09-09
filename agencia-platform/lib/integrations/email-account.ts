@@ -11,7 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { createHash } from "node:crypto";
-import { identifyMetaBillingAccount, isTrustedMetaBillingSender } from "./meta-billing-match";
+import { hasAuthenticatedMetaSender, identifyMetaBillingAccount, isTrustedMetaBillingSender } from "./meta-billing-match";
 
 // Timeouts: sin esto, si el servidor de correo no responde (puerto
 // bloqueado, host caído, firewall que descarta paquetes) la conexión se
@@ -446,14 +446,17 @@ export async function findMetaBillingPdfAttachments(opts: {
     try {
       const uids = (await client.search({ since: opts.from, before: new Date(opts.to.getTime() + 1) }, { uid: true })) || [];
       for (const uid of uids.slice(-500)) {
-        const message = await client.fetchOne(String(uid), { source: true, internalDate: true }, { uid: true });
+        const metadata = await client.fetchOne(String(uid), { size: true }, { uid: true });
+        if (!metadata || typeof metadata === "boolean" || !metadata.size || metadata.size > 15 * 1024 * 1024) continue;
+        const message = await client.fetchOne(String(uid), { source: { maxLength: 15 * 1024 * 1024 }, internalDate: true }, { uid: true });
         if (!message || typeof message === "boolean" || !message.source) continue;
         const parsed = await simpleParser(message.source as Buffer);
         const subject = String(parsed.subject || "");
         const from = parsed.from?.text || "";
         const senderAddresses = (parsed.from?.value || []).map((entry) => String(entry.address || ""));
+        const authenticationResults = String(parsed.headers.get("authentication-results") || "");
         const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
-        if (!isTrustedMetaBillingSender(senderAddresses)) continue;
+        if (!isTrustedMetaBillingSender(senderAddresses) || !hasAuthenticatedMetaSender(authenticationResults)) continue;
         const amountMatch = searchable.match(/(?:total|importe|amount)[^\d]{0,30}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i);
         const amountCents = amountMatch ? Math.round(Number(amountMatch[1].replace(/[.\s]/g, "").replace(",", ".")) * 100) : null;
         for (const attachment of parsed.attachments || []) {

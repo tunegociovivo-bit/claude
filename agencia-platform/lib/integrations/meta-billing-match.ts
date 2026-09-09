@@ -23,3 +23,9 @@ export function isTrustedMetaBillingSender(addresses: string[]) {
     );
   });
 }
+
+export function hasAuthenticatedMetaSender(authenticationResults: string) {
+  const value = authenticationResults.toLowerCase();
+  const trustedDomain = String.raw`(?:[a-z0-9-]+\.)*(?:facebookmail\.com|facebook\.com|meta\.com)`;
+  return new RegExp(String.raw`(?:dkim=pass[^;\r\n]*(?:header\.(?:i|d)=@?|d=)${trustedDomain}|dmarc=pass[^;\r\n]*header\.from=${trustedDomain}|spf=pass[^;\r\n]*smtp\.mailfrom=[^;\s@]*@?${trustedDomain})`, "i").test(value);
+}
