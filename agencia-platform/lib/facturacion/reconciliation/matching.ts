@@ -18,7 +18,14 @@ export type PaymentMatch = {
   confidence: "EXACT_REFERENCE" | "CLIENT_AMOUNT" | "SEPA_RECEIPT";
 };
 
-export type SepaJobCandidate = { invoiceId: string; amountCents: number; ibanMasked: string | null; chargeDate: Date | null };
+export type SepaJobCandidate = {
+  invoiceId: string;
+  amountCents: number;
+  ibanMasked: string | null;
+  chargeDate: Date | null;
+  clientName?: string | null;
+  mandateRef?: string | null;
+};
 export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null; archivedAt?: Date | null; outstanding?: boolean };
 
 export function effectiveSepaCandidateDate(chargeDate: Date | null, createdAt: Date): Date {
@@ -29,12 +36,17 @@ function localDay(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
 
-export function matchSepaReceipt(payment: { amountCents: number; debtorIbanLast4: string; bookedAt: Date }, jobs: SepaJobCandidate[]): PaymentMatch | null {
+export function matchSepaReceipt(payment: { amountCents: number; debtorIbanLast4: string; debtorName?: string | null; bookedAt: Date }, jobs: SepaJobCandidate[]): PaymentMatch | null {
   const earliestCharge = payment.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000;
   const latestCharge = payment.bookedAt.getTime();
   const matches = jobs.filter((job) => {
     const last4 = (job.ibanMasked ?? "").replace(/\D/g, "").slice(-4);
-    return job.amountCents === payment.amountCents && Boolean(last4) && last4 === payment.debtorIbanLast4
+    const bankDebtor = normalize(payment.debtorName ?? "");
+    const knownNames = [job.mandateRef, job.clientName].map((value) => normalize(value ?? "")).filter((value) => value.length >= 4);
+    const identityMatches = last4
+      ? last4 === payment.debtorIbanLast4
+      : Boolean(bankDebtor) && knownNames.some((name) => bankDebtor.includes(name) || name.includes(bankDebtor));
+    return job.amountCents === payment.amountCents && identityMatches
       && Boolean(job.chargeDate)
       && job.chargeDate!.getTime() >= earliestCharge
       && job.chargeDate!.getTime() <= latestCharge;

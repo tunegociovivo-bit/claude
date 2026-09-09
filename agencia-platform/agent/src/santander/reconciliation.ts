@@ -167,6 +167,13 @@ export function isReconciliableSepaReceipt(receipt: SepaReceiptRow | null): rece
   return Boolean(receipt && receipt.status === "Orden liquidada" && receipt.amountCents > 0 && /^\d{4}$/.test(receipt.debtorIbanLast4));
 }
 
+export function parseSepaReceiptDebtor(text: string): string | null {
+  const compact = text.replace(/\s+/g, " ").trim();
+  const holder = compact.match(/TITULAR\s+(.+?)\s+N[ÚU]MERO DE RECIBO/i)?.[1]?.trim();
+  const concept = compact.match(/CONCEPTO\s+(.+?)\s+CUENTA DE ADEUDO/i)?.[1]?.trim();
+  return [holder, concept].filter(Boolean).join(" · ") || null;
+}
+
 export function parseSepaReceiptRow(text: string): SepaReceiptRow | null {
   const compact = text.replace(/\s+/g, " ").trim();
   const amount = compact.match(/(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})\s+EUR/i);
@@ -228,6 +235,10 @@ export function selectReusableSantanderPage<T extends { url(): string }>(pages: 
 export function hasVerifiedSantanderSessionText(text: string): boolean {
   return /posici[oó]n global|saldo disponible|mis cuentas|consulta de remesas|remesas de un acreedor/i.test(text)
     && !/sesi.n ha caducado|desconexi.n por inactividad/i.test(text);
+}
+
+export function isSafeRemittanceMenuLabel(label: string): boolean {
+  return /^Remesas$/i.test(label.trim());
 }
 
 export class SantanderReconciliationReader {
@@ -332,13 +343,14 @@ export class SantanderReconciliationReader {
           for (const text of receiptTexts) {
             const receipt = parseSepaReceiptRow(text);
             if (!isReconciliableSepaReceipt(receipt)) continue;
+            const debtorName = await this.readReceiptDebtorName(page, remittance.remittanceNumber, receipt.receiptNumber);
             const externalId = createHash("sha256").update(`${remittance.remittanceNumber}|${receipt.receiptNumber}`).digest("hex");
             unique.set(externalId, {
               externalId,
               bookedAt: remittance.dueAt,
               amountCents: receipt.amountCents,
               currency: "EUR",
-              counterpartyName: null,
+              counterpartyName: debtorName,
               reference: `Remesa SEPA ${remittance.remittanceNumber} · Recibo ${receipt.receiptNumber} · ${receipt.status}`,
               accountMasked: `****${receipt.debtorIbanLast4}`,
               remittanceNumber: remittance.remittanceNumber,
@@ -439,6 +451,14 @@ export class SantanderReconciliationReader {
       );
     }
     let frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
+    if (!frame) {
+      const remittanceMenu = page.locator("span.menu-item").filter({ hasText: /^Remesas$/i }).first();
+      if (await remittanceMenu.isVisible().catch(() => false)) {
+        const label = await remittanceMenu.innerText().catch(() => "");
+        if (isSafeRemittanceMenuLabel(label)) await remittanceMenu.click();
+        frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
+      }
+    }
     if (!frame) throw new Error("Santander no cargó el módulo de remesas");
     const consultation = frame.getByText(/Consulta el detalle, las liquidaciones y devoluciones de remesas procesadas/i).first();
     if (!await consultation.isVisible().catch(() => false)) throw new Error("Santander no mostró la consulta de remesas");
@@ -453,7 +473,7 @@ export class SantanderReconciliationReader {
         pageIndex
       );
     }
-    frame = await this.waitFrame(page, /Tipo de remesa/i);
+    frame = await this.waitFrame(page, /Tipo de remesa/i, 120);
     if (!frame) throw new Error("Santander no cargó los filtros de remesas");
     await frame.getByRole("listbox", { name: /Elige una opción/i }).click();
     await frame.getByRole("option", { name: /^Domiciliaciones$/i }).click();
@@ -625,6 +645,24 @@ export class SantanderReconciliationReader {
       await page.waitForTimeout(800);
     }
     return allRows;
+  }
+
+  private async readReceiptDebtorName(page: any, remittanceNumber: string, receiptNumber: string): Promise<string | null> {
+    const frame = await this.waitReceiptFrame(page, remittanceNumber);
+    if (!frame) return null;
+    const compactReceipt = receiptNumber.replace(/\s+/g, "");
+    const row = frame.getByRole("row").filter({ hasText: new RegExp(compactReceipt.replace(/(.{4})/g, "$1\\s*").trim(), "i") }).first();
+    if (!await row.isVisible().catch(() => false)) return null;
+    await row.getByRole("button").click();
+    const detail = frame.getByText(/^Detalle$/i).first();
+    if (!await detail.isVisible().catch(() => false)) return null;
+    await detail.click();
+    const detailFrame = await this.waitFrame(page, /Detalle de un recibo/i, 60);
+    if (!detailFrame) return null;
+    const debtor = parseSepaReceiptDebtor(await detailFrame.locator("body").innerText().catch(() => ""));
+    await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+    await this.waitReceiptFrame(page, remittanceNumber, 60);
+    return debtor;
   }
 
   private async waitReceiptFrame(page: any, remittanceNumber: string, attempts = 50): Promise<any | null> {

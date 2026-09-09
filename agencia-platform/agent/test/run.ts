@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, hasVerifiedSantanderSessionText, isDirectRemittanceList, isForceReconciliationPending, isReconciliableSepaReceipt, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, selectReusableSantanderPage, shouldImportAccountMovement, shouldRunDailyReconciliation, shouldStartReconciliation } from "../src/santander/reconciliation.js";
+import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, hasVerifiedSantanderSessionText, isDirectRemittanceList, isForceReconciliationPending, isReconciliableSepaReceipt, isSafeRemittanceMenuLabel, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptDebtor, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, selectReusableSantanderPage, shouldImportAccountMovement, shouldRunDailyReconciliation, shouldStartReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -181,6 +181,7 @@ async function main() {
   const sepaReceipt = parseSepaReceiptRow("0049 6611 7540000WXZ 000001226783926062611103080 423,50 EUR IBAN ES57 2080 0646 5730 4185 1845 Orden liquidada ui-btn");
   ok("lee un recibo liquidado con IBAN del deudor", sepaReceipt?.amountCents === 42350 && sepaReceipt.debtorIbanLast4 === "1845" && sepaReceipt.status === "Orden liquidada");
   ok("acepta cada recibo liquidado aunque sea menor que el total de su remesa", isReconciliableSepaReceipt(sepaReceipt));
+  ok("lee titular y concepto desde el detalle del recibo", parseSepaReceiptDebtor("TITULAR SHOPTATTOOANDBARBER NÚMERO DE RECIBO 0049 CONCEPTO SHOPTATTOOANDBARBER NV CUENTA DE ADEUDO IBAN ES93") === "SHOPTATTOOANDBARBER · SHOPTATTOOANDBARBER NV");
   ok("distingue una orden devuelta", parseSepaReceiptRow("0049 6611 7540000WXZ REF 423,50 EUR IBAN ES57 2080 0646 5730 4185 1845 Orden devuelta")?.status === "Orden devuelta");
   const exactSepa = matchSepaReceipt({ amountCents: 42350, debtorIbanLast4: "1845", bookedAt: new Date("2026-08-11T12:00:00Z") }, [
     { invoiceId: "invoice-1", amountCents: 42350, ibanMasked: "ES** **** **** **** **** 1845", chargeDate: new Date("2026-08-11T07:00:00Z") }
@@ -238,6 +239,7 @@ async function main() {
   ok("reutiliza la pestaña autenticada de Santander", selectReusableSantanderPage([foreignPage, loginPage, authenticatedPage], safeLogin.allowedOrigin) === authenticatedPage);
   ok("no reutiliza una pantalla de login", selectReusableSantanderPage([foreignPage, loginPage], safeLogin.allowedOrigin) === null);
   ok("no interrumpe una remesa en preparación", selectReusableSantanderPage([{ url: () => "https://empresas3.gruposantander.es/paas/nwe/app/enviorem/" }], safeLogin.allowedOrigin) === null);
+  ok("solo pulsa el menú superior exacto Remesas para recuperar el módulo", isSafeRemittanceMenuLabel("Remesas") && !isSafeRemittanceMenuLabel("Firmar remesas"));
   ok("verifica una sesión por una marca visual positiva", hasVerifiedSantanderSessionText("Mis cuentas\nSaldo disponible"));
   ok("rechaza un shell interno vacío como sesión", !hasVerifiedSantanderSessionText(""));
   ok("rechaza una sesión caducada aunque conserve el menú", !hasVerifiedSantanderSessionText("Mis cuentas\nLa sesión ha caducado"));

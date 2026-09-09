@@ -404,7 +404,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
             amountCents: movement.amountCents,
             chargeDate: { gte: config.startsAt }
           },
-          select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true }
+          select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true, clientName: true, mandateRef: true }
         })
       : [];
     const activeRequests = movement.remittanceNumber && movement.debtorIbanLast4
@@ -416,7 +416,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
             amountCents: movement.amountCents,
             chargeDate: { gte: config.startsAt }
           },
-          select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true }
+          select: { invoiceId: true, amountCents: true, ibanMasked: true, chargeDate: true, clientName: true, mandateRef: true }
         })
       : [];
     const invoices = await prisma.invoice.findMany({
@@ -437,7 +437,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       counterpartyName: clean(movement.counterpartyName, 200) ?? ""
     }, invoices.map((invoice) => ({ ...invoice, clientName: clientName(invoice.clientSnapshot) })));
     const sepaCandidate = movement.debtorIbanLast4
-      ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, bookedAt }, [...preparedJobs, ...activeRequests])
+      ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, debtorName: movement.counterpartyName, bookedAt }, [...preparedJobs, ...activeRequests])
       : null;
     const candidate = sepaCandidate ?? genericCandidate;
     let appliedCandidate = candidate;

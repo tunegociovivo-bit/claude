@@ -112,6 +112,20 @@ describe("conciliación bancaria desde la fecha de corte", () => {
     )).toMatchObject({ invoiceId: "fac-003063", confidence: "SEPA_RECEIPT" });
   });
 
+  it("matches Santander's verified debtor name when the client has no saved IBAN mask", () => {
+    expect(matchSepaReceipt(
+      { amountCents: 24200, debtorIbanLast4: "1845", debtorName: "CLINIOLMO · CLINIOLMO NV", bookedAt: new Date("2026-09-09T08:00:00Z") },
+      [{ invoiceId: "fac-003063", amountCents: 24200, ibanMasked: null, mandateRef: "CLINIOLMO NV", clientName: "Cliniolmo", chargeDate: new Date("2026-09-08T08:00:00Z") }]
+    )).toMatchObject({ invoiceId: "fac-003063", confidence: "SEPA_RECEIPT" });
+  });
+
+  it("never lets a debtor name override a contradictory saved IBAN", () => {
+    expect(matchSepaReceipt(
+      { amountCents: 24200, debtorIbanLast4: "1845", debtorName: "CLINIOLMO · CLINIOLMO NV", bookedAt: new Date("2026-09-09T08:00:00Z") },
+      [{ invoiceId: "fac-003063", amountCents: 24200, ibanMasked: "****9999", mandateRef: "CLINIOLMO NV", clientName: "Cliniolmo", chargeDate: new Date("2026-09-08T08:00:00Z") }]
+    )).toBeNull();
+  });
+
   it("never assigns a payment to a remittance created after that payment", () => {
     expect(matchSepaReceipt(
       { amountCents: 24200, debtorIbanLast4: "1845", bookedAt: new Date("2026-09-09T08:00:00Z") },
