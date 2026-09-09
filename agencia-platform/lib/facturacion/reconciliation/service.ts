@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
+import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, retainEligiblePaymentMatch, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
 import { sendEmail } from "@/lib/integrations/email";
 import { profileForForcedReconciliation } from "./state";
 
@@ -440,7 +440,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, debtorName: movement.counterpartyName, bookedAt }, [...preparedJobs, ...activeRequests])
       : null;
     const candidate = sepaCandidate ?? genericCandidate;
-    let appliedCandidate = candidate;
+    let appliedCandidate = retainEligiblePaymentMatch(candidate, invoices.map((invoice) => invoice.id));
     const aggregateTransaction = movement.remittanceNumber && movement.debtorIbanLast4
       ? existing ?? await prisma.bankTransaction.findFirst({
           where: {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
+import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, retainEligiblePaymentMatch, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
 
 const cutoff = new Date("2026-08-09T22:00:00.000Z"); // 10/08/2026 00:00 Europe/Madrid
+
+it("discards a bank match whose invoice is no longer eligible", () => {
+  expect(retainEligiblePaymentMatch({ invoiceId: "already-paid", confidence: "SEPA_RECEIPT" }, ["still-open"])).toBeNull();
+});
 
 it("requires verified debtor data for every SEPA remittance credit", () => {
   expect(requiresVerifiedSepaReceipt("Emision Remesa Sepa Sdd Referencia: 004966117530000675")).toBe(true);

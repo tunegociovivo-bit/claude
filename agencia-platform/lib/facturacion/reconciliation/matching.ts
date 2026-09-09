@@ -26,6 +26,11 @@ export type SepaJobCandidate = {
   clientName?: string | null;
   mandateRef?: string | null;
 };
+
+export function retainEligiblePaymentMatch<T extends PaymentMatch>(match: T | null, eligibleInvoiceIds: Iterable<string>): T | null {
+  if (!match) return null;
+  return new Set(eligibleInvoiceIds).has(match.invoiceId) ? match : null;
+}
 export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null; archivedAt?: Date | null; outstanding?: boolean };
 
 export function effectiveSepaCandidateDate(chargeDate: Date | null, createdAt: Date): Date {
