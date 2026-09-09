@@ -415,6 +415,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       ? matchSepaReceipt({ amountCents: movement.amountCents, debtorIbanLast4: movement.debtorIbanLast4, bookedAt }, [...preparedJobs, ...activeRequests])
       : null;
     const candidate = sepaCandidate ?? genericCandidate;
+    let appliedCandidate = candidate;
     const aggregateTransaction = movement.remittanceNumber && movement.debtorIbanLast4
       ? existing ?? await prisma.bankTransaction.findFirst({
           where: {
@@ -428,7 +429,16 @@ export async function importAndReconcileMovements(workspaceId: string, movements
         })
       : null;
 
+    let createdTransaction = false;
     await prisma.$transaction(async (tx) => {
+      if (appliedCandidate) {
+        const invoice = invoices.find((item) => item.id === appliedCandidate!.invoiceId)!;
+        const invoiceClaim = await tx.invoice.updateMany({
+          where: { id: invoice.id, workspaceId, status: "ISSUED", paidCents: 0 },
+          data: { status: "PAID", paidCents: invoice.totalCents, paidAt: bookedAt }
+        });
+        if (!invoiceClaim.count) appliedCandidate = null;
+      }
       const transactionData = {
           workspaceId,
           provider: "SANTANDER",
@@ -441,27 +451,25 @@ export async function importAndReconcileMovements(workspaceId: string, movements
           counterpartyName: clean(movement.counterpartyName, 200),
           reference: clean(movement.reference),
           accountMasked: clean(movement.accountMasked, 40),
-          status: candidate ? "MATCHED" : "UNMATCHED",
-          matchedInvoiceId: candidate?.invoiceId,
-          matchConfidence: candidate?.confidence,
-          matchedAt: candidate ? new Date() : null
+          status: appliedCandidate ? "MATCHED" : "UNMATCHED",
+          matchedInvoiceId: appliedCandidate?.invoiceId,
+          matchConfidence: appliedCandidate?.confidence,
+          matchedAt: appliedCandidate ? new Date() : null
       };
       if (aggregateTransaction) {
         const { workspaceId: _workspaceId, provider: _provider, externalId: _externalId, ...repairData } = transactionData;
-        await tx.bankTransaction.update({ where: { id: aggregateTransaction.id }, data: repairData });
+        const movementClaim = await tx.bankTransaction.updateMany({
+          where: { id: aggregateTransaction.id, workspaceId, status: "UNMATCHED" },
+          data: repairData
+        });
+        if (!movementClaim.count) throw new Error("Movimiento conciliado por otra ejecucion");
       } else {
         await tx.bankTransaction.create({ data: transactionData });
-      }
-      if (candidate) {
-        const invoice = invoices.find((item) => item.id === candidate.invoiceId)!;
-        await tx.invoice.updateMany({
-          where: { id: invoice.id, workspaceId, status: "ISSUED" },
-          data: { status: "PAID", paidCents: invoice.totalCents, paidAt: bookedAt }
-        });
+        createdTransaction = true;
       }
     });
-    imported++;
-    if (candidate) matched++;
+    if (createdTransaction) imported++;
+    if (appliedCandidate) matched++;
   }
 
   // Los abonos agregados de cuenta no incluyen cliente ni factura. Una vez
