@@ -194,6 +194,12 @@ export function shouldImportAccountMovement(movement: BrowserMovement | null): m
   return movement !== null;
 }
 
+export function isSantanderMovementRowText(text: string): boolean {
+  return /\d{2}\/\d{2}\/\d{4}/.test(text)
+    && /[+-]?\s*\d[\d.]*,\d{2}\s*EUR/i.test(text)
+    && text.length < 1200;
+}
+
 export class SantanderReconciliationReader {
   constructor(private opts: { cdpUrl: string; santanderOrigin: string; credentialFile: string }) {}
 
@@ -583,14 +589,7 @@ export class SantanderReconciliationReader {
     const seenPages = new Set<string>();
     for (let pageIndex = 0; pageIndex < 100; pageIndex++) {
       frame = await this.waitFrame(page, /Movimientos/i) ?? frame;
-      const rows: string[] = await frame.locator("p").evaluateAll((nodes: Element[]) => nodes.map((node) => {
-      let current: Element | null = node;
-      for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
-        const text = (current as HTMLElement).innerText?.replace(/\s+/g, " ").trim() ?? "";
-        if (/\d{2}\/\d{2}\/\d{4}/.test(text) && /[+-]\s*\d[\d.]*,\d{2}\s*EUR/i.test(text) && text.length < 1200) return text;
-      }
-      return "";
-      })).catch(() => []);
+      const rows = await this.accountMovementRows(frame);
       const signature = rows.join("|");
       if (!signature || seenPages.has(signature)) break;
       seenPages.add(signature);
@@ -602,9 +601,36 @@ export class SantanderReconciliationReader {
       const next = frame.getByRole("button", { name: /^(Ver siguientes|Siguiente)$/i }).first();
       if (!await next.isVisible().catch(() => false) || !await next.isEnabled().catch(() => false)) break;
       await next.click();
-      await frame.waitForTimeout(700);
+      let advanced = false;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await page.waitForTimeout(400);
+        const refreshed = await this.waitFrame(page, /Movimientos/i, 2);
+        if (!refreshed) continue;
+        try {
+          const nextSignature = (await this.accountMovementRows(refreshed)).join("|");
+          if (nextSignature && nextSignature !== signature) {
+            frame = refreshed;
+            advanced = true;
+            break;
+          }
+        } catch {
+          // Santander reemplaza el iframe durante la paginaciÃ³n; se vuelve a adquirir.
+        }
+      }
+      if (!advanced) throw new Error("Santander no avanzÃ³ a la siguiente pÃ¡gina de movimientos");
     }
     return [...unique.values()];
+  }
+
+  private async accountMovementRows(frame: any): Promise<string[]> {
+    return frame.locator("p").evaluateAll((nodes: Element[]) => nodes.map((node) => {
+      let current: Element | null = node;
+      for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
+        const text = (current as HTMLElement).innerText?.replace(/\s+/g, " ").trim() ?? "";
+        if (isSantanderMovementRowText(text)) return text;
+      }
+      return "";
+    }));
   }
 
   private async applyDateFilter(frame: any, startsAt: Date, endsAt: Date): Promise<void> {
