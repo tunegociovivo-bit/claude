@@ -4,6 +4,7 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, processAllPendingGoogleAdsInvoiceRun, processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, SOURCES } from "@/lib/accountancy-invoices/service";
 import { validateRecipients } from "@/lib/accountancy-invoices/domain";
+import { runManualInvoiceProcessors } from "@/lib/accountancy-invoices/manual-run";
 
 async function adminContext() {
   const session = await getServerSession(authOptions);
@@ -34,10 +35,16 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   if (body.action === "run") {
     const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
-    setImmediate(() => processPendingHoldedInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Holded manual:", error?.message || error)));
-    setImmediate(() => processAllPendingGoogleAdsInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Google Ads manual:", error?.message || error)));
-    setImmediate(() => processAllPendingMetaInvoiceRun(run.id).catch((error) => console.warn("[facturas-gestoria] Meta manual:", error?.message || error)));
-    return NextResponse.json(run, { status: 201 });
+    await runManualInvoiceProcessors(run.id, [
+      processPendingHoldedInvoiceRun,
+      processAllPendingGoogleAdsInvoiceRun,
+      processAllPendingMetaInvoiceRun
+    ]);
+    const completed = await prisma.accountancyInvoiceRun.findUnique({
+      where: { id: run.id },
+      include: { items: { orderBy: [{ status: "asc" }, { source: "asc" }, { clientName: "asc" }] } }
+    });
+    return NextResponse.json(completed ?? run, { status: 201 });
   }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });

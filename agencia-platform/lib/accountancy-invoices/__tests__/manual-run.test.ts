@@ -19,7 +19,7 @@ describe("ejecución manual de facturas de gestoría", () => {
     releaseGoogle();
     await execution;
 
-    expect(processors.every((processor) => processor.mock.calls[0]?.[0] === "run-1")).toBe(true);
+    for (const processor of processors) expect(processor).toHaveBeenCalledWith("run-1");
     expect(completed.sort()).toEqual(["google", "holded", "meta"]);
   });
 
