@@ -41,6 +41,13 @@ export function shouldStartReconciliation(now: Date, lastSyncAt: Date | null, da
   return forced || shouldRunDailyReconciliation(now, lastSyncAt, dailyAt, timeZone);
 }
 
+export function isForceReconciliationPending(forceRequestedAt: string | null, lastSyncAt: string | null): boolean {
+  if (!forceRequestedAt) return false;
+  const forceAt = new Date(forceRequestedAt).getTime();
+  const syncedAt = lastSyncAt ? new Date(lastSyncAt).getTime() : Number.NEGATIVE_INFINITY;
+  return Number.isFinite(forceAt) && forceAt > syncedAt;
+}
+
 export class FrameRefreshRequiredError extends Error {
   constructor(message = "Santander requiere volver a adquirir el iframe") {
     super(message);
