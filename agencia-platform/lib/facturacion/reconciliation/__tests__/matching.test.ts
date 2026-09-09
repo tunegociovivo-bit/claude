@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
+import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
 
 const cutoff = new Date("2026-08-09T22:00:00.000Z"); // 10/08/2026 00:00 Europe/Madrid
+
+it("requires verified debtor data for every SEPA remittance credit", () => {
+  expect(requiresVerifiedSepaReceipt("Emision Remesa Sepa Sdd Referencia: 004966117530000675")).toBe(true);
+  expect(requiresVerifiedSepaReceipt("Ingreso ordinario", "004966117530000675")).toBe(true);
+  expect(requiresVerifiedSepaReceipt("Transferencia FAC-003068", null)).toBe(false);
+});
+
+it("persists the SEPA nature so later retries cannot match it generically", () => {
+  const stored = persistedBankReference("Ingreso ordinario", "004966117530000675");
+  expect(stored).toContain("Remesa SEPA 004966117530000675");
+  expect(requiresVerifiedSepaReceipt(stored)).toBe(true);
+});
 
 const invoices = [
   { id: "new", number: "FAC-003024", clientName: "RS advocats", totalCents: 36300, paidCents: 0, issueDate: new Date("2026-08-09T00:00:00Z") },
@@ -37,11 +49,11 @@ describe("conciliación bancaria desde la fecha de corte", () => {
   it("no concilia automáticamente cuando solo coincide el importe", () => {
     expect(matchIncomingPayment({ amountCents: 36300, reference: "Ingreso", counterpartyName: "Desconocido" }, invoices)).toBeNull();
   });
-  it("matches a unique SEPA summary by date and amount", () => {
+  it("does not match a SEPA summary using only date and amount", () => {
     expect(matchUniqueSepaSummary(
       { amountCents: 42350, bookedAt: new Date("2026-08-12T12:00:00Z") },
       [{ invoiceId: "invoice-423", amountCents: 42350, chargeDate: new Date("2026-08-10T08:00:00Z") }]
-    )).toMatchObject({ invoiceId: "invoice-423", confidence: "SEPA_RECEIPT" });
+    )).toBeNull();
   });
 
   it("leaves an ambiguous SEPA summary unmatched", () => {
@@ -61,7 +73,7 @@ describe("conciliación bancaria desde la fecha de corte", () => {
         { invoiceId: "fac-003017", amountCents: 169400, chargeDate: new Date("2026-09-07T08:00:00Z"), outstanding: false },
         { invoiceId: "fac-003068", amountCents: 169400, chargeDate: new Date("2026-09-08T08:00:00Z"), outstanding: true }
       ]
-    )).toMatchObject({ invoiceId: "fac-003068", confidence: "SEPA_RECEIPT" });
+    )).toBeNull();
   });
 
   it("rejects requests outside the safe settlement window", () => {
@@ -91,6 +103,20 @@ describe("conciliación bancaria desde la fecha de corte", () => {
         { invoiceId: "fac-003068", amountCents: 169400, ibanMasked: "ES**0770", chargeDate: new Date("2026-09-09T07:00:00Z") }
       ]
     )).toMatchObject({ invoiceId: "fac-003068", confidence: "SEPA_RECEIPT" });
+  });
+
+  it("matches a verified debtor when Santander settles the remittance on a later day", () => {
+    expect(matchSepaReceipt(
+      { amountCents: 24200, debtorIbanLast4: "1845", bookedAt: new Date("2026-09-09T08:00:00Z") },
+      [{ invoiceId: "fac-003063", amountCents: 24200, ibanMasked: "****1845", chargeDate: new Date("2026-09-07T08:00:00Z") }]
+    )).toMatchObject({ invoiceId: "fac-003063", confidence: "SEPA_RECEIPT" });
+  });
+
+  it("never assigns a payment to a remittance created after that payment", () => {
+    expect(matchSepaReceipt(
+      { amountCents: 24200, debtorIbanLast4: "1845", bookedAt: new Date("2026-09-09T08:00:00Z") },
+      [{ invoiceId: "future", amountCents: 24200, ibanMasked: "****1845", chargeDate: new Date("2026-09-09T08:00:01Z") }]
+    )).toBeNull();
   });
 
   it("reprocesses only unmatched receipts that now have verified identifiers", () => {

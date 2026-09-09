@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
+import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
 import { sendEmail } from "@/lib/integrations/email";
 import { profileForForcedReconciliation } from "./state";
 
@@ -431,7 +431,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
       orderBy: { issueDate: "desc" },
       take: 500
     });
-    const genericCandidate = matchIncomingPayment({
+    const genericCandidate = requiresVerifiedSepaReceipt(movement.reference, movement.remittanceNumber) ? null : matchIncomingPayment({
       amountCents: movement.amountCents,
       reference: clean(movement.reference) ?? "",
       counterpartyName: clean(movement.counterpartyName, 200) ?? ""
@@ -474,7 +474,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
           amountCents: movement.amountCents,
           currency: (movement.currency ?? "EUR").slice(0, 3),
           counterpartyName: clean(movement.counterpartyName, 200),
-          reference: clean(movement.reference),
+          reference: clean(persistedBankReference(movement.reference, movement.remittanceNumber)),
           accountMasked: clean(movement.accountMasked, 40),
           status: appliedCandidate ? "MATCHED" : "UNMATCHED",
           matchedInvoiceId: appliedCandidate?.invoiceId,

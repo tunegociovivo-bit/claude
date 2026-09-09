@@ -30,10 +30,14 @@ function localDay(date: Date): string {
 }
 
 export function matchSepaReceipt(payment: { amountCents: number; debtorIbanLast4: string; bookedAt: Date }, jobs: SepaJobCandidate[]): PaymentMatch | null {
+  const earliestCharge = payment.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000;
+  const latestCharge = payment.bookedAt.getTime();
   const matches = jobs.filter((job) => {
     const last4 = (job.ibanMasked ?? "").replace(/\D/g, "").slice(-4);
     return job.amountCents === payment.amountCents && Boolean(last4) && last4 === payment.debtorIbanLast4
-      && Boolean(job.chargeDate) && localDay(job.chargeDate!) === localDay(payment.bookedAt);
+      && Boolean(job.chargeDate)
+      && job.chargeDate!.getTime() >= earliestCharge
+      && job.chargeDate!.getTime() <= latestCharge;
   });
   const invoiceIds = [...new Set(matches.map((job) => job.invoiceId))];
   return invoiceIds.length === 1 ? { invoiceId: invoiceIds[0], confidence: "SEPA_RECEIPT" } : null;
@@ -43,20 +47,22 @@ export function shouldReprocessExistingBankTransaction(status: string, hasVerifi
   return status === "UNMATCHED" && hasVerifiedReceiptIdentifiers;
 }
 
+export function requiresVerifiedSepaReceipt(reference: string | null | undefined, remittanceNumber?: string | null): boolean {
+  return Boolean(remittanceNumber) || /emision\s+remesa\s+sepa|remesa\s+sepa/i.test(reference ?? "");
+}
+
+export function persistedBankReference(reference: string | null | undefined, remittanceNumber?: string | null): string {
+  const cleanReference = (reference ?? "").trim();
+  if (!remittanceNumber || requiresVerifiedSepaReceipt(cleanReference)) return cleanReference;
+  return `Remesa SEPA ${remittanceNumber} · ${cleanReference}`;
+}
+
 export function matchUniqueSepaSummary(payment: { amountCents: number; bookedAt: Date }, requests: SepaRequestCandidate[]): PaymentMatch | null {
-  // Santander suele contabilizar el abono entre uno y tres días después de
-  // preparar/cargar la remesa. Nunca aceptamos solicitudes posteriores al
-  // cobro ni ampliamos la ventana más allá de cuatro días.
-  const earliestCharge = payment.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000;
-  const latestCharge = payment.bookedAt.getTime() + 12 * 60 * 60 * 1000;
-  const matches = requests.filter((request) => !request.archivedAt
-    && request.outstanding !== false
-    && request.amountCents === payment.amountCents
-    && Boolean(request.chargeDate)
-    && request.chargeDate!.getTime() >= earliestCharge
-    && request.chargeDate!.getTime() <= latestCharge);
-  const invoiceIds = [...new Set(matches.map((request) => request.invoiceId))];
-  return invoiceIds.length === 1 ? { invoiceId: invoiceIds[0], confidence: "SEPA_RECEIPT" } : null;
+  // A bank summary does not identify the debtor. Amount and settlement date,
+  // even when apparently unique, are insufficient proof for reconciliation.
+  void payment;
+  void requests;
+  return null;
 }
 
 function normalize(value: string): string {

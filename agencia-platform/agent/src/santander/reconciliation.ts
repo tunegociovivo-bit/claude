@@ -163,6 +163,10 @@ export function parseSepaRemittanceRow(text: string): SepaRemittanceRow | null {
 
 export type SepaReceiptRow = { receiptNumber: string; amountCents: number; debtorIbanLast4: string; status: string };
 
+export function isReconciliableSepaReceipt(receipt: SepaReceiptRow | null): receipt is SepaReceiptRow {
+  return Boolean(receipt && receipt.status === "Orden liquidada" && receipt.amountCents > 0 && /^\d{4}$/.test(receipt.debtorIbanLast4));
+}
+
 export function parseSepaReceiptRow(text: string): SepaReceiptRow | null {
   const compact = text.replace(/\s+/g, " ").trim();
   const amount = compact.match(/(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})\s+EUR/i);
@@ -306,6 +310,8 @@ export class SantanderReconciliationReader {
           const receiptBody = await browserValueOr(() => receiptFrame.locator("body").innerText(), "");
           if (/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(receiptBody)) throw new Error("Santander cerró la sesión durante la conciliación");
           let receiptTexts: string[] = [];
+          let previousReceiptSignature = "";
+          let stableReceiptReads = 0;
           for (let attempt = 0; attempt < 30; attempt++) {
             receiptTexts = await runWithRefreshedFrame(
               async () => {
@@ -315,13 +321,17 @@ export class SantanderReconciliationReader {
               },
               (currentFrame) => browserValueOr(() => currentFrame.getByRole("row").allInnerTexts(), [])
             );
-            const currentReceipt = receiptTexts.map(parseSepaReceiptRow).find((item) => item?.amountCents === remittance.amountCents);
-            if (currentReceipt) break;
+            const currentReceipt = receiptTexts.map(parseSepaReceiptRow).find(isReconciliableSepaReceipt);
+            const receiptSignature = receiptTexts.join("|");
+            stableReceiptReads = currentReceipt && receiptSignature === previousReceiptSignature ? stableReceiptReads + 1 : 0;
+            previousReceiptSignature = receiptSignature;
+            if (stableReceiptReads >= 2) break;
             await receiptFrame.waitForTimeout(500);
           }
+          receiptTexts = await this.collectAllReceiptRows(page, remittance.remittanceNumber);
           for (const text of receiptTexts) {
             const receipt = parseSepaReceiptRow(text);
-            if (!receipt || receipt.status !== "Orden liquidada" || receipt.amountCents !== remittance.amountCents) continue;
+            if (!isReconciliableSepaReceipt(receipt)) continue;
             const externalId = createHash("sha256").update(`${remittance.remittanceNumber}|${receipt.receiptNumber}`).digest("hex");
             unique.set(externalId, {
               externalId,
@@ -563,6 +573,58 @@ export class SantanderReconciliationReader {
       await page.waitForTimeout(300);
     }
     return null;
+  }
+
+  private async collectAllReceiptRows(page: any, remittanceNumber: string): Promise<string[]> {
+    const allRows: string[] = [];
+    const seenPages = new Set<string>();
+    let priorPageSignature = "";
+    for (let pageIndex = 0; pageIndex < 50; pageIndex++) {
+      let rows: string[] = [];
+      let previous = "";
+      let stableReads = 0;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        rows = await runWithRefreshedFrame(
+          async () => {
+            const current = await this.waitReceiptFrame(page, remittanceNumber);
+            if (!current) throw new Error("Santander no restauró el detalle de recibos");
+            return current;
+          },
+          (current) => browserValueOr(() => current.getByRole("row").allInnerTexts(), [])
+        );
+        const signature = rows.join("|");
+        if (signature === priorPageSignature) {
+          stableReads = 0;
+          await page.waitForTimeout(500);
+          continue;
+        }
+        stableReads = signature && signature === previous ? stableReads + 1 : 0;
+        previous = signature;
+        if (stableReads >= 2) break;
+        await page.waitForTimeout(500);
+      }
+      const signature = rows.join("|");
+      if (!signature || signature === priorPageSignature || seenPages.has(signature)) break;
+      seenPages.add(signature);
+      allRows.push(...rows);
+      const advanced = await runWithRefreshedFrame(
+        async () => {
+          const current = await this.waitReceiptFrame(page, remittanceNumber);
+          if (!current) throw new Error("Santander no restauró el detalle de recibos");
+          return current;
+        },
+        async (current) => {
+          const next = current.getByRole("button", { name: /^Ver siguientes$/i });
+          if (await next.count() !== 1 || !await browserValueOr(() => next.isEnabled(), false)) return false;
+          await next.press("Enter");
+          return true;
+        }
+      );
+      if (!advanced) break;
+      priorPageSignature = signature;
+      await page.waitForTimeout(800);
+    }
+    return allRows;
   }
 
   private async waitReceiptFrame(page: any, remittanceNumber: string, attempts = 50): Promise<any | null> {
