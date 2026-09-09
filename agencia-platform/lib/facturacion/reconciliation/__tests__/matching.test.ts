@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchIncomingPayment, matchUniqueSepaSummary, shouldImportMovement } from "../matching";
+import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "../matching";
 
 const cutoff = new Date("2026-08-09T22:00:00.000Z"); // 10/08/2026 00:00 Europe/Madrid
 
@@ -65,5 +65,21 @@ describe("conciliación bancaria desde la fecha de corte", () => {
         archivedAt: new Date("2026-09-01T08:00:00Z")
       }]
     )).toBeNull();
+  });
+
+  it("deduplicates the same invoice represented by a job and its SEPA request", () => {
+    expect(matchSepaReceipt(
+      { amountCents: 169400, debtorIbanLast4: "0770", bookedAt: new Date("2026-09-09T08:00:00Z") },
+      [
+        { invoiceId: "fac-003068", amountCents: 169400, ibanMasked: "****0770", chargeDate: new Date("2026-09-09T07:00:00Z") },
+        { invoiceId: "fac-003068", amountCents: 169400, ibanMasked: "ES**0770", chargeDate: new Date("2026-09-09T07:00:00Z") }
+      ]
+    )).toMatchObject({ invoiceId: "fac-003068", confidence: "SEPA_RECEIPT" });
+  });
+
+  it("reprocesses only unmatched receipts that now have verified identifiers", () => {
+    expect(shouldReprocessExistingBankTransaction("UNMATCHED", true)).toBe(true);
+    expect(shouldReprocessExistingBankTransaction("UNMATCHED", false)).toBe(false);
+    expect(shouldReprocessExistingBankTransaction("MATCHED", true)).toBe(false);
   });
 });
