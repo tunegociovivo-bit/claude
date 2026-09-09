@@ -37,6 +37,10 @@ export function isDetachedFrameError(error: unknown): boolean {
   return /frame was detached|detached frame|frame has been detached/i.test(String(error));
 }
 
+export function shouldStartReconciliation(now: Date, lastSyncAt: Date | null, dailyAt: string, timeZone: string, forced: boolean): boolean {
+  return forced || shouldRunDailyReconciliation(now, lastSyncAt, dailyAt, timeZone);
+}
+
 export class FrameRefreshRequiredError extends Error {
   constructor(message = "Santander requiere volver a adquirir el iframe") {
     super(message);

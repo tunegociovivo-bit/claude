@@ -14,7 +14,7 @@ import { HubClient, type ClaimedJob } from "./hub-client.js";
 import type { SantanderAdapter, AdapterHooks, AuthorizedJob, StepOutcome } from "./santander/types.js";
 import { MockSantanderAdapter } from "./santander/mock.js";
 import { LiveSantanderAdapter } from "./santander/live.js";
-import { effectiveReconciliationLastAttempt, reconciliationRetryDecision, SantanderReconciliationReader, shouldRunDailyReconciliation } from "./santander/reconciliation.js";
+import { effectiveReconciliationLastAttempt, reconciliationRetryDecision, SantanderReconciliationReader, shouldStartReconciliation } from "./santander/reconciliation.js";
 import { remittanceRetryDecision, remittanceRetryDelayMs } from "./santander/retry.js";
 import { isRecoverableCdpFailure, recoverDedicatedChrome } from "./santander/chrome-recovery.js";
 
@@ -64,10 +64,10 @@ export class Runner {
       const config = await this.hub.reconciliationConfig();
       if (!config?.enabled) return;
       const now = new Date();
-      if (!shouldRunDailyReconciliation(now, config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone)) return;
+      const isNewForceRequest = Boolean(config.forceRequestedAt && config.forceRequestedAt !== this.lastForceRequestAt);
+      if (!shouldStartReconciliation(now, config.lastSyncAt ? new Date(config.lastSyncAt) : null, config.dailyAt, config.timeZone, isNewForceRequest)) return;
       // Si Santander no está disponible, no reabrir una ventana en cada ciclo
       // de sondeo. Un intento fallido queda enfriado durante 30 minutos.
-      const isNewForceRequest = Boolean(config.forceRequestedAt && config.forceRequestedAt !== this.lastForceRequestAt);
       const lastAttempt = effectiveReconciliationLastAttempt(
         config.retryAttempts,
         config.lastFailureAt ? new Date(config.lastFailureAt) : null,
