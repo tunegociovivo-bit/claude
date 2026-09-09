@@ -247,6 +247,14 @@ export function missingReceiptEvidenceMessage(pageText: string): string {
     : "Santander no mostró el detalle de recibos de una remesa contabilizada";
 }
 
+export function isReceiptListFrame(frameUrl: string, text: string, remittanceNumber: string): boolean {
+  const expected = remittanceNumber.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const normalized = text.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return /\/rmtqry\/sepa-direct-debits\/receipts-list-sepa-debits(?:[/?#]|$)/i.test(frameUrl)
+    && /Recibos de una remesa/i.test(text)
+    && normalized.includes(expected);
+}
+
 export class SantanderReconciliationReader {
   constructor(private opts: { cdpUrl: string; santanderOrigin: string; credentialFile: string }) {}
 
@@ -678,12 +686,10 @@ export class SantanderReconciliationReader {
   }
 
   private async waitReceiptFrame(page: any, remittanceNumber: string, attempts = 50): Promise<any | null> {
-    const expected = remittanceNumber.replace(/[^a-z0-9]/gi, "").toUpperCase();
     for (let attempt = 0; attempt < attempts; attempt++) {
       for (const frame of page.frames()) {
         const text = await frame.locator("body").innerText().catch(() => "");
-        const normalized = text.replace(/[^a-z0-9]/gi, "").toUpperCase();
-        if (/Recibos de una remesa/i.test(text) && normalized.includes(expected)) return frame;
+        if (isReceiptListFrame(frame.url(), text, remittanceNumber)) return frame;
       }
       await page.waitForTimeout(300);
     }
