@@ -12,7 +12,7 @@ describe("getAccountancyRunProgress", () => {
         { status: "PENDING" },
       ],
     }, new Date("2026-09-09T10:02:00.000Z"));
-    expect(progress).toEqual({ completed: 2, total: 4, percent: 50, etaMinutes: 2 });
+    expect(progress).toEqual({ completed: 2, total: 4, percent: 50, etaMinutes: 2, waitingForMetaAgent: false });
   });
 
   it("reports that the run is waiting for the Meta browser agent", () => {
