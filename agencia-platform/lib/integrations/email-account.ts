@@ -443,9 +443,8 @@ export async function findMetaBillingPdfAttachments(opts: {
   const hashes = new Set<string>();
   try {
     const mailboxes = (await client.list()).filter((mailbox: any) => isScannableBillingMailbox(mailbox));
-    let remainingMessages = 500;
     for (const mailbox of mailboxes) {
-      if (remainingMessages <= 0) break;
+      if (found.length >= 500) break;
       const lock = await client.getMailboxLock(mailbox.path);
       try {
         const uids = (await client.search({
@@ -454,9 +453,11 @@ export async function findMetaBillingPdfAttachments(opts: {
           smaller: 15 * 1024 * 1024,
           or: [{ from: "facebookmail.com" }, { from: "facebook.com" }, { from: "meta.com" }],
         }, { uid: true })) || [];
-        const selectedUids = uids.slice(-remainingMessages);
-        remainingMessages -= selectedUids.length;
+        // Bound untrusted candidates per folder; the global limit counts only
+        // authenticated, deduplicated PDF receipts added to `found`.
+        const selectedUids = uids.slice(-50);
         for (const uid of selectedUids) {
+        if (found.length >= 500) break;
         const metadata = await client.fetchOne(String(uid), { size: true }, { uid: true });
         if (!metadata || typeof metadata === "boolean" || !metadata.size || metadata.size > 15 * 1024 * 1024) continue;
         const message = await client.fetchOne(String(uid), { source: { maxLength: 15 * 1024 * 1024 }, internalDate: true }, { uid: true });
