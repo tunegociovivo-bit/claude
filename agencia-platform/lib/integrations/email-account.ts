@@ -455,8 +455,10 @@ export async function findMetaBillingPdfAttachments(opts: {
         const from = parsed.from?.text || "";
         const senderAddresses = (parsed.from?.value || []).map((entry) => String(entry.address || ""));
         const authenticationResults = String(parsed.headers.get("authentication-results") || "");
+        const mailboxDomain = String(acc.email || acc.loginUser || "").split("@").pop() || "";
+        const trustedAuthservIds = [...new Set([acc.imapHost, mailboxDomain].map((value) => String(value || "").trim()).filter(Boolean))];
         const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
-        if (!isTrustedMetaBillingSender(senderAddresses) || !hasAuthenticatedMetaSender(authenticationResults)) continue;
+        if (!isTrustedMetaBillingSender(senderAddresses) || !hasAuthenticatedMetaSender(authenticationResults, trustedAuthservIds)) continue;
         const amountMatch = searchable.match(/(?:total|importe|amount)[^\d]{0,30}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i);
         const amountCents = amountMatch ? Math.round(Number(amountMatch[1].replace(/[.\s]/g, "").replace(",", ".")) * 100) : null;
         for (const attachment of parsed.attachments || []) {
