@@ -21,6 +21,10 @@ export type PaymentMatch = {
 export type SepaJobCandidate = { invoiceId: string; amountCents: number; ibanMasked: string | null; chargeDate: Date | null };
 export type SepaRequestCandidate = { invoiceId: string; amountCents: number; chargeDate: Date | null; archivedAt?: Date | null; outstanding?: boolean };
 
+export function effectiveSepaCandidateDate(chargeDate: Date | null, createdAt: Date): Date {
+  return chargeDate ?? createdAt;
+}
+
 function localDay(date: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }

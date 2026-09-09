@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
+import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
 import { sendEmail } from "@/lib/integrations/email";
 import { profileForForcedReconciliation } from "./state";
 
@@ -233,14 +233,20 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
       where: {
         workspaceId,
         archivedAt: null,
-        status: { in: ["PENDING_SIGNATURE", "SIGNED"] },
+        status: { in: ["APPROVED", "PREPARING", "PENDING_SIGNATURE", "SIGNED"] },
         amountCents: summary.amountCents,
-        chargeDate: {
-          gte: new Date(summary.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000),
-          lte: new Date(summary.bookedAt.getTime() + 12 * 60 * 60 * 1000)
-        }
+        OR: [
+          { chargeDate: {
+            gte: new Date(summary.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000),
+            lte: new Date(summary.bookedAt.getTime() + 12 * 60 * 60 * 1000)
+          } },
+          { chargeDate: null, createdAt: {
+            gte: new Date(summary.bookedAt.getTime() - 4 * 24 * 60 * 60 * 1000),
+            lte: new Date(summary.bookedAt.getTime() + 12 * 60 * 60 * 1000)
+          } }
+        ]
       },
-      select: { invoiceId: true, amountCents: true, chargeDate: true, archivedAt: true }
+      select: { invoiceId: true, amountCents: true, chargeDate: true, createdAt: true, archivedAt: true }
     });
     const outstandingInvoices = nearbyRequests.length ? await prisma.invoice.findMany({
       where: {
@@ -255,7 +261,11 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
     const outstandingInvoiceIds = new Set(outstandingInvoices.map((invoice) => invoice.id));
     const requestMatch = matchUniqueSepaSummary(
       { amountCents: summary.amountCents, bookedAt: summary.bookedAt },
-      nearbyRequests.map((request) => ({ ...request, outstanding: outstandingInvoiceIds.has(request.invoiceId) }))
+      nearbyRequests.map((request) => ({
+        ...request,
+        chargeDate: effectiveSepaCandidateDate(request.chargeDate, request.createdAt),
+        outstanding: outstandingInvoiceIds.has(request.invoiceId)
+      }))
     );
     if (requestMatch) {
       const invoice = await prisma.invoice.findFirst({
