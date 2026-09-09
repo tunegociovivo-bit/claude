@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { createHash } from "node:crypto";
+import { identifyMetaBillingAccount } from "./meta-billing-match";
 
 // Timeouts: sin esto, si el servidor de correo no responde (puerto
 // bloqueado, host caído, firewall que descarta paquetes) la conexión se
@@ -434,6 +435,8 @@ export async function findMetaBillingPdfAttachments(opts: {
   const { acc, password } = await loadAccount(opts.userId, opts.workspaceId);
   const { ImapFlow } = await import("imapflow");
   const { simpleParser } = await import("mailparser");
+  const pdfModule: any = await import("pdf-parse");
+  const PDFParse = pdfModule.PDFParse ?? pdfModule.default?.PDFParse ?? pdfModule.default;
   const client = new ImapFlow({ host: acc.imapHost, port: acc.imapPort, secure: acc.imapSecure, auth: { user: acc.loginUser, pass: password }, logger: false, ...IMAP_TIMEOUTS });
   await withTimeout(client.connect(), 15_000, "IMAP");
   const found: BillingPdfAttachment[] = [];
@@ -450,15 +453,23 @@ export async function findMetaBillingPdfAttachments(opts: {
         const from = parsed.from?.text || "";
         const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
         if (!/(facebookmail\.com|facebook\.com|meta\.com|meta platforms|recibo.*meta|meta.*recibo)/i.test(searchable)) continue;
-        const normalized = searchable.replace(/[\s-]/g, "");
-        const accountId = opts.accountIds.find((id) => normalized.includes(id.replace(/\D/g, "")));
-        if (!accountId) continue;
         const amountMatch = searchable.match(/(?:total|importe|amount)[^\d]{0,30}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i);
         const amountCents = amountMatch ? Math.round(Number(amountMatch[1].replace(/[.\s]/g, "").replace(",", ".")) * 100) : null;
         for (const attachment of parsed.attachments || []) {
           const content = Buffer.from(attachment.content);
           if (attachment.contentType !== "application/pdf" && !/\.pdf$/i.test(attachment.filename || "")) continue;
           if (content.subarray(0, 4).toString("ascii") !== "%PDF") continue;
+          let pdfText = "";
+          try {
+            const parser = new PDFParse({ data: content });
+            try { pdfText = String((await parser.getText())?.text || ""); }
+            finally { await parser.destroy?.(); }
+          } catch {
+            // Some image-only PDFs cannot be parsed. The email body may still
+            // contain the account ID, so keep matching against both sources.
+          }
+          const accountId = identifyMetaBillingAccount({ messageText: searchable, pdfText, accountIds: opts.accountIds });
+          if (!accountId) continue;
           const hash = createHash("sha256").update(content).digest("hex");
           if (hashes.has(hash)) continue;
           hashes.add(hash);
