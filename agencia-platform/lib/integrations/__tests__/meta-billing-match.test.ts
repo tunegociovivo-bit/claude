@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { identifyMetaBillingAccount } from "../meta-billing-match";
+import { identifyMetaBillingAccount, isTrustedMetaBillingSender } from "../meta-billing-match";
 
 describe("identifyMetaBillingAccount", () => {
   const accountIds = ["290451863303865", "2074249599540370"];
@@ -32,5 +32,21 @@ describe("identifyMetaBillingAccount", () => {
         accountIds,
       }),
     ).toBeNull();
+  });
+
+  it("does not build an account ID by joining unrelated numeric fields", () => {
+    expect(
+      identifyMetaBillingAccount({
+        messageText: "Referencia 2904-5186",
+        pdfText: "Importe 3.303,86; referencia 5",
+        accountIds: ["290451863303865"],
+      }),
+    ).toBeNull();
+  });
+
+  it("only accepts billing messages from Meta-controlled domains", () => {
+    expect(isTrustedMetaBillingSender(["receipt@facebookmail.com"])).toBe(true);
+    expect(isTrustedMetaBillingSender(["billing@support.meta.com"])).toBe(true);
+    expect(isTrustedMetaBillingSender(["fake-facebookmail.com@attacker.example"])).toBe(false);
   });
 });
