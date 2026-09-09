@@ -492,6 +492,28 @@ export class SantanderReconciliationReader {
         frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i);
       }
     }
+    if (!frame) {
+      // Un recorrido histórico puede superar el tiempo de inactividad de
+      // Santander. Revalidar la sesión y reconstruir el módulo completo evita
+      // perder todas las remesas ya verificadas al cambiar de página.
+      const authenticated = await this.ensureAuthenticated(page.context());
+      if (!authenticated) throw new Error("Santander cerró la sesión durante la conciliación");
+      await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: 20000 });
+      const recoveredList = await this.waitRemittanceListFrame(page, 10);
+      if (recoveredList) {
+        return reopenRemittanceListAtPage(
+          async () => recoveredList,
+          (currentFrame, pageNumber) => this.advanceRemittancePage(page, currentFrame, pageNumber),
+          pageIndex
+        );
+      }
+      const remittanceMenu = page.locator("span.menu-item").filter({ hasText: /^Remesas$/i }).first();
+      if (await remittanceMenu.isVisible().catch(() => false)) {
+        const label = await remittanceMenu.innerText().catch(() => "");
+        if (isSafeRemittanceMenuLabel(label)) await remittanceMenu.click();
+        frame = await this.waitFrame(page, /Herramienta para crear tus ficheros de remesas/i, 60);
+      }
+    }
     let filtersFrame: any = null;
     if (!frame) {
       const consultationLink = page.getByRole("link", { name: /^Consulta$/i }).first();
