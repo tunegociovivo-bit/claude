@@ -241,6 +241,12 @@ export function isSafeRemittanceMenuLabel(label: string): boolean {
   return /^Remesas$/i.test(label.trim());
 }
 
+export function missingReceiptEvidenceMessage(pageText: string): string {
+  return /sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(pageText)
+    ? "Santander cerró la sesión durante la conciliación"
+    : "Santander no mostró el detalle de recibos de una remesa contabilizada";
+}
+
 export class SantanderReconciliationReader {
   constructor(private opts: { cdpUrl: string; santanderOrigin: string; credentialFile: string }) {}
 
@@ -314,10 +320,16 @@ export class SantanderReconciliationReader {
             );
           opened = true;
           const receipts = row.getByRole("link", { name: /^Recibos$/i });
-          if (!await browserValueOr(() => receipts.isVisible(), false)) continue;
+          if (!await browserValueOr(() => receipts.isVisible(), false)) {
+            const pageText = (await Promise.all(page.frames().map((candidate: any) => browserValueOr(() => candidate.locator("body").innerText(), "")))).join(" ");
+            throw new Error(missingReceiptEvidenceMessage(pageText));
+          }
           await receipts.click();
           const receiptFrame = await this.waitReceiptFrame(page, remittance.remittanceNumber);
-          if (!receiptFrame) continue;
+          if (!receiptFrame) {
+            const pageText = (await Promise.all(page.frames().map((candidate: any) => browserValueOr(() => candidate.locator("body").innerText(), "")))).join(" ");
+            throw new Error(missingReceiptEvidenceMessage(pageText));
+          }
           const receiptBody = await browserValueOr(() => receiptFrame.locator("body").innerText(), "");
           if (/sesi[oó]n ha caducado|desconexi[oó]n por inactividad/i.test(receiptBody)) throw new Error("Santander cerró la sesión durante la conciliación");
           let receiptTexts: string[] = [];
