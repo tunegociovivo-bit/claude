@@ -12,7 +12,7 @@ import { MockSantanderAdapter, type MockAnomaly } from "../src/santander/mock.js
 import { isForbiddenActionLabel } from "../src/santander/types.js";
 import type { AdapterHooks, AuthorizedJob } from "../src/santander/types.js";
 import { sanitize } from "../src/logger.js";
-import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, isDirectRemittanceList, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldImportAccountMovement, shouldRunDailyReconciliation, shouldStartReconciliation } from "../src/santander/reconciliation.js";
+import { acquireRemittanceListFrame, browserValueOr, clickAfterDismissingModal, effectiveReconciliationLastAttempt, FrameRefreshRequiredError, isDirectRemittanceList, isForceReconciliationPending, isSantanderMovementRowText, reconciliationRetryDecision, parseSantanderMovementText, parseSepaReceiptRow, parseSepaRemittanceRow, reopenRemittanceListAtPage, restoreRemittanceListFrame, runWithRefreshedFrame, shouldImportAccountMovement, shouldRunDailyReconciliation, shouldStartReconciliation } from "../src/santander/reconciliation.js";
 import { exactRoleNamePattern } from "../src/santander/selectors.js";
 import { matchSepaReceipt } from "../../lib/facturacion/reconciliation/matching.js";
 import { amountFieldIsConfirmed, amountSummaryIsConfirmed, buildRemittanceGeneratorUrl, canContinueToDirectDebit, classifyLoginCompletion, decideLoginAction, formatSantanderAmount, hasLoginCredentialError, hasVerifiedPendingSignature, isAuthenticatedSantanderUrl, isEnvioremFrameUrl, isOfficialSantanderLoginUrl, isRemittanceGeneratorUrl, isSafeBasicPaymentsLabel, isSafePaginationControl, isSafeReconnectLabel, isSafeRemittanceGenerationLabel, numericPageLabels, parseDisplayedAmountCents, shouldAttemptSavedLogin, shouldRetryVisibleOption, shouldWaitForAmountConfirmation, shouldWaitForLoginCompletion, shouldWaitForRemittanceList, uniqueVisibleIndex, validateAccessKey } from "../src/santander/login.js";
@@ -150,6 +150,8 @@ async function main() {
 
   ok("no concilia antes de las 08:00 de Madrid", !shouldRunDailyReconciliation(new Date("2026-08-11T05:59:00Z"), null, "08:00", "Europe/Madrid"));
   ok("una resincronizaciÃ³n forzada arranca aunque sea antes de las 08:00", shouldStartReconciliation(new Date("2026-08-11T05:59:00Z"), null, "08:00", "Europe/Madrid", true));
+  ok("una orden forzada sigue pendiente tras un fallo sin sincronizaciÃ³n", isForceReconciliationPending("2026-08-11T05:00:00Z", null));
+  ok("una orden forzada completada no se repite al reiniciar", !isForceReconciliationPending("2026-08-11T05:00:00Z", "2026-08-11T05:30:00Z"));
   ok("concilia después de las 08:00 si hoy no se ejecutó", shouldRunDailyReconciliation(new Date("2026-08-11T06:01:00Z"), new Date("2026-08-10T07:00:00Z"), "08:00", "Europe/Madrid"));
   ok("solo concilia una vez por día local", !shouldRunDailyReconciliation(new Date("2026-08-11T12:00:00Z"), new Date("2026-08-11T06:01:00Z"), "08:00", "Europe/Madrid"));
   ok("espera 30 minutos antes de reintentar una conciliación fallida",
