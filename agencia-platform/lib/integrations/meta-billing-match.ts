@@ -1,5 +1,6 @@
-function digits(value: string) {
-  return value.replace(/\D/g, "");
+function accountPattern(accountId: string) {
+  const parts = accountId.replace(/\D/g, "").split("");
+  return new RegExp(`(?<!\\d)${parts.join("[\\s-]*")}(?!\\d)`);
 }
 
 export function identifyMetaBillingAccount(input: {
@@ -7,10 +8,18 @@ export function identifyMetaBillingAccount(input: {
   pdfText?: string | null;
   accountIds: string[];
 }) {
-  const haystack = digits(`${input.messageText}\n${input.pdfText || ""}`);
-  const matches = [...new Set(input.accountIds.filter((id) => {
-    const normalized = digits(id);
-    return normalized.length >= 6 && haystack.includes(normalized);
-  }))];
+  const sources = [input.messageText, input.pdfText || ""];
+  const matches = [...new Set(input.accountIds.filter((id) =>
+    id.replace(/\D/g, "").length >= 6 && sources.some((source) => accountPattern(id).test(source)),
+  ))];
   return matches.length === 1 ? matches[0] : null;
+}
+
+export function isTrustedMetaBillingSender(addresses: string[]) {
+  return addresses.some((address) => {
+    const domain = address.trim().toLowerCase().split("@").pop() || "";
+    return ["facebookmail.com", "facebook.com", "meta.com"].some(
+      (trusted) => domain === trusted || domain.endsWith(`.${trusted}`),
+    );
+  });
 }

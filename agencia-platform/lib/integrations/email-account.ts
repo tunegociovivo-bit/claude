@@ -11,7 +11,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { createHash } from "node:crypto";
-import { identifyMetaBillingAccount } from "./meta-billing-match";
+import { identifyMetaBillingAccount, isTrustedMetaBillingSender } from "./meta-billing-match";
 
 // Timeouts: sin esto, si el servidor de correo no responde (puerto
 // bloqueado, host caído, firewall que descarta paquetes) la conexión se
@@ -451,18 +451,23 @@ export async function findMetaBillingPdfAttachments(opts: {
         const parsed = await simpleParser(message.source as Buffer);
         const subject = String(parsed.subject || "");
         const from = parsed.from?.text || "";
+        const senderAddresses = (parsed.from?.value || []).map((entry) => String(entry.address || ""));
         const searchable = `${subject}\n${from}\n${parsed.text || ""}\n${typeof parsed.html === "string" ? parsed.html : ""}`;
-        if (!/(facebookmail\.com|facebook\.com|meta\.com|meta platforms|recibo.*meta|meta.*recibo)/i.test(searchable)) continue;
+        if (!isTrustedMetaBillingSender(senderAddresses)) continue;
         const amountMatch = searchable.match(/(?:total|importe|amount)[^\d]{0,30}(\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))\s*(?:€|EUR)/i);
         const amountCents = amountMatch ? Math.round(Number(amountMatch[1].replace(/[.\s]/g, "").replace(",", ".")) * 100) : null;
         for (const attachment of parsed.attachments || []) {
           const content = Buffer.from(attachment.content);
           if (attachment.contentType !== "application/pdf" && !/\.pdf$/i.test(attachment.filename || "")) continue;
           if (content.subarray(0, 4).toString("ascii") !== "%PDF") continue;
+          if (content.length > 10 * 1024 * 1024) continue;
           let pdfText = "";
           try {
             const parser = new PDFParse({ data: content });
-            try { pdfText = String((await parser.getText())?.text || ""); }
+            try {
+              const parsedText: any = await withTimeout<any>(parser.getText({ first: 3 }), 5_000, "PDF de Meta");
+              pdfText = String(parsedText?.text || "").slice(0, 250_000);
+            }
             finally { await parser.destroy?.(); }
           } catch {
             // Some image-only PDFs cannot be parsed. The email body may still
