@@ -17,7 +17,9 @@ describe("Meta billing browser collector", () => {
 
   it("leaves Meta run items for the authenticated browser collector", () => {
     const cron = readFileSync(resolve(root, "app/api/cron/accountancy-invoices/process/route.ts"), "utf8");
+    const scheduler = readFileSync(resolve(root, "lib/cron/in-app-scheduler.ts"), "utf8");
     expect(cron).not.toContain("processAllPendingMetaInvoiceRun");
+    expect(scheduler).not.toContain("processAllPendingMetaInvoiceRun");
   });
 
   it("collects PDFs produced by the visible Download PDF controls", () => {
