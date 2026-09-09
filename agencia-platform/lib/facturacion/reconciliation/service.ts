@@ -233,7 +233,7 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
       where: {
         workspaceId,
         archivedAt: null,
-        status: { in: ["APPROVED", "PREPARING", "PENDING_SIGNATURE", "SIGNED"] },
+        status: { in: ["PENDING_SIGNATURE", "SIGNED"] },
         amountCents: summary.amountCents,
         OR: [
           { chargeDate: {
@@ -279,10 +279,11 @@ async function reconcileUniqueSepaSummaries(workspaceId: string) {
             data: { status: "MATCHED", matchedInvoiceId: invoice.id, matchConfidence: "SEPA_REQUEST_DATE_AMOUNT", matchedAt: new Date() }
           });
           if (!claimed.count) return;
-          await tx.invoice.updateMany({
+          const invoiceClaim = await tx.invoice.updateMany({
             where: { id: invoice.id, workspaceId, status: "ISSUED", paidCents: 0 },
             data: { status: "PAID", paidCents: invoice.totalCents, paidAt: summary.bookedAt }
           });
+          if (!invoiceClaim.count) throw new Error("La factura ya fue conciliada por otra ejecucion");
           matched += claimed.count;
         });
         continue;
