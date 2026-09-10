@@ -93,6 +93,19 @@ export async function PATCH(req: NextRequest) {
     });
     return NextResponse.json(schedule);
   }
+  if (body.action === "client") {
+    if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
+    const updated = await prisma.accountancyInvoiceClient.updateMany({
+      where: { id: body.id, workspaceId: ctx.workspaceId },
+      data: {
+        ...(typeof body.externalAccountId === "string" ? { externalAccountId: body.externalAccountId.trim() || null } : {}),
+        ...(typeof body.connectionRef === "string" ? { connectionRef: body.connectionRef.trim().toLowerCase() || null } : {}),
+        ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {})
+      }
+    });
+    if (!updated.count) return NextResponse.json({ error: "Cuenta no encontrada" }, { status: 404 });
+    return NextResponse.json(updated);
+  }
   const updated = await prisma.accountancyInvoiceClient.updateMany({ where: { id: body.id, workspaceId: ctx.workspaceId }, data: { enabled: Boolean(body.enabled) } });
   return NextResponse.json(updated);
 }
