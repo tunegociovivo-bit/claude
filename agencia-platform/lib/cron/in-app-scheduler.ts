@@ -104,10 +104,12 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
     }
     try {
-      const { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
-      await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
+      // Google Ads se procesa exclusivamente desde la extensión de Chrome.
+      // El servidor no dispone de acceso a la interfaz de facturación y, si
+      // reclama estos trabajos, impide que el agente del navegador los recoja.
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría:", (e as Error).message);
     }
@@ -260,10 +262,9 @@ export function startInAppScheduler(): void {
     if (accountancyBusy) return;
     accountancyBusy = true;
     try {
-      const { processAllPendingGoogleAdsInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
-      await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría independiente:", (e as Error).message);
     } finally {

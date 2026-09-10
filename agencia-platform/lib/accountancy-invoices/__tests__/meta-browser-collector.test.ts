@@ -22,6 +22,13 @@ describe("Meta billing browser collector", () => {
     expect(scheduler).not.toContain("processAllPendingMetaInvoiceRun");
   });
 
+  it("leaves Google Ads run items for the authenticated browser collector", () => {
+    const cron = readFileSync(resolve(root, "app/api/cron/accountancy-invoices/process/route.ts"), "utf8");
+    const scheduler = readFileSync(resolve(root, "lib/cron/in-app-scheduler.ts"), "utf8");
+    expect(cron).not.toContain("processAllPendingGoogleAdsInvoiceRun");
+    expect(scheduler).not.toContain("processAllPendingGoogleAdsInvoiceRun");
+  });
+
   it("collects PDFs produced by the visible Download PDF controls", () => {
     const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
     expect(collector).toContain("await waitForBillingRows()");
