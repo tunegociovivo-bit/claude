@@ -662,7 +662,39 @@ async function selectGoogleAdsCustomer(tabId, externalAccountId) {
     },
     args: [customerId]
   });
-  if (!selected) throw new Error(`No se encontr\u00f3 la cuenta Google Ads ${externalAccountId} en el selector`);
+  if (!selected) {
+    // Las cuentas hijas de un MCC solo aparecen en el selector interno.
+    const [{ result: openedManager } = {}] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const rows = [...document.querySelectorAll('[role="menuitem"]')];
+        const manager = rows.find((node) => /negocio vivo/i.test(node.textContent || "") && /administrador/i.test(node.textContent || ""))
+          || rows.find((node) => /administrador/i.test(node.textContent || ""));
+        if (manager instanceof HTMLElement) { manager.click(); return true; }
+        return false;
+      }
+    });
+    if (!openedManager) throw new Error(`No se encontr\u00f3 la cuenta Google Ads ${externalAccountId} en el selector`);
+    await waitForTabUrl(tabId, (url) => !/^https:\/\/ads\.google\.com\/nav\/selectaccount/.test(url), 30000);
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    const [{ result: nestedSelected } = {}] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (cid) => {
+        const formatted = `${cid.slice(0, 3)}-${cid.slice(3, 6)}-${cid.slice(6)}`;
+        const icon = [...document.querySelectorAll("*" )].find((node) => (node.textContent || "").trim() === "arrow_drop_down");
+        const opener = icon?.closest('button, [role="button"]') || icon;
+        if (!(opener instanceof HTMLElement)) return false;
+        opener.click();
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const idNode = [...document.querySelectorAll("div, span")].find((node) => (node.textContent || "").trim() === formatted);
+        const row = idNode?.closest('[role="menuitem"], [role="option"], a, [tabindex]') || idNode?.parentElement;
+        if (row instanceof HTMLElement) { row.click(); return true; }
+        return false;
+      },
+      args: [customerId]
+    });
+    if (!nestedSelected) throw new Error(`No se encontr\u00f3 la cuenta Google Ads ${externalAccountId} dentro del administrador`);
+  }
   await waitForTabComplete(tabId);
   await new Promise((resolve) => setTimeout(resolve, 5000));
 }
