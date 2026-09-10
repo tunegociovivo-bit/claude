@@ -584,6 +584,30 @@ function waitForTabComplete(tabId, timeoutMs = 60000) {
   });
 }
 
+async function selectGoogleAdsCustomer(tabId, externalAccountId) {
+  const customerId = String(externalAccountId || "").replace(/\D/g, "");
+  if (!customerId) return;
+  const current = await chrome.tabs.get(tabId);
+  if (!/^https:\/\/ads\.google\.com\/nav\/selectaccount/.test(current.url || "")) return;
+  const [{ result: selected } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (cid) => {
+      const formatted = `${cid.slice(0, 3)}-${cid.slice(3, 6)}-${cid.slice(6)}`;
+      const candidates = [...document.querySelectorAll('[role="menuitem"]')];
+      const row = candidates.find((node) => {
+        const text = String(node.textContent || "").replace(/\s+/g, " ");
+        return text.includes(formatted) || text.replace(/\D/g, "").includes(cid);
+      });
+      if (row instanceof HTMLElement) { row.click(); return true; }
+      return false;
+    },
+    args: [customerId]
+  });
+  if (!selected) throw new Error(`No se encontr\u00f3 la cuenta Google Ads ${externalAccountId} en el selector`);
+  await waitForTabComplete(tabId);
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+}
+
 async function uploadAccountancyPdf(itemId, file) {
   const blob = await (await fetch(`data:application/pdf;base64,${file.base64}`)).blob();
   const form = new FormData();
@@ -598,6 +622,27 @@ async function uploadAccountancyPdf(itemId, file) {
 async function reportAccountancyResult(payload) {
   const response = await authedFetch("/api/v1/admin/accountancy-invoices/agent", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   if (!response.ok) throw new Error("El Hub no pudo guardar el resultado de la descarga");
+}
+
+async function harvestAccountancyFrames(tabId, message) {
+  const frames = await chrome.webNavigation.getAllFrames({ tabId });
+  const responses = await Promise.all((frames || [{ frameId: 0 }]).map(async ({ frameId }) => {
+    try { return await chrome.tabs.sendMessage(tabId, message, { frameId }); }
+    catch { return null; }
+  }));
+  const successful = responses.filter((result) => result?.ok);
+  if (!successful.length) return responses.find(Boolean) || { ok: false, error: "No se pudo leer la p\u00e1gina de facturaci\u00f3n" };
+  const files = successful.flatMap((result) => result.files || []);
+  const uniqueFiles = [...new Map(files.map((file) => [`${file.name}:${file.base64 || ""}`, file])).values()];
+  return {
+    ok: true,
+    found: successful.reduce((sum, result) => sum + (Number(result.found) || 0), 0),
+    files: uniqueFiles,
+    errors: successful.flatMap((result) => result.errors || []).slice(0, 20),
+    // Solo el frame de payments.google.com puede confirmar que la tabla cargó
+    // correctamente y que el periodo no contiene documentos.
+    emptyConfirmed: successful.some((result) => result.emptyConfirmed)
+  };
 }
 
 async function processAccountancyItem(item) {
@@ -626,11 +671,15 @@ async function processAccountancyItem(item) {
         await waitForTabComplete(tab.id);
         await new Promise((resolve) => setTimeout(resolve, 4500));
       }
+      await selectGoogleAdsCustomer(tab.id, item.externalAccountId);
     }
     const script = item.target.mode === "META" ? "content/meta-billing.js" : "content/invoice-harvester.js";
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [script] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: item.target.mode === "GOOGLE_ADS" }, files: [script] });
     const messageType = item.target.mode === "META" ? "harvest-meta-invoices" : "harvest-accountancy-invoices";
-    const result = await chrome.tabs.sendMessage(tab.id, { type: messageType });
+    const message = { type: messageType, periodKey: item.periodKey };
+    const result = item.target.mode === "GOOGLE_ADS"
+      ? await harvestAccountancyFrames(tab.id, message)
+      : await chrome.tabs.sendMessage(tab.id, message);
     if (!result?.ok) throw new Error(result?.error || "No se pudo leer la página de facturación");
     if (!result.files?.length && !result.emptyConfirmed) throw new Error("No se detectaron facturas PDF. Revisa la sesión, el periodo y la URL de facturación.");
     const uploaded = [];

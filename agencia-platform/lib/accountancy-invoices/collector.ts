@@ -24,7 +24,9 @@ export function buildCollectorTarget(input: CollectorInput): CollectorTarget {
   if (input.source === "GOOGLE_ADS") {
     if (/^\d{3}-?\d{3}-?\d{4}$/.test(id)) {
       const customerId = id.replace(/\D/g, "");
-      return { mode: "GOOGLE_ADS", url: `https://ads.google.com/aw/billing/documents?__c=${customerId}` };
+      // __e is the external customer id. __c is an internal Ads login id and
+      // sending the CID there leaves users on the account selector.
+      return { mode: "GOOGLE_ADS", url: `https://ads.google.com/aw/billing/documents?__e=${customerId}` };
     }
     let url: URL;
     try { url = new URL(id); } catch { throw new Error("Configura la URL de facturación de Google Ads para esta cuenta"); }

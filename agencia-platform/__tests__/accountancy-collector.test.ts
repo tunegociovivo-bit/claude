@@ -26,7 +26,7 @@ describe("accountancy browser collector", () => {
       .toBe("https://app.holded.com/sales/revenue");
     expect(buildCollectorTarget({ source: "GOOGLE_ADS", externalAccountId: "123-456-7890", periodFrom: "2026-08-01", periodTo: "2026-08-31" })).toEqual({
       mode: "GOOGLE_ADS",
-      url: "https://ads.google.com/aw/billing/documents?__c=1234567890"
+      url: "https://ads.google.com/aw/billing/documents?__e=1234567890"
     });
   });
 
