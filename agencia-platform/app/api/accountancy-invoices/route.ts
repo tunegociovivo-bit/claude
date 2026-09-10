@@ -50,15 +50,26 @@ export async function POST(req: NextRequest) {
     });
     if (!run) return NextResponse.json({ error: "Ejecución no encontrada" }, { status: 404 });
     const source = typeof body.source === "string" ? body.source : undefined;
-    const retried = await prisma.accountancyInvoiceRunItem.updateMany({
-      where: { runId: run.id, status: "FAILED", ...(source ? { source } : {}) },
-      data: { status: "PENDING", error: null, startedAt: null, finishedAt: null }
-    });
-    if (!retried.count) return NextResponse.json({ error: "No hay cuentas fallidas para reintentar" }, { status: 409 });
-    await prisma.accountancyInvoiceRun.update({
-      where: { id: run.id },
-      data: { status: "PENDING", startedAt: new Date(), finishedAt: null, activeKey: `${ctx.workspaceId}:${run.periodKey}` }
-    });
+    const activeKey = `${ctx.workspaceId}:${run.periodKey}:${run.trigger}`;
+    let retried;
+    try {
+      retried = await prisma.$transaction(async (tx) => {
+        await tx.accountancyInvoiceRun.update({
+          where: { id: run.id },
+          data: { status: "PENDING", startedAt: new Date(), finishedAt: null, activeKey }
+        });
+        const result = await tx.accountancyInvoiceRunItem.updateMany({
+          where: { runId: run.id, status: "FAILED", ...(source ? { source } : {}) },
+          data: { status: "PENDING", error: null, startedAt: null, finishedAt: null }
+        });
+        if (!result.count) throw new Error("NO_FAILED_ITEMS");
+        return result;
+      });
+    } catch (error: any) {
+      if (error?.message === "NO_FAILED_ITEMS") return NextResponse.json({ error: "No hay cuentas fallidas para reintentar" }, { status: 409 });
+      if (error?.code === "P2002") return NextResponse.json({ error: "Ya existe una ejecución activa para este periodo" }, { status: 409 });
+      throw error;
+    }
     return NextResponse.json({ ok: true, retried: retried.count }, { status: 202 });
   }
   if (body.action === "client") {

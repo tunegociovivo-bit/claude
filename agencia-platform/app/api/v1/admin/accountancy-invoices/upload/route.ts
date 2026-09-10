@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { requireAdmin } from "@/lib/api/admin";
@@ -23,8 +24,11 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req: NextReque
   const buf = Buffer.from(await file.arrayBuffer());
   if (buf[0] !== 0x25 || buf[1] !== 0x50 || buf[2] !== 0x44 || buf[3] !== 0x46) throw new ApiError(415, "not_pdf", "El archivo no es un PDF válido");
   const name = sanitizeCollectorFilename((file as any).name || "factura.pdf");
-  const s3Key = buildS3Key({ workspaceId: api.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id, filename: name });
-  await uploadBuffer({ s3Key, body: buf, contentType: "application/pdf" });
-  const row = await prisma.file.create({ data: { workspaceId: api.workspaceId, name, mimeType: "application/pdf", sizeBytes: buf.length, s3Key, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id, uploadedBy: api.userId } });
+  const digest = createHash("sha256").update(buf).digest("hex").slice(0, 20);
+  const storageName = name.replace(/\.pdf$/i, `-${digest}.pdf`);
+  const s3Key = buildS3Key({ workspaceId: api.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id, filename: storageName });
+  const existing = await prisma.file.findFirst({ where: { workspaceId: api.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id, s3Key } });
+  if (!existing) await uploadBuffer({ s3Key, body: buf, contentType: "application/pdf" });
+  const row = existing ?? await prisma.file.create({ data: { workspaceId: api.workspaceId, name, mimeType: "application/pdf", sizeBytes: buf.length, s3Key, targetType: "ACCOUNTANCY_RUN_ITEM", targetId: item.id, uploadedBy: api.userId } });
   return NextResponse.json({ id: row.id, name, url: await signedDownloadUrl(s3Key, 7 * 24 * 3600) });
 });
