@@ -84,4 +84,18 @@ describe("Meta billing browser collector", () => {
     expect(collector).toContain("capturedFiles.length < controls.length");
     expect(collector).toContain("No respondieron todos los botones de descarga de Meta");
   });
+
+  it("reveals receipt downloads hidden behind Meta action menus", () => {
+    const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
+    expect(collector).toContain("revealReceiptDownloadControls");
+    expect(collector).toContain("aria-label");
+    expect(collector).toContain("more|mÃ¡s|acciones|actions|opciones|options");
+  });
+
+  it("retries Meta billing through Ads Manager when Business Suite exposes no PDFs", () => {
+    const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
+    expect(worker).toContain("buildMetaBillingFallbackUrl");
+    expect(worker).toContain("adsmanager.facebook.com/adsmanager/billing_hub/payment_activity");
+    expect(worker).toContain("pageSummary");
+  });
 });
