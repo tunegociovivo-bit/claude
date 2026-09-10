@@ -45,7 +45,7 @@
     if (!href) return false;
     const h = href.toLowerCase();
     const hasKeyword = /(invoice|receipt|factura|recibo|transaction|billing)/.test(h);
-    const isDownload = /(download|\.pdf|format=pdf|render=pdf|async\/billing)/.test(h);
+    const isDownload = /(download|\.pdf|(?:format|render|pdf)=true|(?:format|render)=pdf|async\/billing)/.test(h);
     return hasKeyword && isDownload;
   }
 
