@@ -591,13 +591,26 @@ async function selectGoogleAdsCustomer(tabId, externalAccountId) {
   if (!/^https:\/\/ads\.google\.com\/nav\/selectaccount/.test(current.url || "")) return;
   const [{ result: selected } = {}] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: (cid) => {
+    func: async (cid) => {
       const formatted = `${cid.slice(0, 3)}-${cid.slice(3, 6)}-${cid.slice(6)}`;
-      const candidates = [...document.querySelectorAll('[role="menuitem"]')];
-      const row = candidates.find((node) => {
+      const findRow = () => [...document.querySelectorAll('[role="menuitem"]')].find((node) => {
         const text = String(node.textContent || "").replace(/\s+/g, " ");
         return text.includes(formatted) || text.replace(/\D/g, "").includes(cid);
       });
+      let row = findRow();
+      if (!row) {
+        const input = document.querySelector('input[aria-label*="CID"], input[aria-label*="Buscar"], input[aria-label*="Search"], input[placeholder*="CID"]');
+        if (input instanceof HTMLInputElement) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+          setter?.call(input, formatted);
+          input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: formatted }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          for (let attempt = 0; attempt < 20 && !row; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            row = findRow();
+          }
+        }
+      }
       if (row instanceof HTMLElement) { row.click(); return true; }
       return false;
     },

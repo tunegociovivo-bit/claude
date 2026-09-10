@@ -30,6 +30,16 @@
     return documents;
   }
 
+  async function waitForGoogleBilling() {
+    if (location.hostname !== "payments.google.com") return;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const bodyText = document.body?.innerText || "";
+      if (document.querySelector("[data-url*='/payments/apis-secure/doc/']") ||
+          /documentos fiscales|tax documents|fecha de emisi[o\u00f3]n|issue date|no hay documentos|no documents/i.test(bodyText)) return;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
   function matchesPeriod(text, periodKey) {
     if (!periodKey || !/^\d{4}-\d{2}$/.test(periodKey)) return true;
     const [year, month] = periodKey.split("-");
@@ -47,13 +57,14 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "harvest-accountancy-invoices") return;
     (async () => {
+      await waitForGoogleBilling();
       const isGoogle = location.hostname === "ads.google.com" || location.hostname === "payments.google.com";
       let billingLoaded = false;
       const candidates = allDocuments().flatMap((doc) => {
         const bodyText = doc.body?.innerText || "";
         if (location.hostname === "payments.google.com" && (
           doc.querySelector("[data-url*='/payments/apis-secure/doc/']") ||
-          /documentos fiscales|tax documents|fecha de emisi[o\u00f3]n|issue date/i.test(bodyText)
+          /documentos fiscales|tax documents|fecha de emisi[o\u00f3]n|issue date|no hay documentos|no documents/i.test(bodyText)
         )) billingLoaded = true;
         const links = [...doc.querySelectorAll("a[href]")]
           .map((link) => ({ url: new URL(link.getAttribute("href"), location.href).href, text: link.closest("tr, [role=row]")?.textContent || link.textContent || "" }))

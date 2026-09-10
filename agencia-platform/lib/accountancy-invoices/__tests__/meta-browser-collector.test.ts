@@ -34,11 +34,13 @@ describe("Meta billing browser collector", () => {
     const collector = readFileSync(resolve(root, "chrome-extension/content/invoice-harvester.js"), "utf8");
     expect(worker).toContain("selectGoogleAdsCustomer(tab.id, item.externalAccountId)");
     expect(worker).toContain("periodKey: item.periodKey");
+    expect(worker).toContain('input[aria-label*="CID"]');
     expect(worker).toContain("chrome.webNavigation.getAllFrames");
     expect(worker).toContain('allFrames: item.target.mode === "GOOGLE_ADS"');
     expect(collector).toContain('doc.querySelectorAll("[data-url]")');
     expect(collector).toContain("/payments\\/apis-secure\\/doc\\//");
     expect(collector).toContain("matchesPeriod(entry.text, message.periodKey)");
+    expect(collector).toContain("await waitForGoogleBilling()");
   });
 
   it("collects PDFs produced by the visible Download PDF controls", () => {
