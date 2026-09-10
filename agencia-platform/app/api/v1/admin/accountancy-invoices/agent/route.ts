@@ -32,7 +32,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api }) 
   const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: item.id, status: "PENDING", run: { workspaceId: api.workspaceId } }, data: { status: "RUNNING", startedAt: new Date(), error: null } });
   if (!claimed.count) return NextResponse.json({ item: null });
   await prisma.accountancyInvoiceRun.update({ where: { id: item.runId }, data: { status: "RUNNING", startedAt: new Date() } });
-  return NextResponse.json({ item: { id: item.id, clientName: item.clientName, source: item.source, externalAccountId: item.client?.externalAccountId, periodKey: item.run.periodKey, periodFrom: item.run.periodFrom, periodTo: item.run.periodTo, target } });
+  return NextResponse.json({ item: { id: item.id, clientName: item.clientName, source: item.source, externalAccountId: item.client?.externalAccountId, connectionRef: item.client?.connectionRef, periodKey: item.run.periodKey, periodFrom: item.run.periodFrom, periodTo: item.run.periodTo, target } });
 });
 
 export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req: NextRequest, { api }) => {

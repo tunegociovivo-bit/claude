@@ -606,8 +606,29 @@ async function processAccountancyItem(item) {
     tab = await chrome.tabs.create({ url: item.target.url, active: false });
     await waitForTabComplete(tab.id);
     await new Promise((resolve) => setTimeout(resolve, 3500));
+    if (item.target.mode === "GOOGLE_ADS") {
+      const current = await chrome.tabs.get(tab.id);
+      if (/^https:\/\/accounts\.google\.com\//.test(current.url || "") && item.connectionRef) {
+        const [{ result: selected } = {}] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (email) => {
+            const normalized = String(email || "").trim().toLowerCase();
+            const candidates = [...document.querySelectorAll("div, li")];
+            const row = candidates.find((node) => (node.textContent || "").trim().toLowerCase() === normalized)
+              || candidates.find((node) => (node.textContent || "").toLowerCase().includes(normalized));
+            const clickable = row?.closest("[role=link], [role=button], li") || row;
+            if (clickable instanceof HTMLElement) { clickable.click(); return true; }
+            return false;
+          },
+          args: [item.connectionRef]
+        });
+        if (!selected) throw new Error(`No se encontró la cuenta Google vinculada ${item.connectionRef}`);
+        await waitForTabComplete(tab.id);
+        await new Promise((resolve) => setTimeout(resolve, 4500));
+      }
+    }
     const script = item.target.mode === "META" ? "content/meta-billing.js" : "content/invoice-harvester.js";
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [script] }).catch(() => {});
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [script] });
     const messageType = item.target.mode === "META" ? "harvest-meta-invoices" : "harvest-accountancy-invoices";
     const result = await chrome.tabs.sendMessage(tab.id, { type: messageType });
     if (!result?.ok) throw new Error(result?.error || "No se pudo leer la página de facturación");
