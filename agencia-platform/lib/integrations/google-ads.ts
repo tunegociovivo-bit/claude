@@ -25,6 +25,17 @@ const API_VERSION = "v25";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const BASE = `https://googleads.googleapis.com/${API_VERSION}`;
 
+const GOOGLE_ADS_MONTHS = [
+  "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+  "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+] as const;
+
+export function googleAdsIssueMonth(month: number) {
+  const value = GOOGLE_ADS_MONTHS[month - 1];
+  if (!value) throw new Error(`Mes de factura de Google Ads no válido: ${month}`);
+  return value;
+}
+
 export function googleAdsApiHeaders(accessToken: string, developerToken?: string | null) {
   const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
   if (developerToken?.trim()) headers["developer-token"] = developerToken.trim();
@@ -122,9 +133,9 @@ export async function gadsListInvoices(opts: {
     const query = new URLSearchParams({
       billingSetup,
       issueYear: String(opts.issueYear),
-      issueMonth: String(opts.issueMonth)
+      issueMonth: googleAdsIssueMonth(opts.issueMonth)
     });
-    const response = await fetch(`${BASE}/customers/${customerId}/invoices:list?${query}`, { headers });
+    const response = await fetch(`${BASE}/customers/${customerId}/invoices?${query}`, { headers });
     if (!response.ok) {
       const detail = await response.text();
       throw new Error(`Google Ads invoices ${response.status}: ${detail.slice(0, 300)}`);

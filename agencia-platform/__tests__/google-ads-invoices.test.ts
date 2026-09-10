@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { googleAdsApiHeaders, normalizeGoogleAdsInvoices } from "@/lib/integrations/google-ads";
+import { googleAdsApiHeaders, googleAdsIssueMonth, normalizeGoogleAdsInvoices } from "@/lib/integrations/google-ads";
 
 describe("Google Ads API headers", () => {
   it("supports Cloud-managed access without a developer token", () => {
@@ -13,6 +13,13 @@ describe("Google Ads API headers", () => {
       Authorization: "Bearer access-token",
       "developer-token": "legacy-token"
     });
+  });
+});
+
+describe("Google Ads invoice request", () => {
+  it("serializes the month using the Google Ads enum", () => {
+    expect(googleAdsIssueMonth(8)).toBe("AUGUST");
+    expect(() => googleAdsIssueMonth(13)).toThrow("Mes de factura de Google Ads no válido");
   });
 });
 
