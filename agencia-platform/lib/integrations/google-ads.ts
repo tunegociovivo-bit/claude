@@ -25,6 +25,12 @@ const API_VERSION = "v25";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const BASE = `https://googleads.googleapis.com/${API_VERSION}`;
 
+export function googleAdsApiHeaders(accessToken: string, developerToken?: string | null) {
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  if (developerToken?.trim()) headers["developer-token"] = developerToken.trim();
+  return headers;
+}
+
 async function getAccessToken(refreshToken: string): Promise<string> {
   const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
@@ -91,10 +97,7 @@ export async function gadsListInvoices(opts: {
   const customerId = digits(opts.customerId);
   if (!customerId) throw new Error("ID de cliente de Google Ads no válido");
   const accessToken = await getAccessToken(cfg.refreshToken);
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    "developer-token": cfg.devToken
-  };
+  const headers = googleAdsApiHeaders(accessToken, cfg.devToken);
   const loginCustomerId = digits(opts.loginCustomerId || cfg.loginCustomerId);
   if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
 
@@ -150,8 +153,9 @@ async function getConnConfig(workspaceId: string, connectionRef?: string | null)
   if (!conn) throw new Error(connectionRef ? `Conexión Google Ads no configurada para ${connectionRef}` : "GoogleAdsConnection no configurada");
   const refreshToken = decryptSecret(conn.refreshTokenEnc);
   if (!refreshToken) throw new Error("refresh token Google Ads inválido");
-  const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-  if (!devToken) throw new Error("GOOGLE_ADS_DEVELOPER_TOKEN no en env");
+  // Las cuentas migradas al acceso administrado por Google Cloud deben omitir
+  // este encabezado. Se conserva compatibilidad con el modelo anterior.
+  const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim() || null;
   return {
     refreshToken,
     devToken,
@@ -164,8 +168,7 @@ async function gadsQuery(opts: { workspaceId: string; gaql: string }): Promise<a
   const cfg = await getConnConfig(opts.workspaceId);
   const accessToken = await getAccessToken(cfg.refreshToken);
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    "developer-token": cfg.devToken,
+    ...googleAdsApiHeaders(accessToken, cfg.devToken),
     "Content-Type": "application/json"
   };
   if (cfg.loginCustomerId) headers["login-customer-id"] = cfg.loginCustomerId;
@@ -286,8 +289,7 @@ async function gadsMutate(opts: {
   const cfg = await getConnConfig(opts.workspaceId);
   const accessToken = await getAccessToken(cfg.refreshToken);
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    "developer-token": cfg.devToken,
+    ...googleAdsApiHeaders(accessToken, cfg.devToken),
     "Content-Type": "application/json"
   };
   if (cfg.loginCustomerId) headers["login-customer-id"] = cfg.loginCustomerId;

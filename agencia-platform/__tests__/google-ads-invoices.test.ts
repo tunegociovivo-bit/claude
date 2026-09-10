@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { normalizeGoogleAdsInvoices } from "@/lib/integrations/google-ads";
+import { googleAdsApiHeaders, normalizeGoogleAdsInvoices } from "@/lib/integrations/google-ads";
+
+describe("Google Ads API headers", () => {
+  it("supports Cloud-managed access without a developer token", () => {
+    expect(googleAdsApiHeaders("access-token")).toEqual({
+      Authorization: "Bearer access-token"
+    });
+  });
+
+  it("keeps legacy developer-token compatibility", () => {
+    expect(googleAdsApiHeaders("access-token", " legacy-token ")).toEqual({
+      Authorization: "Bearer access-token",
+      "developer-token": "legacy-token"
+    });
+  });
+});
 
 describe("Google Ads invoice normalization", () => {
   it("keeps downloadable invoices and preserves their accounting total", () => {
