@@ -33,6 +33,8 @@ describe("Meta billing browser collector", () => {
     const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
     const collector = readFileSync(resolve(root, "chrome-extension/content/invoice-harvester.js"), "utf8");
     expect(worker).toContain("selectGoogleAdsCustomer(tab.id, item.externalAccountId)");
+    expect(worker).toContain("selectGoogleIdentity(tab.id, item.connectionRef)");
+    expect(worker).toContain("cambiar de cuenta de google|switch google account");
     expect(worker).toContain("periodKey: item.periodKey");
     expect(worker).toContain('input[aria-label*="CID"]');
     expect(worker).toContain("chrome.webNavigation.getAllFrames");

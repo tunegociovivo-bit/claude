@@ -584,6 +584,52 @@ function waitForTabComplete(tabId, timeoutMs = 60000) {
   });
 }
 
+async function waitForTabUrl(tabId, predicate, timeoutMs = 20000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const tab = await chrome.tabs.get(tabId);
+    if (predicate(tab.url || "")) return tab;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Google tard\u00f3 demasiado en cambiar de cuenta");
+}
+
+async function selectGoogleIdentity(tabId, email) {
+  let current = await chrome.tabs.get(tabId);
+  if (/^https:\/\/ads\.google\.com\/nav\/selectaccount/.test(current.url || "")) {
+    const [{ result: state } = {}] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (expectedEmail) => {
+        const activeEmail = document.querySelector(".header .email-address")?.textContent?.trim().toLowerCase();
+        if (activeEmail === String(expectedEmail).trim().toLowerCase()) return "correct";
+        const button = [...document.querySelectorAll('button, [role="button"]')].find((node) => /cambiar de cuenta de google|switch google account/i.test(node.textContent || ""));
+        if (button instanceof HTMLElement) { button.click(); return "switching"; }
+        return "missing";
+      },
+      args: [email]
+    });
+    if (state === "missing") throw new Error(`No se pudo seleccionar la cuenta Google ${email}`);
+    if (state === "switching") current = await waitForTabUrl(tabId, (url) => /^https:\/\/accounts\.google\.com\//.test(url));
+  }
+  if (!/^https:\/\/accounts\.google\.com\//.test(current.url || "")) return;
+  const [{ result: selected } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (accountEmail) => {
+      const normalized = String(accountEmail || "").trim().toLowerCase();
+      const candidates = [...document.querySelectorAll("div, li")];
+      const row = candidates.find((node) => (node.textContent || "").trim().toLowerCase() === normalized)
+        || candidates.find((node) => (node.textContent || "").toLowerCase().includes(normalized));
+      const clickable = row?.closest("[role=link], [role=button], li") || row;
+      if (clickable instanceof HTMLElement) { clickable.click(); return true; }
+      return false;
+    },
+    args: [email]
+  });
+  if (!selected) throw new Error(`No se encontr\u00f3 la cuenta Google vinculada ${email}`);
+  await waitForTabUrl(tabId, (url) => !/^https:\/\/accounts\.google\.com\//.test(url));
+  await new Promise((resolve) => setTimeout(resolve, 4500));
+}
+
 async function selectGoogleAdsCustomer(tabId, externalAccountId) {
   const customerId = String(externalAccountId || "").replace(/\D/g, "");
   if (!customerId) return;
@@ -665,6 +711,7 @@ async function processAccountancyItem(item) {
     await waitForTabComplete(tab.id);
     await new Promise((resolve) => setTimeout(resolve, 3500));
     if (item.target.mode === "GOOGLE_ADS") {
+      if (item.connectionRef) await selectGoogleIdentity(tab.id, item.connectionRef);
       const current = await chrome.tabs.get(tab.id);
       if (/^https:\/\/accounts\.google\.com\//.test(current.url || "") && item.connectionRef) {
         const [{ result: selected } = {}] = await chrome.scripting.executeScript({
