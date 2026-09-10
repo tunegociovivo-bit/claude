@@ -19,12 +19,11 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     create: { workspaceId: api.workspaceId, agentKey, label: agentLabel, version, lastHeartbeatAt: new Date() },
     update: { label: agentLabel, version, lastHeartbeatAt: new Date() }
   });
-  const registeredAgents = await prisma.accountancyBrowserAgent.count({ where: { workspaceId: api.workspaceId } });
-  if (registeredAgents === 1) {
-    await prisma.accountancyInvoiceClient.updateMany({
-      where: { workspaceId: api.workspaceId, source: "META", connectionRef: null },
-      data: { connectionRef: agentKey }
-    });
+  // Registering a Chrome profile must never silently assign every Meta account
+  // to it. Different accounts can belong to different Meta user sessions and
+  // must be routed explicitly from the Hub before any download is claimed.
+  if (req.nextUrl.searchParams.get("registerOnly") === "1") {
+    return NextResponse.json({ ok: true, registered: true });
   }
   const primaryAgent = await prisma.accountancyBrowserAgent.findFirst({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "asc" }, select: { agentKey: true } });
   const allowedSources = primaryAgent?.agentKey === agentKey ? ["GOOGLE_ADS", "META"] : ["META"];

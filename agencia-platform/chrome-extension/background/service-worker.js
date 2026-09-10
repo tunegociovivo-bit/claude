@@ -843,6 +843,12 @@ async function processAccountancyQueue() {
   }
 }
 
+async function registerAccountancyAgent() {
+  if (!(await syncSession())) return false;
+  const response = await authedFetch("/api/v1/admin/accountancy-invoices/agent?registerOnly=1");
+  return response.ok;
+}
+
 async function ensureAccountancyAlarm() {
   await chrome.alarms.create("accountancy-invoices", { periodInMinutes: 2 });
 }
@@ -851,6 +857,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg?.from === "popup" && msg?.type === "check-session") {
       const ok = await syncSession();
+      if (ok) await registerAccountancyAgent().catch(() => false);
       sendResponse({ ok });
       return;
     }
@@ -1216,6 +1223,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await ensureAccountancyAlarm();
   const ok = await syncSession();
   if (ok) {
+    await registerAccountancyAgent().catch(() => false);
     await ensureNotificationsAlarm();
   } else {
     chrome.action.openPopup?.().catch(() => {});
@@ -1225,7 +1233,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onStartup.addListener(async () => {
   await ensureAccountancyAlarm();
   const ok = await syncSession();
-  if (ok) await ensureNotificationsAlarm();
+  if (ok) {
+    await registerAccountancyAgent().catch(() => false);
+    await ensureNotificationsAlarm();
+  }
 });
 
 // Detector de fin de reunión: tab cerrada / URL cambia / silencio.
