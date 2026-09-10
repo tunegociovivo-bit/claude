@@ -667,10 +667,10 @@ async function selectGoogleAdsCustomer(tabId, externalAccountId) {
     const [{ result: openedManager } = {}] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const candidates = [...document.querySelectorAll('div, li')].filter((node) => {
+        const candidates = [...document.querySelectorAll('*')].filter((node) => {
           const text = String(node.textContent || "").replace(/\s+/g, " ").trim();
-          return text.length < 220 && /administrador/i.test(text);
-        });
+          return text.length < 220 && /administrador/i.test(text) && node.getClientRects().length > 0;
+        }).sort((left, right) => String(left.textContent || "").length - String(right.textContent || "").length);
         const manager = candidates.find((node) => /negocio vivo/i.test(node.textContent || "")) || candidates[0];
         const clickable = manager?.closest('a, [role="button"], [role="menuitem"], [tabindex]') || manager;
         if (clickable instanceof HTMLElement) { clickable.click(); return true; }
