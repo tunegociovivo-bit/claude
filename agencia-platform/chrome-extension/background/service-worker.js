@@ -633,6 +633,17 @@ async function selectGoogleIdentity(tabId, email) {
 async function selectGoogleAdsCustomer(tabId, externalAccountId) {
   const customerId = String(externalAccountId || "").replace(/\D/g, "");
   if (!customerId) return;
+  const stableOcidByCustomer = {
+    "9187921793": "7546724831", // Automatic Choice dentro de Negocio Vivo
+    "6311034413": "6456446335" // NV México dentro de Marketing Eroski NV
+  };
+  const stableOcid = stableOcidByCustomer[customerId];
+  if (stableOcid) {
+    await chrome.tabs.update(tabId, { url: `https://ads.google.com/aw/billing/documents?ocid=${stableOcid}` });
+    await waitForTabComplete(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    return;
+  }
   const current = await chrome.tabs.get(tabId);
   if (!/^https:\/\/ads\.google\.com\/nav\/selectaccount/.test(current.url || "")) return;
   const [{ result: selected } = {}] = await chrome.scripting.executeScript({
