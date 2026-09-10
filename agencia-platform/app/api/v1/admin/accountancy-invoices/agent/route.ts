@@ -8,15 +8,41 @@ import { refreshRunStatus } from "@/lib/accountancy-invoices/service";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api }) => {
+export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
   await requireAdmin(api);
+  const agentKey = String(req.headers.get("x-hub-browser-agent") || "").trim().slice(0, 100);
+  const agentLabel = String(req.headers.get("x-hub-browser-agent-label") || "Perfil Chrome").trim().slice(0, 100);
+  const version = String(req.headers.get("x-hub-extension-version") || "").trim().slice(0, 30) || null;
+  if (!agentKey) throw new ApiError(400, "missing_agent", "La extensión debe registrar este perfil de Chrome");
+  await prisma.accountancyBrowserAgent.upsert({
+    where: { workspaceId_agentKey: { workspaceId: api.workspaceId, agentKey } },
+    create: { workspaceId: api.workspaceId, agentKey, label: agentLabel, version, lastHeartbeatAt: new Date() },
+    update: { label: agentLabel, version, lastHeartbeatAt: new Date() }
+  });
+  const registeredAgents = await prisma.accountancyBrowserAgent.count({ where: { workspaceId: api.workspaceId } });
+  if (registeredAgents === 1) {
+    await prisma.accountancyInvoiceClient.updateMany({
+      where: { workspaceId: api.workspaceId, source: "META", connectionRef: null },
+      data: { connectionRef: agentKey }
+    });
+  }
+  const primaryAgent = await prisma.accountancyBrowserAgent.findFirst({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "asc" }, select: { agentKey: true } });
+  const allowedSources = primaryAgent?.agentKey === agentKey ? ["GOOGLE_ADS", "META"] : ["META"];
   const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
   await prisma.accountancyInvoiceRunItem.updateMany({
     where: { status: "RUNNING", startedAt: { lt: staleBefore }, run: { workspaceId: api.workspaceId } },
     data: { status: "PENDING", startedAt: null, error: "Reintentada automáticamente tras interrumpirse la descarga anterior" }
   });
   const item = await prisma.accountancyInvoiceRunItem.findFirst({
-    where: { status: "PENDING", source: { in: ["GOOGLE_ADS", "META"] }, run: { workspaceId: api.workspaceId } },
+    where: {
+      status: "PENDING",
+      source: { in: allowedSources },
+      run: { workspaceId: api.workspaceId },
+      OR: [
+        ...(primaryAgent?.agentKey === agentKey ? [{ source: "GOOGLE_ADS" }] : []),
+        { source: "META", client: { connectionRef: agentKey } }
+      ]
+    },
     include: { client: true, run: { select: { id: true, periodKey: true, periodFrom: true, periodTo: true } } },
     orderBy: { createdAt: "asc" }
   });

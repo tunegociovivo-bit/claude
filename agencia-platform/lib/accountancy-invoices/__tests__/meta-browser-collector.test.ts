@@ -28,6 +28,15 @@ describe("Meta billing browser collector", () => {
     expect(collector).toContain("payment_account_id=${encodeURIComponent(id)}");
   });
 
+  it("routes Meta work to the assigned Chrome profile", () => {
+    const route = readFileSync(resolve(root, "app/api/v1/admin/accountancy-invoices/agent/route.ts"), "utf8");
+    const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
+    expect(route).toContain('client: { connectionRef: agentKey }');
+    expect(route).toContain("accountancyBrowserAgent.upsert");
+    expect(worker).toContain('headers.set("X-Hub-Browser-Agent"');
+    expect(worker).toContain("getBrowserAgentIdentity");
+  });
+
   it("leaves Google Ads run items for the authenticated browser collector", () => {
     const cron = readFileSync(resolve(root, "app/api/cron/accountancy-invoices/process/route.ts"), "utf8");
     const scheduler = readFileSync(resolve(root, "lib/cron/in-app-scheduler.ts"), "utf8");

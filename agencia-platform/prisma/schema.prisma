@@ -262,6 +262,7 @@ model Workspace {
   accountancyInvoiceClients  AccountancyInvoiceClient[]
   accountancyInvoiceSchedule AccountancyInvoiceSchedule?
   accountancyInvoiceRuns     AccountancyInvoiceRun[]
+  accountancyBrowserAgents   AccountancyBrowserAgent[]
   aiDrafts                   AiDraft[]
   aiOrchestrations           AiOrchestration[]
   aiRunSteps                 AiRunStep[]
@@ -305,6 +306,21 @@ model AccountancyInvoiceClient {
   @@unique([workspaceId, source, externalAccountId])
   @@index([workspaceId, enabled])
   @@index([workspaceId, source])
+}
+
+model AccountancyBrowserAgent {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  agentKey        String
+  label           String
+  version         String?
+  lastHeartbeatAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, agentKey])
+  @@index([workspaceId, lastHeartbeatAt])
 }
 
 model AccountancyInvoiceSchedule {

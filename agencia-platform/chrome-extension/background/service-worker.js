@@ -26,6 +26,16 @@ const OFFSCREEN_PATH = "offscreen/offscreen.html";
 const NOTIF_POLL_MIN = 2;
 const SESSION_POLL_MIN = 5; // refrescar el "logueado" cada 5 min
 
+async function getBrowserAgentIdentity() {
+  const stored = await chrome.storage.local.get(["browserAgentId", "browserAgentLabel"]);
+  const id = stored.browserAgentId || crypto.randomUUID();
+  const label = stored.browserAgentLabel || `Perfil Meta ${id.slice(0, 6)}`;
+  if (!stored.browserAgentId || !stored.browserAgentLabel) {
+    await chrome.storage.local.set({ browserAgentId: id, browserAgentLabel: label });
+  }
+  return { id, label };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Estado persistido
 // ─────────────────────────────────────────────────────────────────────
@@ -89,6 +99,10 @@ async function readHubSessionCookie() {
 async function authedFetch(path, init = {}) {
   const { hubUrl } = await getState();
   const headers = new Headers(init.headers ?? {});
+  const browserAgent = await getBrowserAgentIdentity();
+  headers.set("X-Hub-Browser-Agent", browserAgent.id);
+  headers.set("X-Hub-Browser-Agent-Label", browserAgent.label);
+  headers.set("X-Hub-Extension-Version", chrome.runtime.getManifest().version);
   // Intentamos primero SIN Bearer — credentials:include adjunta la
   // cookie del Hub si está disponible (probado: funciona aunque
   // chrome.cookies.get no devuelva la cookie __Secure-).
