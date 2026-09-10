@@ -81,7 +81,7 @@ describe("Meta billing browser collector", () => {
 
   it("does not report success until every visible receipt responds", () => {
     const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
-    expect(collector).toContain("capturedFiles.length < controls.length");
+    expect(collector).toContain("capturedFiles.length < expected");
     expect(collector).toContain("No respondieron todos los botones de descarga de Meta");
   });
 

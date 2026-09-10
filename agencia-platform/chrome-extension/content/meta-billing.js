@@ -68,7 +68,10 @@
 
   function collectVisibleInvoiceButtons() {
     const controls = [...document.querySelectorAll("button,[role='button'],a,span")]
-      .filter((element) => /^\s*(?:descargar|download)\s+(?:pdf|factura|invoice|recibo|receipt)\s*$/i.test(element.textContent || ""))
+      .filter((element) => {
+        const label = `${element.textContent || ""} ${element.getAttribute?.("aria-label") || ""} ${element.getAttribute?.("title") || ""}`.trim();
+        return /(?:descargar|download).{0,50}(?:pdf|factura|invoice|recibo|receipt)|(?:pdf|factura|invoice|recibo|receipt).{0,50}(?:descargar|download)/i.test(label);
+      })
       .map((element) => element.closest("button,[role='button'],a") || element)
       .filter((element) => {
         const rect = element.getBoundingClientRect();
@@ -79,29 +82,55 @@
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  async function revealReceiptDownloadControls() {
+    const menuPattern = /more|mÃ¡s|acciones|actions|opciones|options|menÃº|menu/i;
+    return [...new Set([...document.querySelectorAll("button,[role='button'],[aria-label],[title]")]
+      .filter((element) => {
+        const label = `${element.getAttribute?.("aria-label") || ""} ${element.getAttribute?.("title") || ""} ${element.textContent || ""}`.trim();
+        const rect = element.getBoundingClientRect();
+        return menuPattern.test(label) && rect.width > 0 && rect.height > 0;
+      }))].slice(0, 60);
+  }
+
   async function waitForBillingRows(timeoutMs = 45_000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const hasDownload = collectInvoiceUrls().length > 0 || collectVisibleInvoiceButtons().length > 0;
       const text = document.body?.innerText || "";
       const emptyConfirmed = /no hay transacciones|no tienes ninguna transacci[oó]n/i.test(text);
-      if (hasDownload || emptyConfirmed) return;
+      const rowsLoaded = /actividad de pagos|payment activity|transacciones|transactions|importe|amount/i.test(text);
+      if (hasDownload || emptyConfirmed || rowsLoaded) return;
+      window.scrollBy(0, Math.max(500, window.innerHeight * 0.8));
       await wait(500);
     }
   }
 
   async function captureButtonDownloads() {
-    const controls = collectVisibleInvoiceButtons().slice(0, 50);
-    for (const control of controls) {
-      control.click();
-      await wait(200);
+    const clicked = new Set();
+    let expected = 0;
+    const clickDownloads = async () => {
+      for (const control of collectVisibleInvoiceButtons().slice(0, 60)) {
+        if (clicked.has(control)) continue;
+        clicked.add(control);
+        control.click();
+        expected += 1;
+        await wait(350);
+      }
+    };
+    await clickDownloads();
+    const menus = await revealReceiptDownloadControls();
+    for (const menu of menus) {
+      menu.scrollIntoView({ block: "center" });
+      menu.click();
+      await wait(300);
+      await clickDownloads();
     }
     const deadline = Date.now() + 45_000;
-    while (capturedFiles.length < controls.length && Date.now() < deadline) await wait(250);
-    if (capturedFiles.length < controls.length) {
-      throw new Error(`No respondieron todos los botones de descarga de Meta (${capturedFiles.length}/${controls.length}). Se reintentarÃ¡ sin marcar el trabajo como completado.`);
+    while (capturedFiles.length < expected && Date.now() < deadline) await wait(250);
+    if (capturedFiles.length < expected) {
+      throw new Error(`No respondieron todos los botones de descarga de Meta (${capturedFiles.length}/${expected}). Se reintentarÃ¡ sin marcar el trabajo como completado.`);
     }
-    return { controls: controls.length, files: [...capturedFiles] };
+    return { controls: expected, files: [...capturedFiles] };
   }
 
   async function fetchAsBase64(url) {
@@ -150,7 +179,8 @@
           const key = `${file.name}:${file.base64.length}:${file.base64.slice(0, 48)}:${file.base64.slice(-48)}`;
           if (!files.some((existing) => `${existing.name}:${existing.base64.length}:${existing.base64.slice(0, 48)}:${existing.base64.slice(-48)}` === key)) files.push(file);
         }
-        sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, errors, emptyConfirmed });
+        const pageSummary = (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 500);
+        sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, errors, emptyConfirmed, pageSummary, finalUrl: location.href });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       } finally {

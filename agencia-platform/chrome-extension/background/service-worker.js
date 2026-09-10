@@ -764,6 +764,16 @@ async function harvestAccountancyFrames(tabId, message) {
   };
 }
 
+function buildMetaBillingFallbackUrl(item) {
+  const primary = new URL(item.target.url);
+  return `https://adsmanager.facebook.com/adsmanager/billing_hub/payment_activity?${primary.searchParams.toString()}`;
+}
+
+async function harvestMetaPage(tabId, item) {
+  await chrome.scripting.executeScript({ target: { tabId }, files: ["content/meta-billing.js"] });
+  return chrome.tabs.sendMessage(tabId, { type: "harvest-meta-invoices", periodKey: item.periodKey });
+}
+
 async function processAccountancyItem(item) {
   let tab;
   try {
@@ -797,11 +807,20 @@ async function processAccountancyItem(item) {
     await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: item.target.mode === "GOOGLE_ADS" }, files: [script] });
     const messageType = item.target.mode === "META" ? "harvest-meta-invoices" : "harvest-accountancy-invoices";
     const message = { type: messageType, periodKey: item.periodKey };
-    const result = item.target.mode === "GOOGLE_ADS"
+    let result = item.target.mode === "GOOGLE_ADS"
       ? await harvestAccountancyFrames(tab.id, message)
       : await chrome.tabs.sendMessage(tab.id, message);
+    if (item.target.mode === "META" && result?.ok && !result.files?.length && !result.emptyConfirmed) {
+      await chrome.tabs.update(tab.id, { url: buildMetaBillingFallbackUrl(item) });
+      await waitForTabComplete(tab.id);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      result = await harvestMetaPage(tab.id, item);
+    }
     if (!result?.ok) throw new Error(result?.error || "No se pudo leer la página de facturación");
-    if (!result.files?.length && !result.emptyConfirmed) throw new Error("No se detectaron facturas PDF. Revisa la sesión, el periodo y la URL de facturación.");
+    if (!result.files?.length && !result.emptyConfirmed) {
+      const pageSummary = String(result.pageSummary || "").slice(0, 450);
+      throw new Error(`No se detectaron facturas PDF.${pageSummary ? ` Meta mostró: ${pageSummary}` : " Revisa la sesión, el periodo y la URL de facturación."}`);
+    }
     const uploaded = [];
     let amountCents = 0;
     for (const file of result.files || []) {
