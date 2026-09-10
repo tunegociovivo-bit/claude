@@ -635,7 +635,7 @@ async function selectGoogleAdsCustomer(tabId, externalAccountId) {
   if (!customerId) return;
   const stableOcidByCustomer = {
     "9187921793": "7546724831", // Automatic Choice dentro de Negocio Vivo
-    "6311034413": "6456446335" // NV México dentro de Marketing Eroski NV
+    "6311034413": "8406455988" // NV México dentro de Marketing Eroski NV
   };
   const stableOcid = stableOcidByCustomer[customerId];
   if (stableOcid) {
