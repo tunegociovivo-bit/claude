@@ -15,11 +15,11 @@ describe("Meta billing browser collector", () => {
     ).toBe(true);
   });
 
-  it("leaves Meta run items for the authenticated browser collector", () => {
+  it("processes Meta run items from the connected billing mailbox", () => {
     const cron = readFileSync(resolve(root, "app/api/cron/accountancy-invoices/process/route.ts"), "utf8");
     const scheduler = readFileSync(resolve(root, "lib/cron/in-app-scheduler.ts"), "utf8");
-    expect(cron).not.toContain("processAllPendingMetaInvoiceRun");
-    expect(scheduler).not.toContain("processAllPendingMetaInvoiceRun");
+    expect(cron).toContain("processAllPendingMetaInvoiceRun");
+    expect(scheduler).toContain("processAllPendingMetaInvoiceRun");
   });
 
   it("leaves Google Ads run items for the authenticated browser collector", () => {

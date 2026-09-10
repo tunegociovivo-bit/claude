@@ -104,9 +104,10 @@ export function startInAppScheduler(): void {
       console.warn("[in-app-cron] recurring invoices:", (e as Error).message);
     }
     try {
-      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
+      await processAllPendingMetaInvoiceRun(undefined, 20);
       // Google Ads se procesa exclusivamente desde la extensión de Chrome.
       // El servidor no dispone de acceso a la interfaz de facturación y, si
       // reclama estos trabajos, impide que el agente del navegador los recoja.
@@ -262,9 +263,10 @@ export function startInAppScheduler(): void {
     if (accountancyBusy) return;
     accountancyBusy = true;
     try {
-      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
+      await processAllPendingMetaInvoiceRun(undefined, 20);
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría independiente:", (e as Error).message);
     } finally {
