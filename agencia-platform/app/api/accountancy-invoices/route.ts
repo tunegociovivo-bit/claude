@@ -43,6 +43,24 @@ export async function POST(req: NextRequest) {
     const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
     return NextResponse.json(run, { status: 202 });
   }
+  if (body.action === "retry-failed") {
+    const run = await prisma.accountancyInvoiceRun.findFirst({
+      where: { id: body.runId, workspaceId: ctx.workspaceId },
+      include: { items: true }
+    });
+    if (!run) return NextResponse.json({ error: "Ejecución no encontrada" }, { status: 404 });
+    const source = typeof body.source === "string" ? body.source : undefined;
+    const retried = await prisma.accountancyInvoiceRunItem.updateMany({
+      where: { runId: run.id, status: "FAILED", ...(source ? { source } : {}) },
+      data: { status: "PENDING", error: null, startedAt: null, finishedAt: null }
+    });
+    if (!retried.count) return NextResponse.json({ error: "No hay cuentas fallidas para reintentar" }, { status: 409 });
+    await prisma.accountancyInvoiceRun.update({
+      where: { id: run.id },
+      data: { status: "PENDING", startedAt: new Date(), finishedAt: null, activeKey: `${ctx.workspaceId}:${run.periodKey}` }
+    });
+    return NextResponse.json({ ok: true, retried: retried.count }, { status: 202 });
+  }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });
     const client = await prisma.accountancyInvoiceClient.create({ data: { workspaceId: ctx.workspaceId, name: body.name.trim(), source: body.source, externalAccountId: body.externalAccountId?.trim() || null, connectionRef: body.connectionRef?.trim().toLowerCase() || null, notes: body.notes?.trim() || null } });

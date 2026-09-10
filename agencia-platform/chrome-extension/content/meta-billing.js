@@ -79,6 +79,17 @@
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  async function waitForBillingRows(timeoutMs = 45_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const hasDownload = collectInvoiceUrls().length > 0 || collectVisibleInvoiceButtons().length > 0;
+      const text = document.body?.innerText || "";
+      const emptyConfirmed = /no hay transacciones|no tienes ninguna transacci[oó]n/i.test(text);
+      if (hasDownload || emptyConfirmed) return;
+      await wait(500);
+    }
+  }
+
   async function captureButtonDownloads() {
     const controls = collectVisibleInvoiceButtons().slice(0, 50);
     for (const control of controls) {
@@ -122,6 +133,7 @@
         harvestInProgress = true;
         capturedFiles.length = 0;
         capturedKeys.clear();
+        await waitForBillingRows();
         const urls = collectInvoiceUrls();
         const files = [];
         const errors = [];

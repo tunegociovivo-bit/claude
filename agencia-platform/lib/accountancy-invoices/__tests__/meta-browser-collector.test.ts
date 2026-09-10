@@ -24,6 +24,7 @@ describe("Meta billing browser collector", () => {
 
   it("collects PDFs produced by the visible Download PDF controls", () => {
     const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
+    expect(collector).toContain("await waitForBillingRows()");
     expect(collector).toContain("collectVisibleInvoiceButtons");
     expect(collector).toContain("capturedFiles");
   });

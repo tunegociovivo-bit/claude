@@ -10,6 +10,8 @@ describe("accountancy browser collector", () => {
       periodTo: "2026-08-31T23:59:59.999Z"
     });
     expect(target.url).toContain("asset_id=290451863303865");
+    expect(target.url).toContain("payment_account_id=290451863303865");
+    expect(target.url).toContain("placement=BILLING_HUB");
     expect(target.url).toMatch(/date=\d+_\d+/);
     expect(target.mode).toBe("META");
   });
