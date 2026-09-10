@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cronAuthOk } from "@/lib/cron-auth";
 import { prisma } from "@/lib/db/prisma";
 import { runManualInvoiceProcessors } from "@/lib/accountancy-invoices/manual-run";
-import { processAllPendingMetaInvoiceRun, processPendingHoldedInvoiceRun } from "@/lib/accountancy-invoices/service";
+import { processPendingHoldedInvoiceRun } from "@/lib/accountancy-invoices/service";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -15,8 +15,7 @@ export async function GET(req: NextRequest) {
     data: { status: "PENDING", startedAt: null, error: "Reintentado tras interrupción del procesador" }
   });
   await runManualInvoiceProcessors("", [
-    () => processPendingHoldedInvoiceRun(),
-    () => processAllPendingMetaInvoiceRun(undefined, 20)
+    () => processPendingHoldedInvoiceRun()
   ]);
   return NextResponse.json({ ok: true });
 }

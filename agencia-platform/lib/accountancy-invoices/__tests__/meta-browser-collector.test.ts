@@ -15,11 +15,17 @@ describe("Meta billing browser collector", () => {
     ).toBe(true);
   });
 
-  it("processes Meta run items from the connected billing mailbox", () => {
+  it("leaves Meta run items for the authenticated browser collector", () => {
     const cron = readFileSync(resolve(root, "app/api/cron/accountancy-invoices/process/route.ts"), "utf8");
     const scheduler = readFileSync(resolve(root, "lib/cron/in-app-scheduler.ts"), "utf8");
-    expect(cron).toContain("processAllPendingMetaInvoiceRun");
-    expect(scheduler).toContain("processAllPendingMetaInvoiceRun");
+    expect(cron).not.toContain("processAllPendingMetaInvoiceRun");
+    expect(scheduler).not.toContain("processAllPendingMetaInvoiceRun");
+  });
+
+  it("opens the current Meta Business billing route for the requested account", () => {
+    const collector = readFileSync(resolve(root, "lib/accountancy-invoices/collector.ts"), "utf8");
+    expect(collector).toContain("https://business.facebook.com/latest/billing_hub/payment_activity/");
+    expect(collector).toContain("payment_account_id=${encodeURIComponent(id)}");
   });
 
   it("leaves Google Ads run items for the authenticated browser collector", () => {

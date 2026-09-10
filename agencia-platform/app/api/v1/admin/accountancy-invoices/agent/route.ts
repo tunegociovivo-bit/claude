@@ -16,7 +16,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (_req, { api }) 
     data: { status: "PENDING", startedAt: null, error: "Reintentada automáticamente tras interrumpirse la descarga anterior" }
   });
   const item = await prisma.accountancyInvoiceRunItem.findFirst({
-    where: { status: "PENDING", source: "GOOGLE_ADS", run: { workspaceId: api.workspaceId } },
+    where: { status: "PENDING", source: { in: ["GOOGLE_ADS", "META"] }, run: { workspaceId: api.workspaceId } },
     include: { client: true, run: { select: { id: true, periodKey: true, periodFrom: true, periodTo: true } } },
     orderBy: { createdAt: "asc" }
   });

@@ -17,7 +17,7 @@ export function buildCollectorTarget(input: CollectorInput): CollectorTarget {
     const endExclusive = Math.floor(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate() + 1) / 1000);
     return {
       mode: "META",
-      url: `https://adsmanager.facebook.com/adsmanager/billing_hub/payment_activity?asset_id=${encodeURIComponent(id)}&payment_account_id=${encodeURIComponent(id)}&placement=BILLING_HUB&date=${start}_${endExclusive}`
+      url: `https://business.facebook.com/latest/billing_hub/payment_activity/?asset_id=${encodeURIComponent(id)}&payment_account_id=${encodeURIComponent(id)}&placement=BILLING_HUB&date=${start}_${endExclusive}`
     };
   }
   if (input.source === "HOLDED") return { mode: "HOLDED", url: "https://app.holded.com/sales/revenue" };
