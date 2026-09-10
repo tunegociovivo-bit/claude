@@ -22,6 +22,10 @@ export function buildCollectorTarget(input: CollectorInput): CollectorTarget {
   }
   if (input.source === "HOLDED") return { mode: "HOLDED", url: "https://app.holded.com/sales/revenue" };
   if (input.source === "GOOGLE_ADS") {
+    if (/^\d{3}-?\d{3}-?\d{4}$/.test(id)) {
+      const customerId = id.replace(/\D/g, "");
+      return { mode: "GOOGLE_ADS", url: `https://ads.google.com/aw/billing/documents?__c=${customerId}` };
+    }
     let url: URL;
     try { url = new URL(id); } catch { throw new Error("Configura la URL de facturación de Google Ads para esta cuenta"); }
     if (url.protocol !== "https:" || url.hostname !== "ads.google.com" || !url.pathname.includes("/billing/")) {

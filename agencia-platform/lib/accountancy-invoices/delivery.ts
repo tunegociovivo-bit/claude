@@ -1,7 +1,7 @@
 import archiver from "archiver";
 import { prisma } from "@/lib/db/prisma";
 import { sendEmailFromAccount } from "@/lib/integrations/email-account";
-import { downloadBuffer, isStorageEnabled } from "@/lib/storage/r2";
+import { buildS3Key, downloadBuffer, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 import { buildAccountancyReport } from "./report";
 
 export async function deliverAccountancyRun(opts: { runId: string; workspaceId: string; userId: string; recipients: string[] }) {
@@ -30,10 +30,14 @@ export async function deliverAccountancyRun(opts: { runId: string; workspaceId: 
   if (content.length > maxBytes) throw new Error("El paquete supera 24 MB");
   const failed = run.items.filter((item) => item.status === "FAILED");
   const body = [`Documentación para gestoría - ${run.periodKey}`, "", `Facturas descargadas: ${run.items.reduce((sum, item) => sum + item.invoiceCount, 0)}`, `Cuentas correctas: ${run.items.filter((item) => item.status === "DOWNLOADED").length}`, `Cuentas con incidencias: ${failed.length}`, failed.length ? `\nPendientes:\n${failed.map((item) => `- ${item.clientName} (${item.source}): ${item.error || "No se pudo descargar"}`).join("\n")}` : "", "\nSe adjunta el informe PDF y todas las facturas en un ZIP."].filter(Boolean).join("\n");
-  const attachment = { filename: `facturas-gestoria-${run.periodKey}.zip`, content, contentType: "application/zip" };
+  const archiveName = `facturas-gestoria-${run.periodKey}.zip`;
+  const archiveKey = buildS3Key({ workspaceId: opts.workspaceId, targetType: "ACCOUNTANCY_RUN", targetId: run.id, filename: archiveName });
+  await uploadBuffer({ s3Key: archiveKey, body: content, contentType: "application/zip" });
+  const archiveUrl = await signedDownloadUrl(archiveKey, 14 * 24 * 3600);
+  const emailBody = `${body}\n\nDescargar paquete completo (enlace válido durante 14 días):\n${archiveUrl}`;
   const sent = [];
-  for (const recipient of opts.recipients) sent.push((await sendEmailFromAccount({ userId: opts.userId, workspaceId: opts.workspaceId, to: recipient, subject: `Facturas gestoría ${run.periodKey}`, body, attachments: [attachment] })).messageId);
-  await prisma.accountancyInvoiceRun.update({ where: { id: run.id }, data: { recipients: opts.recipients, emailedAt: new Date() } });
+  for (const recipient of opts.recipients) sent.push((await sendEmailFromAccount({ userId: opts.userId, workspaceId: opts.workspaceId, to: recipient, subject: `Facturas gestoría ${run.periodKey}`, body: emailBody })).messageId);
+  await prisma.accountancyInvoiceRun.update({ where: { id: run.id }, data: { recipients: opts.recipients, emailedAt: new Date(), archiveFiles: { deliveryStatus: "SENT", archiveName, archiveKey, sent } } });
   return sent;
 }
 
