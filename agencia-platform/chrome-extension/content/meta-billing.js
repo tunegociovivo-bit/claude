@@ -70,7 +70,9 @@
     const controls = [...document.querySelectorAll("button,[role='button'],a,span")]
       .filter((element) => {
         const label = `${element.textContent || ""} ${element.getAttribute?.("aria-label") || ""} ${element.getAttribute?.("title") || ""}`.trim();
-        return /(?:descargar|download).{0,50}(?:pdf|factura|invoice|recibo|receipt)|(?:pdf|factura|invoice|recibo|receipt).{0,50}(?:descargar|download)/i.test(label);
+        return /descargar|download/i.test(label)
+          && !/todas las herramientas|all tools/i.test(label)
+          && !element.closest("nav,[role='navigation']");
       })
       .map((element) => element.closest("button,[role='button'],a") || element)
       .filter((element) => {
@@ -84,11 +86,19 @@
 
   async function revealReceiptDownloadControls() {
     const menuPattern = /more|mÃ¡s|acciones|actions|opciones|options|menÃº|menu/i;
+    const globalNavigationPattern = /todas las herramientas|all tools/i;
     return [...new Set([...document.querySelectorAll("button,[role='button'],[aria-label],[title]")]
       .filter((element) => {
         const label = `${element.getAttribute?.("aria-label") || ""} ${element.getAttribute?.("title") || ""} ${element.textContent || ""}`.trim();
         const rect = element.getBoundingClientRect();
-        return menuPattern.test(label) && rect.width > 0 && rect.height > 0;
+        const receiptRow = element.closest("tr,[role='row']");
+        const globalNavigation = element.closest("nav,[role='navigation']");
+        return Boolean(receiptRow)
+          && !globalNavigation
+          && !globalNavigationPattern.test(label)
+          && menuPattern.test(label)
+          && rect.width > 0
+          && rect.height > 0;
       }))].slice(0, 60);
   }
 
