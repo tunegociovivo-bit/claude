@@ -139,4 +139,10 @@ describe("Meta billing browser collector", () => {
     expect(worker).toContain("HARVEST_MESSAGE_TIMEOUT_MS");
     expect(worker).toContain("nativeDownloadsExpected: 1");
   });
+
+  it("allows a manual Meta retry to recover orphaned running work", () => {
+    const route = readFileSync(resolve(root, "app/api/accountancy-invoices/route.ts"), "utf8");
+    expect(route).toContain("orphanedRunningBefore");
+    expect(route).toContain('status: "RUNNING"');
+  });
 });

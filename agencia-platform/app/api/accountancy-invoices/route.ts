@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
     });
     if (!run) return NextResponse.json({ error: "Ejecución no encontrada" }, { status: 404 });
     const source = typeof body.source === "string" ? body.source : undefined;
+    const orphanedRunningBefore = new Date(Date.now() - 2 * 60 * 1000);
     const activeKey = `${ctx.workspaceId}:${run.periodKey}:${run.trigger}`;
     let retried;
     try {
@@ -77,7 +78,14 @@ export async function POST(req: NextRequest) {
           data: { status: "PENDING", startedAt: new Date(), finishedAt: null, activeKey }
         });
         const result = await tx.accountancyInvoiceRunItem.updateMany({
-          where: { runId: run.id, status: "FAILED", ...(source ? { source } : {}) },
+          where: {
+            runId: run.id,
+            ...(source ? { source } : {}),
+            OR: [
+              { status: "FAILED" },
+              ...(source === "META" ? [{ status: "RUNNING" as const, startedAt: { lt: orphanedRunningBefore } }] : [])
+            ]
+          },
           data: { status: "PENDING", error: null, startedAt: null, finishedAt: null }
         });
         if (!result.count) throw new Error("NO_FAILED_ITEMS");
