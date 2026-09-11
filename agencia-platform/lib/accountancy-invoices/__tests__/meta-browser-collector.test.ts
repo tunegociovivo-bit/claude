@@ -112,4 +112,11 @@ describe("Meta billing browser collector", () => {
     expect(route).toContain("id: { notIn: existingClientIds }");
     expect(route).toContain("accountancyInvoiceRunItem.createMany");
   });
+
+  it("starts the accountancy queue immediately and keeps a short retry alarm", () => {
+    const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
+    expect(worker).toContain('periodInMinutes: 0.5');
+    expect(worker).toMatch(/onInstalled[\s\S]*processAccountancyQueue\(\)/);
+    expect(worker).toMatch(/onStartup[\s\S]*processAccountancyQueue\(\)/);
+  });
 });
