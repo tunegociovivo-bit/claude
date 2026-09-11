@@ -49,7 +49,7 @@ export default function AccountancyInvoicesClient() {
       const key = document.clientName.trim().toLocaleLowerCase("es");
       const group = groups.get(key) || { clientName: document.clientName, documents: [], totalCents: 0, metaCents: 0, googleCents: 0, currency: document.currency || "EUR" };
       group.documents.push(document);
-      if (document.source === "META" || document.source === "GOOGLE_ADS") group.totalCents += document.amountCents || 0;
+      group.totalCents += document.amountCents || 0;
       if (document.source === "META") group.metaCents += document.amountCents || 0;
       if (document.source === "GOOGLE_ADS") group.googleCents += document.amountCents || 0;
       groups.set(key, group);
