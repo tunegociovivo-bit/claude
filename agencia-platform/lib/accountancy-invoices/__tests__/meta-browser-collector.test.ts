@@ -98,4 +98,11 @@ describe("Meta billing browser collector", () => {
     expect(worker).toContain("adsmanager.facebook.com/adsmanager/billing_hub/payment_activity");
     expect(worker).toContain("pageSummary");
   });
+
+  it("adds newly corrected accounts to an already active manual run", () => {
+    const route = readFileSync(resolve(root, "app/api/accountancy-invoices/route.ts"), "utf8");
+    expect(route).toContain("missingActiveClients");
+    expect(route).toContain("clientId: { notIn: existingClientIds }");
+    expect(route).toContain("accountancyInvoiceRunItem.createMany");
+  });
 });
