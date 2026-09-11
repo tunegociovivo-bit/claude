@@ -787,21 +787,24 @@ async function collectNativeMetaDownloads(startedAfter, expected = 0) {
     if (candidates.length >= expected && candidates.every((download) => download.state === "complete")) break;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  const files = [];
-  for (const download of candidates.filter((entry) => entry.state === "complete")) {
-    const response = await fetch(download.finalUrl || download.url, { credentials: "include", signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) continue;
-    const blob = await response.blob();
-    if (blob.size < 500) continue;
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-    const rawName = String(download.filename || "meta-factura.pdf").split(/[\\/]/).pop() || "meta-factura.pdf";
-    files.push({ name: /\.pdf$/i.test(rawName) ? rawName : `${rawName}.pdf`, base64: btoa(binary) });
-    await chrome.downloads.removeFile(download.id).catch(() => {});
-    await chrome.downloads.erase({ id: download.id }).catch(() => {});
-  }
-  return files;
+  const files = await Promise.all(candidates.filter((entry) => entry.state === "complete").map(async (download) => {
+    try {
+      const response = await fetch(download.finalUrl || download.url, { credentials: "include", signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      if (blob.size < 500) return null;
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      const rawName = String(download.filename || "meta-factura.pdf").split(/[\\/]/).pop() || "meta-factura.pdf";
+      await chrome.downloads.removeFile(download.id).catch(() => {});
+      await chrome.downloads.erase({ id: download.id }).catch(() => {});
+      return { name: /\.pdf$/i.test(rawName) ? rawName : `${rawName}.pdf`, base64: btoa(binary) };
+    } catch {
+      return null;
+    }
+  }));
+  return files.filter(Boolean);
 }
 
 async function processAccountancyItem(item) {
