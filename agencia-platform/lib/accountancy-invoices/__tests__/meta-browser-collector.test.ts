@@ -144,5 +144,7 @@ describe("Meta billing browser collector", () => {
     const route = readFileSync(resolve(root, "app/api/accountancy-invoices/route.ts"), "utf8");
     expect(route).toContain("orphanedRunningBefore");
     expect(route).toContain('status: "RUNNING"');
+    const agentRoute = readFileSync(resolve(root, "app/api/v1/admin/accountancy-invoices/agent/route.ts"), "utf8");
+    expect(agentRoute).toContain("2 * 60 * 1000");
   });
 });

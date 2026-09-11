@@ -27,7 +27,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   }
   const primaryAgent = await prisma.accountancyBrowserAgent.findFirst({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "asc" }, select: { agentKey: true } });
   const allowedSources = primaryAgent?.agentKey === agentKey ? ["GOOGLE_ADS", "META"] : ["META"];
-  const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
+  const staleBefore = new Date(Date.now() - 2 * 60 * 1000);
   await prisma.accountancyInvoiceRunItem.updateMany({
     where: { status: "RUNNING", startedAt: { lt: staleBefore }, run: { workspaceId: api.workspaceId } },
     data: { status: "PENDING", startedAt: null, error: "Reintentada automáticamente tras interrumpirse la descarga anterior" }
