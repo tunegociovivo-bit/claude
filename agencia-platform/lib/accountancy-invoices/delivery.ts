@@ -1,4 +1,4 @@
-import archiver from "archiver";
+import { zipSync } from "fflate";
 import { prisma } from "@/lib/db/prisma";
 import { sendEmailFromAccount } from "@/lib/integrations/email-account";
 import { buildS3Key, downloadBuffer, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
@@ -11,20 +11,18 @@ export async function deliverAccountancyRun(opts: { runId: string; workspaceId: 
   const ids = run.items.flatMap((item) => Array.isArray(item.files) ? item.files.map((file: any) => file?.id).filter(Boolean) : []);
   if (!ids.length) throw new Error("La ejecución todavía no contiene facturas archivadas");
   const files = await prisma.file.findMany({ where: { id: { in: ids }, workspaceId: opts.workspaceId, targetType: "ACCOUNTANCY_RUN_ITEM" }, select: { name: true, s3Key: true, sizeBytes: true } });
-  const archive = archiver("zip", { zlib: { level: 6 } });
-  const chunks: Buffer[] = [];
-  const done = new Promise<void>((resolve, reject) => { archive.on("data", (chunk: Buffer) => chunks.push(chunk)); archive.on("end", resolve); archive.on("error", reject); });
-  archive.append(await buildAccountancyReport(run.periodKey, run.items), { name: `Resumen-facturas-${run.periodKey}.pdf` });
+  const archiveEntries: Record<string, Uint8Array> = {};
+  const report = await buildAccountancyReport(run.periodKey, run.items);
+  archiveEntries[`Resumen-facturas-${run.periodKey}.pdf`] = new Uint8Array(report.buffer, report.byteOffset, report.byteLength);
   const names = new Set<string>();
   for (const file of files) {
     let name = file.name;
     for (let suffix = 2; names.has(name); suffix++) name = file.name.replace(/(\.pdf)?$/i, `-${suffix}$1`);
     names.add(name);
-    archive.append(await downloadBuffer(file.s3Key), { name });
+    const contents = await downloadBuffer(file.s3Key);
+    archiveEntries[name] = new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
   }
-  archive.finalize();
-  await done;
-  const content = Buffer.concat(chunks);
+  const content = Buffer.from(zipSync(archiveEntries, { level: 6 }));
   // The ZIP is stored in R2 and the email only contains a signed download
   // link, so the usual email attachment limit does not apply here.
   const failed = run.items.filter((item) => item.status === "FAILED");

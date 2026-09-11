@@ -16,6 +16,14 @@ describe("accountancy document ledger", () => {
     expect(download).toContain("signedDownloadUrl");
   });
 
+  it("builds the delivery ZIP without the production-incompatible archiver import", () => {
+    const delivery = readFileSync(resolve(root, "lib/accountancy-invoices/delivery.ts"), "utf8");
+
+    expect(delivery).toContain('import { zipSync } from "fflate"');
+    expect(delivery).toContain("zipSync(archiveEntries");
+    expect(delivery).not.toContain('import archiver from "archiver"');
+  });
+
   it("links downloaded Google Ads invoices to expenses idempotently", () => {
     const ledger = readFileSync(resolve(root, "lib/accountancy-invoices/expense-ledger.ts"), "utf8");
     const agent = readFileSync(resolve(root, "app/api/v1/admin/accountancy-invoices/agent/route.ts"), "utf8");
