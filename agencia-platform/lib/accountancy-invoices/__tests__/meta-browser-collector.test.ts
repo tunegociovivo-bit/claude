@@ -119,4 +119,14 @@ describe("Meta billing browser collector", () => {
     expect(worker).toMatch(/onInstalled[\s\S]*processAccountancyQueue\(\)/);
     expect(worker).toMatch(/onStartup[\s\S]*processAccountancyQueue\(\)/);
   });
+
+  it("collects PDFs that Meta sends through Chrome native downloads", () => {
+    const manifest = JSON.parse(readFileSync(resolve(root, "chrome-extension/manifest.json"), "utf8"));
+    const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
+    const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
+    expect(manifest.permissions).toContain("downloads");
+    expect(worker).toContain("collectNativeMetaDownloads");
+    expect(worker).toContain("chrome.downloads.search");
+    expect(collector).toContain("nativeDownloadsExpected");
+  });
 });
