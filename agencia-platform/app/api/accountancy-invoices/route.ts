@@ -185,6 +185,16 @@ export async function PATCH(req: NextRequest) {
   const ctx = await adminContext();
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const body = await req.json();
+  if (body.action === "agent-label") {
+    if (!body.agentKey) return NextResponse.json({ error: "Falta el perfil" }, { status: 400 });
+    const customLabel = typeof body.customLabel === "string" ? body.customLabel.trim().slice(0, 100) : "";
+    const updated = await prisma.accountancyBrowserAgent.updateMany({
+      where: { workspaceId: ctx.workspaceId, agentKey: body.agentKey },
+      data: { customLabel: customLabel || null }
+    });
+    if (!updated.count) return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  }
   if (body.action === "schedule") {
     const recipients = validateRecipients(body.recipients ?? DEFAULT_RECIPIENTS);
     const schedule = await prisma.accountancyInvoiceSchedule.upsert({
