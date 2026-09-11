@@ -40,7 +40,24 @@ export async function POST(req: NextRequest) {
       include: { items: true },
       orderBy: { createdAt: "desc" }
     });
-    if (existing) return NextResponse.json(existing, { status: 202 });
+    if (existing) {
+      const existingClientIds = existing.items.map((item) => item.clientId).filter((id): id is string => Boolean(id));
+      const missingActiveClients = await prisma.accountancyInvoiceClient.findMany({
+        where: { workspaceId: ctx.workspaceId, enabled: true, id: { notIn: existingClientIds } }
+      });
+      if (missingActiveClients.length) {
+        await prisma.accountancyInvoiceRunItem.createMany({
+          data: missingActiveClients.map((client) => ({
+            runId: existing.id,
+            clientId: client.id,
+            clientName: client.name,
+            source: client.source
+          }))
+        });
+      }
+      const refreshed = await prisma.accountancyInvoiceRun.findUnique({ where: { id: existing.id }, include: { items: true } });
+      return NextResponse.json(refreshed, { status: 202 });
+    }
     const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
     return NextResponse.json(run, { status: 202 });
   }

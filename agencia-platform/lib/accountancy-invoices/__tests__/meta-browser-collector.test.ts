@@ -102,7 +102,7 @@ describe("Meta billing browser collector", () => {
   it("adds newly corrected accounts to an already active manual run", () => {
     const route = readFileSync(resolve(root, "app/api/accountancy-invoices/route.ts"), "utf8");
     expect(route).toContain("missingActiveClients");
-    expect(route).toContain("clientId: { notIn: existingClientIds }");
+    expect(route).toContain("id: { notIn: existingClientIds }");
     expect(route).toContain("accountancyInvoiceRunItem.createMany");
   });
 });
