@@ -4,6 +4,7 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, SOURCES } from "@/lib/accountancy-invoices/service";
 import { getPreviousMonthPeriod, validateRecipients } from "@/lib/accountancy-invoices/domain";
+import { syncAllAccountancyExpenses } from "@/lib/accountancy-invoices/expense-ledger";
 
 async function adminContext() {
   const session = await getServerSession(authOptions);
@@ -17,16 +18,55 @@ async function adminContext() {
 export async function GET() {
   const ctx = await adminContext();
   if (!ctx) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  const [clients, schedule, runs, googleAdsConnections, metaConnectionCount, billingMailboxCount, browserAgents] = await Promise.all([
+  const [clients, schedule, runs, googleAdsConnections, metaConnectionCount, billingMailboxCount, rawBrowserAgents, archivedItems, linkedExpenses] = await Promise.all([
     prisma.accountancyInvoiceClient.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: [{ enabled: "desc" }, { source: "asc" }, { name: "asc" }] }),
     prisma.accountancyInvoiceSchedule.findUnique({ where: { workspaceId: ctx.workspaceId } }),
     prisma.accountancyInvoiceRun.findMany({ where: { workspaceId: ctx.workspaceId }, include: { items: { orderBy: [{ status: "asc" }, { source: "asc" }, { clientName: "asc" }] } }, orderBy: { createdAt: "desc" }, take: 12 }),
     prisma.googleAdsConnection.findMany({ where: { workspaceId: ctx.workspaceId }, select: { accountEmail: true, label: true, updatedAt: true } }),
     prisma.metaConnection.count({ where: { workspaceId: ctx.workspaceId } }),
     prisma.emailAccount.count({ where: { workspaceId: ctx.workspaceId } }),
-    prisma.accountancyBrowserAgent.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { lastHeartbeatAt: "desc" } })
+    prisma.accountancyBrowserAgent.findMany({ where: { workspaceId: ctx.workspaceId }, orderBy: { lastHeartbeatAt: "desc" } }),
+    prisma.accountancyInvoiceRunItem.findMany({
+      where: { run: { workspaceId: ctx.workspaceId }, status: "DOWNLOADED" },
+      include: { run: { select: { periodKey: true, createdAt: true } } },
+      orderBy: { finishedAt: "desc" },
+      take: 500
+    }),
+    prisma.expense.findMany({ where: { workspaceId: ctx.workspaceId, deletedAt: null, notes: { contains: "[accountancy-file:" } }, select: { id: true, notes: true } })
   ]);
-  return NextResponse.json({ clients, schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents } });
+  const expenseByFile = new Map<string, string>();
+  for (const expense of linkedExpenses) {
+    const match = expense.notes?.match(/\[accountancy-file:([^\]]+)\]/);
+    if (match) expenseByFile.set(match[1], expense.id);
+  }
+  const documentMap = new Map<string, any>();
+  for (const item of archivedItems) {
+    const files = Array.isArray(item.files) ? item.files as Array<{ id?: string; name?: string }> : [];
+    const details = Array.isArray(item.invoiceDetails) ? item.invoiceDetails as Array<{ number?: string; date?: string; amountCents?: number; currency?: string; business?: string }> : [];
+    files.forEach((file, index) => {
+      if (!file?.id) return;
+      const detail = details[index] || {};
+      const key = `${item.source}:${item.clientName}:${detail.number || file.name || file.id}`;
+      if (!documentMap.has(key)) documentMap.set(key, {
+        id: file.id,
+        name: file.name || detail.number || "factura.pdf",
+        number: detail.number || file.name?.replace(/\.pdf$/i, "") || "Sin número",
+        date: detail.date || item.finishedAt?.toISOString().slice(0, 10) || item.run.createdAt.toISOString().slice(0, 10),
+        amountCents: Math.max(0, Number(detail.amountCents) || 0),
+        currency: detail.currency || item.currency || "EUR",
+        clientName: detail.business || item.clientName,
+        source: item.source,
+        periodKey: item.run.periodKey,
+        expenseId: expenseByFile.get(file.id) || null,
+        viewUrl: `/api/accountancy-invoices/files/${file.id}`,
+        downloadUrl: `/api/accountancy-invoices/files/${file.id}?download=1`
+      });
+    });
+  }
+  const referencedAgentKeys = new Set(clients.filter((client) => client.source === "META" && client.connectionRef).map((client) => client.connectionRef));
+  const activeAgentAfter = Date.now() - 10 * 60 * 1000;
+  const browserAgents = rawBrowserAgents.filter((agent) => referencedAgentKeys.has(agent.agentKey) || agent.lastHeartbeatAt.getTime() >= activeAgentAfter);
+  return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents } });
 }
 
 export async function POST(req: NextRequest) {
@@ -118,6 +158,10 @@ export async function POST(req: NextRequest) {
       data: { status: "PENDING", finishedAt: null, activeKey: `${ctx.workspaceId}:${run.periodKey}:${run.trigger}` }
     });
     return NextResponse.json({ ok: true, retried: recovered.count }, { status: 202 });
+  }
+  if (body.action === "sync-expenses") {
+    const created = await syncAllAccountancyExpenses(ctx.workspaceId);
+    return NextResponse.json({ ok: true, created });
   }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });

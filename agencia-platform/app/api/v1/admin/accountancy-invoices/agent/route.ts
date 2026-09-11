@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/api/admin";
 import { prisma } from "@/lib/db/prisma";
 import { buildCollectorTarget } from "@/lib/accountancy-invoices/collector";
 import { refreshRunStatus } from "@/lib/accountancy-invoices/service";
+import { syncAccountancyRunItemExpenses } from "@/lib/accountancy-invoices/expense-ledger";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,7 @@ export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req: NextRequ
     where: { id: current.id },
     data: { status: body.status, invoiceCount: Math.max(0, Number(body.invoiceCount) || 0), amountCents: Math.max(0, Number(body.amountCents) || 0), currency: body.currency || "EUR", files: Array.isArray(body.files) ? body.files.slice(0, 200) : undefined, error: body.error ? String(body.error).slice(0, 1000) : null, finishedAt: new Date() }
   });
+  if (item.status === "DOWNLOADED" && item.source === "GOOGLE_ADS") await syncAccountancyRunItemExpenses(item.id);
   await refreshRunStatus(item.runId);
   return NextResponse.json({ ok: true, item });
 });

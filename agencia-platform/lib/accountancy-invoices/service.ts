@@ -5,6 +5,7 @@ import { holdedGetInvoicePdf, holdedListInvoices } from "@/lib/integrations/hold
 import { gadsDownloadInvoicePdf, gadsListInvoices } from "@/lib/integrations/google-ads";
 import { findMetaBillingPdfAttachments } from "@/lib/integrations/email-account";
 import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
+import { syncAccountancyRunItemExpenses } from "./expense-ledger";
 
 export const DEFAULT_RECIPIENTS = ["info@negociovivo.com"];
 export const SOURCES = ["HOLDED", "META", "GOOGLE_ADS", "BANK"] as const;
@@ -104,6 +105,7 @@ export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
     }
     const outcome = getSourceDownloadOutcome(invoices.length, files.length, errors);
     await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: outcome.status, error: outcome.error?.slice(0, 1000) ?? null, invoiceCount: files.length, amountCents, currency: invoices[0]?.currency || "EUR", files, invoiceDetails: invoices.map((invoice) => ({ number: invoice.number, date: invoice.issueDate, amountCents: Math.round(invoice.totalAmountMicros / 10_000), currency: invoice.currency })), finishedAt: new Date() } });
+    if (files.length) await syncAccountancyRunItemExpenses(pending.id);
   } catch (error: any) {
     await prisma.accountancyInvoiceRunItem.update({ where: { id: pending.id }, data: { status: "FAILED", error: String(error?.message || error).slice(0, 1000), finishedAt: new Date() } });
   }
