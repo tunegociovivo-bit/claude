@@ -12,6 +12,8 @@ describe("accountancy document ledger", () => {
 
     expect(api).toContain("documents");
     expect(ui).toContain("Facturas publicitarias por cliente");
+    expect(ui).toContain('className="order-[-5] overflow-hidden');
+    expect(ui).toContain("Mostrar / minimizar");
     expect(ui).toContain("Visualizar");
     expect(download).toContain("signedDownloadUrl");
   });
