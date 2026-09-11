@@ -147,4 +147,16 @@ describe("Meta billing browser collector", () => {
     const agentRoute = readFileSync(resolve(root, "app/api/v1/admin/accountancy-invoices/agent/route.ts"), "utf8");
     expect(agentRoute).toContain("2 * 60 * 1000");
   });
+
+  it("exposes recognizable agent names and an always available Meta retry", () => {
+    const schema = readFileSync(resolve(root, "prisma/schema.prisma"), "utf8");
+    const route = readFileSync(resolve(root, "app/api/accountancy-invoices/route.ts"), "utf8");
+    const client = readFileSync(resolve(root, "components/AccountancyInvoicesClient.tsx"), "utf8");
+    expect(schema).toContain("customLabel");
+    expect(route).toContain('body.action === "agent-label"');
+    expect(route).toContain('body.action === "retry-meta"');
+    expect(client).toContain("Nombre reconocible del perfil");
+    expect(client).toContain("Reintentar solo Meta");
+    expect(client).toContain('action: "retry-meta"');
+  });
 });
