@@ -128,5 +128,8 @@ describe("Meta billing browser collector", () => {
     expect(worker).toContain("collectNativeMetaDownloads");
     expect(worker).toContain("chrome.downloads.search");
     expect(collector).toContain("nativeDownloadsExpected");
+    const interceptor = readFileSync(resolve(root, "chrome-extension/content/meta-billing-intercept.js"), "utf8");
+    expect(interceptor).toContain('document.addEventListener("click"');
+    expect(interceptor).toContain('href.startsWith("blob:")');
   });
 });

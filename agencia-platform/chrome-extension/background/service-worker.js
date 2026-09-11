@@ -789,7 +789,7 @@ async function collectNativeMetaDownloads(startedAfter, expected = 0) {
   }
   const files = [];
   for (const download of candidates.filter((entry) => entry.state === "complete")) {
-    const response = await fetch(download.finalUrl || download.url, { credentials: "include" });
+    const response = await fetch(download.finalUrl || download.url, { credentials: "include", signal: AbortSignal.timeout(15_000) });
     if (!response.ok) continue;
     const blob = await response.blob();
     if (blob.size < 500) continue;

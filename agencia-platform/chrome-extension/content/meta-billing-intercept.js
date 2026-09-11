@@ -68,6 +68,21 @@
     };
   }
 
+  // Meta suele crear un enlace blob: y delegar la descarga al navegador.
+  // Ese blob solo existe en este contexto, por lo que se captura antes de
+  // que Chrome lo entregue al gestor de descargas.
+  document.addEventListener("click", (event) => {
+    const link = event.target?.closest?.("a[href]");
+    const href = link?.href || "";
+    if (!href.startsWith("blob:") && !/\.pdf(?:$|\?)/i.test(href)) return;
+    origFetch(href)
+      .then(async (response) => {
+        const blob = await response.blob();
+        await emitIfPdf(blob.type || "application/pdf", response.headers, href, blob);
+      })
+      .catch(() => {});
+  }, true);
+
   // --- XMLHttpRequest ---
   const origOpen = XMLHttpRequest.prototype.open;
   const origSend = XMLHttpRequest.prototype.send;
