@@ -11,7 +11,7 @@ describe("accountancy document ledger", () => {
     const download = readFileSync(resolve(root, "app/api/accountancy-invoices/files/[id]/route.ts"), "utf8");
 
     expect(api).toContain("documents");
-    expect(ui).toContain("Archivo de facturas y gastos");
+    expect(ui).toContain("Facturas publicitarias por cliente");
     expect(ui).toContain("Visualizar");
     expect(download).toContain("signedDownloadUrl");
   });
