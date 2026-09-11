@@ -52,7 +52,7 @@ export async function GET() {
         name: file.name || detail.number || "factura.pdf",
         number: detail.number || file.name?.replace(/\.pdf$/i, "") || "Sin número",
         date: detail.date || item.finishedAt?.toISOString().slice(0, 10) || item.run.createdAt.toISOString().slice(0, 10),
-        amountCents: Math.max(0, Number(detail.amountCents) || 0),
+        amountCents: Math.max(0, Number(detail.amountCents) || (files.length === 1 ? item.amountCents : 0)),
         currency: detail.currency || item.currency || "EUR",
         clientName: detail.business || item.clientName,
         source: item.source,

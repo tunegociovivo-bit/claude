@@ -26,12 +26,14 @@ export async function syncAccountancyRunItemExpenses(itemId: string) {
     const marker = `[accountancy-file:${file.id}]`;
     const existing = await prisma.expense.findFirst({
       where: { workspaceId: item.run.workspaceId, deletedAt: null, notes: { contains: marker } },
-      select: { id: true }
+      select: { id: true, totalCents: true }
     });
-    if (existing) continue;
-
     const detail = details[index] || {};
-    const totalCents = Math.max(0, Math.round(Number(detail.amountCents) || 0));
+    const totalCents = Math.max(0, Math.round(Number(detail.amountCents) || (files.length === 1 ? item.amountCents : 0)));
+    if (existing) {
+      if (!existing.totalCents && totalCents) await prisma.expense.update({ where: { id: existing.id }, data: { baseCents: totalCents, totalCents } });
+      continue;
+    }
     await prisma.expense.create({
       data: {
         workspaceId: item.run.workspaceId,
