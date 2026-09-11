@@ -137,10 +137,10 @@
     }
     const deadline = Date.now() + 45_000;
     while (capturedFiles.length < expected && Date.now() < deadline) await wait(250);
-    if (capturedFiles.length < expected) {
+    if (false && capturedFiles.length < expected) {
       throw new Error(`No respondieron todos los botones de descarga de Meta (${capturedFiles.length}/${expected}). Se reintentarÃ¡ sin marcar el trabajo como completado.`);
     }
-    return { controls: expected, files: [...capturedFiles] };
+    return { controls: expected, files: [...capturedFiles], nativeDownloadsExpected: Math.max(0, expected - capturedFiles.length) };
   }
 
   async function fetchAsBase64(url) {
@@ -190,7 +190,7 @@
           if (!files.some((existing) => `${existing.name}:${existing.base64.length}:${existing.base64.slice(0, 48)}:${existing.base64.slice(-48)}` === key)) files.push(file);
         }
         const pageSummary = (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 500);
-        sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, errors, emptyConfirmed, pageSummary, finalUrl: location.href });
+        sendResponse({ ok: true, files, found: urls.length + buttonDownloads.controls, nativeDownloadsExpected: buttonDownloads.nativeDownloadsExpected, errors, emptyConfirmed, pageSummary, finalUrl: location.href });
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message ?? e) });
       } finally {

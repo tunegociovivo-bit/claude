@@ -774,9 +774,40 @@ async function harvestMetaPage(tabId, item) {
   return chrome.tabs.sendMessage(tabId, { type: "harvest-meta-invoices", periodKey: item.periodKey });
 }
 
+async function collectNativeMetaDownloads(startedAfter, expected = 0) {
+  if (!expected) return [];
+  const deadline = Date.now() + 20_000;
+  let candidates = [];
+  while (Date.now() < deadline) {
+    candidates = (await chrome.downloads.search({ startedAfter, limit: 100 })).filter((download) =>
+      /facebook\.com|fbcdn\.net/i.test(`${download.url || ""} ${download.finalUrl || ""}`)
+      && (/\.pdf(?:$|\?)/i.test(`${download.filename || ""} ${download.url || ""} ${download.finalUrl || ""}`)
+        || /pdf|octet-stream/i.test(download.mime || ""))
+    );
+    if (candidates.length >= expected && candidates.every((download) => download.state === "complete")) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const files = [];
+  for (const download of candidates.filter((entry) => entry.state === "complete")) {
+    const response = await fetch(download.finalUrl || download.url, { credentials: "include" });
+    if (!response.ok) continue;
+    const blob = await response.blob();
+    if (blob.size < 500) continue;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    const rawName = String(download.filename || "meta-factura.pdf").split(/[\\/]/).pop() || "meta-factura.pdf";
+    files.push({ name: /\.pdf$/i.test(rawName) ? rawName : `${rawName}.pdf`, base64: btoa(binary) });
+    await chrome.downloads.removeFile(download.id).catch(() => {});
+    await chrome.downloads.erase({ id: download.id }).catch(() => {});
+  }
+  return files;
+}
+
 async function processAccountancyItem(item) {
   let tab;
   try {
+    const nativeDownloadsStartedAt = new Date(Date.now() - 1000).toISOString();
     tab = await chrome.tabs.create({ url: item.target.url, active: false });
     await waitForTabComplete(tab.id);
     await new Promise((resolve) => setTimeout(resolve, 3500));
@@ -815,6 +846,10 @@ async function processAccountancyItem(item) {
       await waitForTabComplete(tab.id);
       await new Promise((resolve) => setTimeout(resolve, 5000));
       result = await harvestMetaPage(tab.id, item);
+    }
+    if (item.target.mode === "META" && result?.ok && result.nativeDownloadsExpected) {
+      const nativeFiles = await collectNativeMetaDownloads(nativeDownloadsStartedAt, result.nativeDownloadsExpected);
+      result.files = [...(result.files || []), ...nativeFiles];
     }
     if (!result?.ok) throw new Error(result?.error || "No se pudo leer la página de facturación");
     if (!result.files?.length && !result.emptyConfirmed) {
