@@ -332,6 +332,7 @@ model AccountancyInvoiceSchedule {
   time         String    @default("08:30")
   timezone     String    @default("Europe/Madrid")
   recipients   Json
+  ccRecipients Json      @default("[]")
   lastRunMonth String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -348,6 +349,7 @@ model AccountancyInvoiceRun {
   status       String                      @default("PENDING")
   activeKey    String?                     @unique
   recipients   Json?
+  ccRecipients Json?
   archiveFiles Json?
   emailedAt    DateTime?
   startedAt    DateTime?

@@ -14,12 +14,13 @@ export async function POST(req: NextRequest) {
   if (!member) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   const body = await req.json();
   const recipients = validateRecipients(body.recipients);
+  const ccRecipients = body.ccRecipients ? validateRecipients(body.ccRecipients) : [];
   try {
     const runId = String(body.runId || "");
     const run = await prisma.accountancyInvoiceRun.findFirst({ where: { id: runId, workspaceId }, select: { id: true } });
     if (!run) return NextResponse.json({ error: "Ejecución no encontrada" }, { status: 404 });
-    await prisma.accountancyInvoiceRun.update({ where: { id: run.id }, data: { recipients, archiveFiles: { deliveryStatus: "SENDING", startedAt: new Date().toISOString() } } });
-    void deliverAccountancyRun({ runId, workspaceId, userId, recipients }).catch(async (error) => {
+    await prisma.accountancyInvoiceRun.update({ where: { id: run.id }, data: { recipients, ccRecipients, archiveFiles: { deliveryStatus: "SENDING", startedAt: new Date().toISOString() } } });
+    void deliverAccountancyRun({ runId, workspaceId, userId, recipients, ccRecipients }).catch(async (error) => {
       await prisma.accountancyInvoiceRun.update({ where: { id: run.id }, data: { archiveFiles: { deliveryStatus: "FAILED", error: String(error?.message || error).slice(0, 500) } } }).catch(() => {});
     });
     return NextResponse.json({ ok: true, status: "SENDING" }, { status: 202 });

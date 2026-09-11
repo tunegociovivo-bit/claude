@@ -66,7 +66,7 @@ export async function GET() {
   const referencedAgentKeys = new Set(clients.filter((client) => client.source === "META" && client.connectionRef).map((client) => client.connectionRef));
   const activeAgentAfter = Date.now() - 10 * 60 * 1000;
   const browserAgents = rawBrowserAgents.filter((agent) => referencedAgentKeys.has(agent.agentKey) || agent.lastHeartbeatAt.getTime() >= activeAgentAfter);
-  return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents } });
+  return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS, ccRecipients: [] }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents } });
 }
 
 export async function POST(req: NextRequest) {
@@ -197,10 +197,11 @@ export async function PATCH(req: NextRequest) {
   }
   if (body.action === "schedule") {
     const recipients = validateRecipients(body.recipients ?? DEFAULT_RECIPIENTS);
+    const ccRecipients = body.ccRecipients ? validateRecipients(body.ccRecipients) : [];
     const schedule = await prisma.accountancyInvoiceSchedule.upsert({
       where: { workspaceId: ctx.workspaceId },
-      create: { workspaceId: ctx.workspaceId, enabled: body.enabled !== false, dayOfMonth: Math.min(28, Math.max(1, Number(body.dayOfMonth) || 2)), time: /^\d{2}:\d{2}$/.test(body.time) ? body.time : "08:30", timezone: body.timezone || "Europe/Madrid", recipients },
-      update: { enabled: body.enabled !== false, dayOfMonth: Math.min(28, Math.max(1, Number(body.dayOfMonth) || 2)), time: /^\d{2}:\d{2}$/.test(body.time) ? body.time : "08:30", timezone: body.timezone || "Europe/Madrid", recipients }
+      create: { workspaceId: ctx.workspaceId, enabled: body.enabled !== false, dayOfMonth: Math.min(28, Math.max(1, Number(body.dayOfMonth) || 2)), time: /^\d{2}:\d{2}$/.test(body.time) ? body.time : "08:30", timezone: body.timezone || "Europe/Madrid", recipients, ccRecipients },
+      update: { enabled: body.enabled !== false, dayOfMonth: Math.min(28, Math.max(1, Number(body.dayOfMonth) || 2)), time: /^\d{2}:\d{2}$/.test(body.time) ? body.time : "08:30", timezone: body.timezone || "Europe/Madrid", recipients, ccRecipients }
     });
     return NextResponse.json(schedule);
   }

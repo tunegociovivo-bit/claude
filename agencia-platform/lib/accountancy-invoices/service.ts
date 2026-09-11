@@ -178,6 +178,7 @@ export async function createAccountancyInvoiceRun(workspaceId: string, trigger: 
         periodTo: new Date(`${period.to}T23:59:59.999Z`),
         trigger,
         recipients: schedule?.recipients ?? DEFAULT_RECIPIENTS,
+        ccRecipients: schedule?.ccRecipients ?? [],
         items: { create: clients.map((client) => ({ clientId: client.id, clientName: client.name, source: client.source })) }
       },
       include: { items: true }
