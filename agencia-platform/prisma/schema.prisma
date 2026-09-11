@@ -313,6 +313,7 @@ model AccountancyBrowserAgent {
   workspaceId     String
   agentKey        String
   label           String
+  customLabel     String?
   version         String?
   lastHeartbeatAt DateTime  @default(now())
   createdAt       DateTime  @default(now())

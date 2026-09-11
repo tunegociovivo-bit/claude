@@ -98,10 +98,41 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true, retried: retried.count }, { status: 202 });
   }
+  if (body.action === "retry-meta") {
+    const run = await prisma.accountancyInvoiceRun.findFirst({
+      where: { id: body.runId, workspaceId: ctx.workspaceId },
+      select: { id: true, periodKey: true, trigger: true }
+    });
+    if (!run) return NextResponse.json({ error: "Ejecución no encontrada" }, { status: 404 });
+    const orphanedRunningBefore = new Date(Date.now() - 2 * 60 * 1000);
+    const recovered = await prisma.accountancyInvoiceRunItem.updateMany({
+      where: {
+        runId: run.id,
+        source: "META",
+        OR: [{ status: "FAILED" }, { status: "RUNNING", startedAt: { lt: orphanedRunningBefore } }]
+      },
+      data: { status: "PENDING", error: null, startedAt: null, finishedAt: null }
+    });
+    await prisma.accountancyInvoiceRun.update({
+      where: { id: run.id },
+      data: { status: "PENDING", finishedAt: null, activeKey: `${ctx.workspaceId}:${run.periodKey}:${run.trigger}` }
+    });
+    return NextResponse.json({ ok: true, retried: recovered.count }, { status: 202 });
+  }
   if (body.action === "client") {
     if (!body.name?.trim() || !SOURCES.includes(body.source)) return NextResponse.json({ error: "Nombre y medio son obligatorios" }, { status: 400 });
     const client = await prisma.accountancyInvoiceClient.create({ data: { workspaceId: ctx.workspaceId, name: body.name.trim(), source: body.source, externalAccountId: body.externalAccountId?.trim() || null, connectionRef: body.connectionRef?.trim().toLowerCase() || null, notes: body.notes?.trim() || null } });
     return NextResponse.json(client, { status: 201 });
+  }
+  if (body.action === "agent-label") {
+    if (!body.agentKey) return NextResponse.json({ error: "Falta el perfil" }, { status: 400 });
+    const customLabel = typeof body.customLabel === "string" ? body.customLabel.trim().slice(0, 100) : "";
+    const updated = await prisma.accountancyBrowserAgent.updateMany({
+      where: { workspaceId: ctx.workspaceId, agentKey: body.agentKey },
+      data: { customLabel: customLabel || null }
+    });
+    if (!updated.count) return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 });
+    return NextResponse.json({ ok: true });
   }
   return NextResponse.json({ error: "Acción no válida" }, { status: 400 });
 }
