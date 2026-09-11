@@ -92,6 +92,13 @@ describe("Meta billing browser collector", () => {
     expect(collector).toContain("more|mÃ¡s|acciones|actions|opciones|options");
   });
 
+  it("never opens Meta global navigation while looking for receipt actions", () => {
+    const collector = readFileSync(resolve(root, "chrome-extension/content/meta-billing.js"), "utf8");
+    expect(collector).toContain("closest(\"tr,[role='row']\")");
+    expect(collector).toContain("closest(\"nav,[role='navigation']\")");
+    expect(collector).toContain("todas las herramientas|all tools");
+  });
+
   it("retries Meta billing through Ads Manager when Business Suite exposes no PDFs", () => {
     const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
     expect(worker).toContain("buildMetaBillingFallbackUrl");
