@@ -132,4 +132,11 @@ describe("Meta billing browser collector", () => {
     expect(interceptor).toContain('document.addEventListener("click"');
     expect(interceptor).toContain('href.startsWith("blob:")');
   });
+
+  it("never leaves a Meta job running when its page message is detached", () => {
+    const worker = readFileSync(resolve(root, "chrome-extension/background/service-worker.js"), "utf8");
+    expect(worker).toContain("sendMetaHarvestWithTimeout");
+    expect(worker).toContain("HARVEST_MESSAGE_TIMEOUT_MS");
+    expect(worker).toContain("nativeDownloadsExpected: 1");
+  });
 });
