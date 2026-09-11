@@ -873,6 +873,22 @@ async function processAccountancyItem(item) {
     if (item.target.mode === "META" && result?.ok && result.nativeDownloadsExpected) {
       const nativeFiles = await collectNativeMetaDownloads(nativeDownloadsStartedAt, result.nativeDownloadsExpected);
       result.files = [...(result.files || []), ...nativeFiles];
+      // Meta sometimes replaces the billing document while its download UI is
+      // opening, but never actually creates a Chrome download. Previously that
+      // left the item failed even though the authenticated session was valid.
+      // Re-open the stable Ads Manager billing route and make one clean harvest
+      // attempt in the same profile before reporting an incident.
+      if (!result.files.length) {
+        await chrome.tabs.update(tab.id, { url: buildMetaBillingFallbackUrl(item) });
+        await waitForTabComplete(tab.id);
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        result = await harvestMetaPage(tab.id, item);
+        if (result?.ok && result.nativeDownloadsExpected) {
+          const retryStartedAt = new Date(Date.now() - 1000).toISOString();
+          const retryFiles = await collectNativeMetaDownloads(retryStartedAt, result.nativeDownloadsExpected);
+          result.files = [...(result.files || []), ...retryFiles];
+        }
+      }
     }
     if (!result?.ok) throw new Error(result?.error || "No se pudo leer la página de facturación");
     if (!result.files?.length && !result.emptyConfirmed) {
