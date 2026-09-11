@@ -769,9 +769,29 @@ function buildMetaBillingFallbackUrl(item) {
   return `https://adsmanager.facebook.com/adsmanager/billing_hub/payment_activity?${primary.searchParams.toString()}`;
 }
 
+const HARVEST_MESSAGE_TIMEOUT_MS = 55_000;
+
+async function sendMetaHarvestWithTimeout(tabId, item) {
+  try {
+    return await Promise.race([
+      chrome.tabs.sendMessage(tabId, { type: "harvest-meta-invoices", periodKey: item.periodKey }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Meta sustituyó la página durante la descarga")), HARVEST_MESSAGE_TIMEOUT_MS))
+    ]);
+  } catch (error) {
+    // Al descargar, Meta puede navegar/desmontar la página y cortar el canal
+    // aunque Chrome ya haya recibido los PDF. Continuamos por la vía nativa.
+    return {
+      ok: true,
+      files: [],
+      nativeDownloadsExpected: 1,
+      pageSummary: String(error?.message || error)
+    };
+  }
+}
+
 async function harvestMetaPage(tabId, item) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content/meta-billing.js"] });
-  return chrome.tabs.sendMessage(tabId, { type: "harvest-meta-invoices", periodKey: item.periodKey });
+  return sendMetaHarvestWithTimeout(tabId, item);
 }
 
 async function collectNativeMetaDownloads(startedAfter, expected = 0) {
@@ -843,8 +863,8 @@ async function processAccountancyItem(item) {
     const message = { type: messageType, periodKey: item.periodKey };
     let result = item.target.mode === "GOOGLE_ADS"
       ? await harvestAccountancyFrames(tab.id, message)
-      : await chrome.tabs.sendMessage(tab.id, message);
-    if (item.target.mode === "META" && result?.ok && !result.files?.length && !result.emptyConfirmed) {
+      : await sendMetaHarvestWithTimeout(tab.id, item);
+    if (item.target.mode === "META" && result?.ok && !result.files?.length && !result.emptyConfirmed && !result.nativeDownloadsExpected) {
       await chrome.tabs.update(tab.id, { url: buildMetaBillingFallbackUrl(item) });
       await waitForTabComplete(tab.id);
       await new Promise((resolve) => setTimeout(resolve, 5000));
