@@ -869,7 +869,7 @@ async function registerAccountancyAgent() {
 }
 
 async function ensureAccountancyAlarm() {
-  await chrome.alarms.create("accountancy-invoices", { periodInMinutes: 2 });
+  await chrome.alarms.create("accountancy-invoices", { periodInMinutes: 0.5 });
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -1244,6 +1244,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (ok) {
     await registerAccountancyAgent().catch(() => false);
     await ensureNotificationsAlarm();
+    await processAccountancyQueue();
   } else {
     chrome.action.openPopup?.().catch(() => {});
   }
@@ -1255,8 +1256,16 @@ chrome.runtime.onStartup.addListener(async () => {
   if (ok) {
     await registerAccountancyAgent().catch(() => false);
     await ensureNotificationsAlarm();
+    await processAccountancyQueue();
   }
 });
+
+// Manifest V3 puede despertar el service worker sin disparar onStartup
+// (por ejemplo, al abrir el popup). Mantener la alarma y consultar la cola
+// también en cada arranque en frío evita que un reintento quede esperando.
+ensureAccountancyAlarm()
+  .then(() => processAccountancyQueue())
+  .catch((error) => console.warn("[accountancy-bootstrap]", error?.message ?? error));
 
 // Detector de fin de reunión: tab cerrada / URL cambia / silencio.
 function urlIsActiveMeeting(url) {
