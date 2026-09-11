@@ -30,8 +30,9 @@ export async function deliverAccountancyRun(opts: { runId: string; workspaceId: 
   const archiveName = `facturas-gestoria-${run.periodKey}.zip`;
   const archiveKey = buildS3Key({ workspaceId: opts.workspaceId, targetType: "ACCOUNTANCY_RUN", targetId: run.id, filename: archiveName });
   await uploadBuffer({ s3Key: archiveKey, body: content, contentType: "application/zip" });
-  const archiveUrl = await signedDownloadUrl(archiveKey, 14 * 24 * 3600);
-  const emailBody = `${body}\n\nDescargar paquete completo (enlace válido durante 14 días):\n${archiveUrl}`;
+  // AWS Signature V4 only accepts presigned URLs shorter than seven days.
+  const archiveUrl = await signedDownloadUrl(archiveKey, 6 * 24 * 3600);
+  const emailBody = `${body}\n\nDescargar paquete completo (enlace válido durante 6 días):\n${archiveUrl}`;
   const sent = [];
   const cc = opts.ccRecipients?.join(", ") || undefined;
   for (const recipient of opts.recipients) sent.push((await sendEmailFromAccount({ userId: opts.userId, workspaceId: opts.workspaceId, to: recipient, cc, subject: `Facturas gestoría ${run.periodKey}`, body: emailBody })).messageId);

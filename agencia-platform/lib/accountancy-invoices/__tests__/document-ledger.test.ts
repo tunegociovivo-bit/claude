@@ -21,7 +21,10 @@ describe("accountancy document ledger", () => {
 
     expect(delivery).toContain('import { zipSync } from "fflate"');
     expect(delivery).toContain("zipSync(archiveEntries");
+    expect(delivery).toContain("signedDownloadUrl(archiveKey, 6 * 24 * 3600)");
+    expect(delivery).toContain("enlace válido durante 6 días");
     expect(delivery).not.toContain('import archiver from "archiver"');
+    expect(delivery).not.toContain("14 * 24 * 3600");
   });
 
   it("links downloaded Google Ads invoices to expenses idempotently", () => {
