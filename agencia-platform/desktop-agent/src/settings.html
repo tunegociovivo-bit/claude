@@ -1,1 +1,39 @@
-<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Control horario</title><style>body{font:15px system-ui;margin:0;background:#f8fafc;color:#172033}main{max-width:520px;margin:auto;padding:28px}h1{font-size:24px}label{display:block;margin:15px 0 5px;font-weight:650}input,textarea{box-sizing:border-box;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:9px}input[type=checkbox]{width:auto}.row{display:flex;gap:12px}.row>*{flex:1}.check{display:flex;gap:8px;align-items:center;font-weight:500}.note{background:#ecfdf5;border:1px solid #a7f3d0;padding:12px;border-radius:10px;font-size:13px}button{margin-top:20px;padding:11px 18px;border:0;border-radius:10px;background:#4f46e5;color:white;font-weight:700}</style><main><h1>Negocio Vivo · Control horario</h1><p>Funciona en segundo plano. Puedes pausar el seguimiento desde el icono de la barra del sistema.</p><label>Dirección del Hub</label><input id="hubUrl"><label>Token personal del agente</label><input id="apiToken" type="password" placeholder="No se muestra una vez guardado"><div class="row"><div><label>Captura cada (minutos)</label><input id="intervalMin" type="number" min="2" max="120"></div><div><label>Conservar (días)</label><input id="retentionDays" type="number" min="1" max="90"></div></div><label class="check"><input id="screenshots" type="checkbox"> Capturas periódicas activadas</label><label class="check"><input id="blur" type="checkbox"> Difuminar completamente las capturas</label><label>Aplicaciones o títulos excluidos (uno por línea)</label><textarea id="excludedApps" rows="6"></textarea><p class="note"><b>Privacidad:</b> no se capturan gestores de contraseñas ni durante el modo privado. macOS solicitará permiso de grabación de pantalla. El agente nunca registra teclas, contraseñas o formularios.</p><button id="save">Guardar configuración</button><span id="status"></span></main><script>const ids=["hubUrl","intervalMin","retentionDays","screenshots","blur","excludedApps"]; agent.getConfig().then(c=>ids.forEach(id=>{const e=document.getElementById(id); e.type==="checkbox"?e.checked=!!c[id]:e.value=Array.isArray(c[id])?c[id].join("\n"):(c[id]??"")})); document.getElementById("save").onclick=async()=>{const v={hubUrl:hubUrl.value,apiToken:apiToken.value,intervalMin:+intervalMin.value,retentionDays:+retentionDays.value,screenshots:screenshots.checked,blur:blur.checked,excludedApps:excludedApps.value.split("\n").map(x=>x.trim()).filter(Boolean),onboarded:true};await agent.saveConfig(v);status.textContent=" Guardado"}</script></html>
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Control horario</title>
+<style>
+body{font:15px system-ui;margin:0;background:#f8fafc;color:#172033}main{max-width:440px;margin:auto;padding:36px}h1{font-size:24px;margin-bottom:8px}.card{margin-top:24px;border:1px solid #dbe3ef;border-radius:16px;background:#fff;padding:20px}.state{display:flex;align-items:center;gap:10px;font-weight:700}.dot{width:11px;height:11px;border-radius:50%;background:#94a3b8}.dot.ok{background:#10b981}.muted{color:#64748b;font-size:13px;line-height:1.5}label{display:block;margin:18px 0 6px;font-weight:650}input{box-sizing:border-box;width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:9px}button{margin-top:12px;width:100%;padding:13px 18px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-weight:700;font-size:15px}button:disabled{opacity:.55}.error{color:#be123c;font-size:13px}.admin{margin-top:20px;padding:12px;border-radius:10px;background:#eef2ff;color:#3730a3;font-size:13px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.controls #start{grid-column:1/-1;background:#059669}.controls #pause{background:#d97706}.controls #stop{background:#e11d48}
+</style>
+<main>
+  <h1>Negocio Vivo · Control horario</h1>
+  <p class="muted">El agente funciona en segundo plano. La configuración de seguimiento se administra exclusivamente desde el Hub.</p>
+  <section class="card">
+    <div class="state"><span id="dot" class="dot"></span><span id="connection">Comprobando conexión…</span></div>
+    <p id="detail" class="muted"></p>
+    <div id="enrollment" hidden>
+      <label for="enrollmentCode">Código de vinculación</label>
+      <input id="enrollmentCode" type="password" autocomplete="off" placeholder="Pega el código facilitado por el administrador">
+      <button id="link">Vincular este equipo</button>
+      <p id="error" class="error"></p>
+    </div>
+    <div id="workControls" hidden>
+      <div class="controls">
+        <button id="start">▶ Iniciar jornada</button>
+        <button id="pause">⏸ Pausar</button>
+        <button id="stop">■ Finalizar</button>
+      </div>
+      <p id="workError" class="error"></p>
+    </div>
+    <p class="admin">Frecuencia, conservación, capturas, difuminado y exclusiones solo pueden modificarse desde el panel del administrador.</p>
+  </section>
+</main>
+<script>
+const refresh=async()=>{const s=await agent.getStatus();dot.className=`dot ${s.connected?"ok":""}`;connection.textContent=!s.connected?"Equipo pendiente de vincular":s.active?(s.paused?"Jornada pausada":"Jornada en curso"):"Jornada no iniciada";detail.textContent=s.connected?(s.active?"El tiempo de trabajo se está contabilizando.":"Pulsa Iniciar cuando comiences a trabajar."):"Solicita al administrador un código individual para este equipo.";enrollment.hidden=s.connected;workControls.hidden=!s.connected;start.hidden=s.active;pause.hidden=!s.active;stop.hidden=!s.active;pause.textContent=s.paused?"▶ Reanudar":"⏸ Pausar"};
+link.onclick=async()=>{error.textContent="";link.disabled=true;const result=await agent.enroll(enrollmentCode.value);link.disabled=false;if(!result.ok){error.textContent=result.error||"No se pudo vincular el equipo";return}enrollmentCode.value="";await refresh()};
+const change=async action=>{workError.textContent="";const result=await agent.setShift(action);if(!result.ok)workError.textContent=result.error;await refresh()};
+start.onclick=()=>change("start");pause.onclick=()=>change("pause");stop.onclick=()=>change("stop");
+refresh();
+</script>
+</html>

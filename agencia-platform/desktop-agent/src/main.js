@@ -10,12 +10,14 @@ const sharp = require("sharp");
 const Store = require("electron-store");
 const keytar = require("keytar");
 
-const store = new Store({ defaults: { hubUrl: "https://hub.negociovivo.app", intervalMin: 10, jitterPct: 20, retentionDays: 30, paused: false, screenshots: true, blur: false, excludedApps: ["1Password", "Bitwarden", "KeePass", "Keychain Access", "Bancos", "Private Browsing"] } });
+const HUB_URL = "https://hub.negociovivo.app";
+const store = new Store({ defaults: { intervalMin: 10, jitterPct: 20, retentionDays: 30, paused: false, screenshots: true, blur: false, excludedApps: ["1Password", "Bitwarden", "KeePass", "Keychain Access", "Bancos", "Private Browsing"] } });
 const SERVICE = "NegocioVivoTimeAgent";
 const deviceId = store.get("deviceId") || crypto.createHash("sha256").update(`${os.hostname()}-${os.userInfo().username}-${os.platform()}`).digest("hex").slice(0, 24);
 store.set("deviceId", deviceId);
 let tray, window, timer, activityTimer, lastTick = Date.now();
 let lastPolicySync = 0;
+let lastShiftSync = 0;
 const execFileAsync = promisify(execFile);
 const traySvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#4f46e5"/><circle cx="10" cy="10" r="6" fill="none" stroke="white" stroke-width="1.6"/><path d="M10 6v4l3 2" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const trayIcon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(traySvg).toString("base64")}`);
@@ -37,7 +39,7 @@ async function activeWindow() {
 }
 
 async function token() { return keytar.getPassword(SERVICE, "agent-token"); }
-function api(pathname) { return `${String(store.get("hubUrl")).replace(/\/$/, "")}${pathname}`; }
+function api(pathname) { return `${HUB_URL}${pathname}`; }
 function excluded(name = "") { return store.get("excludedApps", []).some(x => name.toLowerCase().includes(String(x).toLowerCase())); }
 function schedule() {
   clearTimeout(timer);
@@ -46,6 +48,13 @@ function schedule() {
   timer = setTimeout(captureCycle, base - jitter + Math.random() * jitter * 2);
 }
 async function headers() { const t = await token(); return t ? { Authorization: `Bearer ${t}` } : {}; }
+async function syncShiftState(force = false) {
+  if (!force && Date.now() - lastShiftSync < 30000) return;
+  const response = await axios.get(api("/api/v1/time-tracking/me"), { headers: await headers(), timeout: 15000 });
+  store.set("shiftActive", response.data?.active === true);
+  if (!response.data?.active) store.set("paused", false);
+  lastShiftSync = Date.now();
+}
 async function syncPolicy() {
   if (Date.now() - lastPolicySync < 300000) return;
   const response = await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: await headers(), timeout: 15000 });
@@ -59,6 +68,8 @@ async function syncPolicy() {
   store.set("allowPrivateMode", p.allowPrivateMode !== false);
   store.set("excludedApps", Array.isArray(p.excludedApps) ? p.excludedApps : []);
   lastPolicySync = Date.now();
+  store.set("lastConnectedAt", new Date().toISOString());
+  store.delete("lastError");
 }
 async function postActivity(win) {
   const now = new Date(); now.setSeconds(0, 0);
@@ -69,6 +80,8 @@ async function postActivity(win) {
 async function activityCycle() {
   try {
     await syncPolicy();
+    await syncShiftState();
+    if (!store.get("shiftActive") || store.get("paused")) return;
     if (store.get("trackingEnabled") !== false) await postActivity(await activeWindow().catch(() => null));
   } catch (e) { store.set("lastError", String(e?.message || e)); }
 }
@@ -81,6 +94,8 @@ async function captureCycle() {
   try {
     await syncPolicy();
     if (store.get("trackingEnabled") === false) return;
+    await syncShiftState();
+    if (!store.get("shiftActive")) return;
     const win = await activeWindow().catch(() => null);
     if (store.get("paused") || !store.get("screenshots") || excluded(win?.owner?.name) || excluded(win?.title)) return;
     if (process.platform === "darwin" && systemPreferences.getMediaAccessStatus("screen") !== "granted") return;
@@ -108,10 +123,46 @@ function updateMenu() {
 }
 function showWindow() { if (!window) createWindow(); window.show(); window.focus(); }
 function createWindow() {
-  window = new BrowserWindow({ width: 620, height: 680, show: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
+  window = new BrowserWindow({ width: 520, height: 520, show: false, resizable: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
   window.loadFile(path.join(__dirname, "settings.html")); window.on("close", e => { if (!app.isQuitting) { e.preventDefault(); window.hide(); } });
 }
-ipcMain.handle("config:get", async () => ({ ...store.store, hasToken: Boolean(await token()), platform: process.platform }));
-ipcMain.handle("config:set", async (_e, input) => { const { apiToken, ...safe } = input; Object.entries(safe).forEach(([k,v]) => store.set(k,v)); if (apiToken) await keytar.setPassword(SERVICE, "agent-token", apiToken); schedule(); updateMenu(); return { ok: true }; });
+ipcMain.handle("status:get", async () => {
+  const connected = Boolean(await token());
+  if (connected) await syncShiftState(true).catch(() => {});
+  return { connected, active: Boolean(store.get("shiftActive")), paused: Boolean(store.get("paused")), lastConnectedAt: store.get("lastConnectedAt") || null };
+});
+ipcMain.handle("shift:set", async (_e, action) => {
+  try {
+    if (action === "pause") {
+      if (!store.get("shiftActive")) return { ok: false, error: "La jornada no está iniciada" };
+      store.set("paused", !store.get("paused"));
+      lastTick = Date.now(); updateMenu();
+      return { ok: true };
+    }
+    if (action !== "start" && action !== "stop") return { ok: false, error: "Acción no válida" };
+    await axios.post(api("/api/v1/time-tracking"), { action }, { headers: await headers(), timeout: 15000 });
+    store.set("shiftActive", action === "start");
+    store.set("paused", false);
+    lastShiftSync = Date.now(); lastTick = Date.now(); updateMenu();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.response?.data?.error?.message || "No se pudo actualizar la jornada" };
+  }
+});
+ipcMain.handle("enrollment:set", async (_e, input) => {
+  const code = String(input || "").trim();
+  if (!code) return { ok: false, error: "Introduce el código de vinculación" };
+  try {
+    await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: { Authorization: `Bearer ${code}` }, timeout: 15000 });
+    await keytar.setPassword(SERVICE, "agent-token", code);
+    store.set("onboarded", true);
+    lastPolicySync = 0;
+    await syncPolicy();
+    schedule(); updateMenu();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.response?.status === 401 ? "Código no válido o caducado" : "No se pudo conectar con el Hub" };
+  }
+});
 app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(trayIcon); updateMenu(); startActivityHeartbeat(); schedule(); if (!store.get("onboarded")) showWindow(); });
 app.on("before-quit", () => { app.isQuitting = true; }); app.on("window-all-closed", e => e.preventDefault());

@@ -1,6 +1,6 @@
 {
   "name": "negocio-vivo-time-agent",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Agente multiplataforma de control horario de Negocio Vivo",
   "author": "Negocio Vivo",
   "private": true,
@@ -19,7 +19,14 @@
     "productName": "Negocio Vivo Control Horario",
     "files": ["src/**/*", "package.json"],
     "mac": { "category": "public.app-category.productivity", "target": ["dmg"], "hardenedRuntime": true, "entitlements": "build/entitlements.mac.plist", "entitlementsInherit": "build/entitlements.mac.plist" },
-    "win": { "target": ["nsis"], "signAndEditExecutable": false },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "win": {
+      "target": ["nsis"],
+      "icon": "../public/icon-512.png",
+      "signAndEditExecutable": true,
+      "requestedExecutionLevel": "asInvoker",
+      "publisherName": "Negocio Vivo Marketing",
+      "artifactName": "Negocio.Vivo.Control.Horario.Setup.${version}.${ext}"
+    },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "perMachine": false, "runAfterFinish": true }
   }
 }
