@@ -151,11 +151,16 @@ export async function generateJobsReviewDrafts(
   // quedaron activas sin asunto ni cuerpo tras un fallo anterior de redacción.
   const existing = await prisma.leadExecOutreach.findMany({
     where: { workspaceId, leadId: { in: leads.map((l) => l.id) } },
-    select: { leadId: true, status: true, mode: true, draftSubject: true, draftBody: true }
+    select: { leadId: true, status: true, mode: true, step: true, draftSubject: true, draftBody: true }
   });
   const retryable = new Set(
     existing
-      .filter((row) => row.status === "active" && row.mode === "review" && !row.draftSubject && !row.draftBody)
+      .filter((row) =>
+        row.status === "active"
+        && !row.draftSubject
+        && !row.draftBody
+        && (row.mode === "review" || (row.mode === "auto" && row.step === 0))
+      )
       .map((row) => row.leadId)
   );
   const handled = new Set(existing.filter((row) => !retryable.has(row.leadId)).map((row) => row.leadId));
