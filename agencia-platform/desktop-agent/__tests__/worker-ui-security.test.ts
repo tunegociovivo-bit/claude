@@ -38,4 +38,15 @@ describe("interfaz del agente de control horario", () => {
     expect(pkg.build.win.requestedExecutionLevel).toBe("asInvoker");
     expect(pkg.build.win.publisherName).toBe("Negocio Vivo Marketing");
   });
+
+  it("limita la pantalla vinculada a iniciar, pausar y finalizar la jornada", () => {
+    const html = readFileSync(resolve(root, "src/settings.html"), "utf8");
+    const main = readFileSync(resolve(root, "src/main.js"), "utf8");
+
+    expect(html).toContain('id="start"');
+    expect(html).toContain('id="pause"');
+    expect(html).toContain('id="stop"');
+    expect(main).toContain('ipcMain.handle("shift:set"');
+    expect(main).toContain('if (!store.get("shiftActive") || store.get("paused")) return;');
+  });
 });
