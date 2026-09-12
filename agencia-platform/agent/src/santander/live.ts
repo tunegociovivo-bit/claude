@@ -349,7 +349,10 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!shouldWaitForRemittanceList(templateVisible, labels, attempt, 20)) break;
       await app.waitForTimeout(500);
     }
-    for (const label of labels) {
+    const lastPage = Math.max(1, ...labels.map((label) => Number(label)).filter(Number.isFinite));
+    for (let pageNumber = 1; pageNumber <= lastPage; pageNumber++) {
+      if (await this.locator(app, spec).first().isVisible().catch(() => false)) return true;
+      const label = String(pageNumber);
       const controls = app.locator("a, button").filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) });
       const visibility: boolean[] = [];
       for (let index = 0; index < await controls.count(); index++) visibility.push(await controls.nth(index).isVisible().catch(() => false));
