@@ -49,4 +49,18 @@ describe("interfaz del agente de control horario", () => {
     expect(main).toContain('ipcMain.handle("shift:set"');
     expect(main).toContain('if (!store.get("shiftActive") || store.get("paused")) return;');
   });
+
+  it("protege en servidor los límites de la jornada del agente", () => {
+    const shiftRoute = readFileSync(resolve(root, "../app/api/v1/time-tracking/route.ts"), "utf8");
+    const meRoute = readFileSync(resolve(root, "../app/api/v1/time-tracking/me/route.ts"), "utf8");
+    const activityRoute = readFileSync(resolve(root, "../app/api/v1/time-tracking/activity/route.ts"), "utf8");
+    const screenshotRoute = readFileSync(resolve(root, "../app/api/v1/time-tracking/screenshots/route.ts"), "utf8");
+
+    expect(shiftRoute).toContain('withApi({ scope: "time_tracking:write" }');
+    expect(meRoute).toContain('withApi({scope:"time_tracking:write"}');
+    expect(shiftRoute).toContain('source: api.apiKeyId ? "AGENT" : "WEB"');
+    expect(activityRoute).not.toContain("if (!session) session = await prisma.timeTrackerSession.create");
+    expect(activityRoute).toContain('"shift_not_active"');
+    expect(screenshotRoute).toContain('"shift_not_active"');
+  });
 });
