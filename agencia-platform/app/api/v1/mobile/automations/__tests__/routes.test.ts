@@ -8,7 +8,9 @@ const { authenticateMock, platformAccessMock, completeMock, prisma } = vi.hoiste
     mobileAutomationJob: {
       create: vi.fn(),
       findFirst: vi.fn(),
-      update: vi.fn()
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn()
     },
     mobileAutomationJobEvent: { create: vi.fn() }
   };
@@ -42,7 +44,8 @@ const draftInput = {
   deviceSerial: "usb-123",
   targetUrl: "https://www.google.com/maps/place/Restaurante+Ejemplo",
   facts: "Cenamos allí en agosto. El arroz estaba muy bueno y el servicio fue atento.",
-  experienceConfirmed: true
+  experienceConfirmed: true,
+  idempotencyKey: "47d9c37e-54ef-44e1-80a8-f9d2a55b93f7"
 };
 
 beforeEach(() => {
@@ -59,6 +62,7 @@ beforeEach(() => {
     status: "PENDING_APPROVAL",
     text: "La comida fue excelente y el servicio, muy atento."
   });
+  prisma.mobileAutomationJob.findUnique.mockResolvedValue(null);
   prisma.mobileAutomationJob.findFirst.mockResolvedValue({
     id: "job-1",
     workspaceId: "w1",
@@ -67,7 +71,7 @@ beforeEach(() => {
     targetUrl: draftInput.targetUrl,
     platform: "google_maps"
   });
-  prisma.mobileAutomationJob.update.mockResolvedValue({ id: "job-1", status: "QUEUED" });
+  prisma.mobileAutomationJob.updateMany.mockResolvedValue({ count: 1 });
 });
 
 function request(url: string, body: unknown) {
@@ -90,6 +94,7 @@ describe("mobile automation draft API", () => {
       workspaceId: "w1",
       userId: "u1",
       feature: "mobile_automation_draft",
+      model: "claude-haiku-4-5-20251001",
       system: expect.stringMatching(/no inventes/i),
       user: expect.stringContaining(draftInput.facts)
     }));
@@ -130,6 +135,23 @@ describe("mobile automation draft API", () => {
     expect(response.status).toBe(409);
     expect(completeMock).not.toHaveBeenCalled();
   });
+
+  it("returns the existing draft when a network retry reuses its idempotency key", async () => {
+    prisma.mobileAutomationJob.findUnique.mockResolvedValue({
+      id: "job-existing",
+      status: "PENDING_APPROVAL",
+      idempotencyKey: draftInput.idempotencyKey
+    });
+
+    const response = await createDraft(
+      request("https://hub.example/api/v1/mobile/automations/drafts", draftInput),
+      { params: {} }
+    );
+
+    expect(response.status).toBe(200);
+    expect(completeMock).not.toHaveBeenCalled();
+    expect(prisma.mobileAutomationJob.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("mobile automation decision API", () => {
@@ -142,8 +164,8 @@ describe("mobile automation decision API", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(prisma.mobileAutomationJob.update).toHaveBeenCalledWith({
-      where: { id: "job-1" },
+    expect(prisma.mobileAutomationJob.updateMany).toHaveBeenCalledWith({
+      where: { id: "job-1", workspaceId: "w1", status: "PENDING_APPROVAL" },
       data: expect.objectContaining({ status: "QUEUED", approvedById: "u1" })
     });
     expect(prisma.mobileAutomationJobEvent.create).toHaveBeenCalledWith({
@@ -166,6 +188,20 @@ describe("mobile automation decision API", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(prisma.mobileAutomationJob.update).not.toHaveBeenCalled();
+    expect(prisma.mobileAutomationJob.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a concurrent decision that already changed the job", async () => {
+    prisma.mobileAutomationJob.updateMany.mockResolvedValue({ count: 0 });
+
+    const response = await decideJob(
+      request("https://hub.example/api/v1/mobile/automations/jobs/job-1/decision", {
+        action: "APPROVE"
+      }),
+      { params: { id: "job-1" } }
+    );
+
+    expect(response.status).toBe(409);
+    expect(prisma.mobileAutomationJobEvent.create).not.toHaveBeenCalled();
   });
 });

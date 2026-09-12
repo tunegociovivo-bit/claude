@@ -8,6 +8,7 @@ import {
 const realReview = {
   platform: "google_maps",
   sourceKind: "REAL_REVIEW",
+  idempotencyKey: "47d9c37e-54ef-44e1-80a8-f9d2a55b93f7",
   phoneKey: "phone-main",
   deviceSerial: "usb-123",
   targetUrl: "https://www.google.com/maps/place/Restaurante+Ejemplo",

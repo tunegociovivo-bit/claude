@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/auth";
 import { withApi } from "@/lib/api/handler";
@@ -29,7 +28,7 @@ function generationSystemPrompt(sourceKind: string) {
   ].join("\n");
 }
 
-export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
+export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => {
   const { phones } = await loadMobileAutomationAccess(api.workspaceId, api.userId, { manager: true });
   const parsed = mobileAutomationDraftSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -41,10 +40,22 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   }
   requireLinkedMobile(phones, parsed.data.phoneKey, parsed.data.deviceSerial);
   const targetUrl = validateAutomationTargetUrl(parsed.data.platform, parsed.data.targetUrl);
+  const existing = await prisma.mobileAutomationJob.findUnique({
+    where: {
+      workspaceId_idempotencyKey: {
+        workspaceId: api.workspaceId,
+        idempotencyKey: parsed.data.idempotencyKey
+      }
+    }
+  });
+  if (existing) {
+    return NextResponse.json({ ok: true, job: existing, replayed: true });
+  }
   const text = (await complete({
     workspaceId: api.workspaceId,
     userId: api.userId,
     feature: "mobile_automation_draft",
+    model: "claude-haiku-4-5-20251001",
     system: generationSystemPrompt(parsed.data.sourceKind),
     user: [
       parsed.data.targetName ? `Destino: ${parsed.data.targetName}` : null,
@@ -58,7 +69,6 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
 
   const now = new Date();
   const scheduledAt = parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : now;
-  const idempotencyKey = randomUUID();
   const job = await prisma.$transaction(async (tx) => {
     const created = await tx.mobileAutomationJob.create({
       data: {
@@ -75,7 +85,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
         status: "PENDING_APPROVAL",
         scheduledAt,
         expiresAt: new Date(scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
-        idempotencyKey,
+        idempotencyKey: parsed.data.idempotencyKey,
         createdById: api.userId
       }
     });
@@ -93,4 +103,3 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   });
   return NextResponse.json({ ok: true, job }, { status: 201 });
 });
-

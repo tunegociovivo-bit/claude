@@ -33,43 +33,49 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
   if (!parsed.success) {
     throw new ApiError(400, "validation_error", parsed.error.issues[0]?.message ?? "Decisión no válida");
   }
-  const job = await prisma.mobileAutomationJob.findFirst({
-    where: { id: params.id, workspaceId: api.workspaceId }
-  });
-  if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
-  const transition = parsed.data.action as MobileAutomationTransition;
-  if (!canTransitionMobileAutomation(job.status as MobileAutomationStatus, transition)) {
-    throw new ApiError(409, "invalid_transition", "El trabajo ya cambió de estado; actualiza la lista");
-  }
-
-  const now = new Date();
-  const targetUrl = validateAutomationTargetUrl(
-    job.platform as MobileAutomationPlatform,
-    parsed.data.targetUrl ?? job.targetUrl ?? ""
-  );
-  const text = (parsed.data.text ?? job.text ?? "").trim();
-  if (!text) throw new ApiError(400, "missing_text", "El borrador no contiene texto");
-  const data: Record<string, unknown> = {
-    status: statusByAction[parsed.data.action],
-    leaseOwner: null,
-    leaseUntil: null
-  };
-  if (parsed.data.action === "APPROVE") {
-    data.text = text;
-    data.targetUrl = targetUrl;
-    data.scheduledAt = parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : job.scheduledAt;
-    data.approvedAt = now;
-    data.approvedById = api.userId;
-  } else if (parsed.data.action === "COMPLETE") {
-    data.completedAt = now;
-  } else if (parsed.data.action === "RETRY") {
-    data.scheduledAt = now;
-    data.lastError = null;
-    data.lastErrorCode = null;
-  }
-
   const updated = await prisma.$transaction(async (tx) => {
-    const next = await tx.mobileAutomationJob.update({ where: { id: job.id }, data });
+    const job = await tx.mobileAutomationJob.findFirst({
+      where: { id: params.id, workspaceId: api.workspaceId }
+    });
+    if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
+    const transition = parsed.data.action as MobileAutomationTransition;
+    if (!canTransitionMobileAutomation(job.status as MobileAutomationStatus, transition)) {
+      throw new ApiError(409, "invalid_transition", "El trabajo ya cambió de estado; actualiza la lista");
+    }
+
+    const now = new Date();
+    const targetUrl = validateAutomationTargetUrl(
+      job.platform as MobileAutomationPlatform,
+      parsed.data.targetUrl ?? job.targetUrl ?? ""
+    );
+    const text = (parsed.data.text ?? job.text ?? "").trim();
+    if (!text) throw new ApiError(400, "missing_text", "El borrador no contiene texto");
+    const data: Record<string, unknown> = {
+      status: statusByAction[parsed.data.action],
+      leaseOwner: null,
+      leaseUntil: null
+    };
+    if (parsed.data.action === "APPROVE") {
+      data.text = text;
+      data.targetUrl = targetUrl;
+      data.scheduledAt = parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : job.scheduledAt;
+      data.approvedAt = now;
+      data.approvedById = api.userId;
+    } else if (parsed.data.action === "COMPLETE") {
+      data.completedAt = now;
+    } else if (parsed.data.action === "RETRY") {
+      data.scheduledAt = now;
+      data.lastError = null;
+      data.lastErrorCode = null;
+    }
+
+    const changed = await tx.mobileAutomationJob.updateMany({
+      where: { id: job.id, workspaceId: api.workspaceId, status: job.status },
+      data
+    });
+    if (changed.count !== 1) {
+      throw new ApiError(409, "state_changed", "El trabajo ya cambió de estado; actualiza la lista");
+    }
     await tx.mobileAutomationJobEvent.create({
       data: {
         workspaceId: api.workspaceId,
@@ -80,8 +86,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
         metadata: { fromStatus: job.status, toStatus: statusByAction[parsed.data.action] }
       }
     });
-    return next;
-  });
+    return { ...job, ...data };
+  }, { isolationLevel: "Serializable" });
   return NextResponse.json({ ok: true, job: updated });
 });
-

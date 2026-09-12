@@ -158,17 +158,26 @@ export async function reportMobileAutomationResult(input: {
     }
 
     if (input.outcome === "PREPARED") {
-      const updated = await tx.mobileAutomationJob.update({
-        where: { id: job.id },
-        data: {
-          status: "WAITING_USER",
-          preparedAt: now,
-          leaseOwner: null,
-          leaseUntil: null,
-          lastError: null,
-          lastErrorCode: null
-        }
+      const data = {
+        status: "WAITING_USER",
+        preparedAt: now,
+        leaseOwner: null,
+        leaseUntil: null,
+        lastError: null,
+        lastErrorCode: null
+      };
+      const changed = await tx.mobileAutomationJob.updateMany({
+        where: {
+          id: job.id,
+          workspaceId: input.workspaceId,
+          status: "RUNNING",
+          leaseOwner: input.executorSessionId
+        },
+        data
       });
+      if (changed.count !== 1) {
+        throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
+      }
       await tx.mobileAutomationJobEvent.create({
         data: {
           workspaceId: input.workspaceId,
@@ -178,22 +187,31 @@ export async function reportMobileAutomationResult(input: {
           actorId: input.executorSessionId
         }
       });
-      return updated;
+      return { ...job, ...data };
     }
 
     const canRetry = job.attempts < job.maxAttempts;
     const retryDelay = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
-    const updated = await tx.mobileAutomationJob.update({
-      where: { id: job.id },
-      data: {
-        status: canRetry ? "QUEUED" : "FAILED",
-        scheduledAt: canRetry ? new Date(now.getTime() + retryDelay * 1000) : job.scheduledAt,
-        leaseOwner: null,
-        leaseUntil: null,
-        lastErrorCode: input.errorCode?.slice(0, 120) || "execution_failed",
-        lastError: input.error?.slice(0, 1000) || "No se pudo preparar la acción"
-      }
+    const data = {
+      status: canRetry ? "QUEUED" : "FAILED",
+      scheduledAt: canRetry ? new Date(now.getTime() + retryDelay * 1000) : job.scheduledAt,
+      leaseOwner: null,
+      leaseUntil: null,
+      lastErrorCode: input.errorCode?.slice(0, 120) || "execution_failed",
+      lastError: input.error?.slice(0, 1000) || "No se pudo preparar la acción"
+    };
+    const changed = await tx.mobileAutomationJob.updateMany({
+      where: {
+        id: job.id,
+        workspaceId: input.workspaceId,
+        status: "RUNNING",
+        leaseOwner: input.executorSessionId
+      },
+      data
     });
+    if (changed.count !== 1) {
+      throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
+    }
     await tx.mobileAutomationJobEvent.create({
       data: {
         workspaceId: input.workspaceId,
@@ -204,9 +222,8 @@ export async function reportMobileAutomationResult(input: {
         metadata: { attempt: job.attempts }
       }
     });
-    return updated;
+    return { ...job, ...data };
   }, { isolationLevel: "Serializable" });
 }
 
 export type MobileAutomationTransaction = Prisma.TransactionClient;
-

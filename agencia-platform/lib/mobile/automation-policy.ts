@@ -87,6 +87,7 @@ export const mobileAutomationDraftSchema = z
   .object({
     platform: z.enum(MOBILE_AUTOMATION_PLATFORMS),
     sourceKind: z.enum(MOBILE_AUTOMATION_SOURCE_KINDS),
+    idempotencyKey: z.string().uuid(),
     phoneKey: z.string().trim().min(1).max(160),
     deviceSerial: z.string().trim().min(1).max(160),
     targetUrl: z.string().trim().min(1).max(2048),

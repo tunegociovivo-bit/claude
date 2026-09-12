@@ -8,7 +8,8 @@ const { prisma, tx } = vi.hoisted(() => {
       findFirst: vi.fn(),
       findMany: vi.fn(),
       updateMany: vi.fn(),
-      update: vi.fn()
+      update: vi.fn(),
+      findUnique: vi.fn()
     },
     mobileAutomationJobEvent: { create: vi.fn() }
   };
@@ -107,7 +108,7 @@ describe("mobile automation result reporting", () => {
       leaseOwner: "browser-1",
       attempts: 1
     });
-    tx.mobileAutomationJob.update.mockResolvedValue({ id: "job-1", status: "WAITING_USER" });
+    tx.mobileAutomationJob.findUnique.mockResolvedValue({ id: "job-1", status: "WAITING_USER" });
 
     const result = await reportMobileAutomationResult({
       workspaceId: "w1",
@@ -118,8 +119,13 @@ describe("mobile automation result reporting", () => {
     });
 
     expect(result).toMatchObject({ status: "WAITING_USER" });
-    expect(tx.mobileAutomationJob.update).toHaveBeenCalledWith({
-      where: { id: "job-1" },
+    expect(tx.mobileAutomationJob.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "job-1",
+        workspaceId: "w1",
+        status: "RUNNING",
+        leaseOwner: "browser-1"
+      },
       data: expect.objectContaining({ status: "WAITING_USER", leaseOwner: null, preparedAt: now })
     });
   });
@@ -139,5 +145,24 @@ describe("mobile automation result reporting", () => {
       outcome: "PREPARED",
       now
     })).rejects.toMatchObject({ status: 409, code: "lease_lost" });
+  });
+
+  it("does not overwrite a cancellation that wins while the result is being reported", async () => {
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({
+      ...candidate,
+      status: "RUNNING",
+      leaseOwner: "browser-1",
+      attempts: 1
+    });
+    tx.mobileAutomationJob.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(reportMobileAutomationResult({
+      workspaceId: "w1",
+      jobId: "job-1",
+      executorSessionId: "browser-1",
+      outcome: "PREPARED",
+      now
+    })).rejects.toMatchObject({ status: 409, code: "lease_lost" });
+    expect(tx.mobileAutomationJobEvent.create).not.toHaveBeenCalled();
   });
 });

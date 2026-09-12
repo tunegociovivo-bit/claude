@@ -122,6 +122,11 @@ export default function MobileAutomationPanel({
   const [scheduledAt, setScheduledAt] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const workerBusyRef = useRef(false);
+  const draftRequestIdRef = useRef<string | null>(null);
+  const hasRunnableJob = jobs.some((job) => (
+    job.status === "RUNNING"
+    || (job.status === "QUEUED" && new Date(job.scheduledAt).getTime() <= Date.now())
+  ));
 
   const loadJobs = useCallback(async () => {
     try {
@@ -137,7 +142,7 @@ export default function MobileAutomationPanel({
   }, [deviceSerial]);
 
   const claimAndExecute = useCallback(async () => {
-    if (!ready || workerBusyRef.current) return;
+    if (!ready || !canManage || workerBusyRef.current) return;
     workerBusyRef.current = true;
     const executorSessionId = sessionIdFor(deviceSerial);
     try {
@@ -172,16 +177,21 @@ export default function MobileAutomationPanel({
     } finally {
       workerBusyRef.current = false;
     }
-  }, [deviceSerial, loadJobs, onExecuteJob, ready]);
+  }, [canManage, deviceSerial, loadJobs, onExecuteJob, ready]);
 
   useEffect(() => { void loadJobs(); }, [loadJobs]);
 
   useEffect(() => {
-    if (!ready) return;
+    const timer = window.setInterval(() => { void loadJobs(); }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadJobs]);
+
+  useEffect(() => {
+    if (!ready || !canManage || !hasRunnableJob) return;
     void claimAndExecute();
     const timer = window.setInterval(() => { void claimAndExecute(); }, 8_000);
     return () => window.clearInterval(timer);
-  }, [claimAndExecute, ready]);
+  }, [canManage, claimAndExecute, hasRunnableJob, ready]);
 
   async function createDraft(event: FormEvent) {
     event.preventDefault();
@@ -189,12 +199,15 @@ export default function MobileAutomationPanel({
     setError(null);
     setWorkerMessage(null);
     try {
+      const idempotencyKey = draftRequestIdRef.current ?? crypto.randomUUID();
+      draftRequestIdRef.current = idempotencyKey;
       await apiJson("/api/v1/mobile/automations/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform,
           sourceKind,
+          idempotencyKey,
           phoneKey,
           deviceSerial,
           targetName: targetName.trim() || undefined,
@@ -205,6 +218,7 @@ export default function MobileAutomationPanel({
           scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined
         })
       });
+      draftRequestIdRef.current = null;
       setFacts("");
       setTargetName("");
       setTargetUrl("");
