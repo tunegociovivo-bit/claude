@@ -225,6 +225,7 @@ async function main() {
   ok("reintenta un primer rechazo aparente de credenciales", remittanceRetryDecision(transientCredentialFailure, 1, 3) === "RETRY");
   ok("reintenta un segundo rechazo aparente de credenciales", remittanceRetryDecision(transientCredentialFailure, 2, 3) === "RETRY");
   ok("pausa tras agotar tres intentos de acceso", remittanceRetryDecision(transientCredentialFailure, 3, 3) === "PAUSE");
+  ok("reintenta un error transitorio del selector de envío", remittanceRetryDecision("Santander mostró un error transitorio al abrir el selector de envío.", 1, 3) === "RETRY");
   ok("no repite OTP o confirmación móvil", remittanceRetryDecision("Santander solicita OTP o confirmación móvil", 1, 3) === "PAUSE");
   ok("no repite discrepancias bancarias", remittanceRetryDecision("Discrepancia de importe entre portal y autorizado", 1, 3) === "PAUSE");
   ok("los botones coinciden exactamente aunque Santander cambie las mayúsculas", exactRoleNamePattern("Aceptar").test("ACEPTAR"));

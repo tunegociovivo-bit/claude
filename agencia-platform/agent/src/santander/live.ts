@@ -174,6 +174,9 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!(await this.safeClick(app, S.firstSendAction))) return this.pause(hooks, "No encuentro el primer Enviar o su etiqueta no es segura.");
       const sendFrame = await this.findEnvioremFrame(page);
       if (!sendFrame) return this.pause(hooks, "No encuentro el marco oficial de selección del tipo de envío.");
+      if (await this.dismissTransientSendError(sendFrame)) {
+        return this.pause(hooks, "Santander mostró un error transitorio al abrir el selector de envío.");
+      }
       const categoryOpened = await this.clickBasicPayments(sendFrame, S.basicPaymentsOption);
       await sendFrame.waitForTimeout(300);
       if (!canContinueToDirectDebit(categoryOpened, await this.hasUniqueVisible(sendFrame, S.directDebitOption))) return this.pause(hooks, "No encuentro Pagos y cobros básicos ni una opción única de adeudos ya visible.");
@@ -494,6 +497,21 @@ export class LiveSantanderAdapter implements SantanderAdapter {
         await page.waitForTimeout(500);
       }
       return false;
+    } catch { return false; }
+  }
+
+  private async dismissTransientSendError(page: any): Promise<boolean> {
+    try {
+      const body = normalize(await page.locator("body").innerText().catch(() => ""));
+      if (!body.includes("error en el proceso de la remesa")) return false;
+      const cancel = page.getByRole("button", { name: /^cancelar$/i });
+      const visibility: boolean[] = [];
+      for (let index = 0; index < await cancel.count(); index++) {
+        visibility.push(await cancel.nth(index).isVisible().catch(() => false));
+      }
+      const index = uniqueVisibleIndex(visibility);
+      if (index !== null) await cancel.nth(index).click({ timeout: STEP_TIMEOUT_MS }).catch(() => undefined);
+      return true;
     } catch { return false; }
   }
 

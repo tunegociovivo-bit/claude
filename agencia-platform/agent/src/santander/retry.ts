@@ -23,7 +23,8 @@ export function remittanceRetryDecision(reason: string, attempt: number, maxAtte
     "no se pudo conectar al chrome visible",
     "no detecto una sesion iniciada",
     "sesion ha sido cerrada",
-    "sesion caducada"
+    "sesion caducada",
+    "error transitorio al abrir el selector de envio"
   ].some((token) => text.includes(token));
   return transient ? "RETRY" : "PAUSE";
 }
