@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { platformsVisibleTo } from "../platforms";
 
 describe("platformsVisibleTo", () => {
+  it("muestra F - Móviles por defecto", () => {
+    const visible = platformsVisibleTo({}, "user-1", false);
+    expect(visible.some((platform) => platform.key === "mobile_farm")).toBe(true);
+  });
+
   it("mantiene compatible memberIds vacío como acceso público", () => {
     const visible = platformsVisibleTo({
       platforms: { nv_leads: { enabled: true, memberIds: [] } }

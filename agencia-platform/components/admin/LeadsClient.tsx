@@ -8679,6 +8679,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       warmupStartCap: s.warmupStartCap,
       warmupChatEnabled: s.warmupChatEnabled,
       principalPhone: s.principalPhone,
+      principalDeviceSerial: s.principalDeviceSerial ?? null,
       voiceSpeed: s.voiceSpeed,
       voiceShorten: s.voiceShorten,
       voiceMaxSeconds: s.voiceMaxSeconds,
@@ -9264,17 +9265,18 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
             </div>
             <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-700">📲 Multi-número (reparto de envíos)</label>
+                <label className="text-xs font-semibold text-slate-700">📲 Teléfonos compartidos · Leads + F - Móviles</label>
                 <button
                   type="button"
-                  onClick={() => setField("channels", [...(s.channels ?? []), { name: "", label: "", dailyLimit: 50, active: true }])}
+                  onClick={() => setField("channels", [...(s.channels ?? []), { name: "", label: "", phone: "", deviceSerial: null, dailyLimit: 50, active: true }])}
                   className="text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50"
                 >
                   + Añadir número
                 </button>
               </div>
               <p className="text-[11px] text-slate-500 mb-2">
-                Reparte los envíos entre varias {s.whatsappProvider === "evolution" ? "instancias" : "sesiones"} de WhatsApp (más volumen sin quemar un número). Con 0 ó 1 número se usa el de arriba. Cada número escanea su propio WhatsApp en {s.whatsappProvider === "evolution" ? "Evolution" : "WAHA"} con ese nombre.
+                Inventario único para los envíos de Leads y los Android de F - Móviles. Los cambios hechos aquí aparecen también en F - Móviles y viceversa. Cada número usa su propia {s.whatsappProvider === "evolution" ? "instancia" : "sesión"} de WhatsApp; la serie USB permite asociarlo a su teléfono físico.
+                {" "}<a href="/moviles" className="font-semibold text-emerald-700 hover:underline">Abrir F - Móviles</a>
               </p>
               {/* Fila del número PRINCIPAL (default): siempre visible, con su estado
                   de conexión y botón para reconectar, igual que los canales extra. */}
@@ -9282,6 +9284,21 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 <span className="flex-1 min-w-[110px] px-2 py-1 rounded border bg-slate-50 text-xs font-semibold text-slate-700">
                   Principal <span className="font-mono font-normal text-slate-500">({s.wahaSession ?? "default"})</span>
                 </span>
+                <input
+                  value={s.principalPhone ?? ""}
+                  onChange={(e) => setField("principalPhone", e.target.value)}
+                  placeholder="+34600…"
+                  aria-label="Número de teléfono principal"
+                  className="w-28 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                />
+                <input
+                  value={s.principalDeviceSerial ?? ""}
+                  onChange={(e) => setField("principalDeviceSerial", e.target.value.trim() || null)}
+                  placeholder="serie USB (opcional)"
+                  aria-label="Serie USB del teléfono principal"
+                  title="Identificador ADB/WebUSB del Android asociado en F - Móviles"
+                  className="w-36 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                />
                 {chanBadge(s.wahaSession ?? "default")}
                 <button
                   type="button"
@@ -9344,6 +9361,14 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                         placeholder="+34600…"
                         title="Número de WhatsApp de este teléfono (para el calentamiento por conversación)"
                         className="w-28 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
+                      />
+                      <input
+                        value={c.deviceSerial ?? ""}
+                        onChange={(e) => updateChannel(i, { deviceSerial: e.target.value.trim() || null })}
+                        placeholder="serie USB"
+                        aria-label={`Serie USB de ${c.label || c.name || `teléfono ${i + 1}`}`}
+                        title="Identificador ADB/WebUSB del Android asociado en F - Móviles"
+                        className="w-32 min-w-0 px-2 py-1 rounded border bg-white text-xs font-mono"
                       />
                       {chanBadge(c.name)}
                       <button

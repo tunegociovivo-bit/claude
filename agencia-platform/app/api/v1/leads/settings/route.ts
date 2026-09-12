@@ -143,6 +143,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     // run. Keep accepting old settings without exposing or enabling the feature.
     warmupChatEnabled: false,
     principalPhone: s.principalPhone ?? null,
+    principalDeviceSerial: s.principalDeviceSerial ?? null,
     principalSince: s.principalSince ?? null,
     wahaProxy: s.wahaProxy ?? null,
     proxyStatus: s.proxyStatus ?? {},
@@ -256,6 +257,7 @@ const schema = z.object({
   warmupStartCap: z.number().int().min(1).max(1000).optional(),
   warmupChatEnabled: z.boolean().optional(),
   principalPhone: z.string().max(30).nullable().optional(),
+  principalDeviceSerial: z.string().trim().min(1).max(160).regex(/^[^\u0000-\u001f\u007f]+$/).nullable().optional(),
   // Proxy global por defecto para las sesiones de WhatsApp (anti-baneo: salir por
   // IP residencial/móvil, no por la del datacenter). Ej: http://user:pass@host:port
   wahaProxy: z.string().max(200).nullable().optional(),
@@ -284,6 +286,8 @@ const schema = z.object({
         // su número E.164 (para el calentamiento por conversación entre teléfonos).
         addedAt: z.string().nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
+        // Serie WebUSB/ADB del Android asociado en F - Móviles.
+        deviceSerial: z.string().trim().min(1).max(160).regex(/^[^\u0000-\u001f\u007f]+$/).nullable().optional(),
         // Reinicio de la rampa de calentamiento (teléfono nuevo o recuperado).
         warmupSince: z.string().nullable().optional(),
         // Proxy residencial/móvil específico de ESTE número (prioridad sobre el
@@ -417,6 +421,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "warmupStartCap",
     "warmupChatEnabled",
     "principalPhone",
+    "principalDeviceSerial",
     "wahaProxy",
     "voiceSpeed",
     "voiceShorten",
