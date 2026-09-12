@@ -296,15 +296,51 @@ DIRECTIVO para ofrecer sus servicios. Redacta un EMAIL frío B2B:
 
 const JOBS_SOCIAL_PROOF_NAMES = ["eroski", "vegalsa", "caprabo", "esaem"] as const;
 
+function addEsaemAcronym(body: string, lang: "en" | "es"): string {
+  if (/\besaem\b/i.test(body)) return body;
+  if (lang === "en") {
+    return body.replace(
+      /(Antonio Banderas(?:['’]s?)? School of Dramatic Arts?)/i,
+      "ESAEM ($1)"
+    );
+  }
+  return body.replace(
+    /(?:\bla\s+)?(Escuela de Arte Dram[aá]tico de Antonio Banderas)/i,
+    "ESAEM ($1)"
+  );
+}
+
+function naturalList(items: string[], lang: "en" | "es"): string {
+  if (items.length <= 1) return items[0] ?? "";
+  const conjunction = lang === "en" ? "and" : "y";
+  if (items.length === 2) return `${items[0]} ${conjunction} ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} ${conjunction} ${items.at(-1)}`;
+}
+
 /** Garantiza que la prueba social pedida esté presente aunque el LLM omita una referencia. */
 export function ensureJobsSocialProof(body: string, lang: "en" | "es"): string {
-  const normalized = body.toLocaleLowerCase("es");
-  if (JOBS_SOCIAL_PROOF_NAMES.every((name) => normalized.includes(name))) return body;
-  const proof =
-    lang === "en"
+  const withEsaemAcronym = addEsaemAcronym(body, lang);
+  const normalized = withEsaemAcronym.toLocaleLowerCase("es");
+  const labels: Record<(typeof JOBS_SOCIAL_PROOF_NAMES)[number], string> = {
+    eroski: "Eroski",
+    vegalsa: "Vegalsa",
+    caprabo: "Caprabo",
+    esaem: lang === "en"
+      ? "ESAEM (Antonio Banderas' School of Dramatic Arts)"
+      : "ESAEM (Escuela de Arte Dramático de Antonio Banderas)"
+  };
+  const missing = JOBS_SOCIAL_PROOF_NAMES
+    .filter((name) => !normalized.includes(name))
+    .map((name) => labels[name]);
+  if (missing.length === 0) return withEsaemAcronym;
+  const proof = missing.length === JOBS_SOCIAL_PROOF_NAMES.length
+    ? lang === "en"
       ? "We already manage marketing for major organisations such as Eroski, Vegalsa, Caprabo and ESAEM (Antonio Banderas' School of Dramatic Arts), bringing proven processes to each new project."
-      : "Ya gestionamos el marketing de grandes organizaciones como Eroski, Vegalsa, Caprabo y ESAEM (Escuela de Arte Dramático de Antonio Banderas), por lo que incorporamos procesos contrastados desde el inicio.";
-  return `${body.trim()}\n\n${proof}`;
+      : "Ya gestionamos el marketing de grandes organizaciones como Eroski, Vegalsa, Caprabo y ESAEM (Escuela de Arte Dramático de Antonio Banderas), por lo que incorporamos procesos contrastados desde el inicio."
+    : lang === "en"
+      ? `We also manage marketing for ${naturalList(missing, lang)}, bringing that experience to each new project.`
+      : `También gestionamos el marketing de ${naturalList(missing, lang)}, incorporando esa experiencia a cada nuevo proyecto.`;
+  return `${withEsaemAcronym.trim()}\n\n${proof}`;
 }
 
 /**
