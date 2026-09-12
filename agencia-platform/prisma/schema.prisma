@@ -287,6 +287,79 @@ model Workspace {
   invoiceCounters            InvoiceCounter[]
   expenses                   Expense[]
   panelNotes                 PanelNote[]
+  mobileAutomationJobs       MobileAutomationJob[]
+  mobileAutomationJobEvents  MobileAutomationJobEvent[]
+  mobileAutomationPolicy     MobileAutomationPolicy?
+}
+
+model MobileAutomationJob {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  phoneKey       String
+  deviceSerial   String
+  platform       String
+  action         String
+  targetUrl      String?   @db.Text
+  text           String?   @db.Text
+  facts          String?   @db.Text
+  sourceKind     String
+  sourceRef      String?
+  status         String    @default("PENDING_APPROVAL")
+  scheduledAt    DateTime  @default(now())
+  expiresAt      DateTime?
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  idempotencyKey String
+  leaseOwner     String?
+  leaseUntil     DateTime?
+  lastErrorCode  String?
+  lastError      String?   @db.Text
+  preparedAt     DateTime?
+  completedAt    DateTime?
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    MobileAutomationJobEvent[]
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, status, scheduledAt])
+  @@index([workspaceId, deviceSerial, status, scheduledAt, leaseUntil])
+}
+
+model MobileAutomationJobEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  jobId       String
+  event       String
+  actorType   String
+  actorId     String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  job       MobileAutomationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, jobId, createdAt])
+}
+
+model MobileAutomationPolicy {
+  id                 String   @id @default(cuid())
+  workspaceId        String   @unique
+  enabled            Boolean  @default(true)
+  maxDailyPerDevice  Int      @default(20)
+  minIntervalSeconds Int      @default(60)
+  allowedStartHour   Int      @default(7)
+  allowedEndHour     Int      @default(23)
+  timezone           String   @default("Europe/Madrid")
+  updatedById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model AccountancyInvoiceClient {
