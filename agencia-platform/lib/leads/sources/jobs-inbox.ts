@@ -17,7 +17,7 @@ import { decryptSecret } from "@/lib/ai/crypto";
 import { completeJson } from "@/lib/ai/anthropic";
 import type { RawOffer } from "./jobs";
 import { describeJobsInboxFailure } from "./jobs-inbox-status";
-import { fetchUnreadGoogleMessages, googleJobsInboxConnected, markGoogleMessageRead, testGoogleJobsInbox } from "./jobs-gmail";
+import { fetchPendingGoogleMessages, googleJobsInboxConnected, testGoogleJobsInbox } from "./jobs-gmail";
 
 const IMAP_TIMEOUTS = { connectionTimeout: 12000, greetingTimeout: 12000, socketTimeout: 30000 };
 
@@ -198,19 +198,20 @@ async function extractOffers(workspaceId: string, email: { from: string; subject
 }
 
 /**
- * Lee el buzón por IMAP, procesa los emails de alerta NO leídos de portales de
- * empleo, extrae sus ofertas con IA y marca esos emails como leídos. Devuelve las
- * ofertas encontradas + cuántos emails se procesaron.
+ * Lee alertas de empleo pendientes desde Google (con etiqueta de control propia)
+ * o desde el fallback IMAP. Devuelve las ofertas encontradas y los identificadores
+ * de Google que el orquestador confirmará solo tras persistir los leads.
  */
-export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers: RawOffer[]; emails: number; error?: string; recovery?: "imap" }> {
+export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers: RawOffer[]; emails: number; error?: string; recovery?: "imap"; googleMessageIds?: string[] }> {
   let googleFailure: string | null = null;
   if (await googleJobsInboxConnected(workspaceId)) {
     const offers: RawOffer[] = [];
     let emails = 0;
     try {
-      const messages = await fetchUnreadGoogleMessages(workspaceId) ?? [];
+      const messages = await fetchPendingGoogleMessages(workspaceId) ?? [];
       const { simpleParser } = await import("mailparser");
-      for (const message of messages.slice(0, 30)) {
+      const googleMessageIds: string[] = [];
+      for (const message of messages) {
         const parsed = await simpleParser(message.raw);
         const from = parsed.from?.text ?? "";
         const fromAddress = parsed.from?.value.map((value) => value.address ?? "").join(",") ?? "";
@@ -218,9 +219,9 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
         const text = (parsed.text || parsed.html || "").toString();
         offers.push(...await extractOffers(workspaceId, { from, subject: parsed.subject ?? "", text }));
         emails++;
-        await markGoogleMessageRead(workspaceId, message.id);
+        googleMessageIds.push(message.id);
       }
-      return { offers, emails };
+      return { offers, emails, googleMessageIds };
     } catch (error: any) { googleFailure = describeJobsInboxFailure(error).message; }
   }
   const cfg = await getJobsInboxConfig(workspaceId);

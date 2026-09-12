@@ -3,6 +3,12 @@ import { decryptSecret } from "@/lib/ai/crypto";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
+const JOBS_PROCESSED_LABEL = "NVLeadsProProcessed";
+const JOBS_QUERY = [
+  "newer_than:14d",
+  `-label:${JOBS_PROCESSED_LABEL}`,
+  "{from:linkedin.com from:infojobs.net from:indeed.com from:glassdoor.com from:jobtoday from:tecnoempleo.com from:jobandtalent from:epreselec from:turijobs from:cornerjob from:googlealerts-noreply@google.com}"
+].join(" ");
 
 async function accessToken(workspaceId: string): Promise<string | null> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
@@ -52,11 +58,36 @@ export async function testGoogleJobsInbox(workspaceId: string): Promise<{ ok: bo
   return { ok: true, unseen: Number(body.resultSizeEstimate ?? body.messages?.length ?? 0) };
 }
 
-export async function fetchUnreadGoogleMessages(workspaceId: string): Promise<GmailJobMessage[] | null> {
+async function jobsProcessedLabelId(token: string): Promise<string> {
+  const list = await gmailFetch(token, "/labels");
+  const labels: any[] = (await list.json()).labels ?? [];
+  const existing = labels.find((label) => label?.name === JOBS_PROCESSED_LABEL);
+  if (existing?.id) return existing.id;
+
+  const created = await gmailFetch(token, "/labels", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: JOBS_PROCESSED_LABEL,
+      labelListVisibility: "labelHide",
+      messageListVisibility: "hide"
+    })
+  });
+  const body = await created.json();
+  if (!body?.id) throw new Error("Gmail no ha podido crear la etiqueta de control de alertas.");
+  return body.id;
+}
+
+/**
+ * Lee una sola alerta reciente pendiente por pasada. La consulta no depende del
+ * estado UNREAD: abrir una alerta en Gmail no debe hacer que desaparezca para NV.
+ */
+export async function fetchPendingGoogleMessages(workspaceId: string): Promise<GmailJobMessage[] | null> {
   const token = await accessToken(workspaceId);
   if (!token) return null;
-  const list = await gmailFetch(token, "/messages?" + new URLSearchParams({ q: "is:unread", maxResults: "60" }));
-  const ids: string[] = ((await list.json()).messages ?? []).map((m: any) => m.id).filter(Boolean);
+  await jobsProcessedLabelId(token);
+  const list = await gmailFetch(token, "/messages?" + new URLSearchParams({ q: JOBS_QUERY, maxResults: "1" }));
+  const ids: string[] = ((await list.json()).messages ?? []).map((m: any) => m.id).filter(Boolean).slice(0, 1);
   const messages: GmailJobMessage[] = [];
   for (const id of ids) {
     const response = await gmailFetch(token, `/messages/${encodeURIComponent(id)}?format=raw`);
@@ -66,12 +97,18 @@ export async function fetchUnreadGoogleMessages(workspaceId: string): Promise<Gm
   return messages;
 }
 
-export async function markGoogleMessageRead(workspaceId: string, id: string): Promise<void> {
+/** Marca alertas ya importadas sin alterar si el usuario las ha leído o no. */
+export async function markGoogleMessagesProcessed(workspaceId: string, ids: string[]): Promise<void> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) return;
   const token = await accessToken(workspaceId);
   if (!token) return;
-  await gmailFetch(token, `/messages/${encodeURIComponent(id)}/modify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ removeLabelIds: ["UNREAD"] })
-  });
+  const labelId = await jobsProcessedLabelId(token);
+  for (const id of uniqueIds) {
+    await gmailFetch(token, `/messages/${encodeURIComponent(id)}/modify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addLabelIds: [labelId] })
+    });
+  }
 }

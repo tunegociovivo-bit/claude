@@ -22,6 +22,7 @@ import { classifyLeadsRelevance, type RelevanceVerdict } from "./relevance";
 import { collectFromSource, enrichJobsResults, type LeadSourceKey } from "./sources";
 import { offersToLeadResults } from "./sources/jobs";
 import { fetchJobAlertOffers } from "./sources/jobs-inbox";
+import { markGoogleMessagesProcessed } from "./sources/jobs-gmail";
 import { analyzeFranchiseNetwork } from "./sources/franchises";
 import { startExecOutreach, draftJobsReview } from "./exec-outreach";
 
@@ -99,7 +100,8 @@ async function startJobsOutreach(workspaceId: string, searchId: string): Promise
  * Ingesta de la BANDEJA DE ALERTAS de empleo (IMAP): lee los emails de alerta
  * nuevos, extrae las ofertas, las convierte en leads (marketing/IA), enriquece
  * contacto y arranca la revisión de emails — todo SIN gastar créditos de scraping.
- * Idempotente: los emails se marcan leídos y los leads se deduplican por empresa.
+ * Idempotente: Google recibe una etiqueta interna tras la ingesta y los leads se
+ * deduplican por empresa, sin tocar el estado leído/no leído del usuario.
  */
 async function stampJobsInboxRun(workspaceId: string, recovery?: "imap", error?: string): Promise<void> {
   try {
@@ -116,14 +118,17 @@ async function stampJobsInboxRun(workspaceId: string, recovery?: "imap", error?:
 export async function ingestJobsInbox(
   workspaceId: string
 ): Promise<{ emails: number; offers: number; ingested: number; error?: string; recovery?: "imap" }> {
-  const { offers, emails, error, recovery } = await fetchJobAlertOffers(workspaceId);
+  const { offers, emails, error, recovery, googleMessageIds = [] } = await fetchJobAlertOffers(workspaceId);
   await stampJobsInboxRun(workspaceId, recovery, error);
   if (error && offers.length === 0) return { emails, offers: 0, ingested: 0, error, recovery };
 
   // Ofertas → leads (filtra puestos de marketing/IA + dedup por empresa) y
   // enriquece teléfono/web/email (Places + web), igual que el scraper.
   const mapped = offersToLeadResults(offers);
-  if (mapped.length === 0) return { emails, offers: offers.length, ingested: 0, error, recovery };
+  if (mapped.length === 0) {
+    await markGoogleMessagesProcessed(workspaceId, googleMessageIds);
+    return { emails, offers: offers.length, ingested: 0, error, recovery };
+  }
   const enriched = await enrichJobsResults(workspaceId, mapped);
 
   // Contenedor de búsqueda persistente para los leads de la bandeja.
@@ -173,6 +178,10 @@ export async function ingestJobsInbox(
   } catch (err) {
     console.error("[jobs-inbox] startJobsOutreach error:", err);
   }
+
+  // Avanza el cursor solo después de guardar los leads y preparar su outreach.
+  // Si el proceso falla antes, la alerta queda pendiente para reintentarse.
+  await markGoogleMessagesProcessed(workspaceId, googleMessageIds);
 
   return { emails, offers: offers.length, ingested, error, recovery };
 }
