@@ -51,6 +51,7 @@ import {
   executeMobileAutomationJob,
   type MobileAutomationExecutableJob
 } from "@/components/mobile/mobile-automation-executor";
+import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import {
   formatAndroidProxy,
   normalizeAndroidProxy,
@@ -73,15 +74,16 @@ type SessionStatus =
 const credentialStore = new AdbWebCredentialStore("F-Moviles@NegocioVivo");
 
 async function runAdbCommand(adb: Adb, command: readonly string[]): Promise<string> {
+  const escapedCommand = escapeAdbCommand(command);
   const shell = adb.subprocess.shellProtocol;
   if (shell) {
-    const result = await shell.spawnWaitText(command);
+    const result = await shell.spawnWaitText(escapedCommand);
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || "Android no ha aceptado el cambio de red.");
     }
     return result.stdout.trim();
   }
-  return (await adb.subprocess.noneProtocol.spawnWaitText(command)).trim();
+  return (await adb.subprocess.noneProtocol.spawnWaitText(escapedCommand)).trim();
 }
 
 async function readAndroidProxy(adb: Adb): Promise<AndroidHttpProxy | null> {
