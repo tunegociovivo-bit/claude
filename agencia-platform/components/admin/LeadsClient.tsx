@@ -4101,6 +4101,9 @@ function JobsReviewPanel() {
   const [generating, setGenerating] = useState(false);
   // Empresas de la fuente jobs sin email de contacto (no se les puede enviar).
   const [noEmail, setNoEmail] = useState(0);
+  // Todas las ofertas importadas, incluidas las que todavía no permiten crear email.
+  const [detectedOffers, setDetectedOffers] = useState<any[] | null>(null);
+  const [totalDetectedOffers, setTotalDetectedOffers] = useState(0);
   // Texto de la oferta cargado bajo demanda (LinkedIn no lo trae en la búsqueda).
   const [descs, setDescs] = useState<Record<string, string>>({});
   const [descBusy, setDescBusy] = useState<string | null>(null);
@@ -4137,6 +4140,8 @@ function JobsReviewPanel() {
         const list = j.items ?? [];
         setItems(list);
         setNoEmail(j.noEmailCount ?? 0);
+        setDetectedOffers(j.detectedOffers ?? []);
+        setTotalDetectedOffers(j.totalDetectedOffers ?? 0);
         // Poda la selección a los ids que siguen en la cola.
         setSelected((prev) => {
           const ids = new Set(list.map((it: any) => it.id));
@@ -4352,6 +4357,72 @@ function JobsReviewPanel() {
         </div>
       )}
       <JobsInboxConfig onIngested={() => void loadItems()} />
+      {detectedOffers !== null && (
+        <section className="mt-3 rounded-lg border border-sky-200 bg-white/80 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">
+                Ofertas detectadas
+                <span className="ml-2 inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-800">
+                  {totalDetectedOffers}
+                </span>
+              </h3>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Aquí aparecen todas las vacantes importadas, tengan o no email de contacto.
+              </p>
+            </div>
+            {detectedOffers.length < totalDetectedOffers && (
+              <span className="text-[11px] text-slate-500">Últimas {detectedOffers.length} de {totalDetectedOffers}</span>
+            )}
+          </div>
+
+          {detectedOffers.length === 0 ? (
+            <div className="mt-3 rounded-md border border-dashed border-sky-200 px-3 py-3 text-center text-xs text-slate-500">
+              Aún no hay ofertas de empleo detectadas.
+            </div>
+          ) : (
+            <div className="mt-3 max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200 bg-white">
+              {detectedOffers.map((offer) => (
+                <div key={offer.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-slate-800">
+                      {offer.jobTitle || "Oferta de empleo"}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                      {offer.company}
+                      {offer.location ? ` · ${offer.location}` : ""}
+                      {offer.board ? ` · ${String(offer.board).toUpperCase()}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className={
+                      "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                      (offer.hasDraft
+                        ? "bg-indigo-100 text-indigo-700"
+                        : offer.hasEmail
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700")
+                    }>
+                      {offer.hasDraft ? "Borrador listo" : offer.hasEmail ? "Email localizado" : "Sin email"}
+                    </span>
+                    {offer.jobUrl && (
+                      <a href={offer.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-indigo-600 hover:underline">
+                        Ver oferta ↗
+                      </a>
+                    )}
+                    <a
+                      href={`?tab=leads&search=${encodeURIComponent(offer.company)}`}
+                      className="text-[11px] font-medium text-sky-700 hover:underline"
+                    >
+                      Ver lead
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       {noEmail > 0 && (
         <div className="text-[11px] text-amber-700 mt-1 flex items-center gap-2 flex-wrap">
           <span>

@@ -32,7 +32,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   authenticateMock.mockResolvedValue({ workspaceId: "workspace-1", userId: "user-1", scopes: new Set(["*"]) });
   listPendingReviewMock.mockResolvedValue([{ id: "draft-1", leadId: "lead-with-draft" }]);
-  prisma.lead.count.mockResolvedValue(1);
+  prisma.lead.count
+    .mockResolvedValueOnce(2)
+    .mockResolvedValueOnce(1);
   prisma.lead.findMany.mockResolvedValue([
     {
       id: "lead-without-email",
