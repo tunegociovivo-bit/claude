@@ -45,7 +45,12 @@ import {
   WebGLVideoFrameRenderer
 } from "@yume-chan/scrcpy-decoder-webcodecs";
 import PageHeader from "@/components/PageHeader";
+import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
+import {
+  executeMobileAutomationJob,
+  type MobileAutomationExecutableJob
+} from "@/components/mobile/mobile-automation-executor";
 import {
   formatAndroidProxy,
   normalizeAndroidProxy,
@@ -255,7 +260,7 @@ export default function MobileFarmClient() {
       )}
 
       <Notice tone="warning" icon={AlertTriangle}>
-        Usar el dispositivo real y una salida de red estable reduce cambios técnicos innecesarios, pero no puede garantizar “cero baneos”. Meta, Instagram y Google también valoran la actividad, la identidad de la cuenta y el cumplimiento de sus normas. F - Móviles no falsifica el dispositivo, no rota IPs y no automatiza acciones.
+        Usar el dispositivo real y una salida de red estable reduce cambios técnicos innecesarios, pero no puede garantizar “cero baneos”. Las automatizaciones supervisadas preparan destinos y borradores aprobados; no publican por ti, no falsifican la ubicación y no generan interacción artificial.
       </Notice>
     </div>
   );
@@ -469,6 +474,42 @@ function MobileDeviceCard({ device, linkedPhone }: { device: UsbDevice; linkedPh
       setError(friendlyError(controlError));
     }
   }
+
+  const executeApprovedAutomation = useCallback(async (job: MobileAutomationExecutableJob) => {
+    const adb = adbRef.current;
+    const controller = clientRef.current?.controller;
+    if (!adb || !controller || status !== "mirroring") {
+      throw new Error("La pantalla del móvil debe estar abierta para preparar el trabajo.");
+    }
+    await executeMobileAutomationJob(job, {
+      openUrl: (url) => runAdbCommand(adb, [
+        "am",
+        "start",
+        "-W",
+        "-a",
+        "android.intent.action.VIEW",
+        "-d",
+        url
+      ]),
+      copyText: (content) => controller.setClipboard({
+        sequence: BigInt(Date.now()),
+        paste: false,
+        content
+      })
+    });
+  }, [status]);
+
+  const pasteApprovedAutomation = useCallback(async (content: string) => {
+    const controller = clientRef.current?.controller;
+    if (!controller || status !== "mirroring") {
+      throw new Error("La pantalla del móvil debe estar abierta para pegar el texto.");
+    }
+    await controller.setClipboard({
+      sequence: BigInt(Date.now()),
+      paste: true,
+      content
+    });
+  }, [status]);
 
   async function applyProxy() {
     const adb = adbRef.current;
@@ -727,6 +768,20 @@ function MobileDeviceCard({ device, linkedPhone }: { device: UsbDevice; linkedPh
               </p>
             )}
           </section>
+        )}
+
+        {linkedPhone ? (
+          <MobileAutomationPanel
+            deviceSerial={device.serial}
+            phoneKey={linkedPhone.key}
+            ready={status === "mirroring"}
+            onExecuteJob={executeApprovedAutomation}
+            onPasteText={pasteApprovedAutomation}
+          />
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            Asocia este Android a un número compartido para habilitar el Centro de automatizaciones.
+          </div>
         )}
 
         {status === "mirroring" ? (
