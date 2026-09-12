@@ -110,12 +110,30 @@ async function captureCycle() {
     await fetch(api("/api/v1/time-tracking/screenshots"), { method: "POST", headers: await headers(), body: form });
   } catch (e) { store.set("lastError", String(e?.message || e)); } finally { schedule(); updateMenu(); }
 }
+async function togglePause() {
+  if (!store.get("shiftActive")) return { ok: false, error: "La jornada no está iniciada" };
+  try {
+    if (store.get("paused")) {
+      await axios.post(api("/api/v1/time-tracking"), { action: "start", deviceId }, { headers: await headers(), timeout: 15000 });
+      store.set("paused", false);
+    } else {
+      await axios.post(api("/api/v1/time-tracking"), { action: "stop" }, { headers: await headers(), timeout: 15000 });
+      store.set("paused", true);
+    }
+    lastTick = Date.now(); updateMenu();
+    return { ok: true };
+  } catch (error) {
+    const message = error?.response?.data?.error?.message || "No se pudo cambiar la pausa";
+    store.set("lastError", message);
+    return { ok: false, error: message };
+  }
+}
 function updateMenu() {
   if (!tray) return;
   const paused = store.get("paused");
   tray.setToolTip(`Negocio Vivo Control Horario · ${paused ? "Pausado" : "Activo"}`);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: paused ? "Reanudar seguimiento" : "Pausar / tiempo privado", enabled: store.get("allowPrivateMode") !== false, click: () => { store.set("paused", !paused); updateMenu(); } },
+    { label: paused ? "Reanudar seguimiento" : "Pausar / tiempo privado", enabled: store.get("shiftActive") && store.get("allowPrivateMode") !== false, click: () => { togglePause(); } },
     { label: "Configuración y privacidad", click: showWindow },
     { type: "separator" }, { label: "Salir", click: () => app.quit() }
   ]));
@@ -133,16 +151,7 @@ ipcMain.handle("status:get", async () => {
 ipcMain.handle("shift:set", async (_e, action) => {
   try {
     if (action === "pause") {
-      if (!store.get("shiftActive")) return { ok: false, error: "La jornada no está iniciada" };
-      if (store.get("paused")) {
-        await axios.post(api("/api/v1/time-tracking"), { action: "start", deviceId }, { headers: await headers(), timeout: 15000 });
-        store.set("paused", false);
-      } else {
-        await axios.post(api("/api/v1/time-tracking"), { action: "stop" }, { headers: await headers(), timeout: 15000 });
-        store.set("paused", true);
-      }
-      lastTick = Date.now(); updateMenu();
-      return { ok: true };
+      return togglePause();
     }
     if (action !== "start" && action !== "stop") return { ok: false, error: "Acción no válida" };
     if (action === "stop" && store.get("paused")) {
