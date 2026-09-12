@@ -48,6 +48,8 @@ describe("interfaz del agente de control horario", () => {
     expect(html).toContain('id="stop"');
     expect(main).toContain('ipcMain.handle("shift:set"');
     expect(main).toContain('if (!store.get("shiftActive") || store.get("paused")) return;');
+    expect(main).toContain("click: () => { togglePause()");
+    expect(main).not.toContain('click: () => { store.set("paused", !paused)');
   });
 
   it("protege en servidor los límites de la jornada del agente", () => {
