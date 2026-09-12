@@ -41,6 +41,47 @@ export function isJobAlertSender(fromAddress: string): boolean {
   return JOB_SENDERS.some((sender) => normalized.includes(sender));
 }
 
+/** Extrae el formato de texto estable de las alertas de InfoJobs sin depender de la IA. */
+export function parseInfoJobsAlertText(text: string): RawOffer[] {
+  const lines = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\u00a0/g, " ").trim())
+    .filter(Boolean);
+  const start = lines.findIndex((line) => /^estas son las ofertas\b/i.test(line));
+  if (start < 0) return [];
+  const endOffset = lines.slice(start + 1).findIndex((line) =>
+    /^(?:ver m[aá]s ofertas|¿?ya no quieres recibir)/i.test(line)
+  );
+  const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
+  const offerLines = lines.slice(start + 1, end);
+  const offers: RawOffer[] = [];
+  const seen = new Set<string>();
+
+  for (let index = 2; index < offerLines.length; index++) {
+    const details = offerLines[index];
+    if ((details.match(/\|/g) ?? []).length < 2) continue;
+    const jobTitle = offerLines[index - 2];
+    const company = offerLines[index - 1];
+    const location = details.split("|", 1)[0].trim();
+    if (!jobTitle || !company || !location) continue;
+    const key = `${company.toLowerCase()}\u0000${jobTitle.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    offers.push({
+      company,
+      jobTitle,
+      location,
+      jobUrl: null,
+      companyUrl: null,
+      board: "infojobs",
+      description: details
+    });
+  }
+
+  return offers;
+}
+
 export type JobsInboxConfig = { host: string; port: number; user: string; pass: string; enabled: boolean };
 
 /** Resuelve la config del buzón desde los Ajustes del workspace (o null). */
@@ -170,6 +211,10 @@ async function extractOffers(workspaceId: string, email: { from: string; subject
       : /googlealerts/i.test(email.from)
         ? "google_alerts"
         : "email";
+  if (board === "infojobs") {
+    const parsed = parseInfoJobsAlertText(body);
+    if (parsed.length > 0) return parsed;
+  }
   let res: { offers?: any[] };
   try {
     res = await completeJson<{ offers?: any[] }>({
