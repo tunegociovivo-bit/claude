@@ -121,7 +121,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (!(await this.locatePreviousRemittance(app, S.previousRemittance))) return this.pause(hooks, "No encuentro la remesa recurrente anterior para reutilizar tras revisar todas las páginas.");
       await hooks.onProgress("SELECT_PREVIOUS", "Remesa anterior localizada");
       if (!(await this.clickRemittanceRowMenu(app, S.previousRemittance, S.rowMenuAction))) return this.pause(hooks, "No encuentro el menú de acciones de la remesa recurrente.");
-      if (!(await this.click(app, S.editAction))) return this.pause(hooks, "No encuentro la acción Editar.");
+      if (!(await this.clickEditAction(app, S.editAction))) return this.pause(hooks, "No encuentro la acción Editar.");
       await hooks.onProgress("EDIT_PREVIOUS", "Remesa anterior abierta en modo edición");
 
       // 6) Cambiar SOLO la fecha de cobro a hoy. Importe, concepto e IBAN se conservan.
@@ -401,6 +401,24 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       }
     } catch { /* use the recorded selector below */ }
     return this.click(app, menuSpec);
+  }
+
+  private async clickEditAction(app: any, recordedSpec: SelectorSpec): Promise<boolean> {
+    try {
+      const candidates = app.getByText(/^\s*Editar\s*$/i, { exact: true });
+      const visible: any[] = [];
+      for (let index = 0; index < await candidates.count(); index++) {
+        const candidate = candidates.nth(index);
+        if (await candidate.isVisible().catch(() => false)) visible.push(candidate);
+      }
+      if (visible.length === 1) {
+        const label = (await visible[0].innerText().catch(() => "")).trim();
+        if (normalize(label) !== "editar" || isForbiddenActionLabel(label)) return false;
+        await visible[0].click({ timeout: STEP_TIMEOUT_MS });
+        return true;
+      }
+    } catch { /* use the recorded selector below */ }
+    return this.click(app, recordedSpec);
   }
 
   private amountMatches(shown: string, expected: string): boolean {
