@@ -72,6 +72,29 @@ describe("generateJobsReviewDrafts", () => {
     expect(result).toEqual({ drafted: 1, candidates: 2, alreadyHandled: 1 });
   });
 
+  it("convierte una secuencia automática sin enviar en un borrador de revisión", async () => {
+    prisma.lead.findMany.mockResolvedValue([lead("legacy-auto")]);
+    prisma.leadExecOutreach.findMany.mockResolvedValue([
+      {
+        leadId: "legacy-auto",
+        status: "active",
+        mode: "auto",
+        step: 0,
+        draftSubject: null,
+        draftBody: null
+      }
+    ]);
+
+    const result = await generateJobsReviewDrafts("workspace-1");
+
+    expect(completeJsonMock).toHaveBeenCalledTimes(1);
+    expect(prisma.leadExecOutreach.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { workspaceId_leadId: { workspaceId: "workspace-1", leadId: "legacy-auto" } },
+      update: expect.objectContaining({ status: "pending_review", mode: "review" })
+    }));
+    expect(result).toEqual({ drafted: 1, candidates: 1, alreadyHandled: 0 });
+  });
+
   it("si la IA falla deja un mensaje de respaldo aprobable en vez de una fila invisible", async () => {
     prisma.lead.findMany.mockResolvedValue([lead("fallback")]);
     prisma.leadExecOutreach.findMany.mockResolvedValue([]);
