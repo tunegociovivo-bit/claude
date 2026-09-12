@@ -13,7 +13,7 @@
  */
 
 import { LucideIcon } from "lucide-react";
-import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store, Landmark } from "lucide-react";
+import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store, Landmark, Smartphone } from "lucide-react";
 
 export type PlatformKey =
   | "reviews"
@@ -25,7 +25,8 @@ export type PlatformKey =
   | "meta_suite"
   | "chrome_extension"
   | "bubui_directorio"
-  | "subvenciones";
+  | "subvenciones"
+  | "mobile_farm";
 
 export type PlatformDef = {
   key: PlatformKey;
@@ -97,6 +98,15 @@ export const PLATFORMS: PlatformDef[] = [
     description: "Resumen, campañas publicitarias y gestión de comentarios de Meta desde una única sección.",
     href: "/meta",
     icon: Megaphone,
+    available: true,
+    defaultEnabled: true
+  },
+  {
+    key: "mobile_farm",
+    label: "F - Móviles",
+    description: "Conecta móviles Android por USB, replica sus pantallas y contrólalos desde el Hub sin emuladores.",
+    href: "/moviles",
+    icon: Smartphone,
     available: true,
     defaultEnabled: true
   },
