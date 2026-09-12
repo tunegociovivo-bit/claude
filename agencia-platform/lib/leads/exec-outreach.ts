@@ -53,8 +53,8 @@ export async function startExecOutreach(opts: {
  * Redacta YA el email frío para una empresa de la fuente "jobs" y lo deja en la
  * cola de revisión (pending_review) sin esperar al cron. Así, en cuanto la
  * búsqueda termina, el usuario ve TODAS las ofertas con su borrador listo para
- * revisar, editar y elegir cuáles enviar. Si la redacción con IA falla, cae de
- * vuelta a una fila "active" en modo review para que el cron lo redacte luego.
+ * revisar, editar y elegir cuáles enviar. Si la redacción con IA falla, guarda
+ * un texto de respaldo editable para que la oferta no desaparezca de la cola.
  */
 export async function draftJobsReview(opts: {
   workspaceId: string;
@@ -67,8 +67,9 @@ export async function draftJobsReview(opts: {
   /** Nombre del decisor (Apollo/Hunter) para dirigir el email por su nombre. */
   director?: string | null;
 }): Promise<{ drafted: boolean }> {
+  let mail: { subject: string; body: string };
   try {
-    const mail = await writeEmail({
+    mail = await writeEmail({
       workspaceId: opts.workspaceId,
       company: opts.company,
       sector: opts.sector,
@@ -77,13 +78,20 @@ export async function draftJobsReview(opts: {
       jobTitle: opts.jobTitle ?? null,
       jobDescription: opts.jobDescription ?? null
     });
-    await saveReviewDraft(opts.workspaceId, opts.leadId, opts.email, mail.subject, mail.body, opts.director ?? null);
-    return { drafted: true };
-  } catch {
-    // Fallback: fila activa en modo review → el cron redactará en el próximo tick.
-    await startExecOutreach({ workspaceId: opts.workspaceId, leadId: opts.leadId, email: opts.email, directorName: opts.director ?? null, mode: "review" });
-    return { drafted: false };
+  } catch (error) {
+    // La oferta no debe desaparecer de la cola si el proveedor de IA falla.
+    // Dejamos un texto seguro y editable para revisión manual; un fallo al
+    // guardar sí se propaga para que el llamador no lo cuente como éxito.
+    console.error("[jobs-review] AI draft failed, using safe fallback:", error);
+    mail = fallbackJobsEmail({
+      company: opts.company,
+      jobTitle: opts.jobTitle ?? null,
+      jobDescription: opts.jobDescription ?? null,
+      director: opts.director ?? null
+    });
   }
+  await saveReviewDraft(opts.workspaceId, opts.leadId, opts.email, mail.subject, mail.body, opts.director ?? null);
+  return { drafted: true };
 }
 
 /**
@@ -139,12 +147,18 @@ export async function generateJobsReviewDrafts(
   }
   if (leads.length === 0) return { drafted: 0, candidates: 0, alreadyHandled: 0 };
 
-  // Salta las empresas que ya tienen secuencia/borrador (o que se descartaron).
+  // Salta las empresas ya gestionadas, pero reintenta las filas de revisión que
+  // quedaron activas sin asunto ni cuerpo tras un fallo anterior de redacción.
   const existing = await prisma.leadExecOutreach.findMany({
     where: { workspaceId, leadId: { in: leads.map((l) => l.id) } },
-    select: { leadId: true }
+    select: { leadId: true, status: true, mode: true, draftSubject: true, draftBody: true }
   });
-  const handled = new Set(existing.map((e) => e.leadId));
+  const retryable = new Set(
+    existing
+      .filter((row) => row.status === "active" && row.mode === "review" && !row.draftSubject && !row.draftBody)
+      .map((row) => row.leadId)
+  );
+  const handled = new Set(existing.filter((row) => !retryable.has(row.leadId)).map((row) => row.leadId));
   const pending = leads.filter((l) => !handled.has(l.id)).slice(0, limit);
 
   let drafted = 0;
@@ -157,8 +171,8 @@ export async function generateJobsReviewDrafts(
         const jobTitle = typeof rd?.jobTitle === "string" ? rd.jobTitle : null;
         const jobDescription = typeof rd?.jobDescription === "string" ? rd.jobDescription : null;
         try {
-          await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription });
-          return true;
+          const result = await draftJobsReview({ workspaceId, leadId: l.id, email: l.email as string, company: l.name, sector: l.category, jobTitle, jobDescription });
+          return result.drafted;
         } catch {
           return false;
         }
@@ -301,6 +315,32 @@ export function detectOfferLang(text: string): "en" | "es" {
   if (es === 0 && en >= 1) return "en";
   if (en > es * 1.5 && en >= 2) return "en";
   return "es";
+}
+
+function fallbackJobsEmail(opts: {
+  company: string;
+  jobTitle: string | null;
+  jobDescription: string | null;
+  director: string | null;
+}): { subject: string; body: string } {
+  const role = (opts.jobTitle?.trim() || "marketing digital").slice(0, 140);
+  const company = opts.company.trim().slice(0, 160) || "su empresa";
+  const firstName = opts.director?.trim().split(/\s+/)[0] || null;
+  const lang = detectOfferLang(`${role}. ${opts.jobDescription ?? ""}`);
+
+  if (lang === "en") {
+    const greeting = firstName ? `Hi ${firstName},` : "Hello,";
+    return {
+      subject: `An alternative for your ${role} role`,
+      body: `${greeting}\n\nWe noticed that ${company} is recruiting for the ${role} role and wanted to share a practical alternative.\n\nInstead of relying on a single hire, Negocio Vivo provides a complete marketing team with specialist tools and our own AI capabilities for analytics, paid-campaign decisions and process improvement.\n\nWe already manage marketing for major organisations such as Eroski, Vegalsa, Caprabo and ESAEM (Antonio Banderas' School of Dramatic Arts), bringing proven processes to each new project.\n\nWould you be open to a brief 10-minute conversation to see whether this approach could support your current needs?\n\nBest regards,\nNegocio Vivo`
+    };
+  }
+
+  const greeting = firstName ? `Hola ${firstName},` : "Buenos días,";
+  return {
+    subject: `Una alternativa para su vacante de ${role}`,
+    body: `${greeting}\n\nHemos visto que ${company} está buscando incorporar el perfil de ${role} y queríamos plantearle una alternativa práctica.\n\nEn lugar de depender de una sola contratación, Negocio Vivo aporta un equipo completo de marketing, herramientas especializadas y sistemas propios de IA para analítica, decisiones en campañas de pago y mejora de procesos.\n\nYa gestionamos el marketing de grandes organizaciones como Eroski, Vegalsa, Caprabo y ESAEM (Escuela de Arte Dramático de Antonio Banderas), por lo que incorporamos procesos contrastados desde el inicio.\n\n¿Le encajaría una conversación breve de 10 minutos para valorar si este enfoque puede cubrir la necesidad que refleja la oferta?\n\nUn saludo,\nNegocio Vivo`
+  };
 }
 
 async function writeEmail(opts: { workspaceId: string; company: string; sector?: string | null; director?: string | null; touch: number; jobTitle?: string | null; jobDescription?: string | null }): Promise<{ subject: string; body: string }> {

@@ -4403,7 +4403,7 @@ function JobsReviewPanel() {
                           ? "bg-emerald-100 text-emerald-700"
                           : "bg-amber-100 text-amber-700")
                     }>
-                      {offer.hasDraft ? "Borrador listo" : offer.hasEmail ? "Email localizado" : "Sin email"}
+                      {offer.hasDraft ? "Borrador listo" : offer.hasEmail ? "Email localizado · falta borrador" : "Sin email"}
                     </span>
                     {offer.jobUrl && (
                       <a href={offer.jobUrl} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-indigo-600 hover:underline">
@@ -4446,6 +4446,15 @@ function JobsReviewPanel() {
           {noEmail === 0 && " Lanza una búsqueda de la fuente Empleos (con provincia) y, al completarse, sus borradores aparecerán aquí."}
           <br />
           Si acabas de completar una búsqueda y no ves nada, pulsa <strong>🪄 Generar borradores</strong> para redactarlos ahora.
+        </div>
+      )}
+
+      {pending > 0 && (
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold text-slate-800">Mensajes listos para aprobar y enviar</h3>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            Cada tarjeta incluye la empresa, su oferta y el texto generado. Puedes editarlo antes de aprobar el envío.
+          </p>
         </div>
       )}
 
