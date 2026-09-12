@@ -120,7 +120,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       // 5) Seleccionar y EDITAR la remesa anterior. No se duplica.
       if (!(await this.locatePreviousRemittance(app, S.previousRemittance))) return this.pause(hooks, "No encuentro la remesa recurrente anterior para reutilizar tras revisar todas las páginas.");
       await hooks.onProgress("SELECT_PREVIOUS", "Remesa anterior localizada");
-      if (!(await this.click(app, S.rowMenuAction))) return this.pause(hooks, "No encuentro el menú de acciones de la remesa recurrente.");
+      if (!(await this.clickRemittanceRowMenu(app, S.previousRemittance, S.rowMenuAction))) return this.pause(hooks, "No encuentro el menú de acciones de la remesa recurrente.");
       if (!(await this.click(app, S.editAction))) return this.pause(hooks, "No encuentro la acción Editar.");
       await hooks.onProgress("EDIT_PREVIOUS", "Remesa anterior abierta en modo edición");
 
@@ -363,6 +363,41 @@ export class LiveSantanderAdapter implements SantanderAdapter {
       if (await this.locator(app, spec).first().isVisible().catch(() => false)) return true;
     }
     return false;
+  }
+
+  /**
+   * Santander now renders the options icon as nested, unlabelled buttons.
+   * Resolve it from the unique table row whose own cell exactly matches the
+   * configured template, so equal amounts or similar names cannot select a
+   * different remittance. Keep the recorded selector as a compatibility
+   * fallback for older portal versions.
+   */
+  private async clickRemittanceRowMenu(app: any, remittanceSpec: SelectorSpec, menuSpec: SelectorSpec): Promise<boolean> {
+    try {
+      const matches = this.locator(app, remittanceSpec);
+      const matchingRows: any[] = [];
+      for (let index = 0; index < await matches.count(); index++) {
+        const candidate = matches.nth(index);
+        if (!await candidate.isVisible().catch(() => false)) continue;
+        const row = candidate.locator("xpath=ancestor::tr[1]");
+        if (await row.count() !== 1 || !await row.isVisible().catch(() => false)) continue;
+        const cells = await row.locator("td").allTextContents().catch(() => []);
+        if (cells.some((cell: string) => normalize(cell) === normalize(this.currentTemplate))) matchingRows.push(row);
+      }
+      if (matchingRows.length === 1) {
+        const buttons = matchingRows[0].locator("button");
+        const visibleButtons: any[] = [];
+        for (let index = 0; index < await buttons.count(); index++) {
+          const button = buttons.nth(index);
+          if (await button.isVisible().catch(() => false)) visibleButtons.push(button);
+        }
+        if (visibleButtons.length) {
+          await visibleButtons.at(-1).click({ timeout: STEP_TIMEOUT_MS });
+          return true;
+        }
+      }
+    } catch { /* use the recorded selector below */ }
+    return this.click(app, menuSpec);
   }
 
   private amountMatches(shown: string, expected: string): boolean {
