@@ -87,11 +87,11 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 });
 
 const command = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("start"), projectId: z.string().nullable().optional(), note: z.string().max(500).optional(), privateMode: z.boolean().optional() }),
+  z.object({ action: z.literal("start"), projectId: z.string().nullable().optional(), note: z.string().max(500).optional(), privateMode: z.boolean().optional(), deviceId: z.string().min(4).max(120).optional() }),
   z.object({ action: z.literal("stop") })
 ]);
 
-export const POST = withApi({ scope: "*" }, async (req, { api }) => {
+export const POST = withApi({ scope: "time_tracking:write" }, async (req, { api }) => {
   await membership(api.workspaceId, api.userId);
   const policy = await prisma.timeTrackerPolicy.findUnique({ where: { userId: api.userId! }, select: { trackingEnabled: true } });
   if (policy?.trackingEnabled === false) throw new ApiError(403, "tracking_excluded", "No tienes el control horario activado");
@@ -109,6 +109,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   }
   return NextResponse.json(await prisma.timeTrackerSession.create({ data: {
     workspaceId: api.workspaceId, userId: api.userId!, projectId: parsed.data.projectId || null,
-    note: parsed.data.note?.trim() || null, isPrivate: parsed.data.privateMode ?? false, source: "WEB"
+    note: parsed.data.note?.trim() || null, isPrivate: parsed.data.privateMode ?? false,
+    source: api.apiKeyId ? "AGENT" : "WEB", deviceId: api.apiKeyId ? parsed.data.deviceId || null : null
   } }), { status: 201 });
 });

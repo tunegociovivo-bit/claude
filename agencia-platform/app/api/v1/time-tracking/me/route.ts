@@ -4,7 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 
 export const dynamic = "force-dynamic";
-export const GET = withApi({scope:"*"}, async (_req,{api})=>{
+export const GET = withApi({scope:"time_tracking:write"}, async (_req,{api})=>{
   if(!api.userId) throw new ApiError(401,"unauthenticated","Usuario no identificado");
   const start=new Date(); start.setHours(0,0,0,0); const end=new Date(start); end.setDate(end.getDate()+1);
   const [sessions,activities]=await Promise.all([

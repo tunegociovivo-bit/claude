@@ -51,8 +51,7 @@ async function headers() { const t = await token(); return t ? { Authorization: 
 async function syncShiftState(force = false) {
   if (!force && Date.now() - lastShiftSync < 30000) return;
   const response = await axios.get(api("/api/v1/time-tracking/me"), { headers: await headers(), timeout: 15000 });
-  store.set("shiftActive", response.data?.active === true);
-  if (!response.data?.active) store.set("paused", false);
+  if (!store.get("paused")) store.set("shiftActive", response.data?.active === true);
   lastShiftSync = Date.now();
 }
 async function syncPolicy() {
@@ -135,12 +134,22 @@ ipcMain.handle("shift:set", async (_e, action) => {
   try {
     if (action === "pause") {
       if (!store.get("shiftActive")) return { ok: false, error: "La jornada no está iniciada" };
-      store.set("paused", !store.get("paused"));
+      if (store.get("paused")) {
+        await axios.post(api("/api/v1/time-tracking"), { action: "start", deviceId }, { headers: await headers(), timeout: 15000 });
+        store.set("paused", false);
+      } else {
+        await axios.post(api("/api/v1/time-tracking"), { action: "stop" }, { headers: await headers(), timeout: 15000 });
+        store.set("paused", true);
+      }
       lastTick = Date.now(); updateMenu();
       return { ok: true };
     }
     if (action !== "start" && action !== "stop") return { ok: false, error: "Acción no válida" };
-    await axios.post(api("/api/v1/time-tracking"), { action }, { headers: await headers(), timeout: 15000 });
+    if (action === "stop" && store.get("paused")) {
+      store.set("shiftActive", false); store.set("paused", false); updateMenu();
+      return { ok: true };
+    }
+    await axios.post(api("/api/v1/time-tracking"), action === "start" ? { action, deviceId } : { action }, { headers: await headers(), timeout: 15000 });
     store.set("shiftActive", action === "start");
     store.set("paused", false);
     lastShiftSync = Date.now(); lastTick = Date.now(); updateMenu();

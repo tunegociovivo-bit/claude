@@ -22,8 +22,8 @@ export const POST = withApi({ scope: "time_tracking:write" }, async (req, { api 
   if (!member) throw new ApiError(403, "forbidden", "Usuario fuera del espacio");
   const policy = await prisma.timeTrackerPolicy.findUnique({ where: { userId: api.userId } });
   if (policy?.trackingEnabled === false) return NextResponse.json({ ok: true, accepted: 0, disabled: true });
-  let session = await prisma.timeTrackerSession.findFirst({ where: { workspaceId: api.workspaceId, userId: api.userId, endedAt: null } });
-  if (!session) session = await prisma.timeTrackerSession.create({ data: { workspaceId: api.workspaceId, userId: api.userId, source: "AGENT", deviceId: parsed.data.deviceId } });
+  const session = await prisma.timeTrackerSession.findFirst({ where: { workspaceId: api.workspaceId, userId: api.userId, endedAt: null } });
+  if (!session) throw new ApiError(409, "shift_not_active", "La jornada no está iniciada");
   let accepted = 0;
   for (const e of parsed.data.entries) {
     // En modo privado conservamos únicamente tiempo agregado, sin aplicación,

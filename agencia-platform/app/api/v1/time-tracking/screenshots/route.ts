@@ -21,6 +21,8 @@ export const POST = withApi({ scope: "time_tracking:write" }, async (req: NextRe
   if (!file.size || file.size > MAX_BYTES) throw new ApiError(413, "too_large", "La captura supera 8 MB");
   const deviceId = String(form.get("deviceId") ?? "").slice(0, 120);
   if (deviceId.length < 4) throw new ApiError(400, "device_required", "Falta el dispositivo");
+  const session = await prisma.timeTrackerSession.findFirst({ where: { workspaceId: api.workspaceId, userId: api.userId, endedAt: null }, select: { id: true } });
+  if (!session) throw new ApiError(409, "shift_not_active", "La jornada no está iniciada");
   const capturedAt = new Date(String(form.get("capturedAt") ?? ""));
   if (!Number.isFinite(capturedAt.getTime())) throw new ApiError(400, "invalid_date", "Fecha de captura inválida");
   const retentionDays = policy?.retentionDays ?? Math.min(90, Math.max(1, Number(form.get("retentionDays") ?? 30)));
