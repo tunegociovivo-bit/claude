@@ -65,4 +65,12 @@ describe("interfaz del agente de control horario", () => {
     expect(activityRoute).toContain('"shift_not_active"');
     expect(screenshotRoute).toContain('"shift_not_active"');
   });
+
+  it("publica el certificado interno antes del instalador de Windows", () => {
+    const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
+
+    expect(dashboard).toContain("Negocio-Vivo-Editor-Confiable.cer");
+    expect(dashboard).toContain("Instalar certificado de confianza");
+    expect(dashboard).toContain("Solo para equipos internos de Negocio Vivo");
+  });
 });
