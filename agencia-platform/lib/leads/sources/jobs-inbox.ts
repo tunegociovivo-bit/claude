@@ -15,6 +15,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { completeJson } from "@/lib/ai/anthropic";
+import { convert as htmlToText } from "html-to-text";
 import type { RawOffer } from "./jobs";
 import { describeJobsInboxFailure } from "./jobs-inbox-status";
 import { fetchPendingGoogleMessages, googleJobsInboxConnected, testGoogleJobsInbox } from "./jobs-gmail";
@@ -43,12 +44,23 @@ export function isJobAlertSender(fromAddress: string): boolean {
 
 /** Extrae el formato de texto estable de las alertas de InfoJobs sin depender de la IA. */
 export function parseInfoJobsAlertText(text: string): RawOffer[] {
-  const lines = text
+  const input = text.slice(0, 200000);
+  const normalizedText = /<\/?[a-z][\s\S]*>/i.test(input)
+    ? htmlToText(input, {
+        wordwrap: false,
+        selectors: [
+          { selector: "img", format: "skip" },
+          { selector: "a", options: { ignoreHref: true } },
+          { selector: "td", format: "block" }
+        ]
+      })
+    : input;
+  const lines = normalizedText
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/\u00a0/g, " ").trim())
     .filter(Boolean);
-  const start = lines.findIndex((line) => /^estas son las ofertas\b/i.test(line));
+  const start = lines.findIndex((line) => /\bestas son las ofertas\b/i.test(line));
   if (start < 0) return [];
   const endOffset = lines.slice(start + 1).findIndex((line) =>
     /^(?:ver m[aá]s ofertas|¿?ya no quieres recibir)/i.test(line)
@@ -201,9 +213,12 @@ Ignora cabeceras, pies, banners, "ver más ofertas", enlaces de baja y publicida
 Si el email no lista ofertas, devuelve {"offers": []}. Devuelve SOLO el JSON.`;
 
 /** Extrae ofertas del texto de un email de alerta usando la IA. */
-async function extractOffers(workspaceId: string, email: { from: string; subject: string; text: string }): Promise<RawOffer[]> {
+async function extractOffers(
+  workspaceId: string,
+  email: { from: string; subject: string; text: string; html?: string }
+): Promise<RawOffer[]> {
   const body = (email.text || "").slice(0, 12000);
-  if (body.trim().length < 20) return [];
+  if (body.trim().length < 20 && (!email.html || email.html.trim().length < 20)) return [];
   const board = /linkedin/i.test(email.from)
     ? "linkedin"
     : /infojobs/i.test(email.from)
@@ -212,7 +227,7 @@ async function extractOffers(workspaceId: string, email: { from: string; subject
         ? "google_alerts"
         : "email";
   if (board === "infojobs") {
-    const parsed = parseInfoJobsAlertText(body);
+    const parsed = parseInfoJobsAlertText(email.html || body);
     if (parsed.length > 0) return parsed;
   }
   let res: { offers?: any[] };
@@ -262,7 +277,12 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
         const fromAddress = parsed.from?.value.map((value) => value.address ?? "").join(",") ?? "";
         if (!isJobAlertSender(fromAddress)) continue;
         const text = (parsed.text || parsed.html || "").toString();
-        offers.push(...await extractOffers(workspaceId, { from, subject: parsed.subject ?? "", text }));
+        offers.push(...await extractOffers(workspaceId, {
+          from,
+          subject: parsed.subject ?? "",
+          text,
+          html: typeof parsed.html === "string" ? parsed.html : undefined
+        }));
         emails++;
         googleMessageIds.push(message.id);
       }
@@ -304,14 +324,16 @@ export async function fetchJobAlertOffers(workspaceId: string): Promise<{ offers
         // Solo procesamos emails de portales de empleo conocidos.
         if (!isJobAlertSender(fromAddr)) continue;
         let text = "";
+        let html: string | undefined;
         try {
           const { simpleParser } = await import("mailparser");
           const parsed = await simpleParser(msg.source as Buffer);
           text = (parsed.text || parsed.html || "").toString();
+          html = typeof parsed.html === "string" ? parsed.html : undefined;
         } catch {
           text = (msg.source as Buffer)?.toString("utf8") ?? "";
         }
-        const found = await extractOffers(workspaceId, { from, subject: env.subject ?? "", text });
+        const found = await extractOffers(workspaceId, { from, subject: env.subject ?? "", text, html });
         offers.push(...found);
         emails++;
         // Marca el email como leído para no reprocesarlo.
