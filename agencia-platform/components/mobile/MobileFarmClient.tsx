@@ -48,6 +48,7 @@ import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
+import { prepareAndroidForAutomation } from "@/components/mobile/android-automation-ready";
 import {
   findAndroidUiNodeCenter,
   type AndroidUiNodeCriteria,
@@ -179,6 +180,8 @@ async function openFacebookGroupSearch(
   controller: AndroidClipboardController,
   query: string
 ): Promise<void> {
+  await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
+  await waitForAndroidUi(500);
   const facebookPackage = await resolveFacebookPackage(adb);
   await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
   await runAdbCommand(adb, [
