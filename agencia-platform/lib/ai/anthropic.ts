@@ -210,6 +210,11 @@ export async function completeJson<T = any>(opts: {
    *  user. Útil para que Claude VEA fotos del cliente y las describa
    *  físicamente en el JSON estructurado (image_prompt). */
   imageUrls?: string[];
+  /** Imágenes efímeras ya validadas, enviadas directamente sin URL ni persistencia. */
+  inlineImages?: Array<{
+    mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+    data: string;
+  }>;
 }): Promise<T> {
   const client = await getAnthropicForWorkspace(opts.workspaceId);
   const strictSchema = strictifySchema(opts.schema);
@@ -219,7 +224,17 @@ export async function completeJson<T = any>(opts: {
   // Construir content del user: si hay imágenes, las metemos como
   // bloques al inicio + texto al final.
   let userContent: any;
-  if (opts.imageUrls && opts.imageUrls.length > 0) {
+  if (opts.inlineImages && opts.inlineImages.length > 0) {
+    const blocks = opts.inlineImages.slice(0, 20).map((image) => ({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: image.mediaType,
+        data: image.data
+      }
+    }));
+    userContent = [...blocks, { type: "text", text: opts.user }];
+  } else if (opts.imageUrls && opts.imageUrls.length > 0) {
     // Igual que en completeVision: descargamos server-side y mandamos
     // base64 para evitar el bloqueo por robots.txt.
     const blocks = await Promise.all(

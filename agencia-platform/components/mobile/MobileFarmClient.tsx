@@ -45,6 +45,7 @@ import {
   WebGLVideoFrameRenderer
 } from "@yume-chan/scrcpy-decoder-webcodecs";
 import PageHeader from "@/components/PageHeader";
+import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
@@ -58,6 +59,7 @@ import {
   parseAndroidProxy,
   type AndroidHttpProxy
 } from "@/lib/mobile/android-proxy";
+import { MAX_CONVERSATION_SCREENSHOT_BYTES } from "@/lib/mobile/conversation-radar";
 import type { SharedMobilePhone } from "@/lib/mobile/shared-phones";
 
 type UsbDevice = AdbDaemonWebUsbDevice;
@@ -84,6 +86,60 @@ async function runAdbCommand(adb: Adb, command: readonly string[]): Promise<stri
     return result.stdout.trim();
   }
   return (await adb.subprocess.noneProtocol.spawnWaitText(escapedCommand)).trim();
+}
+
+async function runAdbBinary(adb: Adb, command: readonly string[]): Promise<Uint8Array> {
+  const escapedCommand = escapeAdbCommand(command);
+  const shell = adb.subprocess.shellProtocol;
+  if (shell) {
+    const result = await shell.spawnWait(escapedCommand);
+    if (result.exitCode !== 0) {
+      const detail = new TextDecoder().decode(result.stderr).trim();
+      throw new Error(detail || "Android no ha podido capturar la pantalla.");
+    }
+    return result.stdout;
+  }
+  return adb.subprocess.noneProtocol.spawnWait(escapedCommand);
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Chrome no ha podido procesar la captura."));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function compressScreenshot(bytes: Uint8Array): Promise<string> {
+  const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
+  try {
+    const attempts = [
+      { maxDimension: 1800, quality: 0.78 },
+      { maxDimension: 1400, quality: 0.66 },
+      { maxDimension: 1100, quality: 0.55 }
+    ];
+    for (const attempt of attempts) {
+      const scale = Math.min(1, attempt.maxDimension / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("Chrome no ha podido preparar la captura.");
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (value) => value ? resolve(value) : reject(new Error("Chrome no ha podido comprimir la captura.")),
+          "image/jpeg",
+          attempt.quality
+        );
+      });
+      if (blob.size <= MAX_CONVERSATION_SCREENSHOT_BYTES) return blobToDataUrl(blob);
+    }
+    throw new Error("La pantalla contiene demasiado detalle para analizarla. Reduce el tamaño de texto o prueba con menos comentarios visibles.");
+  } finally {
+    bitmap.close();
+  }
 }
 
 async function readAndroidProxy(adb: Adb): Promise<AndroidHttpProxy | null> {
@@ -513,6 +569,28 @@ function MobileDeviceCard({ device, linkedPhone }: { device: UsbDevice; linkedPh
     });
   }, [status]);
 
+  const copyApprovedConversation = useCallback(async (content: string) => {
+    const controller = clientRef.current?.controller;
+    if (!controller || status !== "mirroring") {
+      throw new Error("La pantalla del móvil debe estar abierta para copiar el texto.");
+    }
+    await controller.setClipboard({
+      sequence: BigInt(Date.now()),
+      paste: false,
+      content
+    });
+  }, [status]);
+
+  const captureVisibleScreen = useCallback(async () => {
+    const adb = adbRef.current;
+    if (!adb || status !== "mirroring") {
+      throw new Error("La pantalla del móvil debe estar abierta para analizarla.");
+    }
+    const bytes = await runAdbBinary(adb, ["screencap", "-p"]);
+    if (bytes.byteLength === 0) throw new Error("Android ha devuelto una captura vacía.");
+    return compressScreenshot(bytes);
+  }, [status]);
+
   async function applyProxy() {
     const adb = adbRef.current;
     if (!adb) return;
@@ -773,13 +851,28 @@ function MobileDeviceCard({ device, linkedPhone }: { device: UsbDevice; linkedPh
         )}
 
         {linkedPhone ? (
-          <MobileAutomationPanel
-            deviceSerial={device.serial}
-            phoneKey={linkedPhone.key}
-            ready={status === "mirroring"}
-            onExecuteJob={executeApprovedAutomation}
-            onPasteText={pasteApprovedAutomation}
-          />
+          <>
+            <ConversationRadarPanel
+              deviceSerial={device.serial}
+              phoneKey={linkedPhone.key}
+              ready={status === "mirroring"}
+              onCaptureScreen={captureVisibleScreen}
+              onCopyText={copyApprovedConversation}
+              onPasteText={pasteApprovedAutomation}
+            />
+            <details className="rounded-xl border border-slate-200 bg-white">
+              <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-slate-700">Acciones individuales y borradores programados</summary>
+              <div className="px-2 pb-2">
+                <MobileAutomationPanel
+                  deviceSerial={device.serial}
+                  phoneKey={linkedPhone.key}
+                  ready={status === "mirroring"}
+                  onExecuteJob={executeApprovedAutomation}
+                  onPasteText={pasteApprovedAutomation}
+                />
+              </div>
+            </details>
+          </>
         ) : (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
             Asocia este Android a un número compartido para habilitar el Centro de automatizaciones.

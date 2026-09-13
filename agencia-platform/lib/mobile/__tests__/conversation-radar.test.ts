@@ -16,7 +16,7 @@ const validRequest = {
     name: "Viajes a Japón",
     topic: "Personas que estén preparando un viaje a Japón y pidan recomendaciones",
     goal: "Responder con información útil basada en mi experiencia",
-    tone: "helpful",
+    tone: "helpful" as const,
     minimumRelevance: 65
   }
 };
