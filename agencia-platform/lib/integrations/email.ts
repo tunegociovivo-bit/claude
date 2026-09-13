@@ -76,6 +76,48 @@ export async function getResendConfig(
   return { apiKey, from };
 }
 
+async function resendGetJson(path: string, workspaceId?: string): Promise<any> {
+  const { apiKey } = await getResendConfig(workspaceId);
+  if (!apiKey) throw new Error("Resend no configurado");
+  const response = await fetch(`https://api.resend.com${path}`, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000)
+  });
+  if (!response.ok) throw new Error(`Resend ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`);
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  const maxBytes = 2_000_000;
+  if (declared > maxBytes) throw new Error("Respuesta de Resend demasiado grande");
+  const reader = response.body?.getReader();
+  if (!reader) return response.json();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error("Respuesta de Resend demasiado grande");
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(joined));
+}
+
+export function retrieveResendSentEmail(workspaceId: string, emailId: string, opts?: { globalConfigOnly?: boolean }) {
+  return resendGetJson(`/emails/${encodeURIComponent(emailId)}`, opts?.globalConfigOnly ? undefined : workspaceId);
+}
+
+export function retrieveResendReceivedEmail(workspaceId: string, emailId: string, opts?: { globalConfigOnly?: boolean }) {
+  return resendGetJson(`/emails/receiving/${encodeURIComponent(emailId)}?html_format=cid`, opts?.globalConfigOnly ? undefined : workspaceId);
+}
+
 export function getFromAddress(): string {
   // Default: dominio propio VERIFICADO en Resend (info@negociovivo.com).
   return process.env.EMAIL_FROM ?? DEFAULT_FROM;
@@ -97,14 +139,21 @@ export async function sendEmail(opts: {
   replyTo?: string;
   /** Evita duplicar un correo cuando se reintenta una misma operación. */
   idempotencyKey?: string;
+  /** Cabeceras de cumplimiento/seguimiento admitidas por Resend. */
+  headers?: Record<string, string>;
+  tags?: Array<{ name: string; value: string }>;
   /** Cancela los reintentos cuando el trabajo propietario ha vencido. */
   signal?: AbortSignal;
+  /** Usa solo RESEND_API_KEY; necesario cuando el webhook firmado también es global. */
+  globalConfigOnly?: boolean;
 }): Promise<{ id: string }> {
   // Resuelve la clave por bóveda (prioridad) o env. Sin workspaceId → comportamiento previo
   // (solo env). Así callers existentes no cambian, y el path de leads usa la bóveda.
-  const { apiKey, from: resolvedFrom } = await getResendConfig(opts.workspaceId);
+  const { apiKey, from: resolvedFrom } = await getResendConfig(opts.globalConfigOnly ? undefined : opts.workspaceId);
   if (!apiKey) {
-    throw new Error("Email no configurado. Define RESEND_API_KEY o guarda la clave de Resend en /admin/secretos.");
+    throw new Error(opts.globalConfigOnly
+      ? "Email GMB no configurado. Define la RESEND_API_KEY global vinculada al webhook firmado."
+      : "Email no configurado. Define RESEND_API_KEY o guarda la clave de Resend en /admin/secretos.");
   }
   // Prioridad del remitente: `opts.from` forzado > EMAIL_FROM/bóveda > default verificado.
   const from = opts.from ?? resolvedFrom;
@@ -116,7 +165,9 @@ export async function sendEmail(opts: {
     html: opts.html,
     text: opts.text,
     ...(bccList.length ? { bcc: bccList } : {}),
-    ...(opts.replyTo ? { reply_to: opts.replyTo } : {})
+    ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+    ...(opts.headers ? { headers: opts.headers } : {}),
+    ...(opts.tags?.length ? { tags: opts.tags } : {})
   });
   // Reintentos con backoff ante fallos transitorios (429 rate limit, 5xx,
   // timeouts de red). Los 4xx deterministas (400/401/403/422) no se reintentan.
@@ -140,13 +191,19 @@ export async function sendEmail(opts: {
       const body = await resp.text().catch(() => "");
       lastErr = `Resend ${resp.status}: ${body.slice(0, 200)}`;
       const retryable = resp.status === 429 || resp.status >= 500;
-      if (!retryable || attempt === 3) throw new Error(lastErr);
+      if (!retryable || attempt === 3) {
+        const error: Error & { retryable?: boolean; resendStatus?: number; resendBody?: string } = new Error(lastErr);
+        error.retryable = retryable;
+        error.resendStatus = resp.status;
+        error.resendBody = body.slice(0, 1000);
+        throw error;
+      }
     } catch (e: any) {
       opts.signal?.throwIfAborted();
       lastErr = e?.message ?? String(e);
-      if (attempt === 3) {
-        console.warn("[email] fallo tras 3 intentos:", lastErr);
-        throw new Error(lastErr);
+      if (e?.retryable === false || attempt === 3) {
+        console.warn("[email] fallo de envío:", lastErr);
+        throw e instanceof Error ? e : new Error(lastErr);
       }
     }
     await new Promise<void>((resolve, reject) => {

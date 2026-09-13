@@ -29,6 +29,7 @@ export type BlockLeadResult = {
   canceledMessages: number;
   stoppedSequences: number;
   stoppedExec: number;
+  stoppedProspecting: number;
   excludedLead: boolean;
 };
 
@@ -37,6 +38,7 @@ export async function blockLeadCompletely(opts: {
   /** phoneNormalized de la conversación (puede ser un LID oculto). */
   phone?: string | null;
   leadId?: string | null;
+  email?: string | null;
   reason?: string | null;
   /** "ai_classification" | "manual" | ... */
   source?: string;
@@ -49,8 +51,8 @@ export async function blockLeadCompletely(opts: {
 
   // 1. Resolver el lead (por id directo o por el teléfono de sus mensajes),
   //    para poder excluir el NEGOCIO y bloquear también su teléfono real.
-  const leadSelect = { id: true, name: true, phone: true, internationalPhone: true, placeId: true } as const;
-  let lead: { id: string; name: string | null; phone: string | null; internationalPhone: string | null; placeId: string } | null =
+  const leadSelect = { id: true, name: true, phone: true, internationalPhone: true, email: true, placeId: true } as const;
+  let lead: { id: string; name: string | null; phone: string | null; internationalPhone: string | null; email: string | null; placeId: string } | null =
     null;
   if (opts.leadId) {
     lead = await prisma.lead.findFirst({ where: { id: opts.leadId, workspaceId }, select: leadSelect });
@@ -85,6 +87,24 @@ export async function blockLeadCompletely(opts: {
       .catch(() => {});
   }
 
+  // Lista multicanal permanente (hash): bloquea también reimportaciones por
+  // email aunque el registro original se eliminase.
+  const { addSuppression } = await import("./suppressions");
+  const emails = new Set<string>();
+  if (opts.email) emails.add(opts.email);
+  if (lead?.email) emails.add(lead.email);
+  if (lead) {
+    const contacts = await prisma.leadEmailContact.findMany({ where: { leadId: lead.id }, select: { email: true } });
+    contacts.forEach((contact) => emails.add(contact.email));
+    await addSuppression({ workspaceId, leadId: lead.id, kind: "lead", value: lead.id, reason, source });
+  }
+  for (const email of emails) {
+    await addSuppression({ workspaceId, leadId: lead?.id ?? opts.leadId, kind: "email", value: email, reason, source });
+  }
+  for (const phone of phones) {
+    await addSuppression({ workspaceId, leadId: lead?.id ?? opts.leadId, kind: "phone", value: phone, reason, source });
+  }
+
   // 4. Cancelar lo que esté EN MARCHA en la cola de envío (por cualquiera de sus
   //    teléfonos y por el leadId, por si algún mensaje tiene otro phoneNormalized).
   const or: any[] = [];
@@ -102,6 +122,7 @@ export async function blockLeadCompletely(opts: {
   // 5. Parar secuencias + exec-outreach y marcar el lead EXCLUIDO.
   let stoppedSequences = 0;
   let stoppedExec = 0;
+  let stoppedProspecting = 0;
   let excludedLead = false;
   if (lead) {
     const s = await prisma.leadSequenceAssignment.updateMany({
@@ -110,9 +131,28 @@ export async function blockLeadCompletely(opts: {
     });
     stoppedSequences = s.count;
     const e = await prisma.leadExecOutreach
-      .updateMany({ where: { leadId: lead.id, status: "active" }, data: { status: "stopped" } })
+      .updateMany({
+        where: { leadId: lead.id, status: { in: ["active", "pending_review"] } },
+        data: { status: "stopped", draftSubject: null, draftBody: null }
+      })
       .catch(() => ({ count: 0 }));
     stoppedExec = (e as any)?.count ?? 0;
+    const prospects = await prisma.prospectingProspect.findMany({
+      where: { workspaceId, leadId: lead.id },
+      select: { id: true }
+    });
+    const prospectIds = prospects.map((prospect) => prospect.id);
+    if (prospectIds.length) {
+      const p = await prisma.prospectingProspect.updateMany({
+        where: { id: { in: prospectIds }, status: { notIn: ["excluded", "completed"] } },
+        data: { status: "excluded", suppressedAt: new Date(), nextActionAt: null, stopReason: reason }
+      });
+      stoppedProspecting = p.count;
+      await prisma.prospectingActivity.updateMany({
+        where: { prospectId: { in: prospectIds }, status: { in: ["queued", "processing", "awaiting_review"] } },
+        data: { status: "skipped", executedAt: new Date(), error: `Cadencia detenida: ${reason}`, leaseUntil: null }
+      });
+    }
     await prisma.lead.update({ where: { id: lead.id }, data: { contactStatus: "excluded" } }).catch(() => {});
     excludedLead = true;
   }
@@ -135,6 +175,7 @@ export async function blockLeadCompletely(opts: {
     canceledMessages,
     stoppedSequences,
     stoppedExec,
+    stoppedProspecting,
     excludedLead
   };
 }

@@ -10,6 +10,7 @@ import { normalizePhone } from "./waha";
 import { buildCommercialReplyAlert } from "./commercial-reply-alert";
 import { COMMERCIAL_PHONE, COMMERCIAL_PROJECT } from "./commercial-handoff";
 import { mergeLeadConversationItems, type LeadConversationItem } from "./conversation-items";
+import { isExplicitRejectionReply, isOptOutReply, normalizedReply } from "./reply-classification";
 
 export type InboxClass =
   | "interested"
@@ -21,37 +22,6 @@ export type InboxClass =
   | "auto_reply";
 
 type InboxClassification = { classification: InboxClass; confidence: number; reason: string };
-
-function normalizedReply(text: string) {
-  return text.toLowerCase().trim();
-}
-
-function hasPositiveContrastOrTiming(text: string) {
-  return /\bpero\s+(?:s[ií]|quiero|queremos|me interesa|nos interesa|podemos|hablemos|ll[aá]m)/.test(text)
-    || /\b(?:ahora|hoy|en este momento)\b[^.?!;]*(?:no|imposible)[^.?!;]*(?:ma[ñn]ana|luego|m[aá]s tarde|otro d[ií]a)/.test(text)
-    || /\bno\s+(?:me|nos)\s+llam(?:es|[ée]is)\s+(?:ahora|hoy|en este momento)\b/.test(text)
-    || /\b(?:ma[ñn]ana|luego|m[aá]s tarde|otro d[ií]a)\b[^.?!;]*(?:s[ií]|ll[aá]m|contact)/.test(text);
-}
-
-function isOptOutReply(text: string) {
-  const explicitUnsubscribeCommand = /\bstop\b/.test(text)
-    || /^\s*baja\b(?=\s*[,.;:!?]|\s*$)/.test(text)
-    || /\b(?:dame|dadme|denme|darme|darnos|solicito|solicitamos|quiero|queremos)\s+(?:(?:darme|darnos)\s+)?(?:de|la)\s+baja\b/.test(text);
-  const permanentOptOut = explicitUnsubscribeCommand
-    || /\bno\s+(?:quiero|queremos)\s+(?:m[aá]s\s+)?mensajes\b/.test(text)
-    || /\bno\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|contactes|contact[ée]is|llames|llam[ée]is)\s+(?:m[aá]s|de nuevo|nunca)\b/.test(text)
-    || /\b(?:deja|dejad|dejen)\s+de\s+(?:escribir|contactar|llamar)\b/.test(text);
-  if (permanentOptOut) return true;
-  if (hasPositiveContrastOrTiming(text)) return false;
-  return /\bno\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|contactes|contact[ée]is|llames|llam[ée]is)\b/.test(text);
-}
-
-function isExplicitRejection(text: string) {
-  if (hasPositiveContrastOrTiming(text)) return false;
-  return /\b(?:no|tampoco)\s+(?:(?:me|nos)\s+)?(?:interesa(?:n)?|necesit(?:o|amos)|quier(?:o|emos))\b/.test(text)
-    || /\bno\s+(?:estoy|estamos)\s+interesad[oa]s?\b/.test(text)
-    || /\b(?:sin|ning[uú]n)\s+inter[eé]s\b/.test(text);
-}
 
 function isAutomaticReply(text: string) {
   const standardAutoReply = /(estamos.?ausentes|fuera.?de.?oficina|out of office|no se encuentra disponible|respuesta autom)/.test(text);
@@ -72,7 +42,7 @@ export function applyDeterministicClassificationGuard(text: string, proposed: In
   if (isAutomaticReply(normalized)) {
     return { classification: "auto_reply", confidence: 0.98, reason: "Respuesta automática detectada" };
   }
-  if (isExplicitRejection(normalized)) {
+  if (isExplicitRejectionReply(normalized)) {
     return { classification: "positive_no", confidence: 0.99, reason: "Rechazo explícito detectado" };
   }
   return proposed;
@@ -162,7 +132,7 @@ export function classifyHeuristic(text: string): { classification: InboxClass; c
     return { classification: "auto_reply", confidence: 0.85, reason: "Patrón de respuesta automática" };
   }
   // Opt-out educado / positive_no
-  if (isExplicitRejection(t) || /^(no\s+gracias|no\s+interesa|gracias\s+pero\s+no|de\s+momento\s+no)/.test(t)) {
+  if (isExplicitRejectionReply(t)) {
     return { classification: "positive_no", confidence: 0.75, reason: "Rechazo educado" };
   }
   // Pregunta / info_request
@@ -703,23 +673,31 @@ export async function ingestInbox(opts: {
   }
 
   // Acciones según clasificación
-  if (classified.classification === "opt_out") {
+  if (!isInternalContact && classified.classification === "auto_reply" && leadId) {
+    const now = new Date();
+    await prisma.prospectingProspect.updateMany({ where: { workspaceId: opts.workspaceId, leadId }, data: { autoReplyAt: now } });
+    const { recordLeadContactEvent } = await import("./contact-events");
+    await recordLeadContactEvent({ workspaceId: opts.workspaceId, leadId, channel: "whatsapp", type: "auto_reply", provider: "whatsapp", providerEventId: opts.externalMessageId ?? `auto:${msg.id}`, metadata: { body: opts.text.slice(0, 1000) } });
+  }
+  if (["opt_out", "positive_no"].includes(classified.classification)) {
     // BLOQUEO TOTAL: opt-out por todos sus teléfonos, cancela mensajes en cola,
     // para secuencias/exec-outreach y marca el negocio EXCLUIDO para que ninguna
     // búsqueda futura lo recontacte (haga la búsqueda que haga).
-    try {
-      const { blockLeadCompletely } = await import("./optout");
-      await blockLeadCompletely({
-        workspaceId: opts.workspaceId,
-        phone: phoneNormalized,
-        leadId,
-        reason: classified.reason ?? "Solicitó no ser contactado (opt-out)",
-        source: useIA ? "ai_classification" : "manual"
-      });
-    } catch (e: any) {
-      console.warn("[inbox opt-out block]", e?.message ?? e);
+    if (leadId) {
+      const { markLeadHumanReply } = await import("./lead-cadence");
+      await markLeadHumanReply({ workspaceId: opts.workspaceId, leadId, channel: "whatsapp", body: opts.text });
     }
-  } else if (!isInternalContact && ["interested", "objection", "info_request"].includes(classified.classification)) {
+    const { blockLeadCompletely } = await import("./optout");
+    await blockLeadCompletely({
+      workspaceId: opts.workspaceId,
+      phone: phoneNormalized,
+      leadId,
+      reason: classified.classification === "positive_no"
+        ? "Indicó que no le interesa"
+        : classified.reason ?? "Solicitó no ser contactado (opt-out)",
+      source: useIA ? "ai_classification" : "manual"
+    });
+  } else if (!isInternalContact && classified.classification !== "auto_reply") {
     // Lead respondió → marcar y parar secuencias
     if (leadId) {
       await prisma.lead.update({
@@ -730,6 +708,8 @@ export async function ingestInbox(opts: {
         where: { leadId, status: "active" },
         data: { status: "stopped", stoppedReason: "respuesta_recibida", completedAt: new Date() }
       });
+      const { markLeadHumanReply } = await import("./lead-cadence");
+      await markLeadHumanReply({ workspaceId: opts.workspaceId, leadId, channel: "whatsapp", body: opts.text });
     }
 
     // Crear tarea de seguimiento (con recordatorio) cuando hay interés real,

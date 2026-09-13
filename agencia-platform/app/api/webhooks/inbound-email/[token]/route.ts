@@ -33,6 +33,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { triggerNvIaFromInbound } from "@/lib/ai/nv-ia/inbound-trigger";
+import { normalizeEmail } from "@/lib/leads/email-verification";
+import { markLeadHumanReply } from "@/lib/leads/lead-cadence";
+import { recordLeadContactEvent } from "@/lib/leads/contact-events";
+import { blockLeadCompletely } from "@/lib/leads/optout";
+import { isAutomaticEmailReply } from "@/lib/leads/resend-webhook";
+import { isPermanentNoContactReply } from "@/lib/leads/reply-classification";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -82,6 +88,71 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   if (!from || !text) {
     return NextResponse.json({ ok: false, error: "missing from/text" }, { status: 400 });
+  }
+
+  // Vincular las respuestas de prospección al lead. Los autorespondedores se
+  // registran pero no detienen; cualquier respuesta humana sí detiene ambos
+  // canales. Una negativa/baja crea supresión permanente.
+  const fromEmail = normalizeEmail(from.match(/[\w.+-]+@[\w.-]+/)?.[0]);
+  if (fromEmail) {
+    const candidateLeads = await prisma.lead.findMany({
+      where: {
+        workspaceId: ws.id,
+        OR: [
+          { email: { equals: fromEmail, mode: "insensitive" } },
+          { emailContacts: { some: { normalizedEmail: fromEmail } } }
+        ]
+      },
+      select: { id: true },
+      take: 4
+    });
+    const candidateIds = candidateLeads.map((lead) => lead.id);
+    const replyHeaders = `${headerValue(body.headers, "in-reply-to")} ${headerValue(body.headers, "references")}`.trim();
+    const recipient = normalizeEmail(to.match(/[\w.+-]+@[\w.-]+/)?.[0]);
+    const configuredReplyTo = normalizeEmail((ws.settings as any)?.leads?.gmbReplyTo);
+    const recipientMatches = !configuredReplyTo || recipient === configuredReplyTo;
+    const outbound = candidateIds.length && recipientMatches ? await prisma.prospectingMessage.findMany({
+      where: {
+        workspaceId: ws.id,
+        channel: "email",
+        direction: "out",
+        createdAt: { gte: new Date(Date.now() - 90 * 86_400_000) },
+        prospect: { leadId: { in: candidateIds }, campaign: { kind: "gmb_multichannel" } }
+      },
+      include: { prospect: true },
+      orderBy: { createdAt: "desc" },
+      take: 30
+    }) : [];
+    const normalizedSubject = replySubject(subject);
+    let matching = outbound.filter((message) => {
+      const rfcMessageId = String(message.rfcMessageId ?? (message.metadata as any)?.rfcMessageId ?? "");
+      return !!replyHeaders && !!rfcMessageId && replyHeaders.includes(rfcMessageId);
+    });
+    if (!matching.length) {
+      matching = outbound.filter((message) => {
+        const sentSubject = replySubject(String((message.metadata as any)?.subject ?? ""));
+        return !!normalizedSubject && normalizedSubject === sentSubject;
+      });
+    }
+    const matchedLeadIds = [...new Set(matching.map((message) => message.prospect.leadId).filter((id): id is string => !!id))];
+    if (matching.length && matchedLeadIds.length === 1) {
+      const lead = candidateLeads.find((candidate) => candidate.id === matchedLeadIds[0])!;
+      const prospect = matching.find((message) => message.prospect.leadId === lead.id)?.prospect ?? null;
+      const freshText = unquotedReply(text);
+      const automatic = isAutomaticEmailReply({ subject, text: freshText, headers: body.headers });
+      const rejection = isPermanentNoContactReply(`${subject}\n${freshText}`);
+      if (prospect) {
+        await prisma.prospectingMessage.create({ data: { workspaceId: ws.id, campaignId: prospect.campaignId, prospectId: prospect.id, channel: "email", direction: "in", body: freshText.slice(0, 16000), status: "received", externalId: messageId, classification: automatic ? "auto_reply" : rejection ? "opt_out" : "human_reply", metadata: { from, subject } } }).catch(() => null);
+      }
+      if (automatic) {
+        if (prospect) await prisma.prospectingProspect.update({ where: { id: prospect.id }, data: { autoReplyAt: new Date() } });
+        await recordLeadContactEvent({ workspaceId: ws.id, leadId: lead.id, prospectId: prospect?.id, channel: "email", type: "auto_reply", provider: "inbound_email", providerEventId: messageId, metadata: { from, subject } });
+      } else if (rejection) {
+        await blockLeadCompletely({ workspaceId: ws.id, leadId: lead.id, email: fromEmail, reason: "Indicó por email que no le interesa o solicitó la baja", source: "email_reply" });
+      } else {
+        await markLeadHumanReply({ workspaceId: ws.id, leadId: lead.id, channel: "email", body: freshText });
+      }
+    }
   }
 
   // Intentamos asociar a un cliente conocido si el `from` coincide
@@ -137,6 +208,32 @@ function stripHtml(html: string): string {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function headerValue(headers: unknown, name: string): string {
+  if (!headers) return "";
+  const wanted = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    const row = headers.find((item: any) => String(item?.name ?? item?.key ?? "").toLowerCase() === wanted) as any;
+    return String(row?.value ?? "");
+  }
+  if (typeof headers === "object") {
+    const entry = Object.entries(headers as Record<string, unknown>).find(([key]) => key.toLowerCase() === wanted);
+    return String(entry?.[1] ?? "");
+  }
+  return "";
+}
+
+function replySubject(value: string): string {
+  return value.replace(/^\s*((re|rv|fw|fwd)\s*:\s*)+/i, "").trim().toLowerCase();
+}
+
+/** Conserva solo la respuesta nueva; no clasifica enlaces de baja citados. */
+function unquotedReply(value: string): string {
+  const marker = /\n(?:on .{0,240}wrote:|el .{0,240}escribi[oó]:|-{2,}\s*(?:original message|mensaje original)\s*-{2,}|from:\s|de:\s)/i;
+  const match = marker.exec(value);
+  const head = match ? value.slice(0, match.index) : value;
+  return head.split(/\r?\n/).filter((line) => !/^\s*>/.test(line)).join("\n").trim();
 }
 
 // GET para healthcheck — algunos proveedores hacen GET para validar la URL.

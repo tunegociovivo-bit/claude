@@ -17,6 +17,7 @@ import { ApiError } from "@/lib/api/auth";
 import { decryptSecret, encryptSecret } from "@/lib/ai/crypto";
 import { getSendSettings } from "@/lib/leads/send-queue";
 import { channelWarmupCap } from "@/lib/leads/channels";
+import { GMB_COMPLIANCE_VERSION } from "@/lib/leads/gmb-multichannel-readiness";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -37,6 +38,15 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   // Fallback a la config del plugin migrada (settings.integrations.evolution),
   // para que la UI muestre WhatsApp como configurado sin reintroducir nada.
   const evo: any = (ws?.settings as any)?.integrations?.evolution ?? {};
+  const resendConfigured = !!(process.env.RESEND_API_KEY || (ws?.settings as any)?.integrations?.resend?.apiKeyEnc);
+  const gmbResendConfigured = !!process.env.RESEND_API_KEY;
+  const resendWebhookConfigured = !!(process.env.RESEND_WEBHOOK_TOKEN && process.env.RESEND_WEBHOOK_SECRET);
+  const inboundEmailConfigured = !!(String(s.gmbReplyTo ?? "").trim() && resendWebhookConfigured);
+  const hunterConfigured = !!(s.hunterApiKeyEnc || process.env.HUNTER_API_KEY);
+  const gmbComplianceAccepted = s.gmbComplianceVersion === GMB_COMPLIANCE_VERSION && !!s.gmbComplianceConfirmedAt;
+  const envGmbFrom = String(process.env.LEADS_EMAIL_FROM ?? "").trim();
+  const defaultGmbEmail = envGmbFrom.match(/<([^>]+)>/)?.[1]?.trim() || (envGmbFrom.includes("@") ? envGmbFrom : "contacto@prospeccion.negociovivo.com");
+  const defaultGmbName = envGmbFrom.includes("<") ? envGmbFrom.slice(0, envGmbFrom.indexOf("<")).trim() || "Negocio Vivo" : "Negocio Vivo";
   const configuredChannels = Array.isArray(s.channels) ? s.channels : [];
   const effectiveLimitsByChannel = Object.fromEntries(
     await Promise.all(
@@ -110,7 +120,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     metaAdsConfigured: !!(s.metaAdsTokenEnc || s.metaAdsToken || process.env.META_ADS_TOKEN),
     scrapflyConfigured: !!(s.scrapflyApiKeyEnc || process.env.SCRAPFLY_API_KEY),
     // Enriquecimiento de contacto de directivos.
-    hunterConfigured: !!(s.hunterApiKeyEnc || process.env.HUNTER_API_KEY),
+    hunterConfigured,
     apolloConfigured: !!(s.apolloApiKeyEnc || process.env.APOLLO_API_KEY),
     // Voz IA (ElevenLabs) para notas de voz.
     elevenLabsConfigured: !!(s.elevenLabsApiKeyEnc || process.env.ELEVENLABS_API_KEY),
@@ -166,6 +176,17 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
     jobsInboxLastRun: s.jobsInboxLastRun ?? null,
     jobsInboxRecoveryMode: s.jobsInboxRecoveryMode ?? null,
     jobsInboxLastError: s.jobsInboxLastError ?? null,
+    gmbMultichannelEnabled: s.gmbMultichannelEnabled ?? false,
+    gmbSenderName: s.gmbSenderName ?? defaultGmbName,
+    gmbSenderEmail: s.gmbSenderEmail ?? defaultGmbEmail,
+    gmbReplyTo: s.gmbReplyTo ?? "",
+    resendConfigured,
+    gmbResendConfigured,
+    resendWebhookConfigured,
+    inboundEmailConfigured,
+    gmbComplianceAccepted,
+    gmbComplianceConfirmedAt: gmbComplianceAccepted ? s.gmbComplianceConfirmedAt : null,
+    gmbAutomationReady: gmbResendConfigured && resendWebhookConfigured && inboundEmailConfigured && hunterConfigured && gmbComplianceAccepted,
     sendEnabled: s.sendEnabled ?? true,
     sendPaused: s.sendPaused ?? false,
     sendWindowStart: s.sendWindowStart ?? "09:00",
@@ -266,6 +287,11 @@ const schema = z.object({
   blockLinksInFirstMessage: z.boolean().optional(),
   replyRateGuardEnabled: z.boolean().optional(),
   jobsReviewMode: z.boolean().optional(),
+  gmbMultichannelEnabled: z.boolean().optional(),
+  gmbSenderName: z.string().trim().min(1).max(100).optional(),
+  gmbSenderEmail: z.string().trim().email().max(254).optional(),
+  gmbReplyTo: z.string().trim().email().max(254).or(z.literal("")).optional(),
+  gmbComplianceAccepted: z.boolean().optional(),
   // Bandeja de alertas de empleo (IMAP de solo lectura).
   jobsInboxEnabled: z.boolean().optional(),
   jobsInboxHost: z.string().max(120).optional(),
@@ -431,6 +457,10 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     "blockLinksInFirstMessage",
     "replyRateGuardEnabled",
     "jobsReviewMode",
+    "gmbMultichannelEnabled",
+    "gmbSenderName",
+    "gmbSenderEmail",
+    "gmbReplyTo",
     "jobsInboxEnabled",
     "jobsInboxHost",
     "jobsInboxPort",
@@ -507,6 +537,48 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
   if (parsed.data.rotateWebhookToken) {
     s.webhookToken = randomBytes(24).toString("hex");
   }
+  if (parsed.data.gmbComplianceAccepted === true && (s.gmbComplianceVersion !== GMB_COMPLIANCE_VERSION || !s.gmbComplianceConfirmedAt)) {
+    s.gmbComplianceVersion = GMB_COMPLIANCE_VERSION;
+    s.gmbComplianceConfirmedAt = new Date().toISOString();
+    s.gmbComplianceConfirmedBy = api.userId;
+  } else if (parsed.data.gmbComplianceAccepted === false) {
+    delete s.gmbComplianceVersion;
+    delete s.gmbComplianceConfirmedAt;
+    delete s.gmbComplianceConfirmedBy;
+    s.gmbMultichannelEnabled = false;
+  }
+  if (parsed.data.gmbMultichannelEnabled === true) {
+    const missing: string[] = [];
+    if (!process.env.RESEND_API_KEY) missing.push("RESEND_API_KEY global (misma cuenta que firma el webhook)");
+    if (!(process.env.RESEND_WEBHOOK_TOKEN && process.env.RESEND_WEBHOOK_SECRET)) missing.push("webhook firmado de Resend");
+    if (!String(s.gmbReplyTo ?? "").trim()) missing.push("dirección Reply-To");
+    if (!(process.env.HUNTER_API_KEY || s.hunterApiKeyEnc)) missing.push("Hunter para verificar cada buzón");
+    if (s.gmbComplianceVersion !== GMB_COMPLIANCE_VERSION || !s.gmbComplianceConfirmedAt) missing.push("confirmación de elegibilidad y base jurídica");
+    if (missing.length) {
+      throw new ApiError(409, "gmb_automation_not_ready", `No se puede activar todavía. Falta configurar: ${missing.join(", ")}.`);
+    }
+  }
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
+  if (typeof parsed.data.hunterApiKey === "string" && parsed.data.hunterApiKey.trim()) {
+    await prisma.lead.updateMany({
+      where: {
+        workspaceId: api.workspaceId,
+        search: { source: "places" },
+        emailEnrichmentStatus: "found",
+        emailVerificationStatus: { in: ["domain_mx_valid", "risky", "unknown"] }
+      },
+      data: { emailEnrichmentNextAt: new Date(), emailEnrichmentError: null, multichannelEnrollmentStatus: "queued", multichannelEnrollmentNextAt: new Date() }
+    });
+  }
+  await prisma.prospectingCampaign.updateMany({
+    where: { workspaceId: api.workspaceId, kind: "gmb_multichannel", isDefault: true },
+    data: {
+      senderName: s.gmbSenderName ?? "Negocio Vivo",
+      senderEmail: s.gmbSenderEmail ?? "contacto@prospeccion.negociovivo.com",
+      replyTo: s.gmbReplyTo || null,
+      status: s.gmbMultichannelEnabled === true ? "active" : "paused",
+      complianceMode: s.gmbMultichannelEnabled === true ? "active" : "review"
+    }
+  });
   return NextResponse.json({ ok: true, webhookToken: s.webhookToken, jobsInboxConfigured: !!s.jobsInboxPassEnc });
 });

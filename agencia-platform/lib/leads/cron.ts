@@ -25,12 +25,15 @@ const PRIORITIZE_THROTTLE_MS = 10 * 60 * 1000;
 // redesplegar (aceptable).
 const _lastJobsInboxAt = new Map<string, number>();
 const JOBS_INBOX_THROTTLE_MS = 30 * 60 * 1000;
+const _gmbBackgroundBusy = new Set<string>();
 import { processSequencesTick } from "@/lib/leads/sequences";
 import { processBroadcastTick } from "@/lib/leads/broadcast";
 import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
 import { processExecOutreachTick } from "@/lib/leads/exec-outreach";
 import { ingestJobsInbox } from "@/lib/leads/search-manager";
 import { runProspectingEngine } from "@/lib/leads/prospecting-engine";
+import { processEmailEnrichmentTick } from "@/lib/leads/email-enrichment-worker";
+import { processGmbCadenceTick } from "@/lib/leads/lead-cadence";
 
 export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   const workspaces = await prisma.workspace.findMany({ select: { id: true } });
@@ -158,6 +161,41 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
 
     report.push(wsReport);
   }
+
+  // El scraping web y las llamadas a Hunter/Resend pueden tardar decenas de
+  // segundos. Se ejecutan después de atender búsquedas, colas y secuencias de
+  // todos los workspaces, con concurrencia acotada y guard frente a cron solapado.
+  const reportsByWorkspace = new Map(report.map((item) => [item.workspaceId, item]));
+  const pending = [...workspaces];
+  const worker = async () => {
+    while (pending.length) {
+      const ws = pending.shift();
+      if (!ws) return;
+      const wsReport = reportsByWorkspace.get(ws.id);
+      if (_gmbBackgroundBusy.has(ws.id)) {
+        if (wsReport) wsReport.gmbBackground = { skipped: "already_running" };
+        continue;
+      }
+      _gmbBackgroundBusy.add(ws.id);
+      try {
+        try {
+          if (wsReport) wsReport.emailEnrichment = await processEmailEnrichmentTick(ws.id, 2);
+        } catch (e: any) {
+          if (wsReport) wsReport.emailEnrichmentError = e?.message ?? String(e);
+          logError("leads-cron:email-enrichment", e, ws.id);
+        }
+        try {
+          if (wsReport) wsReport.gmbCadence = await processGmbCadenceTick(ws.id, 6);
+        } catch (e: any) {
+          if (wsReport) wsReport.gmbCadenceError = e?.message ?? String(e);
+          logError("leads-cron:gmb-cadence", e, ws.id);
+        }
+      } finally {
+        _gmbBackgroundBusy.delete(ws.id);
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
 
   return report;
 }

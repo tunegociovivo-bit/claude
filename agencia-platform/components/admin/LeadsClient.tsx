@@ -64,6 +64,10 @@ type Lead = {
   province: string | null;
   phone: string | null;
   website: string | null;
+  email: string | null;
+  emailSource: string | null;
+  emailVerificationStatus: string | null;
+  emailEnrichmentStatus: string;
   rating: number | null;
   reviewsCount: number;
   position: number | null;
@@ -110,6 +114,10 @@ type SearchRow = {
   leadsSkipped?: number;
   sourceConfig?: any;
   errorMessage?: string | null;
+  emailEnrichmentTotal?: number;
+  emailEnrichmentProcessed?: number;
+  emailEnrichmentFound?: number;
+  emailEnrichmentFailed?: number;
   monitored?: boolean;
   createdAt: string;
   _count?: { leads: number };
@@ -237,7 +245,6 @@ export default function LeadsClient() {
   const [phoneFilter, setPhoneFilter] = useState<"ALL" | "mobile" | "landline">("ALL");
   const [painOnly, setPainOnly] = useState(false);
   const [ticketSort, setTicketSort] = useState(false);
-  const [extracting, setExtracting] = useState(false);
   const [enrichingOwners, setEnrichingOwners] = useState(false);
   const [ownerProgress, setOwnerProgress] = useState<{ queued: number; done: number; doneEmpty: number; error: number } | null>(null);
   const [enrichingContacts, setEnrichingContacts] = useState(false);
@@ -257,30 +264,6 @@ export default function LeadsClient() {
     if (searchQ) q.set("search", searchQ);
     if (ticketSort) q.set("sort", "ticket");
     return q;
-  }
-
-  // Extracción masiva de emails de las webs de los leads del filtro actual.
-  async function bulkExtractEmails() {
-    if (extracting) return;
-    setExtracting(true);
-    try {
-      const body: any = { limit: 100 };
-      if (searchIdFilter !== "ALL") body.searchId = searchIdFilter;
-      const r = await fetch("/api/v1/leads/extract-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      const d = await r.json().catch(() => ({}));
-      if (r.ok) {
-        alert(`Emails extraídos: ${d.found} de ${d.scanned} webs revisadas.${d.scanned >= 100 ? "\nVuelve a pulsar para seguir con el resto." : ""}`);
-        load();
-      } else {
-        alert(`Error: ${d?.error?.message ?? r.status}`);
-      }
-    } finally {
-      setExtracting(false);
-    }
   }
 
   // Sondea el progreso de la cola de titulares hasta que no quede nada en cola (o se agota
@@ -596,16 +579,6 @@ export default function LeadsClient() {
               <Download className="h-4 w-4" />
               CSV
             </a>
-            <button
-              type="button"
-              onClick={bulkExtractEmails}
-              disabled={extracting}
-              title="Baja la web de cada lead y guarda su email de contacto (para listas de remarketing)"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm disabled:opacity-50"
-            >
-              {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : "✉️"}
-              Extraer emails
-            </button>
             {searchIdFilter !== "ALL" && (
               <>
                 <button
@@ -1964,6 +1937,8 @@ function LeadDetailModal({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
             <div><span className="text-slate-500">Teléfono:</span> <span className="font-mono">{lead.phone ?? "—"}</span></div>
             <div><span className="text-slate-500">Web:</span> {lead.website ? <a href={lead.website} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline">abrir ↗</a> : "—"}</div>
+            <div><span className="text-slate-500">Email:</span> {lead.email ? <span className="font-mono text-[11px]">{lead.email}</span> : ["processing", "queued"].includes(lead.emailEnrichmentStatus) ? <span className="text-indigo-600">buscando…</span> : "—"}</div>
+            <div><span className="text-slate-500">Verificación:</span> {lead.emailVerificationStatus === "mx_valid" ? <span className="text-emerald-700">MX válido</span> : lead.emailVerificationStatus ?? "—"}</div>
             <div><span className="text-slate-500">Provincia:</span> {lead.province ?? "—"}</div>
             <div><span className="text-slate-500">Posición:</span> {lead.position ?? "—"}</div>
             <div><span className="text-slate-500">Rating:</span> {lead.rating != null ? `★ ${lead.rating} (${lead.reviewsCount})` : "—"}</div>
@@ -3050,6 +3025,12 @@ function SearchesTable({ loading, items, onChanged }: { loading: boolean; items:
                   {bigSearch && (
                     <div className="text-[10px] text-slate-400 mt-0.5" title="Consultas a Google Places (aprox.) y coste estimado">
                       🔎 {doneQueries.toLocaleString("es")}/{totalQueries.toLocaleString("es")} consultas · ~{costStr}
+                    </div>
+                  )}
+                  {(s.emailEnrichmentTotal ?? 0) > 0 && (
+                    <div className="mt-1 text-[10px] text-indigo-600" title="Extracción y verificación automática en segundo plano">
+                      ✉ Emails {s.emailEnrichmentProcessed ?? 0}/{s.emailEnrichmentTotal} · {s.emailEnrichmentFound ?? 0} encontrados
+                      {(s.emailEnrichmentFailed ?? 0) > 0 ? ` · ${s.emailEnrichmentFailed} errores` : ""}
                     </div>
                   )}
                 </td>
@@ -8022,7 +8003,6 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [lowRatingOnly, setLowRatingOnly] = useState(false);
   const [useSynonyms, setUseSynonyms] = useState(false);
   const [useGrid, setUseGrid] = useState(false);
-  const [mobileOnly, setMobileOnly] = useState(false);
   const [cacheReuse, setCacheReuse] = useState(false);
   const [estCache, setEstCache] = useState<{ targets: number; cached: number; billable: number } | null>(null);
   const [allSources, setAllSources] = useState(false);
@@ -8090,7 +8070,6 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
     setLowRatingOnly(false);
     setUseSynonyms(false);
     setUseGrid(false);
-    setMobileOnly(false);
     setCacheReuse(false);
     setAllSources(false);
     setError(null);
@@ -8113,12 +8092,11 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
         skipExisting,
         source: src,
         sourceConfig:
-          src === "places" && (lowRatingOnly || useSynonyms || useGrid || mobileOnly || cacheReuse)
+          src === "places" && (lowRatingOnly || useSynonyms || useGrid || cacheReuse)
             ? {
                 ...(lowRatingOnly ? { lowRatingOnly: true, maxRating: 3.5, minReviewsCount: 5 } : {}),
                 ...(useSynonyms ? { useSynonyms: true } : {}),
                 ...(useGrid ? { useGrid: true } : {}),
-                ...(mobileOnly ? { mobileOnly: true } : {}),
                 ...(cacheReuse ? { cacheDays: 30 } : {})
               }
             : undefined
@@ -8427,23 +8405,6 @@ function NewSearchModal({ open, onClose, onSaved }: { open: boolean; onClose: ()
                 ) : (
                   <> Captura <strong>muchos más negocios</strong> en zonas densas.</>
                 )}
-              </p>
-            </div>
-          </label>
-        )}
-        {source === "places" && (
-          <label className="flex items-start gap-2 p-2 rounded-md border border-sky-200 bg-sky-50/50 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={mobileOnly}
-              onChange={(e) => setMobileOnly(e.target.checked)}
-              className="mt-0.5 accent-sky-600"
-            />
-            <div className="flex-1">
-              <span className="text-xs font-medium text-slate-800">📱 Solo negocios con móvil (WhatsApp real)</span>
-              <p className="text-[11px] text-slate-500">
-                Descarta fijos (8/9) y fichas sin teléfono; deja solo <strong>móviles (6/7)</strong>,
-                que son los que de verdad reciben WhatsApp. Menos cola muerta y mejor entrega.
               </p>
             </div>
           </label>
@@ -8776,6 +8737,11 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       blockLinksInFirstMessage: s.blockLinksInFirstMessage,
       replyRateGuardEnabled: s.replyRateGuardEnabled,
       followupTaskEnabled: s.followupTaskEnabled,
+      gmbMultichannelEnabled: !!s.gmbMultichannelEnabled,
+      gmbSenderName: s.gmbSenderName ?? "Negocio Vivo",
+      gmbSenderEmail: s.gmbSenderEmail ?? "contacto@prospeccion.negociovivo.com",
+      gmbReplyTo: s.gmbReplyTo ?? "",
+      gmbComplianceAccepted: !!s.gmbComplianceAccepted,
       channels: Array.isArray(channelsOverride) ? channelsOverride : (Array.isArray(s.channels) ? s.channels : [])
     };
     // La clave de Google SOLO se guarda si parece real (AIza…). Esto evita el
@@ -9049,6 +9015,48 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
           <input type="password" value={googleKey} onChange={(e) => setGoogleKey(e.target.value)} autoComplete="off" data-lpignore="true" data-1p-ignore data-form-type="other" name="nv-google-places-key" placeholder={s.googleConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "AIza..."} className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono" />
           <p className="mt-1 text-[11px] text-slate-500">Se cifra con AES-256-GCM. Requiere Places API habilitada.</p>
         </section>
+        <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-indigo-950">✉️ Email + WhatsApp autónomo</h3>
+              <p className="mt-1 text-[11px] text-indigo-800">
+                Cada búsqueda conserva todas las fichas, extrae y verifica emails sin botones y aplica la cadencia automáticamente. Las respuestas reales o bajas detienen ambos canales.
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-950 whitespace-nowrap">
+              <input type="checkbox" checked={!!s.gmbMultichannelEnabled} onChange={(e) => setField("gmbMultichannelEnabled", e.target.checked)} className="accent-indigo-600" />
+              Activar
+            </label>
+          </div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label className="text-xs text-slate-700">Nombre del remitente
+              <input value={s.gmbSenderName ?? "Negocio Vivo"} onChange={(e) => setField("gmbSenderName", e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
+            </label>
+            <label className="text-xs text-slate-700">Email del subdominio
+              <input type="email" value={s.gmbSenderEmail ?? "contacto@prospeccion.negociovivo.com"} onChange={(e) => setField("gmbSenderEmail", e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
+            </label>
+            <label className="text-xs text-slate-700 sm:col-span-2">Responder a (obligatorio para activar)
+              <input type="email" value={s.gmbReplyTo ?? ""} onChange={(e) => setField("gmbReplyTo", e.target.value)} placeholder="respuestas@prospeccion.negociovivo.com" className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
+              <span className="mt-1 block text-[10px] text-slate-500">Debe ser una dirección del dominio receptor configurado en Resend.</span>
+            </label>
+          </div>
+          <div className={`mt-2 rounded-md border px-2 py-1.5 text-[11px] ${s.gmbAutomationReady ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            {s.gmbAutomationReady
+              ? "Bucle completo preparado: Resend, aperturas/bajas y respuestas entrantes. Verifica también SPF, DKIM y DMARC del subdominio."
+              : `Antes de activar falta completar: ${[
+                  !s.gmbResendConfigured && "RESEND_API_KEY global de la cuenta del webhook",
+                  !s.resendWebhookConfigured && "webhook de aperturas/bajas",
+                  !s.inboundEmailConfigured && "Reply-To + email entrante",
+                  !s.hunterConfigured && "Hunter para verificar buzones",
+                  !s.gmbComplianceAccepted && "confirmación de elegibilidad"
+                ].filter(Boolean).join(", ") || "configuración de entrega"}.`}
+          </div>
+          <label className="mt-2 flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
+            <input type="checkbox" checked={!!s.gmbComplianceAccepted} onChange={(e) => setField("gmbComplianceAccepted", e.target.checked)} className="mt-0.5 accent-indigo-600" />
+            <span>Confirmo que se ha revisado y documentado la base jurídica o excepción aplicable para los destinatarios de esta automatización. Esta confirmación queda registrada; el texto informativo y la baja no sustituyen ese requisito.</span>
+          </label>
+          <p className="mt-2 text-[10px] text-slate-500">La auditoría gratuita es un CTA comercial aunque no muestre precios. El sistema incluye identidad, trazabilidad y baja inmediata; activa los envíos solo con una base jurídica revisada.</p>
+        </section>
         <section>
           <h3 className="text-sm font-semibold mb-2">💎 Fuentes premium de captación</h3>
           <div className="space-y-2">
@@ -9098,7 +9106,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
                 placeholder={s.hunterConfigured ? "•••• (configurada, deja vacío para no cambiar)" : "Hunter.io API key"}
                 className="w-full px-3 py-2 rounded-lg border bg-white text-sm font-mono"
               />
-              <p className="mt-1 text-[11px] text-slate-500">En el <strong>🎯 Kit directivo</strong>: encuentra y <strong>verifica</strong> el email del directivo antes de enviar. Se cifra.</p>
+              <p className="mt-1 text-[11px] text-slate-500">Verifica el buzón antes del envío autónomo. NV Leads reutiliza cada resultado durante 30 días y limita por defecto a 100 comprobaciones nuevas al día para controlar créditos.</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">

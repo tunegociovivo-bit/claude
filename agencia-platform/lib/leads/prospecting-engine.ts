@@ -122,7 +122,7 @@ export async function markProspectingProspectReplied(workspaceId: string, prospe
   if (!prospect) return null;
   const updated = await prisma.prospectingProspect.updateMany({
     where: { id: prospectId, workspaceId, status: { notIn: ["replied", "excluded"] } },
-    data: { status: "replied", repliedAt: now, nextActionAt: null, stopReason: "Respuesta registrada por un administrador" }
+    data: { status: "replied", repliedAt: now, humanRepliedAt: now, nextActionAt: null, stopReason: "Respuesta registrada por un administrador" }
   });
   if (!updated.count) return null;
   await prisma.prospectingActivity.updateMany({
@@ -149,7 +149,7 @@ export async function markProspectingProspectReplied(workspaceId: string, prospe
 
 export async function runProspectingEngine(now = new Date(), workspaceId?: string) {
   const campaigns = await prisma.prospectingCampaign.findMany({
-    where: { status: "active", ...(workspaceId ? { workspaceId } : {}) }, include: { steps: { orderBy: { order: "asc" } } }
+    where: { status: "active", kind: { not: "gmb_multichannel" }, ...(workspaceId ? { workspaceId } : {}) }, include: { steps: { orderBy: { order: "asc" } } }
   });
   let processed = 0, sent = 0, awaitingReview = 0, skipped = 0, failed = 0;
 

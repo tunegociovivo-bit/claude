@@ -11,7 +11,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { placesTextSearch, geocodeArea, type PlacesResult } from "./google-places";
 import { buildGridPoints } from "./geo-grid";
-import { phoneKind } from "./phone-type";
 import { scoreLead } from "./scorer";
 import { scoreTicket } from "./ticket-score";
 import { SPAIN_PROVINCES, findProvince } from "./spain-provinces";
@@ -750,12 +749,9 @@ export async function processSearchBatch(opts: {
             (r.userRatingCount ?? 0) >= minReviews
         );
       }
-      // Filtro "WhatsApp real": solo negocios con MÓVIL (6/7). Descarta fijos
-      // (que casi nunca tienen WhatsApp) y fichas sin teléfono → menos cola
-      // muerta y mejor tasa de entrega del canal.
-      if (cfg.mobileOnly) {
-        results = results.filter((r) => phoneKind(r.phone, r.internationalPhone) === "mobile");
-      }
+      // `mobileOnly` ya no descarta fichas durante la captación. Se conserva en
+      // sourceConfig como preferencia visual/de canal, pero guardamos también
+      // fijos y negocios sin teléfono para poder contactarles por email.
       // Clasificación IA de relevancia: descarta resultados que NO encajan
       // con el nicho real del keyword (p. ej. masajes terapéuticos cuando
       // se buscaba "masajes eróticos"). Los descartados se guardan igual,
@@ -787,7 +783,8 @@ export async function processSearchBatch(opts: {
             r,
             aiRelevance: v ?? null,
             skipExisting: search.skipExisting,
-            multiLocation: multiSet.has((r.name ?? "").trim())
+            multiLocation: multiSet.has((r.name ?? "").trim()),
+            enqueueEmailEnrichment: true
           });
           if (upsertOut?.skipped) leadsSkipped++;
           else leadsInserted++;
@@ -1027,7 +1024,9 @@ export async function upsertLead(opts: {
   aiRelevance: RelevanceVerdict | null;
   skipExisting?: boolean;
   multiLocation?: boolean;
-}): Promise<{ skipped: boolean } | undefined> {
+  /** Solo Google Places entra en el pipeline de email GMB. */
+  enqueueEmailEnrichment?: boolean;
+}): Promise<{ skipped: boolean; leadId?: string } | undefined> {
   const { r } = opts;
   if (!r.placeId) return;
 
@@ -1093,6 +1092,11 @@ export async function upsertLead(opts: {
     exclusionReason = `IA: ${opts.aiRelevance.reason || "no encaja con el keyword"}`;
   }
 
+  const rawEmail = String((r.rawData as any)?.email ?? "").trim().toLowerCase() || null;
+  // Todo lead elegible entra en la cola, también si no tiene web: el worker lo
+  // marca `no_website` y puede iniciar inmediatamente la rama WhatsApp.
+  const initialEnrichmentStatus = excluded || !opts.enqueueEmailEnrichment ? "not_requested" : "queued";
+
   const data = {
     workspaceId: opts.workspaceId,
     searchId: opts.searchId,
@@ -1106,7 +1110,17 @@ export async function upsertLead(opts: {
     website: r.website,
     // Email de contacto si la fuente lo trae (jobs lo extrae de la web). En el
     // update, undefined NO sobreescribe un email ya existente.
-    email: (r.rawData as any)?.email ?? undefined,
+    email: rawEmail ?? undefined,
+    emailSource: rawEmail ? "source" : undefined,
+    emailEnrichmentStatus: initialEnrichmentStatus,
+    emailEnrichmentNextAt: initialEnrichmentStatus === "queued" ? new Date() : null,
+    emailEnrichmentLeaseUntil: null,
+    emailEnrichmentLeaseOwner: null,
+    emailEnrichmentError: null,
+    multichannelEnrollmentStatus: excluded || !opts.enqueueEmailEnrichment ? "not_ready" : "queued",
+    multichannelEnrollmentNextAt: excluded || !opts.enqueueEmailEnrichment ? null : new Date(),
+    multichannelEnrollmentLeaseUntil: null,
+    multichannelEnrollmentError: null,
     category: r.category,
     types: r.types,
     latitude: r.latitude,
@@ -1136,7 +1150,16 @@ export async function upsertLead(opts: {
   // ese estado aunque la IA cambie de opinión sobre la relevancia.
   const existing = await prisma.lead.findUnique({
     where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
-    select: { contactStatus: true, notes: true }
+    select: {
+      contactStatus: true,
+      notes: true,
+      email: true,
+      website: true,
+      emailEnrichmentStatus: true,
+      emailEnrichmentNextAt: true,
+      emailEnrichmentLeaseUntil: true,
+      emailEnrichmentLeaseOwner: true
+    }
   });
   // "excluded" incluido: un lead vetado (opt-out / lista negra) NUNCA debe
   // volver a "pending" porque una re-búsqueda re-encuentre el mismo negocio.
@@ -1148,11 +1171,32 @@ export async function upsertLead(opts: {
     updateData.notes = existing.notes;
   }
 
-  await prisma.lead.upsert({
+  // No repetimos un enriquecimiento ya resuelto si la web/email de entrada no
+  // ha cambiado. Sí recuperamos automáticamente `failed` y `not_requested`.
+  const sameWebsite = (existing?.website ?? null) === (r.website ?? null);
+  const sameEmail = (existing?.email ?? null) === rawEmail || !rawEmail;
+  const terminal = new Set(["found", "no_email", "no_website"]);
+  if (existing && sameWebsite && sameEmail && terminal.has(existing.emailEnrichmentStatus)) {
+    updateData.emailEnrichmentStatus = existing.emailEnrichmentStatus;
+    updateData.emailEnrichmentNextAt = existing.emailEnrichmentNextAt;
+    updateData.emailEnrichmentLeaseUntil = existing.emailEnrichmentLeaseUntil;
+    updateData.emailEnrichmentLeaseOwner = existing.emailEnrichmentLeaseOwner;
+  }
+  if (existing?.contactStatus === "excluded") {
+    updateData.emailEnrichmentStatus = existing.emailEnrichmentStatus;
+    updateData.emailEnrichmentNextAt = existing.emailEnrichmentNextAt;
+    updateData.emailEnrichmentLeaseUntil = existing.emailEnrichmentLeaseUntil;
+    updateData.emailEnrichmentLeaseOwner = existing.emailEnrichmentLeaseOwner;
+    updateData.multichannelEnrollmentStatus = "not_ready";
+    updateData.multichannelEnrollmentNextAt = null;
+  }
+
+  const lead = await prisma.lead.upsert({
     where: { workspaceId_placeId: { workspaceId: opts.workspaceId, placeId: r.placeId } },
     create: data,
     // En el update limpiamos también el aiOpener antiguo (legado del plugin
     // WordPress) para que no aparezcan datos obsoletos en el mensaje.
     update: updateData
   });
+  return { skipped: false, leadId: lead.id };
 }

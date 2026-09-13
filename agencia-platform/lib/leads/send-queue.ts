@@ -624,7 +624,17 @@ export async function enqueueMessage(opts: {
   kind?: "text" | "ranking" | "voice";
   /** Permite encolar un 2º mensaje al mismo lead (p. ej. texto + luego imagen). */
   skipDuplicateCheck?: boolean;
+  /** Clave estable de la actividad que originó el envío. */
+  idempotencyKey?: string;
+  prospectingActivityId?: string;
 }): Promise<{ messageId: string; scheduledAt: Date }> {
+  if (opts.idempotencyKey) {
+    const existingByKey = await prisma.leadMessage.findUnique({
+      where: { idempotencyKey: opts.idempotencyKey },
+      select: { id: true, scheduledAt: true }
+    });
+    if (existingByKey) return { messageId: existingByKey.id, scheduledAt: existingByKey.scheduledAt ?? new Date() };
+  }
   const kind = opts.kind === "ranking" || opts.kind === "voice" ? opts.kind : "text";
   const settings = await getSendSettings(opts.workspaceId);
   const lead = await prisma.lead.findFirst({
@@ -653,6 +663,10 @@ export async function enqueueMessage(opts: {
     where: { workspaceId: opts.workspaceId, phone }
   });
   if (optout) throw new Error("Teléfono en opt-out");
+  const { isLeadSuppressed } = await import("./suppressions");
+  if (await isLeadSuppressed({ workspaceId: opts.workspaceId, leadId: lead.id, phone })) {
+    throw new Error("Lead en lista de exclusión permanente");
+  }
 
   // No encolar si ya hay otro mensaje queued/sending para este lead (salvo que
   // sea el 2º mensaje intencionado de un par texto+imagen).
@@ -748,7 +762,9 @@ export async function enqueueMessage(opts: {
       phoneNormalized: phone,
       status: "queued",
       scheduledAt,
-      instanceName: channel ?? undefined
+      instanceName: channel ?? undefined,
+      idempotencyKey: opts.idempotencyKey ?? undefined,
+      prospectingActivityId: opts.prospectingActivityId ?? undefined
     }
   });
 
@@ -1603,6 +1619,40 @@ export async function sendMessageById(
   });
   if (!msg) return { processed: false, error: "not_found" };
 
+  // Las respuestas pueden llegar después de encolar un paso GMB y antes del
+  // envío real. Este guard se usa aquí y otra vez justo antes de hablar con el
+  // proveedor, tras cualquier validación/generación que pueda tardar.
+  const cancelIfGmbStopped = async (): Promise<"canceled" | "queued" | null> => {
+    if (!msg.prospectingActivityId) return null;
+    const [activity, lead, readiness] = await Promise.all([
+      prisma.prospectingActivity.findFirst({
+        where: { id: msg.prospectingActivityId!, workspaceId },
+        include: { prospect: true, campaign: true }
+      }),
+      prisma.lead.findFirst({ where: { id: msg.leadId, workspaceId }, select: { contactStatus: true } }),
+      import("./gmb-multichannel-readiness").then(({ getGmbMultichannelSettings }) => getGmbMultichannelSettings(workspaceId))
+    ]);
+    const { isLeadSuppressed } = await import("./suppressions");
+    const suppressed = await isLeadSuppressed({ workspaceId, leadId: msg.leadId, phone: msg.phoneNormalized });
+    const stage = String((activity?.payload as any)?.stage ?? "");
+    const paused = !readiness.enabled || !activity || activity.campaign.status !== "active" || activity.campaign.complianceMode !== "active";
+    const stopped = !activity?.prospect || !lead || !["pending", "contacted"].includes(lead.contactStatus) ||
+      !!activity.prospect.humanRepliedAt || !!activity.prospect.suppressedAt || suppressed ||
+      (stage === "mobile_day8_whatsapp" && !!activity.prospect.lastEmailOpenedAt);
+    if (stopped || paused) {
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: paused && !stopped
+          ? { status: "queued", scheduledAt: new Date(Date.now() + 15 * 60_000), sendingStartedAt: null, sendAttempts: { decrement: 1 }, lastError: "Aplazado: automatización GMB pausada" }
+          : { status: "canceled", sendingStartedAt: null, lastError: "Cancelado: respuesta, baja o apertura posterior al encolado" }
+      });
+      return paused && !stopped ? "queued" : "canceled";
+    }
+    return null;
+  };
+  const initialGmbBlock = await cancelIfGmbStopped();
+  if (initialGmbBlock) return { processed: true, messageId: msg.id, status: initialGmbBlock };
+
   // Rotación por salud: si el número asignado está en cuarentena (quemado o
   // sesión caída), el mensaje sale por otro canal sano en vez de quemarse.
   try {
@@ -1840,6 +1890,8 @@ export async function sendMessageById(
       if (!data) throw new Error("No se pudo obtener el ranking de Google (categoría/zona o API key de Places)");
       const png = await renderRankingPng(data);
       const caption = (msg.renderedMessage ?? "").trim() || rankingAutoCaption(data, lead.name);
+      const imageGmbBlock = await cancelIfGmbStopped();
+      if (imageGmbBlock) return { processed: true, messageId: msg.id, status: imageGmbBlock };
       out = await sendImage({
         workspaceId,
         phoneNormalized: msg.phoneNormalized,
@@ -1852,6 +1904,8 @@ export async function sendMessageById(
       // no hay config o falla la generación, cae a texto para no perder el toque.
       const audio = await generateVoiceMp3({ workspaceId, text: msg.renderedMessage });
       if (audio) {
+        const voiceGmbBlock = await cancelIfGmbStopped();
+        if (voiceGmbBlock) return { processed: true, messageId: msg.id, status: voiceGmbBlock };
         out = await sendVoice({
           workspaceId,
           phoneNormalized: msg.phoneNormalized,
@@ -1859,6 +1913,8 @@ export async function sendMessageById(
           session: msg.instanceName ?? undefined
         });
       } else {
+        const voiceFallbackGmbBlock = await cancelIfGmbStopped();
+        if (voiceFallbackGmbBlock) return { processed: true, messageId: msg.id, status: voiceFallbackGmbBlock };
         out = await sendText({
           workspaceId,
           phoneNormalized: msg.phoneNormalized,
@@ -1867,6 +1923,8 @@ export async function sendMessageById(
         });
       }
     } else {
+      const textGmbBlock = await cancelIfGmbStopped();
+      if (textGmbBlock) return { processed: true, messageId: msg.id, status: textGmbBlock };
       out = await sendText({
         workspaceId,
         phoneNormalized: msg.phoneNormalized,

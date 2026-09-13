@@ -12,6 +12,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { sendEmail, isEmailConfigured, LEADS_FROM } from "@/lib/integrations/email";
+import { isLeadSuppressed } from "./suppressions";
 
 type Channel = "email" | "linkedin" | "call";
 /** Plan de cadencia: día relativo + canal. */
@@ -642,16 +643,52 @@ export async function approveExecOutreach(
   const row = await prisma.leadExecOutreach.findFirst({ where: { id, workspaceId, status: "pending_review" } });
   if (!row) throw new Error("No hay un email pendiente de revisión con ese id.");
   if (!row.email) throw new Error("Este contacto no tiene email destinatario.");
+
+  const stopBlockedDraft = async () => {
+    await prisma.leadExecOutreach.updateMany({
+      where: { id: row.id, workspaceId, status: "pending_review" },
+      data: { status: "stopped", draftSubject: null, draftBody: null }
+    });
+  };
+  const loadEligibleLead = async () => {
+    const lead = await prisma.lead.findFirst({
+      where: { id: row.leadId, workspaceId },
+      select: { rawData: true, contactStatus: true, phone: true, internationalPhone: true }
+    });
+    if (!lead || !["pending", "contacted"].includes(lead.contactStatus)) return null;
+    const phones = [...new Set([lead.internationalPhone, lead.phone].filter((phone): phone is string => !!phone))];
+    const suppressionChecks = [
+      isLeadSuppressed({ workspaceId, leadId: row.leadId, email: row.email }),
+      ...phones.map((phone) => isLeadSuppressed({ workspaceId, leadId: row.leadId, phone }))
+    ];
+    return (await Promise.all(suppressionChecks)).some(Boolean) ? null : lead;
+  };
+
+  let leadRd = await loadEligibleLead();
+  if (!leadRd) {
+    await stopBlockedDraft();
+    throw new Error("El lead está bloqueado, se dio de baja o ya no admite contacto.");
+  }
   if (!(await isEmailConfigured(workspaceId))) throw new Error("El envío de email no está configurado (falta RESEND_API_KEY en Railway o la clave de Resend en /admin/secretos).");
   const subject = (edit?.subject ?? row.draftSubject ?? "").trim();
   const body = (edit?.body ?? row.draftBody ?? "").trim();
   if (!subject || !body) throw new Error("El borrador del email está vacío.");
 
   // Copia oculta a todos los directivos de marketing localizados (si los hay).
-  const leadRd = await prisma.lead.findFirst({ where: { id: row.leadId, workspaceId }, select: { rawData: true } });
-  const bcc = Array.isArray((leadRd?.rawData as any)?.bccEmails) ? ((leadRd!.rawData as any).bccEmails as string[]) : undefined;
+  const bccCandidates = Array.isArray((leadRd.rawData as any)?.bccEmails) ? ((leadRd.rawData as any).bccEmails as string[]) : [];
+  const bcc = (await Promise.all(bccCandidates.map(async (email) =>
+    await isLeadSuppressed({ workspaceId, leadId: row.leadId, email }) ? null : email
+  ))).filter((email): email is string => !!email);
 
-  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc, workspaceId, from: LEADS_FROM });
+  // Segunda barrera inmediatamente antes de tocar Resend: una baja puede haber
+  // llegado mientras se revisaba o editaba el borrador.
+  leadRd = await loadEligibleLead();
+  if (!leadRd) {
+    await stopBlockedDraft();
+    throw new Error("Envío cancelado: el lead quedó bloqueado o se dio de baja.");
+  }
+
+  const out = await sendEmail({ to: row.email, subject, html: emailHtml(body), text: body, bcc: bcc.length ? bcc : undefined, workspaceId, from: LEADS_FROM });
   const now = new Date();
   const log: any[] = Array.isArray(row.log) ? row.log : [];
   log.push({ at: now.toISOString(), channel: "email", to: row.email, subject, id: out.id, approved: true, bcc: bcc?.length ?? 0 });

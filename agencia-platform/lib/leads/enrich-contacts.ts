@@ -114,14 +114,15 @@ export async function hunterCompanySearch(opts: { company: string; apiKey: strin
 }
 
 /** Resuelve las API keys de Apollo/Hunter (env o Ajustes cifrados del workspace). */
-export async function resolveContactKeys(workspaceId: string): Promise<{ apolloKey: string | null; hunterKey: string | null }> {
+export async function resolveContactKeys(workspaceId: string): Promise<{ apolloKey: string | null; hunterKey: string | null; hunterDailyLimit: number }> {
   const { prisma } = await import("@/lib/db/prisma");
   const { decryptSecret } = await import("@/lib/ai/crypto");
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
   const s: any = (ws?.settings as any)?.leads ?? {};
   const apolloKey = process.env.APOLLO_API_KEY || (s.apolloApiKeyEnc ? decryptSecret(s.apolloApiKeyEnc) : null);
   const hunterKey = process.env.HUNTER_API_KEY || (s.hunterApiKeyEnc ? decryptSecret(s.hunterApiKeyEnc) : null);
-  return { apolloKey: apolloKey || null, hunterKey: hunterKey || null };
+  const hunterDailyLimit = Math.max(1, Math.min(Number(s.gmbHunterDailyLimit ?? 100), 1000));
+  return { apolloKey: apolloKey || null, hunterKey: hunterKey || null, hunterDailyLimit };
 }
 
 /** Email más probable (dominio + nombre + apellido) vía Hunter, con score. */
@@ -266,14 +267,28 @@ export async function findMarketingEmailsByDomain(workspaceId: string, domain: s
 }
 
 /** Verifica si un email existe / es entregable. Devuelve estado + score. */
-export async function hunterVerifyEmail(opts: { email: string; apiKey: string }): Promise<EmailVerdict | null> {
+export async function hunterVerifyEmail(opts: { email: string; apiKey: string; throwOnError?: boolean }): Promise<EmailVerdict | null> {
   try {
     const url = `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(opts.email)}&api_key=${encodeURIComponent(opts.apiKey)}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    // Hunter documenta que una verificación puede tardar hasta 20 s.
+    const resp = await fetch(url, { signal: AbortSignal.timeout(25000) });
     const data: any = await resp.json().catch(() => null);
-    if (!resp.ok || !data?.data) return null;
+    if (resp.status === 202) {
+      if (opts.throwOnError) throw new Error("Hunter todavía está verificando el buzón");
+      return null;
+    }
+    if (!resp.ok || !data?.data) {
+      if (opts.throwOnError) {
+        const error: Error & { hunterStatus?: number; quotaBlocked?: boolean } = new Error(`Hunter respondió HTTP ${resp.status}`);
+        error.hunterStatus = resp.status;
+        error.quotaBlocked = resp.status === 402 || resp.status === 429;
+        throw error;
+      }
+      return null;
+    }
     return { email: opts.email, status: data.data.status ?? "unknown", score: data.data.score ?? null };
-  } catch {
+  } catch (error) {
+    if (opts.throwOnError) throw error;
     return null;
   }
 }

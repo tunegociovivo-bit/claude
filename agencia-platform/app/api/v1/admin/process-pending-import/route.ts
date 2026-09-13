@@ -17,6 +17,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
+import { blockLeadCompletely } from "@/lib/leads/optout";
+import { normalizePhone } from "@/lib/leads/waha";
 
 async function requireAdmin(workspaceId: string, userId: string | undefined) {
   if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
@@ -755,16 +757,13 @@ export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
   if (Array.isArray(tables.nvl_optouts)) {
     for (const o of tables.nvl_optouts) {
       try {
-        const phone = String(o.phone ?? "").trim();
+        const phone = normalizePhone(String(o.phone ?? ""), "34");
         if (!phone) continue;
-        await prisma.leadOptout.upsert({
-          where: { workspaceId_phone: { workspaceId: api.workspaceId, phone } },
-          create: {
-            workspaceId: api.workspaceId,
-            phone,
-            reason: o.reason ? String(o.reason) : null
-          },
-          update: { reason: o.reason ? String(o.reason) : null }
+        await blockLeadCompletely({
+          workspaceId: api.workspaceId,
+          phone,
+          reason: o.reason ? String(o.reason) : "Baja importada",
+          source: "legacy_import"
         });
         report.optoutsProcessed++;
       } catch (err: any) {

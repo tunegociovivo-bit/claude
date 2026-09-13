@@ -50,5 +50,7 @@ ENV PORT=3000
 # Mismos flags que el `start` de package.json: no acepta pérdida de datos.
 # La derivación comercial necesita tres columnas nuevas. Se aplican primero
 # con SQL idempotente para que un drift antiguo no deje esa ruta sirviendo 500.
-# Después se conserva el db push general best-effort del despliegue histórico.
-CMD ["sh", "-c", "npx prisma db execute --file prisma/migrations/20260820103500_lead_commercial_handoff/migration.sql --schema prisma/schema.prisma && (npx prisma db push --accept-data-loss=false --skip-generate || true) && node server.js"]
+# La migración multicanal es idempotente y se aplica explícitamente: `db push`
+# no crea índices UNIQUE sin confirmación y no puede ser el prerequisito del
+# backfill. Después se conserva el db push general best-effort histórico.
+CMD ["sh", "-c", "npx prisma db execute --file prisma/migrations/20260820103500_lead_commercial_handoff/migration.sql --schema prisma/schema.prisma && npx prisma db execute --file prisma/migrations/20260913190000_leads_multichannel_email/migration.sql --schema prisma/schema.prisma && (npx prisma db push --accept-data-loss=false --skip-generate || true) && npx tsx scripts/backfill-leads-multichannel.ts && node server.js"]

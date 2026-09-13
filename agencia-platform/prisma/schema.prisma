@@ -229,6 +229,11 @@ model Workspace {
   leadMessages               LeadMessage[]
   leadExclusions             LeadExclusion[]
   leadOptouts                LeadOptout[]
+  leadEmailContacts          LeadEmailContact[]
+  leadEmailVerificationCache LeadEmailVerificationCache[]
+  leadProviderDailyUsage     LeadProviderDailyUsage[]
+  leadSuppressions           LeadSuppression[]
+  leadContactEvents          LeadContactEvent[]
   leadConversationMetas      LeadConversationMeta[]
   leadBroadcasts             LeadBroadcast[]
   leadBroadcastRecipients    LeadBroadcastRecipient[]
@@ -437,24 +442,24 @@ model AccountancyInvoiceRun {
 }
 
 model AccountancyInvoiceRunItem {
-  id           String                    @id @default(cuid())
-  runId        String
-  clientId     String?
-  clientName   String
-  source       String
-  status       String                    @default("PENDING")
-  invoiceCount Int                       @default(0)
-  amountCents  Int                       @default(0)
-  currency     String                    @default("EUR")
-  files        Json?
+  id             String                    @id @default(cuid())
+  runId          String
+  clientId       String?
+  clientName     String
+  source         String
+  status         String                    @default("PENDING")
+  invoiceCount   Int                       @default(0)
+  amountCents    Int                       @default(0)
+  currency       String                    @default("EUR")
+  files          Json?
   invoiceDetails Json?
-  error        String?
-  startedAt    DateTime?
-  finishedAt   DateTime?
-  createdAt    DateTime                  @default(now())
-  updatedAt    DateTime                  @updatedAt
-  run          AccountancyInvoiceRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
-  client       AccountancyInvoiceClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  error          String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  run            AccountancyInvoiceRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  client         AccountancyInvoiceClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   @@index([runId, status])
   @@index([clientId])
@@ -1307,14 +1312,14 @@ model SepaRemittanceRequest {
   ibanMasked    String? // IBAN enmascarado (nunca completo)
 
   // Token de aprobación de UN SOLO USO: se guarda SOLO el hash (sha256).
-  tokenHash      String    @unique
-  tokenExpiresAt DateTime
-  tokenUsedAt    DateTime?
-  approvalNotifiedAt DateTime?
-  pendingSignatureNotifiedAt DateTime?
+  tokenHash                             String    @unique
+  tokenExpiresAt                        DateTime
+  tokenUsedAt                           DateTime?
+  approvalNotifiedAt                    DateTime?
+  pendingSignatureNotifiedAt            DateTime?
   pendingSignatureNotificationClaimedAt DateTime?
-  approvalTokenEncrypted String? @db.Text
-  approvalNotificationKey String?
+  approvalTokenEncrypted                String?   @db.Text
+  approvalNotificationKey               String?
 
   // Trazas de decisión.
   approvedById String?
@@ -1519,46 +1524,52 @@ model BankTransaction {
 // NV LEADS PRO (migrado: Google Places + WhatsApp + secuencias)
 // ====================================================================
 model LeadSearch {
-  id                 String    @id @default(cuid())
-  workspaceId        String
-  keyword            String
-  location           String
-  scope              String    @default("custom") // custom | spain (loop por provincias)
+  id                       String    @id @default(cuid())
+  workspaceId              String
+  keyword                  String
+  location                 String
+  scope                    String    @default("custom") // custom | spain (loop por provincias)
   /// Fuente de leads: "places" (Google Places) | "borme" | "trustpilot"
   /// | "doctoralia" | "idealista" | "fotocasa" | "linkedin". Cada fuente
   /// tiene su collector en lib/leads/sources/*.ts.
-  source             String    @default("places")
+  source                   String    @default("places")
   // PENDING|RUNNING|PAUSING|PAUSED|CANCELLING|CANCELLED|COMPLETED|FAILED
-  status             String    @default("PENDING")
+  status                   String    @default("PENDING")
   // Señal cooperativa de control puesta por el usuario ("pause"|"cancel"|null). El worker
   // (processSearchBatch) la respeta entre lotes: finaliza a PAUSED/CANCELLED sin corromper
   // los resultados ya guardados. Aditivo y nullable → migración segura al arrancar.
-  controlSignal      String?
-  provincesScope     String    @default("[]") // JSON array (legacy)
-  totalProvinces     Int       @default(1)
-  processedProvinces Int       @default(0)
-  currentProvince    String?
-  totalResults       Int       @default(0)
-  startedAt          DateTime?
-  completedAt        DateTime?
-  errorMessage       String?   @db.Text
-  legacyWpId         Int?      @unique
+  controlSignal            String?
+  provincesScope           String    @default("[]") // JSON array (legacy)
+  totalProvinces           Int       @default(1)
+  processedProvinces       Int       @default(0)
+  currentProvince          String?
+  totalResults             Int       @default(0)
+  startedAt                DateTime?
+  completedAt              DateTime?
+  errorMessage             String?   @db.Text
+  legacyWpId               Int?      @unique
   // Si true: leads cuyo placeId YA exista en otra búsqueda del workspace
   // se saltan (búsqueda incremental + dedup cross-búsqueda). Se cuentan
   // aparte como `leadsSkipped` para informar al usuario.
   /// Configuración específica por fuente. P.ej. para "places":
   /// { lowRatingOnly: true, minReviewsCount: 5, maxRating: 3.5 }.
   /// JSON libre para no migrar cada vez que añadimos un filtro nuevo.
-  sourceConfig       Json?
-  skipExisting       Boolean   @default(false)
-  leadsSkipped       Int       @default(0)
+  sourceConfig             Json?
+  skipExisting             Boolean   @default(false)
+  leadsSkipped             Int       @default(0)
+  // Progreso del enriquecimiento automático de email asociado a esta búsqueda.
+  // La búsqueda se considera terminada aunque el worker siga verificando webs.
+  emailEnrichmentTotal     Int       @default(0)
+  emailEnrichmentProcessed Int       @default(0)
+  emailEnrichmentFound     Int       @default(0)
+  emailEnrichmentFailed    Int       @default(0)
   // Monitorización continua: si true, el cron leads-monitor revisa
   // periódicamente esta búsqueda para detectar negocios nuevos y caídas de
   // rating, marcando esos leads como calientes.
-  monitored          Boolean   @default(false)
-  lastMonitoredAt    DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @default(now()) @updatedAt
+  monitored                Boolean   @default(false)
+  lastMonitoredAt          DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @default(now()) @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   leads     Lead[]
@@ -1584,70 +1595,83 @@ model LeadQueryCache {
 }
 
 model Lead {
-  id                  String    @id @default(cuid())
-  workspaceId         String
-  searchId            String?
-  placeId             String
+  id                        String    @id @default(cuid())
+  workspaceId               String
+  searchId                  String?
+  placeId                   String
   // Datos básicos del negocio (Google Places)
-  name                String
-  address             String?
-  formattedAddress    String?
-  province            String?
-  phone               String?
-  internationalPhone  String?
-  website             String?
-  // Email de contacto del negocio (extraído de su web / aviso legal). Para
-  // listas de remarketing (subir como Custom Audience a Meta) — interés
-  // legítimo B2B, con opt-out.
-  email               String?
-  category            String?
-  types               Json?
-  latitude            Float?
-  longitude           Float?
-  position            Int?
-  gmbUrl              String?
-  businessStatus      String?
-  priceLevel          Int?
+  name                      String
+  address                   String?
+  formattedAddress          String?
+  province                  String?
+  phone                     String?
+  internationalPhone        String?
+  website                   String?
+  // Email de contacto del negocio (extraído de su web / aviso legal). Que esté
+  // publicado no constituye por sí solo autorización para marketing.
+  email                     String?
+  emailSource               String?
+  emailVerificationStatus   String? // syntax_valid|mx_valid|mx_missing|invalid|unknown
+  emailVerifiedAt           DateTime?
+  emailEnrichmentStatus     String    @default("not_requested") // not_requested|queued|processing|found|no_email|no_website|failed
+  emailEnrichmentAttempts   Int       @default(0)
+  emailEnrichmentNextAt     DateTime?
+  emailEnrichmentLeaseUntil DateTime?
+  emailEnrichmentLeaseOwner String?
+  emailEnrichmentError      String?   @db.Text
+  multichannelEnrollmentStatus     String    @default("not_ready") // not_ready|queued|processing|enrolled|skipped|failed
+  multichannelEnrollmentAttempts   Int       @default(0)
+  multichannelEnrollmentNextAt     DateTime?
+  multichannelEnrollmentLeaseUntil DateTime?
+  multichannelEnrollmentError      String?   @db.Text
+  category                  String?
+  types                     Json?
+  latitude                  Float?
+  longitude                 Float?
+  position                  Int?
+  gmbUrl                    String?
+  businessStatus            String?
+  priceLevel                Int?
   // Reviews
-  rating              Float?
-  reviewsCount        Int       @default(0)
-  reviewsJson         Json?
-  positivePct         Float?
-  negativePct         Float?
-  neutralPct          Float?
+  rating                    Float?
+  reviewsCount              Int       @default(0)
+  reviewsJson               Json?
+  positivePct               Float?
+  negativePct               Float?
+  neutralPct                Float?
   // Datos crudos completos del API
-  rawData             Json?
+  rawData                   Json?
   // Lead scorer (heurística)
-  score               Int? // 0-100
-  urgency             String? // critica | alta | media | baja | descartar
-  scoreBreakdown      Json?
+  score                     Int? // 0-100
+  urgency                   String? // critica | alta | media | baja | descartar
+  scoreBreakdown            Json?
   // Ticket score: VALOR estimado del lead (sector premium, ya hace anuncios,
   // precio €€€, tamaño). Distinto del score de "dolor ahora". Para priorizar
   // captación de ticket alto.
-  ticketScore         Int? // 0-100
-  ticketTier          String? // premium | alto | medio | bajo
+  ticketScore               Int? // 0-100
+  ticketTier                String? // premium | alto | medio | bajo
   // IA
-  aiOpener            String?   @db.Text
-  aiOpenerGeneratedAt DateTime?
+  aiOpener                  String?   @db.Text
+  aiOpenerGeneratedAt       DateTime?
   // WhatsApp
-  hasWhatsapp         Boolean   @default(false)
-  whatsappChecked     Boolean   @default(false)
-  whatsappCheckedAt   DateTime?
+  hasWhatsapp               Boolean   @default(false)
+  whatsappChecked           Boolean   @default(false)
+  whatsappCheckedAt         DateTime?
   // Estado del contacto
-  contactStatus       String    @default("pending") // pending|contacted|responded|client|excluded|discarded
-  notes               String?   @db.Text
+  contactStatus             String    @default("pending") // pending|contacted|responded|client|excluded|discarded
+  notes                     String?   @db.Text
   // Si el lead se convirtió en cliente del Hub, su id (para enlazar y evitar
   // duplicar al pulsar "Convertir en cliente" más de una vez).
-  convertedClientId   String?
+  convertedClientId         String?
   // Derivación manual al equipo comercial. `commercialTaskId` permite que
   // el flujo sea idempotente; `commercialSentAt` solo se completa cuando el
   // aviso de WhatsApp al comercial ha salido correctamente.
-  commercialTaskId    String?
-  commercialSendingAt DateTime?
-  commercialSentAt    DateTime?
-  legacyWpId          Int?      @unique
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  commercialTaskId          String?
+  commercialSendingAt       DateTime?
+  commercialSentAt          DateTime?
+  legacyWpId                Int?      @unique
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   search        LeadSearch?              @relation(fields: [searchId], references: [id], onDelete: SetNull)
@@ -1656,6 +1680,8 @@ model Lead {
   inboxMessages LeadInboxMessage[]
   messages      LeadMessage[]
   execOutreach  LeadExecOutreach[]
+  emailContacts LeadEmailContact[]
+  contactEvents LeadContactEvent[]
 
   @@unique([workspaceId, placeId])
   @@index([workspaceId, contactStatus])
@@ -1664,36 +1690,164 @@ model Lead {
   @@index([score])
   @@index([workspaceId, ticketScore])
   @@index([workspaceId, commercialSentAt])
+  @@index([emailEnrichmentStatus, emailEnrichmentNextAt, emailEnrichmentLeaseUntil])
+  @@index([multichannelEnrollmentStatus, multichannelEnrollmentNextAt, multichannelEnrollmentLeaseUntil])
+}
+
+/// Emails descubiertos automáticamente en la web del negocio. Conservamos la
+/// procedencia y el nivel real de verificación; `mx_valid` no promete entrega.
+model LeadEmailContact {
+  id                   String    @id @default(cuid())
+  workspaceId          String
+  leadId               String
+  email                String
+  normalizedEmail      String
+  isPrimary            Boolean   @default(false)
+  sourceType           String    @default("website")
+  sourceUrl            String?   @db.Text
+  sourceDomain         String?
+  verificationStatus   String    @default("unknown")
+  verificationProvider String    @default("dns")
+  score                Int?
+  discoveredAt         DateTime  @default(now())
+  verifiedAt           DateTime?
+  metadata             Json?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, normalizedEmail])
+  @@index([workspaceId, normalizedEmail])
+  @@index([leadId, isPrimary])
+}
+
+/// Caché compartida por workspace para no volver a gastar créditos al
+/// verificar el mismo buzón encontrado en varias fichas de una cadena.
+model LeadEmailVerificationCache {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  normalizedEmail    String
+  provider           String    @default("hunter")
+  status             String    @default("pending")
+  score              Int?
+  verifiedAt         DateTime?
+  expiresAt          DateTime?
+  leaseUntil         DateTime?
+  nextVerificationAt DateTime?
+  lastError          String?   @db.Text
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, normalizedEmail, provider])
+  @@index([workspaceId, provider, verifiedAt])
+  @@index([status, nextVerificationAt, leaseUntil])
+}
+
+/// Contador append-safe por proveedor/día. A diferencia de la caché por email,
+/// registra cada intento reservado, incluidos reintentos del mismo buzón.
+model LeadProviderDailyUsage {
+  id          String   @id @default(cuid())
+  workspaceId String
+  provider    String
+  day         DateTime @db.Date
+  used        Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider, day])
+  @@index([workspaceId, day])
+}
+
+/// Checkpoint durable para backfills one-shot ejecutados por despliegues que
+/// usan `prisma db push` en vez de Prisma Migrate.
+model LeadMigrationState {
+  key         String    @id
+  status      String    @default("pending")
+  leaseOwner  String?
+  leaseUntil  DateTime?
+  completedAt DateTime?
+  metadata    Json?
+  updatedAt   DateTime  @updatedAt
+}
+
+/// Lista de exclusión irreversible a nivel de espacio de trabajo. Se almacena
+/// un hash del email/teléfono normalizado para que sobreviva incluso si el lead
+/// se elimina y no se vuelva a contactar al importarlo otra vez.
+model LeadSuppression {
+  id          String   @id @default(cuid())
+  workspaceId String
+  leadId      String?
+  kind        String // lead|email|phone
+  valueHash   String
+  reason      String
+  source      String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, kind, valueHash])
+  @@index([workspaceId, leadId])
+}
+
+/// Registro append-only de envíos, aperturas, respuestas, rebotes y bajas.
+model LeadContactEvent {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  leadId            String?
+  prospectId        String?
+  channel           String
+  type              String
+  provider          String?
+  providerEventId   String?
+  externalMessageId String?
+  metadata          Json?
+  occurredAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, provider, providerEventId])
+  @@index([workspaceId, leadId, occurredAt])
+  @@index([externalMessageId])
 }
 
 // Cola de envío de mensajes (saliente). Cron procesa items con
 // status="queued" y scheduledAt <= now respetando ventana y delays.
 model LeadMessage {
-  id                String    @id @default(cuid())
-  workspaceId       String
-  leadId            String
-  templateId        String?
-  kind              String    @default("text") // text | ranking (imagen de posicionamiento)
-  renderedMessage   String    @db.Text
+  id                    String    @id @default(cuid())
+  workspaceId           String
+  leadId                String
+  templateId            String?
+  kind                  String    @default("text") // text | ranking (imagen de posicionamiento)
+  renderedMessage       String    @db.Text
   // Snapshot del ranking (getCompetitorRanking) calculado al encolar, para que
   // el TEXTO, la IMAGEN y la PREVIEW usen los MISMOS datos (el ranking en vivo
   // varía entre llamadas y descuadraba texto vs imagen).
-  rankingSnapshot   Json?
-  channel           String    @default("whatsapp")
-  instanceName      String? // sesión WAHA (default si null)
-  phoneNormalized   String // E.164 sin +
-  status            String    @default("queued") // queued|sending|sent|failed|delivered|read
-  scheduledAt       DateTime?
-  sentAt            DateTime?
+  rankingSnapshot       Json?
+  channel               String    @default("whatsapp")
+  instanceName          String? // sesión WAHA (default si null)
+  phoneNormalized       String // E.164 sin +
+  status                String    @default("queued") // queued|sending|sent|failed|delivered|read
+  scheduledAt           DateTime?
+  sentAt                DateTime?
   // Momento en que el mensaje pasó a "sending". Sirve para recuperar los que se
   // quedan atascados (proceso muerto a mitad de envío): si llevan >10 min en
   // "sending", el tick los devuelve a la cola para reintentarse.
-  sendingStartedAt  DateTime?
-  sendAttempts      Int       @default(0)
-  lastError         String?   @db.Text
-  externalMessageId String?
-  priority          Int       @default(0)
-  createdAt         DateTime  @default(now())
+  sendingStartedAt      DateTime?
+  sendAttempts          Int       @default(0)
+  lastError             String?   @db.Text
+  externalMessageId     String?
+  priority              Int       @default(0)
+  idempotencyKey        String?   @unique
+  prospectingActivityId String?   @unique
+  createdAt             DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
@@ -1805,8 +1959,17 @@ model ProspectingCampaign {
   startHour         Int       @default(9)
   endHour           Int       @default(18)
   engineLeaseUntil  DateTime?
+  engineLeaseOwner  String?
   teamConfig        Json?
   attributionConfig Json?
+  kind              String    @default("general") // general|gmb_multichannel
+  isDefault         Boolean   @default(false)
+  defaultKey        String?   @unique // workspace:kind; solo se rellena para la campaña predeterminada
+  senderName        String?
+  senderEmail       String?
+  replyTo           String?
+  complianceMode    String    @default("review") // review|active
+  settings          Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -1818,6 +1981,7 @@ model ProspectingCampaign {
 
   @@index([workspaceId, status])
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, kind, isDefault])
 }
 
 model ProspectingStep {
@@ -1870,6 +2034,11 @@ model ProspectingProspect {
   nextActionAt         DateTime?
   lastContactedAt      DateTime?
   repliedAt            DateTime?
+  cadenceAnchorAt      DateTime?
+  humanRepliedAt       DateTime?
+  autoReplyAt          DateTime?
+  lastEmailOpenedAt    DateTime?
+  suppressedAt         DateTime?
   stopReason           String?
   metadata             Json?
   createdAt            DateTime  @default(now())
@@ -1886,6 +2055,8 @@ model ProspectingProspect {
   @@index([workspaceId, linkedinUrl])
   @@index([workspaceId, phone])
   @@index([resolutionStatus, nextResolutionAt])
+  @@index([workspaceId, leadId])
+  @@unique([campaignId, leadId])
 }
 
 model ProspectingMessage {
@@ -1898,6 +2069,7 @@ model ProspectingMessage {
   body           String   @db.Text
   status         String   @default("received")
   externalId     String?
+  rfcMessageId   String?
   classification String?
   confidence     Float?
   read           Boolean  @default(false)
@@ -1913,6 +2085,7 @@ model ProspectingMessage {
   @@index([workspaceId, read, createdAt])
   @@index([campaignId, createdAt])
   @@index([prospectId, createdAt])
+  @@index([campaignId, rfcMessageId])
 }
 
 model ProspectingActivity {
@@ -1922,6 +2095,7 @@ model ProspectingActivity {
   prospectId     String?
   stepId         String?
   idempotencyKey String?   @unique
+  recipientKey   String?   @unique // campaña:canal:destinatario:etapa
   channel        String
   action         String
   status         String    @default("queued") // queued | awaiting_review | sent | completed | failed | skipped
@@ -1931,6 +2105,8 @@ model ProspectingActivity {
   scheduledAt    DateTime?
   executedAt     DateTime?
   error          String?   @db.Text
+  attempts       Int       @default(0)
+  leaseUntil     DateTime?
   createdAt      DateTime  @default(now())
 
   workspace Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1940,6 +2116,7 @@ model ProspectingActivity {
   @@index([workspaceId, status, scheduledAt])
   @@index([campaignId, createdAt])
   @@index([prospectId, createdAt])
+  @@index([externalId])
 }
 
 model LeadInboxMessage {
@@ -5702,10 +5879,10 @@ model BubuiProcessedWebhook {
 /// CRON_SECRET desparejado) salta en horas, no en semanas. `alertedAt` evita
 /// repetir el aviso del mismo incidente.
 model CronHeartbeat {
-  name      String    @id // p.ej. "ai-agent/recurring"
-  lastRunAt DateTime  @default(now())
-  runs      Int       @default(0)
-  alertedAt DateTime?
+  name       String    @id // p.ej. "ai-agent/recurring"
+  lastRunAt  DateTime  @default(now())
+  runs       Int       @default(0)
+  alertedAt  DateTime?
   leaseOwner String?
   leaseUntil DateTime?
 }
