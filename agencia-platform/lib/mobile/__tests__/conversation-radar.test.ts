@@ -94,6 +94,20 @@ describe("conversation radar safeguards", () => {
     expect(result[0].sourceText).toContain("京都");
   });
 
+  it("does not merge Japanese text that differs by a combining mark", () => {
+    const base = {
+      relevanceScore: 90,
+      reason: "Texto visible relacionado.",
+      draftReply: "Respuesta útil."
+    };
+    const result = normalizeConversationCandidates([
+      { ...base, sourceText: "か" },
+      { ...base, sourceText: "が" }
+    ], 65);
+
+    expect(result).toHaveLength(2);
+  });
+
   it("drops invented or structurally incomplete model results", () => {
     const result = normalizeConversationCandidates([
       {
