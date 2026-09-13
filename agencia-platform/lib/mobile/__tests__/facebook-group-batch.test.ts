@@ -39,6 +39,46 @@ describe("Facebook group batches", () => {
     expect(candidates[1]).toMatchObject({ selected: false });
   });
 
+  it("removes the Facebook join button label from names returned by vision", () => {
+    const candidates = normalizeFacebookGroupCandidates([{
+      name: "Franquicias en España · Únirte",
+      details: "Público · 554 miembros",
+      relevanceScore: 95,
+      reason: "Coincide con los criterios.",
+      recommended: true
+    }], 5);
+
+    expect(candidates[0]).toMatchObject({
+      id: "franquicias-en-espana",
+      name: "Franquicias en España"
+    });
+  });
+
+  it("repairs an already approved batch before the phone searches its first group", () => {
+    const batch = parseFacebookGroupBatch(JSON.stringify({
+      version: 1,
+      query: "franquicias",
+      criteria: "Grupos de España",
+      membershipAnswers: "",
+      maxGroups: 5,
+      candidates: [{
+        id: "franquicias-en-espana-unirte",
+        name: "Franquicias en España · Únirte",
+        details: "Público · 554 miembros",
+        relevanceScore: 95,
+        reason: "Coincide con los criterios.",
+        selected: true,
+        outcome: "pending",
+        resultDetail: null
+      }]
+    }));
+
+    expect(batch.candidates[0]).toMatchObject({
+      id: "franquicias-en-espana",
+      name: "Franquicias en España"
+    });
+  });
+
   it("round-trips a batch and lets the user exclude a recommendation before approval", () => {
     const initial = createInitialFacebookGroupBatch({
       query: "franquicias",
