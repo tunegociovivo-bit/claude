@@ -93,6 +93,18 @@ function sessionIdFor(deviceSerial: string) {
   return value;
 }
 
+function isNavigationAction(action: string): boolean {
+  return action === "OPEN_URL" || action === "SEARCH_FACEBOOK_GROUPS";
+}
+
+function statusLabel(job: AutomationJob): string {
+  if (job.action === "SEARCH_FACEBOOK_GROUPS") {
+    if (job.status === "RUNNING") return "Buscando grupos en el móvil";
+    if (job.status === "WAITING_USER") return "Resultados listos para revisar";
+  }
+  return STATUS_LABELS[job.status] || job.status;
+}
+
 async function apiJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...init });
   const payload = await response.json().catch(() => null);
@@ -159,7 +171,9 @@ export default function MobileAutomationPanel({
       });
       const job = payload.job as AutomationJob | null;
       if (!job) return;
-      setWorkerMessage("Preparando el trabajo aprobado en el móvil…");
+      setWorkerMessage(job.action === "SEARCH_FACEBOOK_GROUPS"
+        ? `Buscando grupos sobre «${job.sourceRef}» en Facebook…`
+        : "Preparando el trabajo aprobado en el móvil…");
       try {
         await onExecuteJob(job);
         await apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/result`, {
@@ -167,7 +181,7 @@ export default function MobileAutomationPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ executorSessionId, outcome: "PREPARED" })
         });
-        setWorkerMessage(job.action === "OPEN_URL"
+        setWorkerMessage(isNavigationAction(job.action)
           ? "Búsqueda abierta en el móvil. Ya puedes revisar los resultados."
           : "URL abierta y texto copiado. Revisa el móvil antes de publicar.");
       } catch (executionError) {
@@ -232,8 +246,12 @@ export default function MobileAutomationPanel({
       setTargetName("");
       setTargetUrl("");
       setExperienceConfirmed(false);
-      setWorkerMessage("Borrador generado. Revísalo y apruébalo antes de enviarlo al móvil.");
       await loadJobs();
+      setWorkerMessage(sourceKind === "GROUP_DISCOVERY"
+        ? ready
+          ? "Búsqueda enviada. Facebook se abrirá en el móvil en unos segundos."
+          : "Búsqueda en cola. Abre la pantalla del móvil para ejecutarla."
+        : "Borrador generado. Revísalo y apruébalo antes de enviarlo al móvil.");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "No se ha podido generar el borrador");
     } finally {
@@ -292,7 +310,7 @@ export default function MobileAutomationPanel({
             <Bot className="h-4 w-4 text-violet-700" /> Centro de automatizaciones
           </h3>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            La IA prepara el destino y el texto. Tú revisas, apruebas y confirmas la publicación final.
+            El Hub ejecuta las búsquedas y prepara los textos. Las publicaciones siempre quedan bajo tu revisión.
           </p>
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
@@ -401,7 +419,7 @@ export default function MobileAutomationPanel({
                     <div className="text-xs font-bold text-slate-800">{workflowLabel(job.platform, job.sourceKind)}</div>
                     {job.sourceRef && <div className="mt-0.5 text-[11px] text-slate-500">{job.sourceRef}</div>}
                   </div>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClasses(job.status)}`}>{STATUS_LABELS[job.status] || job.status}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClasses(job.status)}`}>{statusLabel(job)}</span>
                 </div>
                 {job.status === "PENDING_APPROVAL" ? (
                   <textarea value={edits[job.id] ?? job.text ?? ""} onChange={(event) => setEdits((current) => ({ ...current, [job.id]: event.target.value }))} rows={4} maxLength={4000} className="mt-2 w-full rounded-lg border px-2.5 py-2 text-xs leading-5" />
@@ -418,10 +436,10 @@ export default function MobileAutomationPanel({
                   )}
                   {job.status === "WAITING_USER" && (
                     <>
-                      {job.action !== "OPEN_URL" && job.text && (
+                      {!isNavigationAction(job.action) && job.text && (
                         <button type="button" onClick={() => void onPasteText(job.text!)} disabled={!ready || busy} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Clipboard className="h-3.5 w-3.5" /> Pegar en el campo enfocado</button>
                       )}
-                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {job.action === "OPEN_URL" ? "Revisión terminada" : "Ya lo publiqué"}</button>
+                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {isNavigationAction(job.action) ? "Revisión terminada" : "Ya lo publiqué"}</button>
                     </>
                   )}
                   {job.status === "FAILED" && <button type="button" onClick={() => void decide(job, "RETRY")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white"><RefreshCw className="h-3.5 w-3.5" /> Reintentar</button>}

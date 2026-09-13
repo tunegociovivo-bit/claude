@@ -49,6 +49,11 @@ import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
+  findAndroidUiNodeCenter,
+  type AndroidUiNodeCriteria,
+  type AndroidUiPoint
+} from "@/components/mobile/android-ui-hierarchy";
+import {
   executeMobileAutomationJob,
   type MobileAutomationExecutableJob
 } from "@/components/mobile/mobile-automation-executor";
@@ -101,6 +106,39 @@ async function runAdbBinary(adb: Adb, command: readonly string[]): Promise<Uint8
     return result.stdout;
   }
   return adb.subprocess.noneProtocol.spawnWait(escapedCommand);
+}
+
+function waitForAndroidUi(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function readAndroidUiHierarchy(adb: Adb): Promise<string> {
+  const dumpPath = "/sdcard/nv-mobile-window.xml";
+  await runAdbCommand(adb, ["uiautomator", "dump", dumpPath]);
+  const hierarchy = await runAdbCommand(adb, ["cat", dumpPath]);
+  if (!hierarchy.includes("<hierarchy")) {
+    throw new Error("Android no ha devuelto la estructura accesible de Facebook.");
+  }
+  return hierarchy;
+}
+
+async function waitForAndroidUiNode(
+  adb: Adb,
+  criteria: AndroidUiNodeCriteria,
+  failureMessage: string
+): Promise<AndroidUiPoint> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const point = findAndroidUiNodeCenter(await readAndroidUiHierarchy(adb), criteria);
+      if (point) return point;
+    } catch (error) {
+      lastError = error;
+    }
+    await waitForAndroidUi(500);
+  }
+  if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
+  throw new Error(failureMessage);
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -594,7 +632,58 @@ function MobileDeviceCard({
         sequence: BigInt(Date.now()),
         paste: false,
         content
-      })
+      }),
+      searchFacebookGroups: async (query) => {
+        const facebookPackages = ["com.facebook.katana", "com.facebook.lite"];
+        let facebookPackage: string | null = null;
+        for (const candidate of facebookPackages) {
+          if (await runAdbCommand(adb, ["pm", "path", candidate]).catch(() => "")) {
+            facebookPackage = candidate;
+            break;
+          }
+        }
+        if (!facebookPackage) {
+          throw new Error("No encuentro la aplicación de Facebook instalada en este móvil.");
+        }
+
+        await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
+        await runAdbCommand(adb, [
+          "monkey",
+          "-p",
+          facebookPackage,
+          "-c",
+          "android.intent.category.LAUNCHER",
+          "1"
+        ]);
+
+        const search = await waitForAndroidUiNode(
+          adb,
+          { labels: ["Buscar", "Search"] },
+          "Facebook se ha abierto, pero no encuentro el botón Buscar. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
+        );
+        await runAdbCommand(adb, ["input", "tap", String(search.x), String(search.y)]);
+
+        const input = await waitForAndroidUiNode(
+          adb,
+          { className: "android.widget.EditText", focused: true },
+          "Facebook no ha abierto el campo de búsqueda. Vuelve a intentarlo con la aplicación en primer plano."
+        );
+        await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
+        await controller.setClipboard({
+          sequence: BigInt(Date.now()),
+          paste: true,
+          content: query
+        });
+        await waitForAndroidUi(250);
+        await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_ENTER"]);
+
+        const groups = await waitForAndroidUiNode(
+          adb,
+          { labels: ["Grupos", "Groups"] },
+          "Facebook ha buscado la temática, pero no encuentro la pestaña Grupos. Revisa la pantalla y vuelve a intentarlo."
+        );
+        await runAdbCommand(adb, ["input", "tap", String(groups.x), String(groups.y)]);
+      }
     });
   }, [status]);
 

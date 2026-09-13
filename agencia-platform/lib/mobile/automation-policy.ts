@@ -23,7 +23,8 @@ export const MOBILE_AUTOMATION_SOURCE_KINDS = [
 export const MOBILE_AUTOMATION_ACTIONS = [
   "OPEN_URL",
   "COPY_TEXT",
-  "OPEN_URL_AND_COPY_TEXT"
+  "OPEN_URL_AND_COPY_TEXT",
+  "SEARCH_FACEBOOK_GROUPS"
 ] as const;
 
 export type MobileAutomationPlatform = (typeof MOBILE_AUTOMATION_PLATFORMS)[number];

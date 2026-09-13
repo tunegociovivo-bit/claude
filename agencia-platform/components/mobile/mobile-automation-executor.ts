@@ -4,11 +4,13 @@ export type MobileAutomationExecutableJob = {
   action: MobileAutomationAction;
   targetUrl: string | null;
   text: string | null;
+  sourceRef?: string | null;
 };
 
 export type MobileAutomationExecutorDependencies = {
   openUrl: (url: string) => Promise<unknown>;
   copyText: (text: string) => Promise<unknown>;
+  searchFacebookGroups?: (query: string) => Promise<unknown>;
 };
 
 export async function executeMobileAutomationJob(
@@ -30,8 +32,12 @@ export async function executeMobileAutomationJob(
       await dependencies.openUrl(job.targetUrl);
       await dependencies.copyText(job.text);
       return;
+    case "SEARCH_FACEBOOK_GROUPS":
+      if (!job.sourceRef?.trim()) throw new Error("La búsqueda no contiene sector o temática.");
+      if (!dependencies.searchFacebookGroups) throw new Error("Este móvil no tiene disponible la búsqueda nativa de Facebook.");
+      await dependencies.searchFacebookGroups(job.sourceRef.trim());
+      return;
     default:
       throw new Error("Acción móvil no permitida.");
   }
 }
-
