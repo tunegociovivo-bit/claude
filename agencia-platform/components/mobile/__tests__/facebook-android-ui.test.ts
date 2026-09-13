@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
-  findFacebookMembershipState
+  findFacebookMembershipState,
+  findFacebookSearchImeTarget,
+  getAndroidImeSearchFallbackPoint,
+  parseAndroidDisplaySize
 } from "@/components/mobile/facebook-android-ui";
 
 describe("Facebook Android UI", () => {
@@ -53,5 +56,22 @@ describe("Facebook Android UI", () => {
     </hierarchy>`;
 
     expect(findFacebookMembershipState(hierarchy)).toBeNull();
+  });
+
+  it("selects the keyboard search action instead of Facebook's header search control", () => {
+    const hierarchy = `<hierarchy>
+      <node text="" content-desc="Buscar" class="android.view.View" bounds="[1000,40][1080,120]" />
+      <node text="Franquicias en España" class="android.widget.EditText" focused="true" bounds="[80,40][990,120]" />
+      <node text="" content-desc="Buscar" class="android.inputmethodservice.Keyboard$Key" bounds="[960,2150][1080,2280]" />
+    </hierarchy>`;
+
+    expect(findFacebookSearchImeTarget(hierarchy)).toEqual({ x: 1020, y: 2215 });
+  });
+
+  it("calculates a safe IME search fallback from Android's effective display size", () => {
+    expect(parseAndroidDisplaySize("Physical size: 1080x2340\nOverride size: 1080x2400"))
+      .toEqual({ width: 1080, height: 2400 });
+    expect(getAndroidImeSearchFallbackPoint({ width: 1080, height: 2400 }))
+      .toEqual({ x: 1015, y: 2196 });
   });
 });
