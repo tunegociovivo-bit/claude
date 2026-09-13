@@ -25,6 +25,7 @@ import { fetchJobAlertOffers } from "./sources/jobs-inbox";
 import { markGoogleMessagesProcessed } from "./sources/jobs-gmail";
 import { analyzeFranchiseNetwork } from "./sources/franchises";
 import { startExecOutreach, draftJobsReview } from "./exec-outreach";
+import { syncJobLeadsToProspecting } from "./job-prospecting-bridge";
 
 /**
  * Arranca la secuencia de email automática para los leads de la fuente "jobs"
@@ -33,7 +34,15 @@ import { startExecOutreach, draftJobsReview } from "./exec-outreach";
  * cuerpo menciona la vacante concreta (se lee rawData.jobTitle al enviar).
  * Acotado por seguridad para no disparar cientos de secuencias de golpe.
  */
-async function startJobsOutreach(workspaceId: string, searchId: string): Promise<number> {
+export async function startJobsOutreach(workspaceId: string, searchId: string): Promise<number> {
+  // El mismo lead alimenta también NV Prospección. Esta vía incluye las ofertas
+  // sin email: siempre podremos dejar preparada al menos la búsqueda del decisor
+  // y el mensaje de LinkedIn para revisión.
+  try {
+    await syncJobLeadsToProspecting({ workspaceId, searchId });
+  } catch (err) {
+    console.error("[search-manager jobs] sync prospecting error:", err);
+  }
   // Modo de envío del módulo Empleos. Por defecto "review" (revisar antes de
   // enviar): más seguro para validar que todo funciona al principio. El usuario
   // lo cambia a automático desde Ajustes cuando quiera.
@@ -1009,7 +1018,7 @@ async function computeMultiLocationSet(workspaceId: string, results: PlacesResul
   return multi;
 }
 
-async function upsertLead(opts: {
+export async function upsertLead(opts: {
   workspaceId: string;
   searchId: string;
   province: string;

@@ -22,6 +22,18 @@ const STEPS: Array<{ day: number; channel: Channel }> = [
   { day: 11, channel: "email" }
 ];
 
+/**
+ * Las ofertas de empleo ya tienen su acción de LinkedIn en NV Prospección.
+ * Tras el primer email saltamos el recordatorio heredado para no pedir dos
+ * veces el mismo contacto privado; la llamada y el cierre siguen intactos.
+ */
+export function nextExecOutreachStep(currentStep: number, rawData: unknown): number {
+  const raw = rawData && typeof rawData === "object" && !Array.isArray(rawData)
+    ? rawData as Record<string, unknown>
+    : {};
+  return currentStep === 0 && raw.source === "jobs" ? 2 : currentStep + 1;
+}
+
 export async function startExecOutreach(opts: {
   workspaceId: string;
   leadId: string;
@@ -527,7 +539,7 @@ export async function processExecOutreachTick(workspaceId: string): Promise<{ pr
   }
 
   // Avanza al siguiente paso (o finaliza).
-  const next = row.step + 1;
+  const next = nextExecOutreachStep(row.step, lead.rawData);
   if (next >= STEPS.length) {
     await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { status: "done", step: next, log } });
   } else {
@@ -612,7 +624,7 @@ export async function listPendingReview(workspaceId: string): Promise<PendingRev
       bccEmails: Array.isArray(rd?.bccEmails) ? rd.bccEmails.filter((x: any) => typeof x === "string") : [],
       directorName: typeof rd?.directorName === "string" ? rd.directorName : null,
       directorRole: typeof rd?.directorRole === "string" ? rd.directorRole : null,
-      linkedin: typeof rd?.linkedin === "string" ? rd.linkedin : null,
+      linkedin: typeof rd?.directorLinkedin === "string" ? rd.directorLinkedin : typeof rd?.linkedin === "string" ? rd.linkedin : null,
       createdAt: r.updatedAt.toISOString()
     };
   });
@@ -651,7 +663,7 @@ export async function approveExecOutreach(
   });
 
   // Avanza la secuencia igual que tras un envío automático.
-  const next = row.step + 1;
+  const next = nextExecOutreachStep(row.step, leadRd?.rawData);
   if (next >= STEPS.length) {
     await prisma.leadExecOutreach.update({ where: { id: row.id }, data: { status: "done", step: next, draftSubject: null, draftBody: null, log } });
   } else {

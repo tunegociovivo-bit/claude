@@ -8,10 +8,14 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api/handler";
 import { generateJobsReviewDrafts } from "@/lib/leads/exec-outreach";
+import { syncJobLeadsToProspecting } from "@/lib/leads/job-prospecting-bridge";
 
 export const dynamic = "force-dynamic";
 
 export const POST = withApi({ scope: "*" }, async (_req, { api }) => {
-  const res = await generateJobsReviewDrafts(api.workspaceId);
-  return NextResponse.json({ ok: true, ...res });
+  const [res, linkedin] = await Promise.all([
+    generateJobsReviewDrafts(api.workspaceId),
+    syncJobLeadsToProspecting({ workspaceId: api.workspaceId })
+  ]);
+  return NextResponse.json({ ok: true, ...res, linkedin });
 });
