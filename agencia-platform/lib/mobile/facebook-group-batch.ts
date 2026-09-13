@@ -57,6 +57,31 @@ function candidateId(name: string): string {
   return fingerprint(name).replace(/\s+/g, "-").slice(0, 180);
 }
 
+export function cleanFacebookGroupName(value: string): string {
+  return value
+    .trim()
+    .replace(
+      /(?:\s*[·•|:]\s*|\s+[–—-]\s+)(?:unirte|únirte|unirse|join(?:\s+group)?)\s*$/iu,
+      ""
+    )
+    .trim();
+}
+
+function repairFacebookGroupBatch(batch: FacebookGroupBatch): FacebookGroupBatch {
+  return {
+    ...batch,
+    candidates: batch.candidates.map((candidate) => {
+      const cleanedName = cleanFacebookGroupName(candidate.name);
+      const name = cleanedName.length >= 2 ? cleanedName : candidate.name.trim();
+      return {
+        ...candidate,
+        id: candidateId(name),
+        name
+      };
+    })
+  };
+}
+
 export function createInitialFacebookGroupBatch(input: {
   query: string;
   criteria: string;
@@ -83,11 +108,14 @@ export function normalizeFacebookGroupCandidates(
   for (const raw of input) {
     const parsed = rawCandidateSchema.safeParse(raw);
     if (!parsed.success) continue;
-    const key = fingerprint(parsed.data.name);
+    const name = cleanFacebookGroupName(parsed.data.name);
+    if (name.length < 2) continue;
+    const candidate = { ...parsed.data, name };
+    const key = fingerprint(name);
     if (!key) continue;
     const previous = unique.get(key);
-    if (!previous || parsed.data.relevanceScore > previous.relevanceScore) {
-      unique.set(key, parsed.data);
+    if (!previous || candidate.relevanceScore > previous.relevanceScore) {
+      unique.set(key, candidate);
     }
   }
 
@@ -114,7 +142,7 @@ export function normalizeFacebookGroupCandidates(
 export function parseFacebookGroupBatch(value: string): FacebookGroupBatch {
   try {
     const parsed = facebookGroupBatchSchema.safeParse(JSON.parse(value));
-    if (parsed.success) return parsed.data;
+    if (parsed.success) return repairFacebookGroupBatch(parsed.data);
   } catch {
     // The public error below intentionally excludes the supplied JSON.
   }
@@ -122,7 +150,7 @@ export function parseFacebookGroupBatch(value: string): FacebookGroupBatch {
 }
 
 export function serializeFacebookGroupBatch(batch: FacebookGroupBatch): string {
-  const serialized = JSON.stringify(facebookGroupBatchSchema.parse(batch));
+  const serialized = JSON.stringify(repairFacebookGroupBatch(facebookGroupBatchSchema.parse(batch)));
   if (serialized.length > MAX_FACEBOOK_GROUP_BATCH_TEXT) {
     throw new Error("El lote de grupos supera el tamaño permitido.");
   }

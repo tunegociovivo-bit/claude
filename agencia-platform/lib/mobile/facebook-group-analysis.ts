@@ -57,6 +57,7 @@ export function buildFacebookGroupAnalysisPrompt(input: {
     `Criterios definidos por el usuario: ${input.criteria}`,
     `Recomienda como máximo ${input.maxGroups} grupos.`,
     "Extrae el nombre exacto y los detalles visibles de actividad, miembros, privacidad y ubicación.",
+    "El campo name debe contener solo el nombre del grupo: excluye botones o estados como Unirte, Únirte, Unirse o Join.",
     "Puntúa de 0 a 100 según los criterios. Marca recommended solo cuando haya evidencia visible suficiente.",
     "No inventes descripciones, actividad, ubicación, número de miembros ni compatibilidad.",
     "Deduplica grupos repetidos entre capturas. Incluye también descartes útiles para que el usuario entienda la selección."

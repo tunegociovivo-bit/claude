@@ -79,7 +79,8 @@ export async function claimNextMobileAutomationJob(input: {
         scheduledAt: { lte: now },
         OR: [
           { status: "QUEUED" },
-          { status: "RUNNING", leaseUntil: { lt: now } }
+          { status: "RUNNING", leaseUntil: { lt: now } },
+          { status: "RUNNING", leaseOwner: input.executorSessionId }
         ]
       },
       orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
@@ -113,7 +114,8 @@ export async function claimNextMobileAutomationJob(input: {
           workspaceId: input.workspaceId,
           OR: [
             { status: "QUEUED" },
-            { status: "RUNNING", leaseUntil: { lt: now } }
+            { status: "RUNNING", leaseUntil: { lt: now } },
+            { status: "RUNNING", leaseOwner: input.executorSessionId }
           ]
         },
         data: {
