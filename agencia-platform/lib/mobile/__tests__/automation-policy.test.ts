@@ -45,6 +45,29 @@ describe("mobile automation policy", () => {
     ).toBe("https://www.instagram.com/p/example/");
   });
 
+  it("acepta acciones de grupos y comentarios solo en plataformas compatibles", () => {
+    const facebookGroupSearch = {
+      ...realReview,
+      platform: "facebook",
+      sourceKind: "GROUP_DISCOVERY",
+      targetUrl: "https://www.facebook.com/search/groups/?q=viajes+a+Japon",
+      experienceConfirmed: false
+    };
+    expect(mobileAutomationDraftSchema.parse(facebookGroupSearch)).toMatchObject(facebookGroupSearch);
+    expect(() => mobileAutomationDraftSchema.parse({
+      ...facebookGroupSearch,
+      platform: "instagram",
+      targetUrl: "https://www.instagram.com/explore/"
+    })).toThrow(/Facebook/i);
+
+    expect(mobileAutomationDraftSchema.parse({
+      ...facebookGroupSearch,
+      platform: "instagram",
+      sourceKind: "COMMENT_REPLY",
+      targetUrl: "https://www.instagram.com/p/example/"
+    })).toMatchObject({ platform: "instagram", sourceKind: "COMMENT_REPLY" });
+  });
+
   it("rejects local and non-HTTPS targets", () => {
     expect(() => validateAutomationTargetUrl("generic", "http://localhost:3000/admin")).toThrow(
       /HTTPS/i
