@@ -29,6 +29,7 @@ export function parseImageDataUrl(value: string): ParsedImageDataUrl {
   }
   const mediaType = match[1] as ParsedImageDataUrl["mediaType"];
   const data = match[2];
+  if (data.length % 4 !== 0) throw new Error("La captura no contiene base64 válido");
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
   const byteLength = Math.floor((data.length * 3) / 4) - padding;
   if (byteLength <= 0) throw new Error("La captura está vacía");
@@ -69,7 +70,7 @@ function fingerprint(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("es")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 

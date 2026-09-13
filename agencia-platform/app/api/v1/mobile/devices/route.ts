@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
@@ -87,7 +88,11 @@ export const dynamic = "force-dynamic";
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const { workspace, canManage } = await loadContext(api.workspaceId, api.userId);
   const leads = (workspace.settings as any)?.leads ?? {};
-  return NextResponse.json({ canManage, items: sharedPhonesFromLeads(leads) });
+  const clientStorageScope = createHash("sha256")
+    .update(`${api.workspaceId}:${api.userId}`)
+    .digest("hex")
+    .slice(0, 20);
+  return NextResponse.json({ canManage, clientStorageScope, items: sharedPhonesFromLeads(leads) });
 });
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {

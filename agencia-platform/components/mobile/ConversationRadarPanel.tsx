@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Check,
   Clipboard,
@@ -32,6 +32,7 @@ type RuleDraft = Omit<ConversationRadarRule, "id"> & { id?: string };
 type Props = {
   deviceSerial: string;
   phoneKey: string;
+  storageScope: string;
   ready: boolean;
   onCaptureScreen: () => Promise<string>;
   onCopyText: (text: string) => Promise<void>;
@@ -53,8 +54,17 @@ const TONE_LABELS: Record<ConversationRadarRule["tone"], string> = {
   concise: "Breve y directa"
 };
 
-function storageKey(phoneKey: string) {
-  return `nv-conversation-radar-rules:${phoneKey}`;
+function storageKey(storageScope: string, phoneKey: string) {
+  return `nv-conversation-radar-rules:${storageScope}:${phoneKey}`;
+}
+
+function queueFingerprint(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 async function apiJson(url: string, init: RequestInit) {
@@ -69,6 +79,7 @@ async function apiJson(url: string, init: RequestInit) {
 export default function ConversationRadarPanel({
   deviceSerial,
   phoneKey,
+  storageScope,
   ready,
   onCaptureScreen,
   onCopyText,
@@ -84,6 +95,8 @@ export default function ConversationRadarPanel({
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const analysisGenerationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const selectedRule = useMemo(
     () => rules.find((rule) => rule.id === selectedRuleId) ?? null,
@@ -92,9 +105,13 @@ export default function ConversationRadarPanel({
   const pendingCount = queue.filter((item) => item.state === "pending").length;
 
   useEffect(() => {
+    abortRef.current?.abort();
+    analysisGenerationRef.current += 1;
     let stored: ConversationRadarRule[] = [];
     try {
-      stored = readStoredConversationRules(localStorage.getItem(storageKey(phoneKey)));
+      stored = storageScope
+        ? readStoredConversationRules(localStorage.getItem(storageKey(storageScope, phoneKey)))
+        : [];
     } catch {
       stored = [];
     }
@@ -103,12 +120,26 @@ export default function ConversationRadarPanel({
     setRuleDraft(stored[0] ?? EMPTY_RULE);
     setEditingRule(stored.length === 0);
     setQueue([]);
-  }, [phoneKey]);
+    setEdits({});
+    setAnalyzing(false);
+    return () => {
+      abortRef.current?.abort();
+      analysisGenerationRef.current += 1;
+    };
+  }, [phoneKey, storageScope]);
+
+  function invalidateAnalysis() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    analysisGenerationRef.current += 1;
+    setAnalyzing(false);
+  }
 
   function persist(next: ConversationRadarRule[]) {
     setRules(next);
     try {
-      localStorage.setItem(storageKey(phoneKey), JSON.stringify(next.slice(0, 20)));
+      if (!storageScope) throw new Error("missing storage scope");
+      localStorage.setItem(storageKey(storageScope, phoneKey), JSON.stringify(next.slice(0, 20)));
     } catch {
       setFeedback("La regla funciona ahora, pero Chrome no ha permitido recordarla.");
     }
@@ -116,6 +147,7 @@ export default function ConversationRadarPanel({
 
   function saveRule(event: FormEvent) {
     event.preventDefault();
+    invalidateAnalysis();
     setError(null);
     const candidate = {
       ...ruleDraft,
@@ -136,27 +168,33 @@ export default function ConversationRadarPanel({
     setSelectedRuleId(parsed.data.id);
     setRuleDraft(parsed.data);
     setEditingRule(false);
+    setQueue([]);
+    setEdits({});
     setFeedback("Regla guardada. Ya puedes reutilizarla en cualquier pantalla.");
   }
 
   function chooseRule(id: string) {
+    invalidateAnalysis();
     const rule = rules.find((item) => item.id === id);
     setSelectedRuleId(id);
     if (rule) setRuleDraft(rule);
     setEditingRule(false);
     setQueue([]);
+    setEdits({});
     setFeedback(null);
     setError(null);
   }
 
   function removeSelectedRule() {
     if (!selectedRule) return;
+    invalidateAnalysis();
     const next = rules.filter((rule) => rule.id !== selectedRule.id);
     persist(next);
     setSelectedRuleId(next[0]?.id ?? "");
     setRuleDraft(next[0] ?? EMPTY_RULE);
     setEditingRule(next.length === 0);
     setQueue([]);
+    setEdits({});
   }
 
   async function analyzeVisibleScreen() {
@@ -164,32 +202,53 @@ export default function ConversationRadarPanel({
     setAnalyzing(true);
     setError(null);
     setFeedback("Capturando únicamente la pantalla que ves ahora…");
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const generation = ++analysisGenerationRef.current;
     let screenImage = "";
     try {
       screenImage = await onCaptureScreen();
+      if (generation !== analysisGenerationRef.current) return;
       const payload = await apiJson("/api/v1/mobile/conversations/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({ phoneKey, deviceSerial, screenImage, rule: selectedRule })
       });
+      if (generation !== analysisGenerationRef.current) return;
       const candidates = Array.isArray(payload?.candidates) ? payload.candidates as ConversationCandidate[] : [];
       const nextQueue = candidates.map((candidate) => ({
         ...candidate,
         id: crypto.randomUUID(),
         state: "pending" as const
       }));
-      setQueue(nextQueue);
-      setEdits(Object.fromEntries(nextQueue.map((item) => [item.id, item.draftReply])));
-      setFeedback(nextQueue.length > 0
-        ? `${nextQueue.length} conversación${nextQueue.length === 1 ? "" : "es"} relevante${nextQueue.length === 1 ? "" : "s"} lista${nextQueue.length === 1 ? "" : "s"} para revisar.`
-        : "No hay comentarios visibles que superen el nivel de relevancia de esta regla.");
+      const known = new Set(queue.map((item) => queueFingerprint(item.sourceText)));
+      const additions = nextQueue.filter((item) => {
+        const key = queueFingerprint(item.sourceText);
+        if (!key || known.has(key)) return false;
+        known.add(key);
+        return true;
+      });
+      const merged = [...queue, ...additions].slice(0, 60);
+      setQueue(merged);
+      setEdits((current) => ({
+        ...current,
+        ...Object.fromEntries(additions.map((item) => [item.id, item.draftReply]))
+      }));
+      setFeedback(additions.length > 0
+        ? `${additions.length} conversación${additions.length === 1 ? "" : "es"} nueva${additions.length === 1 ? "" : "s"} añadida${additions.length === 1 ? "" : "s"}. El lote tiene ${merged.length}.`
+        : "Esta pantalla no aporta comentarios nuevos que superen la relevancia mínima.");
     } catch (analysisError) {
-      setQueue([]);
+      if (controller.signal.aborted || generation !== analysisGenerationRef.current) return;
       setError(analysisError instanceof Error ? analysisError.message : "No se ha podido analizar la pantalla");
       setFeedback(null);
     } finally {
       screenImage = "";
-      setAnalyzing(false);
+      if (generation === analysisGenerationRef.current) {
+        abortRef.current = null;
+        setAnalyzing(false);
+      }
     }
   }
 
@@ -254,8 +313,8 @@ export default function ConversationRadarPanel({
             </select>
           </label>
           <div className="flex items-end gap-1.5">
-            <button type="button" onClick={() => { if (selectedRule) setRuleDraft(selectedRule); setEditingRule(true); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-50" aria-label="Editar regla"><Pencil className="h-4 w-4" /></button>
-            <button type="button" onClick={() => { setRuleDraft(EMPTY_RULE); setEditingRule(true); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-50" aria-label="Nueva regla"><Plus className="h-4 w-4" /></button>
+            <button type="button" onClick={() => { invalidateAnalysis(); if (selectedRule) setRuleDraft(selectedRule); setEditingRule(true); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-50" aria-label="Editar regla"><Pencil className="h-4 w-4" /></button>
+            <button type="button" onClick={() => { invalidateAnalysis(); setRuleDraft(EMPTY_RULE); setEditingRule(true); }} className="rounded-lg border bg-white p-2 text-slate-600 hover:bg-slate-50" aria-label="Nueva regla"><Plus className="h-4 w-4" /></button>
             <button type="button" onClick={removeSelectedRule} className="rounded-lg border bg-white p-2 text-rose-600 hover:bg-rose-50" aria-label="Eliminar regla"><Trash2 className="h-4 w-4" /></button>
           </div>
         </div>
@@ -293,10 +352,10 @@ export default function ConversationRadarPanel({
           <p className="text-xs text-slate-600"><span className="font-bold text-slate-800">Busca:</span> {selectedRule.topic}</p>
           <button type="button" onClick={() => void analyzeVisibleScreen()} disabled={!ready || analyzing} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-fuchsia-700 px-4 py-3 text-sm font-bold text-white hover:bg-fuchsia-800 disabled:opacity-50">
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-            {analyzing ? "Analizando lo que se ve…" : "Analizar pantalla visible"}
+            {analyzing ? "Analizando lo que se ve…" : queue.length > 0 ? "Añadir pantalla visible al lote" : "Analizar pantalla visible"}
           </button>
           <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-slate-500">
-            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> La captura se usa una sola vez y no se guarda. No se recorren otros comentarios ni pantallas.
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Al pulsar, la captura se envía al proveedor de IA solo para este análisis; no se persiste en el Hub. No se recorren otros comentarios ni pantallas.
           </p>
         </div>
       )}
@@ -308,7 +367,7 @@ export default function ConversationRadarPanel({
         <div className="mt-4 border-t border-fuchsia-100 pt-3">
           <div className="flex items-center justify-between gap-2">
             <h4 className="text-xs font-bold uppercase tracking-wide text-slate-600">Revisión rápida · {pendingCount} pendientes</h4>
-            <span className="text-[11px] text-slate-500">{queue.length} detectadas</span>
+            <button type="button" onClick={() => { setQueue([]); setEdits({}); setFeedback("Lote vaciado."); }} disabled={analyzing} className="text-[11px] font-semibold text-slate-500 hover:text-rose-700 disabled:opacity-50">Vaciar lote · {queue.length}</button>
           </div>
           <div className="mt-2 max-h-[38rem] space-y-2 overflow-y-auto pr-1">
             {queue.map((item) => (
@@ -323,13 +382,13 @@ export default function ConversationRadarPanel({
                 <p className="mt-1 text-[11px] leading-4 text-slate-500">{item.reason}</p>
                 <textarea value={edits[item.id] ?? item.draftReply} onChange={(event) => setEdits((current) => ({ ...current, [item.id]: event.target.value }))} rows={3} maxLength={800} disabled={item.state === "skipped"} className="mt-2 w-full rounded-lg border px-2.5 py-2 text-xs leading-5 disabled:bg-slate-100" aria-label={`Respuesta para ${item.authorLabel || "comentario"}`} />
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <button type="button" onClick={() => void copyItem(item)} disabled={!ready || busyItemId === item.id || item.state === "skipped"} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                  <button type="button" onClick={() => void copyItem(item)} disabled={!ready || analyzing || busyItemId === item.id || item.state === "skipped"} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
                     {item.state === "approved" ? <Check className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />} {item.state === "approved" ? "Copiada" : "Aprobar y copiar"}
                   </button>
-                  <button type="button" onClick={() => void pasteItem(item)} disabled={!ready || busyItemId === item.id || item.state === "skipped"} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                  <button type="button" onClick={() => void pasteItem(item)} disabled={!ready || analyzing || busyItemId === item.id || item.state === "skipped"} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
                     <Clipboard className="h-3.5 w-3.5" /> Pegar en campo enfocado
                   </button>
-                  <button type="button" onClick={() => setQueue((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, state: candidate.state === "skipped" ? "pending" : "skipped" } : candidate))} className="ml-auto inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-600">
+                  <button type="button" onClick={() => setQueue((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, state: candidate.state === "skipped" ? "pending" : "skipped" } : candidate))} disabled={analyzing} className="ml-auto inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50">
                     {item.state === "skipped" ? <Plus className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />} {item.state === "skipped" ? "Recuperar" : "Descartar"}
                   </button>
                 </div>

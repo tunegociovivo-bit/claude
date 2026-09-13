@@ -170,6 +170,7 @@ export default function MobileFarmClient() {
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [sharedPhones, setSharedPhones] = useState<SharedMobilePhone[]>([]);
+  const [clientStorageScope, setClientStorageScope] = useState("");
   const [canManagePhones, setCanManagePhones] = useState(false);
   const [phonesLoading, setPhonesLoading] = useState(true);
   const [phonesError, setPhonesError] = useState<string | null>(null);
@@ -184,6 +185,7 @@ export default function MobileFarmClient() {
         throw new Error(payload?.error?.message || payload?.message || "No se ha podido cargar el inventario de teléfonos");
       }
       setSharedPhones(Array.isArray(payload?.items) ? payload.items : []);
+      setClientStorageScope(typeof payload?.clientStorageScope === "string" ? payload.clientStorageScope : "");
       setCanManagePhones(Boolean(payload?.canManage));
     } catch (loadError) {
       setPhonesError(loadError instanceof Error ? loadError.message : "No se ha podido cargar el inventario de teléfonos");
@@ -269,7 +271,7 @@ export default function MobileFarmClient() {
             </div>
             <h2 className="mt-3 text-lg font-bold text-slate-900">El Hub no emula ni suplanta el teléfono</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              La app se ejecuta en el móvil real. El vídeo y los gestos viajan por el cable USB y no se guardan ni se suben al servidor.
+              La app se ejecuta en el móvil real. El vídeo y los gestos viajan por USB y no se suben; el Radar solo envía una captura al proveedor de IA cuando tú pulsas analizar.
             </p>
           </div>
           <button
@@ -312,6 +314,7 @@ export default function MobileFarmClient() {
               key={device.serial}
               device={device}
               linkedPhone={sharedPhones.find((phone) => phone.deviceSerial === device.serial) ?? null}
+              clientStorageScope={clientStorageScope}
             />
           ))}
         </section>
@@ -359,7 +362,15 @@ function EmptyState({ onConnect, disabled }: { onConnect: () => void; disabled: 
   );
 }
 
-function MobileDeviceCard({ device, linkedPhone }: { device: UsbDevice; linkedPhone: SharedMobilePhone | null }) {
+function MobileDeviceCard({
+  device,
+  linkedPhone,
+  clientStorageScope
+}: {
+  device: UsbDevice;
+  linkedPhone: SharedMobilePhone | null;
+  clientStorageScope: string;
+}) {
   const screenMountRef = useRef<HTMLDivElement>(null);
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const adbRef = useRef<Adb>();
@@ -855,6 +866,7 @@ function MobileDeviceCard({ device, linkedPhone }: { device: UsbDevice; linkedPh
             <ConversationRadarPanel
               deviceSerial={device.serial}
               phoneKey={linkedPhone.key}
+              storageScope={clientStorageScope}
               ready={status === "mirroring"}
               onCaptureScreen={captureVisibleScreen}
               onCopyText={copyApprovedConversation}
