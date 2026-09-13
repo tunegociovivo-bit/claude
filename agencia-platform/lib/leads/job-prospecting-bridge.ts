@@ -156,7 +156,7 @@ export async function syncJobLeadsToProspecting(opts: { workspaceId: string; sea
       rawData: { path: ["source"], equals: "jobs" }
     } as any,
     orderBy: { createdAt: "desc" },
-    take: Math.min(Math.max(opts.limit ?? 100, 1), 200),
+    take: Math.min(Math.max(opts.limit ?? 200, 1), 500),
     select: { id: true, workspaceId: true, name: true, email: true, phone: true, website: true, contactStatus: true, rawData: true }
   }) as JobLead[];
 

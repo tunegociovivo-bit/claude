@@ -73,7 +73,8 @@ describe("syncJobLeadsToProspecting", () => {
     const result = await syncJobLeadsToProspecting({ workspaceId: "workspace-1", searchId: "search-1" });
 
     expect(mocks.leadFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ workspaceId: "workspace-1", searchId: "search-1" })
+      where: expect.objectContaining({ workspaceId: "workspace-1", searchId: "search-1" }),
+      take: 200
     }));
     expect(mocks.apollo).toHaveBeenCalledWith(expect.objectContaining({
       domain: "acme.es",
