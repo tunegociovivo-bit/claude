@@ -123,6 +123,30 @@ describe("mobile automation draft API", () => {
     expect(prisma.mobileAutomationJob.create).not.toHaveBeenCalled();
   });
 
+  it("crea una búsqueda de grupos de Facebook como navegación, sin intentar publicar", async () => {
+    const response = await createDraft(
+      request("https://hub.example/api/v1/mobile/automations/drafts", {
+        ...draftInput,
+        platform: "facebook",
+        sourceKind: "GROUP_DISCOVERY",
+        targetName: "viajes a Japón",
+        targetUrl: "https://www.facebook.com/search/groups/?q=viajes+a+Japon",
+        facts: "Grupos activos en español para preparar un viaje a Japón por libre.",
+        experienceConfirmed: false
+      }),
+      { params: {} }
+    );
+
+    expect(response.status).toBe(201);
+    expect(prisma.mobileAutomationJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        platform: "facebook",
+        sourceKind: "GROUP_DISCOVERY",
+        action: "OPEN_URL"
+      })
+    });
+  });
+
   it("rejects a device that is not linked to the selected shared phone", async () => {
     const response = await createDraft(
       request("https://hub.example/api/v1/mobile/automations/drafts", {
