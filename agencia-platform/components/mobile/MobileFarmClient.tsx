@@ -55,6 +55,7 @@ import {
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import {
   formatAndroidProxy,
+  getAndroidProxySyncState,
   normalizeAndroidProxy,
   parseAndroidProxy,
   type AndroidHttpProxy
@@ -388,11 +389,17 @@ function MobileDeviceCard({
   const [proxyPort, setProxyPort] = useState("");
   const [appliedProxy, setAppliedProxy] = useState<AndroidHttpProxy | null>(null);
   const [proxyBusy, setProxyBusy] = useState(false);
+  const [ipAuthorizationConfirmed, setIpAuthorizationConfirmed] = useState(false);
   const [proxyFeedback, setProxyFeedback] = useState<{ tone: "success" | "danger" | "info"; text: string } | null>(null);
 
   useEffect(() => {
     const storageKey = `nv-mobile-proxy:${device.serial}`;
     try {
+      if (linkedPhone?.androidProxy) {
+        setProxyHost(linkedPhone.androidProxy.host);
+        setProxyPort(String(linkedPhone.androidProxy.port));
+        return;
+      }
       const saved = localStorage.getItem(storageKey);
       if (!saved) return;
       const draft = JSON.parse(saved) as { host?: unknown; port?: unknown };
@@ -402,7 +409,11 @@ function MobileDeviceCard({
     } catch {
       try { localStorage.removeItem(storageKey); } catch { /* storage unavailable */ }
     }
-  }, [device.serial]);
+  }, [device.serial, linkedPhone]);
+
+  useEffect(() => {
+    setIpAuthorizationConfirmed(false);
+  }, [linkedPhone?.androidProxy?.host, linkedPhone?.androidProxy?.port]);
 
   const closeSession = useCallback(async () => {
     closingRef.current = true;
@@ -442,9 +453,28 @@ function MobileDeviceCard({
       ]);
       setModel(reportedModel || device.name || "Android");
       setAndroidVersion(version || null);
-      const currentProxy = await readAndroidProxy(adb).catch(() => null);
+      let currentProxy = await readAndroidProxy(adb).catch(() => null);
+      const configuredProxy = linkedPhone?.androidProxy ?? null;
+      if (
+        configuredProxy
+        && !configuredProxy.requiresIpAuthorization
+        && formatAndroidProxy(configuredProxy) !== (currentProxy ? formatAndroidProxy(currentProxy) : "")
+      ) {
+        await runAdbCommand(adb, ["settings", "put", "global", "http_proxy", formatAndroidProxy(configuredProxy)]);
+        currentProxy = await readAndroidProxy(adb);
+        if (!currentProxy || formatAndroidProxy(currentProxy) !== formatAndroidProxy(configuredProxy)) {
+          throw new Error("Android no ha confirmado el proxy configurado en NV Leads.");
+        }
+        setProxyFeedback({
+          tone: "success",
+          text: `Proxy de NV Leads aplicado automáticamente: ${formatAndroidProxy(currentProxy)}.`
+        });
+      }
       setAppliedProxy(currentProxy);
-      if (currentProxy) {
+      if (configuredProxy) {
+        setProxyHost(configuredProxy.host);
+        setProxyPort(String(configuredProxy.port));
+      } else if (currentProxy) {
         setProxyHost(currentProxy.host);
         setProxyPort(String(currentProxy.port));
       }
@@ -608,6 +638,9 @@ function MobileDeviceCard({
     setProxyBusy(true);
     setProxyFeedback(null);
     try {
+      if (linkedPhone?.androidProxy?.requiresIpAuthorization && !ipAuthorizationConfirmed) {
+        throw new Error("Confirma primero que la IP pública actual está autorizada en DataImpulse.");
+      }
       const proxy = normalizeAndroidProxy(proxyHost, proxyPort);
       await runAdbCommand(adb, ["settings", "put", "global", "http_proxy", formatAndroidProxy(proxy)]);
       const confirmed = await readAndroidProxy(adb);
@@ -708,6 +741,8 @@ function MobileDeviceCard({
   }
 
   const busy = ["connecting", "authorizing", "preparing", "stopping"].includes(status);
+  const configuredProxy = linkedPhone?.androidProxy ?? null;
+  const proxySyncState = getAndroidProxySyncState(configuredProxy, appliedProxy);
 
   return (
     <article className="overflow-hidden rounded-2xl border bg-white shadow-sm">
@@ -804,16 +839,66 @@ function MobileDeviceCard({
                 </p>
               </div>
               <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                appliedProxy ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
+                proxySyncState === "synced"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : proxySyncState === "needs-ip-authorization"
+                    ? "bg-amber-100 text-amber-800"
+                    : appliedProxy
+                      ? "bg-cyan-100 text-cyan-800"
+                      : "bg-slate-200 text-slate-700"
               }`}>
-                {appliedProxy ? `Activo · ${formatAndroidProxy(appliedProxy)}` : "Red directa"}
+                {proxySyncState === "synced"
+                  ? `Sincronizado · ${formatAndroidProxy(appliedProxy!)}`
+                  : proxySyncState === "needs-ip-authorization"
+                    ? "Pendiente de autorizar IP"
+                    : appliedProxy
+                      ? `Activo · ${formatAndroidProxy(appliedProxy)}`
+                      : "Red directa"}
               </span>
             </div>
+
+            {configuredProxy && (
+              <div className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-5 ${
+                configuredProxy.requiresIpAuthorization
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+              }`}>
+                <p className="font-semibold">
+                  NV Leads: {formatAndroidProxy(configuredProxy)} · {configuredProxy.source === "number" ? "proxy propio del número" : "proxy global heredado"}
+                </p>
+                {configuredProxy.requiresIpAuthorization && proxySyncState !== "synced" && (
+                  <>
+                    <p>
+                      La URL guardada usa credenciales. Para que Android pueda usar este mismo destino sin exponerlas,
+                      autoriza primero la IP pública actual en DataImpulse.
+                    </p>
+                    <label className="mt-1 flex items-start gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={ipAuthorizationConfirmed}
+                        onChange={(event) => setIpAuthorizationConfirmed(event.target.checked)}
+                        className="mt-1 accent-amber-600"
+                      />
+                      Ya he autorizado esta IP en DataImpulse
+                    </label>
+                    <a
+                      href="https://docs.dataimpulse.com/authentication-methods/whitelist-ips"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 font-semibold underline"
+                    >
+                      Abrir instrucciones de DataImpulse <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </>
+                )}
+              </div>
+            )}
 
             <form onSubmit={(event) => { event.preventDefault(); void applyProxy(); }} className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_auto]">
               <input
                 value={proxyHost}
                 onChange={(event) => setProxyHost(event.target.value)}
+                readOnly={Boolean(configuredProxy)}
                 placeholder="proxy.ejemplo.com"
                 aria-label="Host del proxy"
                 autoComplete="off"
@@ -822,6 +907,7 @@ function MobileDeviceCard({
               <input
                 value={proxyPort}
                 onChange={(event) => setProxyPort(event.target.value)}
+                readOnly={Boolean(configuredProxy)}
                 placeholder="8080"
                 aria-label="Puerto del proxy"
                 inputMode="numeric"
@@ -830,11 +916,16 @@ function MobileDeviceCard({
               />
               <button
                 type="submit"
-                disabled={proxyBusy || !proxyHost.trim() || !proxyPort.trim()}
+                disabled={
+                  proxyBusy
+                  || !proxyHost.trim()
+                  || !proxyPort.trim()
+                  || (proxySyncState === "needs-ip-authorization" && !ipAuthorizationConfirmed)
+                }
                 className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-cyan-700 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:opacity-50"
               >
                 {proxyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                Aplicar
+                {configuredProxy ? "Aplicar el de NV Leads" : "Aplicar"}
               </button>
             </form>
 

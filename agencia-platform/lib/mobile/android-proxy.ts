@@ -3,6 +3,12 @@ export type AndroidHttpProxy = {
   port: number;
 };
 
+export type AndroidProxySyncState =
+  | "unmanaged"
+  | "synced"
+  | "needs-apply"
+  | "needs-ip-authorization";
+
 const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
 function isValidIpv4(host: string): boolean {
@@ -49,4 +55,13 @@ export function parseAndroidProxy(raw: string | null | undefined): AndroidHttpPr
 
 export function formatAndroidProxy(proxy: AndroidHttpProxy): string {
   return `${proxy.host}:${proxy.port}`;
+}
+
+export function getAndroidProxySyncState(
+  configured: (AndroidHttpProxy & { requiresIpAuthorization: boolean }) | null,
+  applied: AndroidHttpProxy | null
+): AndroidProxySyncState {
+  if (!configured) return "unmanaged";
+  if (applied && formatAndroidProxy(configured) === formatAndroidProxy(applied)) return "synced";
+  return configured.requiresIpAuthorization ? "needs-ip-authorization" : "needs-apply";
 }

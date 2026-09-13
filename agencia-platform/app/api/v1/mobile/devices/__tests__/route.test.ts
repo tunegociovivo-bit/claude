@@ -68,6 +68,12 @@ describe("inventario compartido de F - Móviles", () => {
     expect(body.clientStorageScope).toMatch(/^[a-f0-9]{20}$/);
     expect(body.items).toHaveLength(2);
     expect(body.items[1]).toMatchObject({ key: "sonia", deviceSerial: "USB-2", proxyConfigured: true });
+    expect(body.items[1].androidProxy).toEqual({
+      host: "example.test",
+      port: 8081,
+      requiresIpAuthorization: true,
+      source: "number"
+    });
     expect(JSON.stringify(body)).not.toContain("principal-secret");
     expect(JSON.stringify(body)).not.toContain("channel-secret");
   });
