@@ -48,7 +48,10 @@ import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
-import { prepareAndroidForAutomation } from "@/components/mobile/android-automation-ready";
+import {
+  keepAndroidAwakeDuringAutomation,
+  prepareAndroidForAutomation
+} from "@/components/mobile/android-automation-ready";
 import {
   findAndroidUiNodeCenter,
   type AndroidUiNodeCriteria,
@@ -854,7 +857,9 @@ function MobileDeviceCard({
     if (!adb || !controller || status !== "mirroring") {
       throw new Error("La pantalla del móvil debe estar abierta para preparar el trabajo.");
     }
-    return executeMobileAutomationJob(job, {
+    return keepAndroidAwakeDuringAutomation(
+      (command) => runAdbCommand(adb, command),
+      () => executeMobileAutomationJob(job, {
       openUrl: (url) => runAdbCommand(adb, [
         "am",
         "start",
@@ -938,7 +943,7 @@ function MobileDeviceCard({
             : `${completed.length} grupos procesados por Facebook.`
         };
       }
-    });
+    }));
   }, [status]);
 
   const pasteApprovedAutomation = useCallback(async (content: string) => {
