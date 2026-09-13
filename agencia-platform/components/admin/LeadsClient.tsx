@@ -4197,11 +4197,15 @@ function JobsReviewPanel() {
         return;
       }
       await loadItems();
-      if ((j.drafted ?? 0) === 0) {
+      const emailDrafts = j.drafted ?? 0;
+      const linkedinDrafts = j.linkedin?.drafted ?? 0;
+      if (emailDrafts > 0 || linkedinDrafts > 0) {
+        alert(`Preparados ${emailDrafts} borrador(es) de email y ${linkedinDrafts} mensaje(s) de LinkedIn. Los mensajes privados están en NV Prospección para revisarlos.`);
+      } else {
         alert(
-          j.candidates === 0
+          (j.candidates ?? 0) === 0 && (j.linkedin?.candidates ?? 0) === 0
             ? "No hay empresas de Empleos con email de contacto todavía. Lanza una búsqueda de la fuente Empleos primero."
-            : "Todas las empresas con email ya tenían su borrador o secuencia. Nada nuevo que generar."
+            : "Todas las empresas ya tenían preparado su email o su acción de LinkedIn. Nada nuevo que generar."
         );
       }
     } finally {
@@ -4313,7 +4317,7 @@ function JobsReviewPanel() {
     <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="text-sm font-semibold text-slate-800">
-          📧 Empleos — emails a empresas que buscan marketing/IA
+          📧 Empleos — contacto por email + LinkedIn
           {pending > 0 && <span className="ml-2 inline-flex items-center rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white">{pending} por revisar</span>}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -4321,10 +4325,13 @@ function JobsReviewPanel() {
           onClick={() => void generateDrafts()}
           disabled={generating}
           className="inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-          title="Redacta con IA el email de las empresas de Empleos que tengan email y aún no tengan borrador"
+          title="Prepara el email y el mensaje de LinkedIn de cada oferta que todavía no tenga borrador"
         >
-          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🪄"} Generar borradores
+          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🪄"} Generar email + LinkedIn
         </button>
+        <a href="/admin/prospeccion" className="inline-flex items-center gap-1 rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50">
+          Abrir NV Prospección ↗
+        </a>
         <div className="inline-flex rounded-md border border-indigo-300 overflow-hidden text-xs">
           <button
             onClick={() => void setModeRemote("review")}
@@ -4347,8 +4354,8 @@ function JobsReviewPanel() {
       </div>
       <div className="text-[11px] text-slate-600 mt-1">
         {mode === "auto"
-          ? "Modo automático: al encontrar una empresa con oferta de marketing/IA y su email, el primer correo sale solo (con pie de baja RGPD)."
-          : "Modo revisión: al terminar la búsqueda, los correos se redactan con IA y quedan aquí. Selecciona con las casillas cuáles enviar, edítalos a tu gusto y descarta los que no te interesen. Nada sale sin tu visto bueno."}
+          ? "Modo automático: el email sale solo cuando existe destinatario; el mensaje de LinkedIn siempre queda supervisado en NV Prospección para proteger la cuenta."
+          : "Modo revisión: cada oferta alimenta ambas vías. El email queda aquí y el mensaje privado queda en NV Prospección. Nada sale sin tu visto bueno."}
       </div>
       {sentMsg && (
         <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800">

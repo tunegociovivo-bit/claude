@@ -1199,6 +1199,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       return;
     }
+    if (msg?.from === "linkedin-prospecting" && msg?.type === "prospecting-job-import") {
+      try {
+        const r = await authedFetch("/api/v1/leads/prospecting/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(msg.offer)
+        });
+        const data = await r.json().catch(() => ({}));
+        sendResponse(r.ok
+          ? { ok: true, created: !!data.created, emailFound: !!data.emailFound, linkedinDrafted: !!data.linkedinDrafted }
+          : { ok: false, error: data?.error?.message ?? `Hub HTTP ${r.status}` });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    if (msg?.from === "linkedin-prospecting" && msg?.type === "prospecting-linkedin-draft") {
+      try {
+        const r = await authedFetch(`/api/v1/leads/prospecting/linkedin-draft?url=${encodeURIComponent(msg.url || "")}`);
+        const data = await r.json().catch(() => ({}));
+        sendResponse(r.ok ? { ok: true, draft: data.draft === null ? null : data } : { ok: false, error: data?.error?.message ?? `Hub HTTP ${r.status}` });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    if (msg?.from === "linkedin-prospecting" && msg?.type === "prospecting-linkedin-complete") {
+      try {
+        const r = await authedFetch("/api/v1/leads/prospecting/activities", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activityId: msg.activityId, action: "complete" })
+        });
+        const data = await r.json().catch(() => ({}));
+        sendResponse(r.ok ? { ok: true } : { ok: false, error: data?.error?.message ?? `Hub HTTP ${r.status}` });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
+    if (msg?.from === "linkedin-prospecting" && msg?.type === "prospecting-job-import") {
+      try {
+        const r = await authedFetch("/api/v1/leads/prospecting/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(msg.offer)
+        });
+        const data = await r.json().catch(() => ({}));
+        sendResponse(r.ok
+          ? {
+              ok: true,
+              created: Boolean(data.created),
+              leadId: data.leadId,
+              emailFound: Boolean(data.emailFound),
+              linkedinDrafted: Boolean(data.linkedinDrafted)
+            }
+          : { ok: false, error: data?.error?.message ?? `Hub HTTP ${r.status}` });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
     // Banner → guarda el destino elegido y abre el popup. La captura
     // (tabCapture) NO puede arrancar desde el banner: Chrome exige invocar
     // la extensión por su icono (activeTab). El popup lee este "pendingRecord"

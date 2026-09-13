@@ -115,6 +115,11 @@ export async function completeProspectingActivity(workspaceId: string, activityI
 
 export async function markProspectingProspectReplied(workspaceId: string, prospectId: string) {
   const now = new Date();
+  const prospect = await prisma.prospectingProspect.findFirst({
+    where: { id: prospectId, workspaceId },
+    select: { id: true, leadId: true }
+  });
+  if (!prospect) return null;
   const updated = await prisma.prospectingProspect.updateMany({
     where: { id: prospectId, workspaceId, status: { notIn: ["replied", "excluded"] } },
     data: { status: "replied", repliedAt: now, nextActionAt: null, stopReason: "Respuesta registrada por un administrador" }
@@ -124,6 +129,21 @@ export async function markProspectingProspectReplied(workspaceId: string, prospe
     where: { prospectId, workspaceId, status: { in: ["queued", "awaiting_review"] } },
     data: { status: "skipped", executedAt: now, error: "Cadencia detenida: el prospecto respondió" }
   });
+  // Si el prospecto nació de una oferta de Empleos, la respuesta en LinkedIn
+  // detiene también el email. Así los dos módulos comparten el mismo estado y
+  // no se insiste por otro canal después de obtener respuesta.
+  if (prospect.leadId) {
+    await Promise.all([
+      prisma.lead.updateMany({
+        where: { id: prospect.leadId, workspaceId, contactStatus: { in: ["pending", "contacted"] } },
+        data: { contactStatus: "responded" }
+      }),
+      prisma.leadExecOutreach.updateMany({
+        where: { leadId: prospect.leadId, workspaceId, status: { in: ["active", "pending_review"] } },
+        data: { status: "stopped", draftSubject: null, draftBody: null }
+      })
+    ]);
+  }
   return { id: prospectId };
 }
 

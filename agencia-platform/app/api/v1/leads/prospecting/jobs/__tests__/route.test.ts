@@ -55,4 +55,15 @@ describe("POST /api/v1/leads/prospecting/jobs", () => {
     expect(response.status).toBe(400);
     expect(mocks.ingest).not.toHaveBeenCalled();
   });
+
+  it("rechaza enlaces externos aunque aparenten ser una oferta", async () => {
+    const response = await POST(new NextRequest("https://hub.example/api/v1/leads/prospecting/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company: "Acme", jobTitle: "Especialista SEO", jobUrl: "https://evil.example/jobs/view/123" })
+    }), { params: {} });
+
+    expect(response.status).toBe(400);
+    expect(mocks.ingest).not.toHaveBeenCalled();
+  });
 });
