@@ -72,15 +72,15 @@ const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkf
   facebook: [
     {
       sourceKind: "GROUP_DISCOVERY",
-      label: "Buscar grupos por sector o temática",
-      description: "Abre una búsqueda de grupos ya preparada y usa tus criterios para revisarlos.",
+      label: "Analizar y unirse a grupos por temática",
+      description: "Recorre varios resultados, los puntúa con tus criterios y prepara un único lote para solicitar acceso.",
       targetNameLabel: "Sector o temática",
       targetNamePlaceholder: "Ej. viajes a Japón, IA para pymes, marketing local",
       targetUrlLabel: null,
       targetUrlPlaceholder: null,
       factsLabel: "Criterios de selección",
       factsPlaceholder: "Ubicación, idioma, tamaño, actividad mínima y tipos de grupo que quieres excluir.",
-      submitLabel: "Buscar grupos"
+      submitLabel: "Analizar y seleccionar grupos"
     },
     {
       sourceKind: "GROUP_JOIN_REQUEST",

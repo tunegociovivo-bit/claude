@@ -48,6 +48,24 @@ const draftInput = {
   idempotencyKey: "47d9c37e-54ef-44e1-80a8-f9d2a55b93f7"
 };
 
+const facebookGroupBatch = JSON.stringify({
+  version: 1,
+  query: "franquicias",
+  criteria: "Grupos profesionales y activos de España",
+  membershipAnswers: "",
+  maxGroups: 5,
+  candidates: [{
+    id: "franquicias-en-espana",
+    name: "Franquicias en España",
+    details: "Grupo público · 554 miembros",
+    relevanceScore: 91,
+    reason: "Coincide con la temática y el país.",
+    selected: true,
+    outcome: "pending",
+    resultDetail: null
+  }]
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
@@ -232,5 +250,63 @@ describe("mobile automation decision API", () => {
 
     expect(response.status).toBe(409);
     expect(prisma.mobileAutomationJobEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("approves every selected Facebook group with one batch confirmation", async () => {
+    prisma.mobileAutomationJob.findFirst.mockResolvedValue({
+      id: "job-groups",
+      workspaceId: "w1",
+      status: "PENDING_APPROVAL",
+      action: "JOIN_FACEBOOK_GROUP_BATCH",
+      text: facebookGroupBatch,
+      targetUrl: "https://www.facebook.com/search/groups/?q=franquicias",
+      platform: "facebook",
+      scheduledAt: new Date("2026-09-12T12:00:00.000Z")
+    });
+
+    const response = await decideJob(
+      request("https://hub.example/api/v1/mobile/automations/jobs/job-groups/decision", {
+        action: "APPROVE",
+        text: facebookGroupBatch
+      }),
+      { params: { id: "job-groups" } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(prisma.mobileAutomationJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "QUEUED", text: facebookGroupBatch })
+    }));
+  });
+
+  it("persists additional factual answers when retrying an incomplete batch", async () => {
+    const original = JSON.parse(facebookGroupBatch);
+    original.candidates[0].outcome = "needs_answers";
+    const originalText = JSON.stringify(original);
+    const revisedText = JSON.stringify({
+      ...original,
+      membershipAnswers: "Dirijo una agencia de marketing en Málaga."
+    });
+    prisma.mobileAutomationJob.findFirst.mockResolvedValue({
+      id: "job-groups",
+      workspaceId: "w1",
+      status: "WAITING_USER",
+      action: "JOIN_FACEBOOK_GROUP_BATCH",
+      text: originalText,
+      targetUrl: "https://www.facebook.com/search/groups/?q=franquicias",
+      platform: "facebook"
+    });
+
+    const response = await decideJob(
+      request("https://hub.example/api/v1/mobile/automations/jobs/job-groups/decision", {
+        action: "RETRY",
+        text: revisedText
+      }),
+      { params: { id: "job-groups" } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(prisma.mobileAutomationJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "QUEUED", text: revisedText })
+    }));
   });
 });

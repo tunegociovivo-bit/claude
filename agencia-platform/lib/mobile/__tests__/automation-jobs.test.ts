@@ -87,6 +87,22 @@ describe("mobile automation job leases", () => {
     expect(tx.mobileAutomationJobEvent.create).not.toHaveBeenCalled();
   });
 
+  it("holds Facebook group batches long enough to avoid duplicate joins", async () => {
+    tx.mobileAutomationJob.findMany.mockResolvedValue([{
+      ...candidate,
+      action: "JOIN_FACEBOOK_GROUP_BATCH"
+    }]);
+
+    const result = await claimNextMobileAutomationJob({
+      workspaceId: "w1",
+      deviceSerial: "usb-1",
+      executorSessionId: "browser-1",
+      now
+    });
+
+    expect(result?.leaseUntil).toEqual(new Date("2026-09-12T12:10:00.000Z"));
+  });
+
   it("enforces the persistent daily limit before reading the queue", async () => {
     tx.mobileAutomationJob.count.mockResolvedValue(20);
     const result = await claimNextMobileAutomationJob({
@@ -194,6 +210,7 @@ describe("mobile automation result reporting", () => {
         action: "JOIN_FACEBOOK_GROUP_BATCH"
       })
     }));
+    expect(tx.mobileAutomationJob.updateMany.mock.calls.at(-1)?.[0].data).not.toHaveProperty("preparedAt");
   });
 
   it("marks an executed join batch complete without another manual click", async () => {

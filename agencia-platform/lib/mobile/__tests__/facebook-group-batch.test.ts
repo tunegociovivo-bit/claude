@@ -4,7 +4,8 @@ import {
   normalizeFacebookGroupCandidates,
   parseFacebookGroupBatch,
   serializeFacebookGroupBatch,
-  toggleFacebookGroupCandidate
+  toggleFacebookGroupCandidate,
+  updateFacebookGroupMembershipAnswers
 } from "@/lib/mobile/facebook-group-batch";
 
 describe("Facebook group batches", () => {
@@ -63,5 +64,16 @@ describe("Facebook group batches", () => {
 
   it("rejects arbitrary JSON instead of executing it as a batch", () => {
     expect(() => parseFacebookGroupBatch('{"command":"input tap 1 1"}')).toThrow(/lote/i);
+  });
+
+  it("lets the user add missing factual answers before retrying a partial batch", () => {
+    const batch = createInitialFacebookGroupBatch({
+      query: "franquicias",
+      criteria: "Grupos profesionales de España",
+      maxGroups: 5
+    });
+
+    expect(updateFacebookGroupMembershipAnswers(batch, "Dirijo una agencia de marketing en Málaga."))
+      .toMatchObject({ membershipAnswers: "Dirijo una agencia de marketing en Málaga." });
   });
 });

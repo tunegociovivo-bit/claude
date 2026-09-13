@@ -102,7 +102,11 @@ export async function claimNextMobileAutomationJob(input: {
         });
         continue;
       }
-      const leaseUntil = new Date(now.getTime() + 60_000);
+      const isFacebookGroupBatch = [
+        "DISCOVER_FACEBOOK_GROUPS",
+        "JOIN_FACEBOOK_GROUP_BATCH"
+      ].includes(candidate.action);
+      const leaseUntil = new Date(now.getTime() + (isFacebookGroupBatch ? 10 * 60_000 : 60_000));
       const claimed = await tx.mobileAutomationJob.updateMany({
         where: {
           id: candidate.id,
@@ -142,7 +146,8 @@ export async function reportMobileAutomationResult(input: {
   workspaceId: string;
   jobId: string;
   executorSessionId: string;
-  outcome: "PREPARED" | "FAILED";
+  outcome: "PREPARED" | "DISCOVERED" | "COMPLETED" | "PARTIAL" | "FAILED";
+  resultText?: string;
   errorCode?: string;
   error?: string;
   now?: Date;
@@ -155,6 +160,86 @@ export async function reportMobileAutomationResult(input: {
     if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
     if (job.status !== "RUNNING" || job.leaseOwner !== input.executorSessionId) {
       throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
+    }
+
+    if (input.outcome === "DISCOVERED" && job.action !== "DISCOVER_FACEBOOK_GROUPS") {
+      throw new ApiError(409, "invalid_result", "Este trabajo no esperaba resultados de grupos");
+    }
+    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && job.action !== "JOIN_FACEBOOK_GROUP_BATCH") {
+      throw new ApiError(409, "invalid_result", "Este trabajo no esperaba solicitudes de grupos");
+    }
+    if (["DISCOVERED", "COMPLETED", "PARTIAL"].includes(input.outcome) && !input.resultText) {
+      throw new ApiError(400, "missing_result", "Falta el resultado del lote de grupos");
+    }
+
+    if (input.outcome === "DISCOVERED") {
+      const data = {
+        action: "JOIN_FACEBOOK_GROUP_BATCH",
+        status: "PENDING_APPROVAL",
+        text: input.resultText,
+        leaseOwner: null,
+        leaseUntil: null,
+        lastError: null,
+        lastErrorCode: null
+      };
+      const changed = await tx.mobileAutomationJob.updateMany({
+        where: {
+          id: job.id,
+          workspaceId: input.workspaceId,
+          status: "RUNNING",
+          leaseOwner: input.executorSessionId
+        },
+        data
+      });
+      if (changed.count !== 1) {
+        throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
+      }
+      await tx.mobileAutomationJobEvent.create({
+        data: {
+          workspaceId: input.workspaceId,
+          jobId: job.id,
+          event: "GROUPS_DISCOVERED",
+          actorType: "BROWSER",
+          actorId: input.executorSessionId
+        }
+      });
+      return { ...job, ...data };
+    }
+
+    if (input.outcome === "COMPLETED" || input.outcome === "PARTIAL") {
+      const partial = input.outcome === "PARTIAL";
+      const data = {
+        status: partial ? "WAITING_USER" : "COMPLETED",
+        text: input.resultText ?? job.text,
+        preparedAt: now,
+        completedAt: partial ? job.completedAt : now,
+        leaseOwner: null,
+        leaseUntil: null,
+        lastError: partial ? input.error?.slice(0, 1000) || "Parte del lote necesita revisión manual." : null,
+        lastErrorCode: partial ? input.errorCode?.slice(0, 120) || "partial_group_batch" : null
+      };
+      const changed = await tx.mobileAutomationJob.updateMany({
+        where: {
+          id: job.id,
+          workspaceId: input.workspaceId,
+          status: "RUNNING",
+          leaseOwner: input.executorSessionId
+        },
+        data
+      });
+      if (changed.count !== 1) {
+        throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
+      }
+      await tx.mobileAutomationJobEvent.create({
+        data: {
+          workspaceId: input.workspaceId,
+          jobId: job.id,
+          event: partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
+          actorType: "BROWSER",
+          actorId: input.executorSessionId
+        }
+      });
+      return { ...job, ...data };
     }
 
     if (input.outcome === "PREPARED") {

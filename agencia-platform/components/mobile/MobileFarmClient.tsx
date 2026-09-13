@@ -54,8 +54,15 @@ import {
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
 import {
+  extractFacebookMembershipQuestions,
+  findFacebookGroupJoinTarget,
+  findFacebookMembershipState,
+  findFacebookMembershipSubmitTarget
+} from "@/components/mobile/facebook-android-ui";
+import {
   executeMobileAutomationJob,
-  type MobileAutomationExecutableJob
+  type MobileAutomationExecutableJob,
+  type MobileAutomationExecutionResult
 } from "@/components/mobile/mobile-automation-executor";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import {
@@ -66,6 +73,11 @@ import {
   type AndroidHttpProxy
 } from "@/lib/mobile/android-proxy";
 import { MAX_CONVERSATION_SCREENSHOT_BYTES } from "@/lib/mobile/conversation-radar";
+import {
+  serializeFacebookGroupBatch,
+  type FacebookGroupBatch,
+  type FacebookGroupCandidate
+} from "@/lib/mobile/facebook-group-batch";
 import type { SharedMobilePhone } from "@/lib/mobile/shared-phones";
 
 type UsbDevice = AdbDaemonWebUsbDevice;
@@ -80,6 +92,10 @@ type SessionStatus =
   | "error";
 
 const credentialStore = new AdbWebCredentialStore("F-Moviles@NegocioVivo");
+
+type AndroidClipboardController = {
+  setClipboard: (options: { sequence: bigint; paste: boolean; content: string }) => Promise<unknown>;
+};
 
 async function runAdbCommand(adb: Adb, command: readonly string[]): Promise<string> {
   const escapedCommand = escapeAdbCommand(command);
@@ -141,6 +157,209 @@ async function waitForAndroidUiNode(
   throw new Error(failureMessage);
 }
 
+async function mobileApiJson(url: string, init?: RequestInit) {
+  const response = await fetch(url, { cache: "no-store", ...init });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.message || "La automatización móvil no ha podido continuar.");
+  }
+  return payload;
+}
+
+async function resolveFacebookPackage(adb: Adb): Promise<string> {
+  for (const candidate of ["com.facebook.katana", "com.facebook.lite"]) {
+    if (await runAdbCommand(adb, ["pm", "path", candidate]).catch(() => "")) return candidate;
+  }
+  throw new Error("No encuentro la aplicación de Facebook instalada en este móvil.");
+}
+
+async function openFacebookGroupSearch(
+  adb: Adb,
+  controller: AndroidClipboardController,
+  query: string
+): Promise<void> {
+  const facebookPackage = await resolveFacebookPackage(adb);
+  await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
+  await runAdbCommand(adb, [
+    "monkey",
+    "-p",
+    facebookPackage,
+    "-c",
+    "android.intent.category.LAUNCHER",
+    "1"
+  ]);
+
+  const search = await waitForAndroidUiNode(
+    adb,
+    { labels: ["Buscar", "Search"] },
+    "Facebook se ha abierto, pero no encuentro el botón Buscar. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
+  );
+  await runAdbCommand(adb, ["input", "tap", String(search.x), String(search.y)]);
+  const input = await waitForAndroidUiNode(
+    adb,
+    { className: "android.widget.EditText", focused: true },
+    "Facebook no ha abierto el campo de búsqueda. Vuelve a intentarlo con la aplicación en primer plano."
+  );
+  await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
+  await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
+  await waitForAndroidUi(250);
+  await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_ENTER"]);
+  const groups = await waitForAndroidUiNode(
+    adb,
+    { labels: ["Grupos", "Groups"] },
+    "Facebook ha buscado la temática, pero no encuentro la pestaña Grupos. Revisa la pantalla y vuelve a intentarlo."
+  );
+  await runAdbCommand(adb, ["input", "tap", String(groups.x), String(groups.y)]);
+  await waitForAndroidUi(750);
+}
+
+async function captureFacebookGroupScreens(adb: Adb, count = 5): Promise<string[]> {
+  const screens: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const bytes = await runAdbBinary(adb, ["screencap", "-p"]);
+    if (bytes.byteLength === 0) throw new Error("Android ha devuelto una captura vacía de los grupos.");
+    screens.push(await compressScreenshot(bytes, 450_000));
+    if (index < count - 1) {
+      await runAdbCommand(adb, ["input", "swipe", "640", "500", "640", "170", "450"]);
+      await waitForAndroidUi(650);
+    }
+  }
+  return screens;
+}
+
+async function waitForFacebookJoinTarget(adb: Adb, groupName: string): Promise<AndroidUiPoint | null> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const hierarchy = await readAndroidUiHierarchy(adb);
+    const membership = findFacebookMembershipState(hierarchy);
+    if (membership) return null;
+    const target = findFacebookGroupJoinTarget(hierarchy, groupName);
+    if (target) return target;
+    await waitForAndroidUi(500);
+  }
+  return null;
+}
+
+function withGroupOutcome(
+  candidate: FacebookGroupCandidate,
+  outcome: FacebookGroupCandidate["outcome"],
+  resultDetail: string
+): FacebookGroupCandidate {
+  return { ...candidate, outcome, resultDetail: resultDetail.slice(0, 800) };
+}
+
+async function waitForFacebookMembershipState(adb: Adb): Promise<"joined" | "requested" | null> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const state = findFacebookMembershipState(await readAndroidUiHierarchy(adb));
+    if (state) return state;
+    await waitForAndroidUi(500);
+  }
+  return null;
+}
+
+async function joinSingleFacebookGroup(input: {
+  adb: Adb;
+  controller: AndroidClipboardController;
+  candidate: FacebookGroupCandidate;
+  batch: FacebookGroupBatch;
+  phoneKey: string;
+  deviceSerial: string;
+}): Promise<FacebookGroupCandidate> {
+  await openFacebookGroupSearch(input.adb, input.controller, input.candidate.name);
+  const currentHierarchy = await readAndroidUiHierarchy(input.adb);
+  const existingState = findFacebookMembershipState(currentHierarchy);
+  if (existingState) {
+    return withGroupOutcome(
+      input.candidate,
+      existingState,
+      existingState === "joined" ? "La cuenta ya pertenece a este grupo." : "La solicitud ya estaba pendiente."
+    );
+  }
+
+  const joinTarget = await waitForFacebookJoinTarget(input.adb, input.candidate.name);
+  if (!joinTarget) {
+    return withGroupOutcome(
+      input.candidate,
+      "failed",
+      "No se ha podido asociar con seguridad este resultado con su botón «Unirte»."
+    );
+  }
+  await runAdbCommand(input.adb, ["input", "tap", String(joinTarget.x), String(joinTarget.y)]);
+  await waitForAndroidUi(800);
+
+  let hierarchy = await readAndroidUiHierarchy(input.adb);
+  const immediateState = findFacebookMembershipState(hierarchy);
+  if (immediateState) {
+    return withGroupOutcome(
+      input.candidate,
+      immediateState,
+      immediateState === "joined" ? "Unión confirmada por Facebook." : "Solicitud enviada y confirmada por Facebook."
+    );
+  }
+
+  const questions = extractFacebookMembershipQuestions(hierarchy);
+  if (questions.length > 0) {
+    if (!input.batch.membershipAnswers.trim()) {
+      return withGroupOutcome(
+        input.candidate,
+        "needs_answers",
+        `Facebook pide: ${questions.map((item) => item.question).join(" · ")}`
+      );
+    }
+    const payload = await mobileApiJson("/api/v1/mobile/facebook/groups/answers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phoneKey: input.phoneKey,
+        deviceSerial: input.deviceSerial,
+        groupName: input.candidate.name,
+        questions: questions.map((item) => item.question),
+        answerFacts: input.batch.membershipAnswers
+      })
+    });
+    const answers = Array.isArray(payload.answers) ? payload.answers : [];
+    const unanswered = questions.filter((_, index) => typeof answers[index]?.answer !== "string" || !answers[index].answer.trim());
+    if (unanswered.length > 0) {
+      return withGroupOutcome(
+        input.candidate,
+        "needs_answers",
+        `Faltan datos reales para: ${unanswered.map((item) => item.question).join(" · ")}`
+      );
+    }
+    for (let index = 0; index < questions.length; index += 1) {
+      const field = questions[index]!;
+      await runAdbCommand(input.adb, ["input", "tap", String(field.point.x), String(field.point.y)]);
+      await input.controller.setClipboard({
+        sequence: BigInt(Date.now() + index),
+        paste: true,
+        content: answers[index].answer.trim()
+      });
+      await waitForAndroidUi(200);
+    }
+    await runAdbCommand(input.adb, ["input", "keyevent", "KEYCODE_BACK"]);
+    await waitForAndroidUi(250);
+    hierarchy = await readAndroidUiHierarchy(input.adb);
+  }
+
+  const submit = findFacebookMembershipSubmitTarget(hierarchy);
+  if (submit) {
+    await runAdbCommand(input.adb, ["input", "tap", String(submit.x), String(submit.y)]);
+    await waitForAndroidUi(800);
+  }
+  const confirmedState = await waitForFacebookMembershipState(input.adb);
+  if (!confirmedState) {
+    return withGroupOutcome(
+      input.candidate,
+      "failed",
+      "Facebook no ha mostrado una confirmación verificable de la unión o solicitud."
+    );
+  }
+  return withGroupOutcome(
+    input.candidate,
+    confirmedState,
+    confirmedState === "joined" ? "Unión confirmada por Facebook." : "Solicitud enviada y confirmada por Facebook."
+  );
+}
+
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -150,7 +369,10 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-async function compressScreenshot(bytes: Uint8Array): Promise<string> {
+async function compressScreenshot(
+  bytes: Uint8Array,
+  maxBytes = MAX_CONVERSATION_SCREENSHOT_BYTES
+): Promise<string> {
   const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
   try {
     const attempts = [
@@ -173,7 +395,7 @@ async function compressScreenshot(bytes: Uint8Array): Promise<string> {
           attempt.quality
         );
       });
-      if (blob.size <= MAX_CONVERSATION_SCREENSHOT_BYTES) return blobToDataUrl(blob);
+      if (blob.size <= maxBytes) return blobToDataUrl(blob);
     }
     throw new Error("La pantalla contiene demasiado detalle para analizarla. Reduce el tamaño de texto o prueba con menos comentarios visibles.");
   } finally {
@@ -618,7 +840,7 @@ function MobileDeviceCard({
     if (!adb || !controller || status !== "mirroring") {
       throw new Error("La pantalla del móvil debe estar abierta para preparar el trabajo.");
     }
-    await executeMobileAutomationJob(job, {
+    return executeMobileAutomationJob(job, {
       openUrl: (url) => runAdbCommand(adb, [
         "am",
         "start",
@@ -633,56 +855,74 @@ function MobileDeviceCard({
         paste: false,
         content
       }),
-      searchFacebookGroups: async (query) => {
-        const facebookPackages = ["com.facebook.katana", "com.facebook.lite"];
-        let facebookPackage: string | null = null;
-        for (const candidate of facebookPackages) {
-          if (await runAdbCommand(adb, ["pm", "path", candidate]).catch(() => "")) {
-            facebookPackage = candidate;
-            break;
-          }
+      searchFacebookGroups: (query) => openFacebookGroupSearch(adb, controller, query),
+      discoverFacebookGroups: async (batch): Promise<MobileAutomationExecutionResult> => {
+        if (!job.phoneKey || !job.deviceSerial) {
+          throw new Error("El trabajo no está asociado correctamente con este móvil.");
         }
-        if (!facebookPackage) {
-          throw new Error("No encuentro la aplicación de Facebook instalada en este móvil.");
-        }
-
-        await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
-        await runAdbCommand(adb, [
-          "monkey",
-          "-p",
-          facebookPackage,
-          "-c",
-          "android.intent.category.LAUNCHER",
-          "1"
-        ]);
-
-        const search = await waitForAndroidUiNode(
-          adb,
-          { labels: ["Buscar", "Search"] },
-          "Facebook se ha abierto, pero no encuentro el botón Buscar. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
-        );
-        await runAdbCommand(adb, ["input", "tap", String(search.x), String(search.y)]);
-
-        const input = await waitForAndroidUiNode(
-          adb,
-          { className: "android.widget.EditText", focused: true },
-          "Facebook no ha abierto el campo de búsqueda. Vuelve a intentarlo con la aplicación en primer plano."
-        );
-        await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
-        await controller.setClipboard({
-          sequence: BigInt(Date.now()),
-          paste: true,
-          content: query
+        await openFacebookGroupSearch(adb, controller, batch.query);
+        const screenImages = await captureFacebookGroupScreens(adb);
+        const payload = await mobileApiJson("/api/v1/mobile/facebook/groups/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phoneKey: job.phoneKey,
+            deviceSerial: job.deviceSerial,
+            query: batch.query,
+            criteria: batch.criteria,
+            maxGroups: batch.maxGroups,
+            screenImages
+          })
         });
-        await waitForAndroidUi(250);
-        await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_ENTER"]);
-
-        const groups = await waitForAndroidUiNode(
-          adb,
-          { labels: ["Grupos", "Groups"] },
-          "Facebook ha buscado la temática, pero no encuentro la pestaña Grupos. Revisa la pantalla y vuelve a intentarlo."
-        );
-        await runAdbCommand(adb, ["input", "tap", String(groups.x), String(groups.y)]);
+        const analyzed = {
+          ...batch,
+          candidates: Array.isArray(payload.candidates) ? payload.candidates : []
+        };
+        return {
+          outcome: "DISCOVERED",
+          resultText: serializeFacebookGroupBatch(analyzed),
+          summary: `${analyzed.candidates.length} grupos analizados.`
+        };
+      },
+      joinFacebookGroupBatch: async (batch): Promise<MobileAutomationExecutionResult> => {
+        if (!job.phoneKey || !job.deviceSerial) {
+          throw new Error("El lote no está asociado correctamente con este móvil.");
+        }
+        const updatedCandidates: FacebookGroupCandidate[] = [];
+        for (const candidate of batch.candidates) {
+          if (!candidate.selected || candidate.outcome === "joined" || candidate.outcome === "requested") {
+            updatedCandidates.push(candidate);
+            continue;
+          }
+          try {
+            updatedCandidates.push(await joinSingleFacebookGroup({
+              adb,
+              controller,
+              candidate,
+              batch,
+              phoneKey: job.phoneKey,
+              deviceSerial: job.deviceSerial
+            }));
+          } catch (joinError) {
+            updatedCandidates.push(withGroupOutcome(
+              candidate,
+              "failed",
+              joinError instanceof Error ? joinError.message : "No se ha podido procesar este grupo."
+            ));
+          }
+          await waitForAndroidUi(3_000);
+        }
+        const resultBatch = { ...batch, candidates: updatedCandidates };
+        const selected = updatedCandidates.filter((candidate) => candidate.selected);
+        const completed = selected.filter((candidate) => ["joined", "requested"].includes(candidate.outcome));
+        const needsReview = selected.filter((candidate) => ["needs_answers", "failed"].includes(candidate.outcome));
+        return {
+          outcome: needsReview.length > 0 ? "PARTIAL" : "COMPLETED",
+          resultText: serializeFacebookGroupBatch(resultBatch),
+          summary: needsReview.length > 0
+            ? `${completed.length} procesados y ${needsReview.length} necesitan revisión.`
+            : `${completed.length} grupos procesados por Facebook.`
+        };
       }
     });
   }, [status]);

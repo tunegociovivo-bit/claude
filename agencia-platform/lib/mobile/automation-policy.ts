@@ -24,7 +24,9 @@ export const MOBILE_AUTOMATION_ACTIONS = [
   "OPEN_URL",
   "COPY_TEXT",
   "OPEN_URL_AND_COPY_TEXT",
-  "SEARCH_FACEBOOK_GROUPS"
+  "SEARCH_FACEBOOK_GROUPS",
+  "DISCOVER_FACEBOOK_GROUPS",
+  "JOIN_FACEBOOK_GROUP_BATCH"
 ] as const;
 
 export type MobileAutomationPlatform = (typeof MOBILE_AUTOMATION_PLATFORMS)[number];
@@ -101,6 +103,8 @@ export const mobileAutomationDraftSchema = z
     experienceConfirmed: z.boolean().optional().default(false),
     targetName: z.string().trim().max(200).optional(),
     tone: z.string().trim().max(120).optional(),
+    membershipAnswers: z.string().trim().max(2000).optional().default(""),
+    maxGroups: z.number().int().min(1).max(15).optional().default(10),
     scheduledAt: z.string().datetime({ offset: true }).optional()
   })
   .strict()
@@ -112,6 +116,13 @@ export const mobileAutomationDraftSchema = z
         message: value.sourceKind.startsWith("GROUP_")
           ? "Las acciones de grupos solo están disponibles para Facebook."
           : "Esta acción no está disponible para la plataforma seleccionada."
+      });
+    }
+    if (value.sourceKind === "GROUP_DISCOVERY" && !value.targetName) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetName"],
+        message: "Indica el sector o temática que debe buscar Facebook."
       });
     }
     if (value.sourceKind === "REAL_REVIEW") {

@@ -8,6 +8,10 @@ import {
   mobileAutomationDraftSchema,
   validateAutomationTargetUrl
 } from "@/lib/mobile/automation-policy";
+import {
+  createInitialFacebookGroupBatch,
+  serializeFacebookGroupBatch
+} from "@/lib/mobile/facebook-group-batch";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +61,12 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
   }
   const directGroupSearch = parsed.data.sourceKind === "GROUP_DISCOVERY";
   const text = directGroupSearch
-    ? parsed.data.facts
+    ? serializeFacebookGroupBatch(createInitialFacebookGroupBatch({
+      query: parsed.data.targetName!,
+      criteria: parsed.data.facts,
+      membershipAnswers: parsed.data.membershipAnswers,
+      maxGroups: parsed.data.maxGroups
+    }))
     : (await complete({
       workspaceId: api.workspaceId,
       userId: api.userId,
@@ -85,7 +94,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         deviceSerial: parsed.data.deviceSerial,
         platform: parsed.data.platform,
         action: directGroupSearch
-          ? "SEARCH_FACEBOOK_GROUPS"
+          ? "DISCOVER_FACEBOOK_GROUPS"
           : navigationOnly
             ? "OPEN_URL"
             : "OPEN_URL_AND_COPY_TEXT",

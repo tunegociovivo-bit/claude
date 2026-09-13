@@ -11,10 +11,15 @@ import {
   type MobileAutomationStatus,
   type MobileAutomationTransition
 } from "@/lib/mobile/automation-policy";
+import {
+  MAX_FACEBOOK_GROUP_BATCH_TEXT,
+  parseFacebookGroupBatch,
+  selectedFacebookGroupCount
+} from "@/lib/mobile/facebook-group-batch";
 
 const decisionSchema = z.object({
   action: z.enum(["APPROVE", "REJECT", "COMPLETE", "RETRY", "CANCEL"]),
-  text: z.string().trim().min(1).max(4000).optional(),
+  text: z.string().trim().min(1).max(MAX_FACEBOOK_GROUP_BATCH_TEXT).optional(),
   targetUrl: z.string().trim().min(1).max(2048).optional(),
   scheduledAt: z.string().datetime({ offset: true }).optional()
 }).strict();
@@ -50,6 +55,17 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
     );
     const text = (parsed.data.text ?? job.text ?? "").trim();
     if (!text) throw new ApiError(400, "missing_text", "El borrador no contiene texto");
+    if (["APPROVE", "RETRY"].includes(parsed.data.action) && job.action === "JOIN_FACEBOOK_GROUP_BATCH") {
+      let batch;
+      try {
+        batch = parseFacebookGroupBatch(text);
+      } catch {
+        throw new ApiError(400, "invalid_group_batch", "El lote de grupos no es válido");
+      }
+      if (parsed.data.action === "APPROVE" && selectedFacebookGroupCount(batch) === 0) {
+        throw new ApiError(400, "empty_group_batch", "Selecciona al menos un grupo antes de aprobar el lote");
+      }
+    }
     const data: Record<string, unknown> = {
       status: statusByAction[parsed.data.action],
       leaseOwner: null,
@@ -67,6 +83,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       data.scheduledAt = now;
       data.lastError = null;
       data.lastErrorCode = null;
+      if (job.action === "JOIN_FACEBOOK_GROUP_BATCH") data.text = text;
     }
 
     const changed = await tx.mobileAutomationJob.updateMany({

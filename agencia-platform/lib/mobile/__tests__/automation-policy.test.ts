@@ -51,6 +51,7 @@ describe("mobile automation policy", () => {
       platform: "facebook",
       sourceKind: "GROUP_DISCOVERY",
       targetUrl: "https://www.facebook.com/search/groups/?q=viajes+a+Japon",
+      targetName: "viajes a Japón",
       experienceConfirmed: false
     };
     expect(mobileAutomationDraftSchema.parse(facebookGroupSearch)).toMatchObject(facebookGroupSearch);
