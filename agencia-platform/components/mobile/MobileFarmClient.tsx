@@ -57,7 +57,8 @@ import {
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
-  findFacebookMembershipSubmitTarget
+  findFacebookMembershipSubmitTarget,
+  findFacebookSearchImeTarget
 } from "@/components/mobile/facebook-android-ui";
 import {
   executeMobileAutomationJob,
@@ -203,7 +204,15 @@ async function openFacebookGroupSearch(
   await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
-  await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_ENTER"]);
+  const hierarchy = await readAndroidUiHierarchy(adb).catch(() => "");
+  const submitSearch = findFacebookSearchImeTarget(hierarchy);
+  if (!submitSearch) {
+    throw new Error(
+      "Android no ha expuesto el botón Buscar del teclado. Mantén Gboard visible y vuelve a ejecutar el lote."
+    );
+  }
+  await runAdbCommand(adb, ["input", "tap", String(submitSearch.x), String(submitSearch.y)]);
+  await waitForAndroidUi(750);
   const groups = await waitForAndroidUiNode(
     adb,
     { labels: ["Grupos", "Groups"] },

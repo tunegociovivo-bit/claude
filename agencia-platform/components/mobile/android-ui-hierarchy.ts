@@ -3,6 +3,7 @@ export type AndroidUiPoint = { x: number; y: number };
 export type AndroidUiNode = {
   text: string;
   contentDescription: string;
+  packageName: string;
   resourceId: string;
   className: string;
   clickable: boolean;
@@ -70,6 +71,7 @@ export function parseAndroidUiNodes(hierarchy: string): AndroidUiNode[] {
     parsedNodes.push({
       text: attributes.get("text") ?? "",
       contentDescription: attributes.get("content-desc") ?? "",
+      packageName: attributes.get("package") ?? "",
       resourceId: attributes.get("resource-id") ?? "",
       className: attributes.get("class") ?? "",
       clickable: attributes.get("clickable") === "true",

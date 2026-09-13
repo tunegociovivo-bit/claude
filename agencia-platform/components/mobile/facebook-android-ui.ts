@@ -25,6 +25,22 @@ function matchesExactly(value: string, labels: readonly string[]): boolean {
   return labels.some((label) => normalized === comparable(label));
 }
 
+export function findFacebookSearchImeTarget(hierarchy: string): AndroidUiPoint | null {
+  const nodes = parseAndroidUiNodes(hierarchy);
+  const focusedInput = nodes.find((node) => (
+    node.className === "android.widget.EditText" && node.focused
+  ));
+  if (!focusedInput) return null;
+
+  return nodes
+    .filter((node) => (
+      node.bounds.top >= focusedInput.bounds.bottom
+      && /inputmethod|keyboard|swiftkey|honeyboard/i.test(node.packageName)
+      && matchesExactly(nodeLabel(node), ["Buscar", "Search", "Ir", "Go"])
+    ))
+    .sort((left, right) => right.center.y - left.center.y)[0]?.center ?? null;
+}
+
 export function findFacebookGroupJoinTarget(
   hierarchy: string,
   groupName: string
