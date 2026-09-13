@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { executeMobileAutomationJob } from "@/components/mobile/mobile-automation-executor";
+import { createInitialFacebookGroupBatch, serializeFacebookGroupBatch } from "@/lib/mobile/facebook-group-batch";
 
 describe("mobile automation executor", () => {
   it("opens and copies an approved job in order", async () => {
@@ -51,6 +52,61 @@ describe("mobile automation executor", () => {
     expect(searchFacebookGroups).toHaveBeenCalledWith("franquicia");
   });
 
+  it("discovers and analyses several Facebook group result screens", async () => {
+    const batch = createInitialFacebookGroupBatch({
+      query: "franquicias",
+      criteria: "Grupos de España con actividad reciente y sin spam.",
+      answerFacts: "Dirijo una agencia de marketing en Málaga.",
+      maxGroups: 10
+    });
+    const discoverFacebookGroups = vi.fn(async () => ({
+      outcome: "DISCOVERED" as const,
+      resultText: serializeFacebookGroupBatch(batch)
+    }));
+
+    const result = await executeMobileAutomationJob(
+      {
+        action: "DISCOVER_FACEBOOK_GROUPS",
+        targetUrl: "https://www.facebook.com/search/groups/?q=franquicias",
+        text: serializeFacebookGroupBatch(batch),
+        sourceRef: "franquicias"
+      },
+      { openUrl: vi.fn(), copyText: vi.fn(), discoverFacebookGroups }
+    );
+
+    expect(discoverFacebookGroups).toHaveBeenCalledWith(batch);
+    expect(result.outcome).toBe("DISCOVERED");
+  });
+
+  it("executes only the selected groups after one batch approval", async () => {
+    const batch = {
+      ...createInitialFacebookGroupBatch({
+        query: "franquicias",
+        criteria: "España",
+        answerFacts: "Soy profesional del marketing.",
+        maxGroups: 5
+      }),
+      candidates: normalizeCandidatesForExecutor()
+    };
+    const joinFacebookGroupBatch = vi.fn(async () => ({
+      outcome: "COMPLETED" as const,
+      resultText: serializeFacebookGroupBatch(batch)
+    }));
+
+    const result = await executeMobileAutomationJob(
+      {
+        action: "JOIN_FACEBOOK_GROUP_BATCH",
+        targetUrl: "https://www.facebook.com/search/groups/?q=franquicias",
+        text: serializeFacebookGroupBatch(batch),
+        sourceRef: "franquicias"
+      },
+      { openUrl: vi.fn(), copyText: vi.fn(), joinFacebookGroupBatch }
+    );
+
+    expect(joinFacebookGroupBatch).toHaveBeenCalledWith(batch);
+    expect(result.outcome).toBe("COMPLETED");
+  });
+
   it("never accepts arbitrary actions from the server", async () => {
     await expect(
       executeMobileAutomationJob(
@@ -80,3 +136,28 @@ describe("mobile automation executor", () => {
     ).rejects.toThrow(/texto/i);
   });
 });
+
+function normalizeCandidatesForExecutor() {
+  return [
+    {
+      id: "franquicias-en-espana",
+      name: "Franquicias en España",
+      details: "554 miembros",
+      relevanceScore: 91,
+      reason: "Coincide con los criterios.",
+      selected: true,
+      outcome: "pending" as const,
+      resultDetail: null
+    },
+    {
+      id: "franquicias-mexico",
+      name: "Franquicias México",
+      details: "2.000 miembros",
+      relevanceScore: 35,
+      reason: "Fuera de España.",
+      selected: false,
+      outcome: "pending" as const,
+      resultDetail: null
+    }
+  ];
+}

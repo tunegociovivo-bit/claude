@@ -1,0 +1,67 @@
+import { describe, expect, it } from "vitest";
+import {
+  createInitialFacebookGroupBatch,
+  normalizeFacebookGroupCandidates,
+  parseFacebookGroupBatch,
+  serializeFacebookGroupBatch,
+  toggleFacebookGroupCandidate
+} from "@/lib/mobile/facebook-group-batch";
+
+describe("Facebook group batches", () => {
+  it("normalizes, deduplicates and selects only the best recommended groups", () => {
+    const candidates = normalizeFacebookGroupCandidates([
+      {
+        name: "Franquicias y Negocios rentables en España para emprender",
+        details: "Público · 2.927 miembros · 2 publicaciones al día",
+        relevanceScore: 94,
+        reason: "Está centrado en franquicias activas en España.",
+        recommended: true
+      },
+      {
+        name: "  FRANQUICIAS Y NEGOCIOS RENTABLES EN ESPAÑA PARA EMPRENDER ",
+        details: "duplicado",
+        relevanceScore: 70,
+        reason: "duplicado",
+        recommended: true
+      },
+      {
+        name: "Franquicias baratas en México",
+        details: "Público",
+        relevanceScore: 42,
+        reason: "No coincide con España.",
+        recommended: false
+      }
+    ], 10);
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toMatchObject({ relevanceScore: 94, selected: true, outcome: "pending" });
+    expect(candidates[1]).toMatchObject({ selected: false });
+  });
+
+  it("round-trips a batch and lets the user exclude a recommendation before approval", () => {
+    const initial = createInitialFacebookGroupBatch({
+      query: "franquicias",
+      criteria: "Solo grupos activos de España con conversaciones profesionales.",
+      answerFacts: "Soy David y dirijo una agencia de marketing en Málaga.",
+      maxGroups: 8
+    });
+    const withCandidate = {
+      ...initial,
+      candidates: normalizeFacebookGroupCandidates([{
+        name: "Franquicias en España",
+        details: "554 miembros",
+        relevanceScore: 88,
+        reason: "Coincide con el país y el sector.",
+        recommended: true
+      }], 8)
+    };
+    const toggled = toggleFacebookGroupCandidate(withCandidate, withCandidate.candidates[0]!.id, false);
+
+    expect(parseFacebookGroupBatch(serializeFacebookGroupBatch(toggled))).toEqual(toggled);
+    expect(toggled.candidates[0]!.selected).toBe(false);
+  });
+
+  it("rejects arbitrary JSON instead of executing it as a batch", () => {
+    expect(() => parseFacebookGroupBatch('{"command":"input tap 1 1"}')).toThrow(/lote/i);
+  });
+});

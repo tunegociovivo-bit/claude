@@ -165,4 +165,55 @@ describe("mobile automation result reporting", () => {
     })).rejects.toMatchObject({ status: 409, code: "lease_lost" });
     expect(tx.mobileAutomationJobEvent.create).not.toHaveBeenCalled();
   });
+
+  it("moves discovery results to one batch approval before any join request", async () => {
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({
+      ...candidate,
+      action: "DISCOVER_FACEBOOK_GROUPS",
+      status: "RUNNING",
+      leaseOwner: "browser-1",
+      attempts: 1
+    });
+
+    const result = await reportMobileAutomationResult({
+      workspaceId: "w1",
+      jobId: "job-1",
+      executorSessionId: "browser-1",
+      outcome: "DISCOVERED",
+      resultText: "{\"version\":1,\"candidates\":[]}",
+      now
+    });
+
+    expect(result).toMatchObject({
+      status: "PENDING_APPROVAL",
+      action: "JOIN_FACEBOOK_GROUP_BATCH"
+    });
+    expect(tx.mobileAutomationJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "PENDING_APPROVAL",
+        action: "JOIN_FACEBOOK_GROUP_BATCH"
+      })
+    }));
+  });
+
+  it("marks an executed join batch complete without another manual click", async () => {
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({
+      ...candidate,
+      action: "JOIN_FACEBOOK_GROUP_BATCH",
+      status: "RUNNING",
+      leaseOwner: "browser-1",
+      attempts: 2
+    });
+
+    const result = await reportMobileAutomationResult({
+      workspaceId: "w1",
+      jobId: "job-1",
+      executorSessionId: "browser-1",
+      outcome: "COMPLETED",
+      resultText: "{\"version\":1,\"candidates\":[]}",
+      now
+    });
+
+    expect(result).toMatchObject({ status: "COMPLETED", completedAt: now });
+  });
 });

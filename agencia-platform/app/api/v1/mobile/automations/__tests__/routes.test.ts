@@ -123,7 +123,7 @@ describe("mobile automation draft API", () => {
     expect(prisma.mobileAutomationJob.create).not.toHaveBeenCalled();
   });
 
-  it("crea una búsqueda de grupos de Facebook como navegación, sin intentar publicar", async () => {
+  it("crea un descubrimiento por lotes que analizará resultados antes de solicitar acceso", async () => {
     const response = await createDraft(
       request("https://hub.example/api/v1/mobile/automations/drafts", {
         ...draftInput,
@@ -132,6 +132,8 @@ describe("mobile automation draft API", () => {
         targetName: "viajes a Japón",
         targetUrl: "https://www.facebook.com/search/groups/?q=viajes+a+Japon",
         facts: "Grupos activos en español para preparar un viaje a Japón por libre.",
+        membershipAnswers: "Viajé a Japón y quiero compartir y aprender de otras experiencias reales.",
+        maxGroups: 8,
         experienceConfirmed: false
       }),
       { params: {} }
@@ -142,9 +144,10 @@ describe("mobile automation draft API", () => {
       data: expect.objectContaining({
         platform: "facebook",
         sourceKind: "GROUP_DISCOVERY",
-        action: "SEARCH_FACEBOOK_GROUPS",
-        status: "QUEUED"
-      })
+          action: "DISCOVER_FACEBOOK_GROUPS",
+          status: "QUEUED",
+          text: expect.stringContaining("membershipAnswers")
+        })
     });
     expect(completeMock).not.toHaveBeenCalled();
   });
