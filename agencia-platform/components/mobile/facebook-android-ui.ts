@@ -41,6 +41,26 @@ export function findFacebookSearchImeTarget(hierarchy: string): AndroidUiPoint |
     .sort((left, right) => right.center.y - left.center.y)[0]?.center ?? null;
 }
 
+export function findFacebookSearchSuggestionTarget(
+  hierarchy: string,
+  query: string
+): AndroidUiPoint | null {
+  const nodes = parseAndroidUiNodes(hierarchy);
+  const focusedInput = nodes.find((node) => (
+    node.className === "android.widget.EditText" && node.focused
+  ));
+  if (!focusedInput?.packageName || !query.trim()) return null;
+
+  const candidates = nodes.filter((node) => (
+    node.packageName === focusedInput.packageName
+    && node.bounds.top >= focusedInput.bounds.bottom
+    && matchesExactly(nodeLabel(node), [query])
+  ));
+  const clickableCandidates = candidates.filter((node) => node.clickable);
+  return (clickableCandidates.length ? clickableCandidates : candidates)
+    .sort((left, right) => right.center.y - left.center.y)[0]?.center ?? null;
+}
+
 export function findFacebookGroupJoinTarget(
   hierarchy: string,
   groupName: string
