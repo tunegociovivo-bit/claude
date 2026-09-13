@@ -105,4 +105,17 @@ describe("POST /api/v1/mobile/conversations/analyze", () => {
     expect(response.status).toBe(400);
     expect(completeJsonMock).not.toHaveBeenCalled();
   });
+
+  it("no filtra comentarios reconocidos a respuestas ni logs si falla el proveedor", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    completeJsonMock.mockRejectedValue(new Error("PRIVATE_COMMENT: el texto reconocido no debe persistir"));
+
+    const response = await POST(request(), { params: {} });
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(JSON.stringify(body)).not.toContain("PRIVATE_COMMENT");
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });

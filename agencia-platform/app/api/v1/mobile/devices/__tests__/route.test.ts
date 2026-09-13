@@ -65,6 +65,7 @@ describe("inventario compartido de F - Móviles", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.canManage).toBe(true);
+    expect(body.clientStorageScope).toMatch(/^[a-f0-9]{20}$/);
     expect(body.items).toHaveLength(2);
     expect(body.items[1]).toMatchObject({ key: "sonia", deviceSerial: "USB-2", proxyConfigured: true });
     expect(JSON.stringify(body)).not.toContain("principal-secret");

@@ -74,6 +74,26 @@ describe("conversation radar safeguards", () => {
     expect(result.every((item) => item.relevanceScore >= 65)).toBe(true);
   });
 
+  it("keeps and deduplicates comments written with non-Latin alphabets", () => {
+    const result = normalizeConversationCandidates([
+      {
+        sourceText: "京都でおすすめのホテルは？",
+        relevanceScore: 92,
+        reason: "Pregunta por alojamiento en Kioto.",
+        draftReply: "Puedo recomendarte varias zonas según tu itinerario."
+      },
+      {
+        sourceText: "京都でおすすめのホテルは？",
+        relevanceScore: 80,
+        reason: "Duplicado.",
+        draftReply: "Duplicado"
+      }
+    ], 65);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].sourceText).toContain("京都");
+  });
+
   it("drops invented or structurally incomplete model results", () => {
     const result = normalizeConversationCandidates([
       {
