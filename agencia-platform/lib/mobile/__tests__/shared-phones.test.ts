@@ -21,8 +21,45 @@ describe("shared phone inventory", () => {
 
     expect(items).toHaveLength(2);
     expect(items[0]).toMatchObject({ principal: true, proxyConfigured: true });
+    expect(items[0].androidProxy).toEqual({
+      host: "example.com",
+      port: 8080,
+      requiresIpAuthorization: true,
+      source: "global"
+    });
     expect(items[1]).toMatchObject({ key: "movil-2", deviceSerial: "USB-2", proxyConfigured: true });
+    expect(items[1].androidProxy).toEqual({
+      host: "example.com",
+      port: 8081,
+      requiresIpAuthorization: true,
+      source: "number"
+    });
     expect(JSON.stringify(items)).not.toContain("secret@");
+    expect(JSON.stringify(items)).not.toContain("other-secret");
+  });
+
+  it("hereda en Android el proxy global cuando el número no tiene uno propio", () => {
+    const items = sharedPhonesFromLeads({
+      wahaProxy: "http://proxy.example.test:3128",
+      channels: [{ name: "xiaomi", phone: "+34600000003", deviceSerial: "USB-X" }]
+    });
+
+    expect(items[1].androidProxy).toEqual({
+      host: "proxy.example.test",
+      port: 3128,
+      requiresIpAuthorization: false,
+      source: "global"
+    });
+  });
+
+  it("no propone a Android un proxy SOCKS incompatible", () => {
+    const items = sharedPhonesFromLeads({
+      channels: [{ name: "xiaomi", proxy: "socks5://user:pass@proxy.example.test:1080" }]
+    });
+
+    expect(items[1]).toMatchObject({ proxyConfigured: true, androidProxy: null });
+    expect(JSON.stringify(items)).not.toContain("user");
+    expect(JSON.stringify(items)).not.toContain("pass");
   });
 
   it("sanea nombres de sesión y normaliza números", () => {
