@@ -142,9 +142,11 @@ describe("mobile automation draft API", () => {
       data: expect.objectContaining({
         platform: "facebook",
         sourceKind: "GROUP_DISCOVERY",
-        action: "OPEN_URL"
+        action: "SEARCH_FACEBOOK_GROUPS",
+        status: "QUEUED"
       })
     });
+    expect(completeMock).not.toHaveBeenCalled();
   });
 
   it("rejects a device that is not linked to the selected shared phone", async () => {
