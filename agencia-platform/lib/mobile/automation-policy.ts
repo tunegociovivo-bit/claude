@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAutomationWorkflowAllowed } from "@/lib/mobile/automation-catalog";
 
 export const MOBILE_AUTOMATION_PLATFORMS = [
   "google_maps",
@@ -12,7 +13,11 @@ export const MOBILE_AUTOMATION_SOURCE_KINDS = [
   "REAL_REVIEW",
   "OWNED_POST",
   "GENUINE_COMMENT",
-  "LINK_SHARE"
+  "LINK_SHARE",
+  "GROUP_DISCOVERY",
+  "GROUP_JOIN_REQUEST",
+  "COMMENT_DISCOVERY",
+  "COMMENT_REPLY"
 ] as const;
 
 export const MOBILE_AUTOMATION_ACTIONS = [
@@ -99,6 +104,15 @@ export const mobileAutomationDraftSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    if (!isAutomationWorkflowAllowed(value.platform, value.sourceKind)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sourceKind"],
+        message: value.sourceKind.startsWith("GROUP_")
+          ? "Las acciones de grupos solo están disponibles para Facebook."
+          : "Esta acción no está disponible para la plataforma seleccionada."
+      });
+    }
     if (value.sourceKind === "REAL_REVIEW") {
       if (!value.experienceConfirmed) {
         context.addIssue({

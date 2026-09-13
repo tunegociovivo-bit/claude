@@ -16,9 +16,14 @@ import {
   X
 } from "lucide-react";
 import type { MobileAutomationExecutableJob } from "@/components/mobile/mobile-automation-executor";
-
-type SourceKind = "REAL_REVIEW" | "OWNED_POST" | "GENUINE_COMMENT" | "LINK_SHARE";
-type Platform = "google_maps" | "instagram" | "facebook" | "tiktok" | "generic";
+import {
+  buildAutomationTargetUrl,
+  getAutomationWorkflows
+} from "@/lib/mobile/automation-catalog";
+import type {
+  MobileAutomationPlatform as Platform,
+  MobileAutomationSourceKind as SourceKind
+} from "@/lib/mobile/automation-policy";
 
 type AutomationJob = MobileAutomationExecutableJob & {
   id: string;
@@ -46,13 +51,6 @@ type Props = {
   onPasteText: (text: string) => Promise<void>;
 };
 
-const SOURCE_OPTIONS: Array<{ value: SourceKind; label: string; platform: Platform }> = [
-  { value: "REAL_REVIEW", label: "Reseña de una experiencia real", platform: "google_maps" },
-  { value: "OWNED_POST", label: "Publicación en mi cuenta", platform: "instagram" },
-  { value: "GENUINE_COMMENT", label: "Comentario genuino", platform: "instagram" },
-  { value: "LINK_SHARE", label: "Compartir un enlace", platform: "generic" }
-];
-
 const PLATFORM_OPTIONS: Array<{ value: Platform; label: string }> = [
   { value: "google_maps", label: "Google Maps" },
   { value: "instagram", label: "Instagram" },
@@ -60,6 +58,11 @@ const PLATFORM_OPTIONS: Array<{ value: Platform; label: string }> = [
   { value: "tiktok", label: "TikTok" },
   { value: "generic", label: "Otra web HTTPS" }
 ];
+
+function workflowLabel(platform: Platform, sourceKind: SourceKind): string {
+  return getAutomationWorkflows(platform).find((item) => item.sourceKind === sourceKind)?.label
+    ?? sourceKind;
+}
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING_APPROVAL: "Pendiente de aprobación",
@@ -123,6 +126,9 @@ export default function MobileAutomationPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const workerBusyRef = useRef(false);
   const draftRequestIdRef = useRef<string | null>(null);
+  const platformWorkflows = getAutomationWorkflows(platform);
+  const selectedWorkflow = platformWorkflows.find((item) => item.sourceKind === sourceKind)
+    ?? platformWorkflows[0]!;
   const hasRunnableJob = jobs.some((job) => (
     job.status === "RUNNING"
     || (job.status === "QUEUED" && new Date(job.scheduledAt).getTime() <= Date.now())
@@ -161,7 +167,9 @@ export default function MobileAutomationPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ executorSessionId, outcome: "PREPARED" })
         });
-        setWorkerMessage("URL abierta y texto copiado. Revisa el móvil antes de publicar.");
+        setWorkerMessage(job.action === "OPEN_URL"
+          ? "Búsqueda abierta en el móvil. Ya puedes revisar los resultados."
+          : "URL abierta y texto copiado. Revisa el móvil antes de publicar.");
       } catch (executionError) {
         const message = executionError instanceof Error ? executionError.message : "No se pudo preparar el móvil";
         await apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/result`, {
@@ -199,6 +207,7 @@ export default function MobileAutomationPanel({
     setError(null);
     setWorkerMessage(null);
     try {
+      const generatedTargetUrl = buildAutomationTargetUrl(platform, sourceKind, targetName);
       const idempotencyKey = draftRequestIdRef.current ?? crypto.randomUUID();
       draftRequestIdRef.current = idempotencyKey;
       await apiJson("/api/v1/mobile/automations/drafts", {
@@ -211,7 +220,7 @@ export default function MobileAutomationPanel({
           phoneKey,
           deviceSerial,
           targetName: targetName.trim() || undefined,
-          targetUrl: targetUrl.trim(),
+          targetUrl: generatedTargetUrl ?? targetUrl.trim(),
           facts: facts.trim(),
           tone: tone.trim() || undefined,
           experienceConfirmed: sourceKind === "REAL_REVIEW" ? experienceConfirmed : false,
@@ -256,10 +265,21 @@ export default function MobileAutomationPanel({
     }
   }
 
-  function changeSource(next: SourceKind) {
+  function changePlatform(next: Platform) {
+    setPlatform(next);
+    setSourceKind(getAutomationWorkflows(next)[0]!.sourceKind);
+    setTargetName("");
+    setTargetUrl("");
+    setFacts("");
+    setExperienceConfirmed(false);
+  }
+
+  function changeWorkflow(next: SourceKind) {
     setSourceKind(next);
-    const recommendation = SOURCE_OPTIONS.find((option) => option.value === next);
-    if (recommendation) setPlatform(recommendation.platform);
+    setTargetName("");
+    setTargetUrl("");
+    setFacts("");
+    setExperienceConfirmed(false);
   }
 
   const activeJobs = jobs.filter((job) => !["COMPLETED", "REJECTED", "CANCELLED"].includes(job.status));
@@ -283,25 +303,63 @@ export default function MobileAutomationPanel({
       <form onSubmit={createDraft} className="mt-3 space-y-2">
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs font-semibold text-slate-700">
-            Tipo de ayuda
-            <select value={sourceKind} onChange={(event) => changeSource(event.target.value as SourceKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
-              {SOURCE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="text-xs font-semibold text-slate-700">
             Plataforma
-            <select value={platform} onChange={(event) => setPlatform(event.target.value as Platform)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
+            <select value={platform} onChange={(event) => changePlatform(event.target.value as Platform)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
               {PLATFORM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
+          <label className="text-xs font-semibold text-slate-700">
+            Acción en {PLATFORM_OPTIONS.find((option) => option.value === platform)?.label}
+            <select value={sourceKind} onChange={(event) => changeWorkflow(event.target.value as SourceKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
+              {platformWorkflows.map((option) => <option key={option.sourceKind} value={option.sourceKind}>{option.label}</option>)}
+            </select>
+          </label>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <input value={targetName} onChange={(event) => setTargetName(event.target.value)} placeholder="Nombre del destino (opcional)" className="rounded-lg border bg-white px-3 py-2 text-sm" />
-          <input value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} placeholder="https://… ficha, publicación o perfil" inputMode="url" required className="rounded-lg border bg-white px-3 py-2 text-sm" />
+        <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900">
+          <span className="font-semibold">{selectedWorkflow.label}.</span> {selectedWorkflow.description}
         </div>
-        <textarea value={facts} onChange={(event) => setFacts(event.target.value)} minLength={20} maxLength={4000} required rows={3} placeholder="Hechos e instrucciones reales: qué ocurrió, qué quieres contar y qué no debe inventarse" className="w-full rounded-lg border bg-white px-3 py-2 text-sm" />
+        <div className={`grid gap-2 ${selectedWorkflow.targetUrlLabel ? "sm:grid-cols-2" : ""}`}>
+          <label className="text-xs font-semibold text-slate-700">
+            {selectedWorkflow.targetNameLabel}
+            <input
+              value={targetName}
+              onChange={(event) => setTargetName(event.target.value)}
+              placeholder={selectedWorkflow.targetNamePlaceholder}
+              required={sourceKind === "GROUP_DISCOVERY"}
+              className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
+            />
+          </label>
+          {selectedWorkflow.targetUrlLabel && (
+            <label className="text-xs font-semibold text-slate-700">
+              {selectedWorkflow.targetUrlLabel}
+              <input
+                value={targetUrl}
+                onChange={(event) => setTargetUrl(event.target.value)}
+                placeholder={selectedWorkflow.targetUrlPlaceholder ?? "https://…"}
+                inputMode="url"
+                required
+                className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
+              />
+            </label>
+          )}
+        </div>
+        <label className="block text-xs font-semibold text-slate-700">
+          {selectedWorkflow.factsLabel}
+          <textarea
+            value={facts}
+            onChange={(event) => setFacts(event.target.value)}
+            minLength={20}
+            maxLength={4000}
+            required
+            rows={3}
+            placeholder={selectedWorkflow.factsPlaceholder}
+            className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
+          />
+        </label>
         <div className="grid gap-2 sm:grid-cols-2">
-          <input value={tone} onChange={(event) => setTone(event.target.value)} placeholder="Tono" className="rounded-lg border bg-white px-3 py-2 text-sm" />
+          {!(["GROUP_DISCOVERY", "COMMENT_DISCOVERY"] as SourceKind[]).includes(sourceKind) ? (
+            <input value={tone} onChange={(event) => setTone(event.target.value)} placeholder="Tono" className="rounded-lg border bg-white px-3 py-2 text-sm" />
+          ) : <span className="hidden sm:block" />}
           <label className="relative text-xs font-semibold text-slate-700">
             <span className="sr-only">Fecha y hora</span>
             <Clock3 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -316,7 +374,7 @@ export default function MobileAutomationPanel({
         )}
         <button type="submit" disabled={busy || !canManage} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          Generar borrador con IA
+          {selectedWorkflow.submitLabel}
         </button>
       </form>
 
@@ -339,7 +397,10 @@ export default function MobileAutomationPanel({
             {jobs.slice(0, 20).map((job) => (
               <article key={job.id} className="rounded-lg border bg-white p-3 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-bold text-slate-800">{job.sourceRef || PLATFORM_OPTIONS.find((item) => item.value === job.platform)?.label || job.platform}</div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">{workflowLabel(job.platform, job.sourceKind)}</div>
+                    {job.sourceRef && <div className="mt-0.5 text-[11px] text-slate-500">{job.sourceRef}</div>}
+                  </div>
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClasses(job.status)}`}>{STATUS_LABELS[job.status] || job.status}</span>
                 </div>
                 {job.status === "PENDING_APPROVAL" ? (
@@ -355,10 +416,12 @@ export default function MobileAutomationPanel({
                       <button type="button" onClick={() => void decide(job, "REJECT")} disabled={busy} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-700"><X className="h-3.5 w-3.5" /> Rechazar</button>
                     </>
                   )}
-                  {job.status === "WAITING_USER" && job.text && (
+                  {job.status === "WAITING_USER" && (
                     <>
-                      <button type="button" onClick={() => void onPasteText(job.text!)} disabled={!ready || busy} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Clipboard className="h-3.5 w-3.5" /> Pegar en el campo enfocado</button>
-                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> Ya lo publiqué</button>
+                      {job.action !== "OPEN_URL" && job.text && (
+                        <button type="button" onClick={() => void onPasteText(job.text!)} disabled={!ready || busy} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Clipboard className="h-3.5 w-3.5" /> Pegar en el campo enfocado</button>
+                      )}
+                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {job.action === "OPEN_URL" ? "Revisión terminada" : "Ya lo publiqué"}</button>
                     </>
                   )}
                   {job.status === "FAILED" && <button type="button" onClick={() => void decide(job, "RETRY")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white"><RefreshCw className="h-3.5 w-3.5" /> Reintentar</button>}
@@ -372,7 +435,7 @@ export default function MobileAutomationPanel({
       </div>
 
       <p className="mt-3 flex items-start gap-2 text-[11px] leading-4 text-slate-500">
-        <Send className="mt-0.5 h-3.5 w-3.5 shrink-0" /> El worker nunca pulsa enviar, publicar, seguir, me gusta ni modifica la ubicación.
+        <Send className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Las búsquedas se abren automáticamente. Las solicitudes, respuestas y publicaciones quedan preparadas para revisar antes de la acción final.
       </p>
     </section>
   );

@@ -12,13 +12,17 @@ import {
 export const dynamic = "force-dynamic";
 
 function generationSystemPrompt(sourceKind: string) {
-  const purpose = sourceKind === "REAL_REVIEW"
-    ? "Redacta una reseña personal sobre una visita real."
-    : sourceKind === "OWNED_POST"
-      ? "Redacta una publicación para una cuenta gestionada por el usuario."
-      : sourceKind === "GENUINE_COMMENT"
-        ? "Redacta un comentario genuino para el destino indicado por el usuario."
-        : "Redacta un texto breve para compartir el enlace indicado.";
+  const purposes: Record<string, string> = {
+    REAL_REVIEW: "Redacta una reseña personal sobre una visita real.",
+    GROUP_DISCOVERY: "Resume los criterios que debe usar el usuario para seleccionar grupos relevantes de Facebook.",
+    GROUP_JOIN_REQUEST: "Redacta una presentación breve y veraz para solicitar acceso a un grupo de Facebook.",
+    COMMENT_DISCOVERY: "Resume los temas, preguntas y señales que debe localizar el Radar en la conversación.",
+    COMMENT_REPLY: "Redacta una respuesta contextual, útil y genuina al comentario aportado.",
+    OWNED_POST: "Redacta una publicación para una cuenta gestionada por el usuario.",
+    GENUINE_COMMENT: "Redacta un comentario genuino para el destino indicado por el usuario.",
+    LINK_SHARE: "Redacta un texto breve para compartir el enlace indicado."
+  };
+  const purpose = purposes[sourceKind] ?? purposes.LINK_SHARE;
   return [
     purpose,
     "Escribe solo el texto final, en español natural y listo para revisar.",
@@ -69,6 +73,8 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
 
   const now = new Date();
   const scheduledAt = parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : now;
+  const navigationOnly = parsed.data.sourceKind === "GROUP_DISCOVERY"
+    || parsed.data.sourceKind === "COMMENT_DISCOVERY";
   const job = await prisma.$transaction(async (tx) => {
     const created = await tx.mobileAutomationJob.create({
       data: {
@@ -76,7 +82,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         phoneKey: parsed.data.phoneKey,
         deviceSerial: parsed.data.deviceSerial,
         platform: parsed.data.platform,
-        action: "OPEN_URL_AND_COPY_TEXT",
+        action: navigationOnly ? "OPEN_URL" : "OPEN_URL_AND_COPY_TEXT",
         targetUrl,
         text,
         facts: parsed.data.facts,
