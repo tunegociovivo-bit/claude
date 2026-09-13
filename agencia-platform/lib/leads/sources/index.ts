@@ -308,6 +308,12 @@ async function enrichEmailsViaContacts(workspaceId: string, leads: PlacesResult[
         rd.email = contacts[0].email;
         if (contacts[0].name) rd.directorName = contacts[0].name;
         if (contacts[0].role) rd.directorRole = contacts[0].role;
+        const linkedinContact = contacts.find((contact) => contact.linkedin);
+        if (linkedinContact?.linkedin) {
+          rd.directorLinkedin = linkedinContact.linkedin;
+          if (linkedinContact.name) rd.directorName = linkedinContact.name;
+          if (linkedinContact.role) rd.directorRole = linkedinContact.role;
+        }
         // El resto de directivos de marketing → copia oculta (que llegue al que toca).
         const bcc = contacts.slice(1).map((c) => c.email);
         if (bcc.length) rd.bccEmails = bcc;

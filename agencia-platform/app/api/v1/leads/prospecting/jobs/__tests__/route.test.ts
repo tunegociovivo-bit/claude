@@ -10,6 +10,7 @@ vi.mock("@/lib/api/auth", async (importActual) => ({
 vi.mock("@/lib/api/rate-limit", () => ({
   rateLimit: () => ({ ok: true, remaining: 100, resetAt: Date.now() + 60_000 })
 }));
+vi.mock("@/lib/api/permissions", () => ({ callerIsAdmin: vi.fn(async () => true) }));
 vi.mock("@/lib/leads/job-opportunity-pipeline", () => ({ ingestLinkedInJobOpportunity: mocks.ingest }));
 
 import { POST } from "../route";
