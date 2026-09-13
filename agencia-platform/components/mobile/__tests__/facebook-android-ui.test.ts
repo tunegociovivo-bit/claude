@@ -3,7 +3,8 @@ import {
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
-  findFacebookSearchImeTarget
+  findFacebookSearchImeTarget,
+  findFacebookSearchSuggestionTarget
 } from "@/components/mobile/facebook-android-ui";
 
 describe("Facebook Android UI", () => {
@@ -73,5 +74,18 @@ describe("Facebook Android UI", () => {
     </hierarchy>`;
 
     expect(findFacebookSearchImeTarget(hierarchy)).toBeNull();
+  });
+
+  it("selects the exact Facebook query suggestion instead of the focused input or group shortcut", () => {
+    const hierarchy = `<hierarchy>
+      <node text="franquicias" package="com.facebook.katana" class="android.widget.EditText" focused="true" bounds="[80,40][990,120]" />
+      <node text="franquicias" package="com.facebook.katana" class="android.view.View" bounds="[140,140][800,190]" />
+      <node text="Tu grupo" package="com.facebook.katana" class="android.view.View" bounds="[140,190][400,225]" />
+      <node text="franquicias" package="com.facebook.katana" class="android.view.View" clickable="true" bounds="[140,260][800,310]" />
+      <node text="franquicias" package="com.google.android.inputmethod.latin" class="android.view.View" bounds="[500,2100][700,2160]" />
+    </hierarchy>`;
+
+    expect(findFacebookSearchSuggestionTarget(hierarchy, "franquicias"))
+      .toEqual({ x: 470, y: 285 });
   });
 });
