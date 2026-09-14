@@ -1,6 +1,6 @@
 {
   "name": "negocio-vivo-time-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Agente multiplataforma de control horario de Negocio Vivo",
   "author": "Negocio Vivo",
   "private": true,
@@ -24,6 +24,7 @@
       "icon": "../public/icon-512.png",
       "signAndEditExecutable": true,
       "requestedExecutionLevel": "asInvoker",
+      "certificateSha1": "7BD7D8745253F281D6A47A61CC396437257D2C7C",
       "publisherName": "Negocio Vivo Marketing",
       "artifactName": "Negocio.Vivo.Control.Horario.Setup.${version}.${ext}"
     },

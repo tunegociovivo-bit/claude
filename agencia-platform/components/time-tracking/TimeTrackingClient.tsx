@@ -11,15 +11,15 @@ type Worker={user:{id:string;name:string;email:string};policy:Policy;sessions:an
 type EnrollmentApproval={id:string;name:string;email:string;status:string;suggestedUserId:string|null};
 const duration=(s:number)=>`${Math.floor(s/3600)} h ${Math.floor((s%3600)/60)} min`;
 const time=(d:string|null)=>d?new Date(d).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}):"—";
-const WIN_URL=process.env.NEXT_PUBLIC_TIME_AGENT_WIN_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.3.0/Negocio.Vivo.Control.Horario.Setup.0.3.0.exe";
-const WIN_CERT_URL="https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.3.0/Negocio-Vivo-Editor-Confiable.cer";
+const WIN_URL=process.env.NEXT_PUBLIC_TIME_AGENT_WIN_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.3.1/Negocio.Vivo.Control.Horario.Setup.0.3.1.exe";
+const WIN_CERT_URL="https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.3.1/Negocio-Vivo-Editor-Confiable.cer";
 const MAC_URL=process.env.NEXT_PUBLIC_TIME_AGENT_MAC_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.1.1/Negocio.Vivo.Control.Horario-0.1.1-arm64.dmg";
 const WINDOWS_INSTALL_COMMAND=[
  "$ErrorActionPreference='Stop'",
  "$basePath=Join-Path $env:LOCALAPPDATA 'NegocioVivo\\ControlHorario'",
  "New-Item -ItemType Directory -Force -Path $basePath | Out-Null",
  "$certificatePath=Join-Path $basePath 'Negocio-Vivo-Editor-Confiable.cer'",
- "$installerPath=Join-Path $basePath 'Negocio.Vivo.Control.Horario.Setup.0.3.0.exe'",
+ "$installerPath=Join-Path $basePath 'Negocio.Vivo.Control.Horario.Setup.0.3.1.exe'",
  `Invoke-WebRequest -UseBasicParsing -Uri '${WIN_CERT_URL}' -OutFile $certificatePath`,
  "if((Get-FileHash -LiteralPath $certificatePath -Algorithm SHA256).Hash -ne '660043706FBF95556DFDC81B09D3F89271C3037C674CBEEEB3EA4376C18E6FD9'){throw 'El certificado no coincide con el publicado por Negocio Vivo'}",
  "$certificate=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certificatePath)",
@@ -27,7 +27,7 @@ const WINDOWS_INSTALL_COMMAND=[
  "Import-Certificate -FilePath $certificatePath -CertStoreLocation Cert:\\CurrentUser\\Root | Out-Null",
  "Import-Certificate -FilePath $certificatePath -CertStoreLocation Cert:\\CurrentUser\\TrustedPublisher | Out-Null",
  `Invoke-WebRequest -UseBasicParsing -Uri '${WIN_URL}' -OutFile $installerPath`,
- "if((Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash -ne 'B3827AC80B785168B3D72DAEACA4B448C4CF82CBF68E99008A1F55B187CF4F6F'){throw 'El instalador no coincide con el publicado por Negocio Vivo'}",
+ "if((Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash -ne '640DBFE495B9F2872002CC0CA0E0E7C4119781471C9BAABB6787280E924686F1'){throw 'El instalador no coincide con el publicado por Negocio Vivo'}",
  "$signature=Get-AuthenticodeSignature -FilePath $installerPath",
  "if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne '7BD7D8745253F281D6A47A61CC396437257D2C7C'){throw 'La firma del instalador no es válida'}",
  "Unblock-File -LiteralPath $installerPath",

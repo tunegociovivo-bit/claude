@@ -36,6 +36,7 @@ describe("interfaz del agente de control horario", () => {
 
     expect(pkg.build.win.signAndEditExecutable).toBe(true);
     expect(pkg.build.win.requestedExecutionLevel).toBe("asInvoker");
+    expect(pkg.build.win.certificateSha1).toBe("7BD7D8745253F281D6A47A61CC396437257D2C7C");
     expect(pkg.build.win.publisherName).toBe("Negocio Vivo Marketing");
   });
 
@@ -100,7 +101,7 @@ describe("interfaz del agente de control horario", () => {
     expect(dashboard).toContain("Get-FileHash");
     expect(dashboard).toContain("TrustedPublisher");
     expect(dashboard).toContain("Unblock-File -LiteralPath $installerPath");
-    expect(dashboard).toContain("B3827AC80B785168B3D72DAEACA4B448C4CF82CBF68E99008A1F55B187CF4F6F");
+    expect(dashboard).toContain("640DBFE495B9F2872002CC0CA0E0E7C4119781471C9BAABB6787280E924686F1");
     expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
   });
 
