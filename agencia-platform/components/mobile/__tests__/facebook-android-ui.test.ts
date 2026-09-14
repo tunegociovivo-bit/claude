@@ -100,7 +100,7 @@ describe("Facebook Android UI", () => {
         case "wm size":
           return "Physical size: 1080x2340\n";
         case "dumpsys window displays":
-          return "InsetsSource type=ime frame=[0,1480][1080,2340] visible=true\n";
+          return "InsetsSource id=0x13 type=ITYPE_IME frame=[0,1480][1080,2340] visible=true flags=[]\n";
         default:
           return "";
       }
