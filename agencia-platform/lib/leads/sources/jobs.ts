@@ -169,9 +169,9 @@ async function collectLinkedIn(keyword: string, location: string, apiKey: string
   const nationwide = !location.trim();
   const loc = location.trim() ? `${location.trim()}, España` : "España";
   // La API "guest" pagina de 10 en 10 con `start`.
-  const starts = Array.from({ length: Math.max(1, Math.min(maxPages, 20)) }, (_, index) => index * 10);
+  const starts = Array.from({ length: Math.max(1, Math.min(maxPages, 100)) }, (_, index) => index * 10);
   for (const start of starts) {
-    if (out.length >= 200) break;
+    if (out.length >= 1000) break;
     const url =
       `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(keyword)}` +
       `&location=${encodeURIComponent(loc)}` +
@@ -179,7 +179,10 @@ async function collectLinkedIn(keyword: string, location: string, apiKey: string
       `&start=${start}`;
     let html = "";
     try {
-      html = await linkedInFetch(url, apiKey);
+      // El respaldo de pago solo se permite en la primera página. Si LinkedIn
+      // limita una página posterior conservamos todo lo ya recogido sin gastar
+      // un crédito de Scrapfly por cada página restante.
+      html = await linkedInFetch(url, start === 0 ? apiKey : "");
     } catch (e) {
       if (start === 0) throw e; // la 1ª página falla → no hay ninguna vía disponible
       break; // paginación parcial: paramos sin romper
@@ -376,7 +379,7 @@ export async function collectJobs(opts: {
   // LinkedIn acepta el geoId nacional de España: una sola consulta paginada
   // cubre el país y evita 52 llamadas independientes a Scrapfly.
   const areas = opts.scope === "spain" ? [""] : [wanted];
-  const liPages = opts.scope === "spain" ? 20 : 3;
+  const liPages = opts.scope === "spain" ? 100 : 3;
   const boards = new Set(opts.boards?.length ? opts.boards : ["linkedin", "infojobs"]);
   if (!opts.apiKey && !boards.has("linkedin")) {
     throw new Error("InfoJobs necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
