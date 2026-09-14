@@ -216,11 +216,14 @@ export const OPPORTUNITY_SCHEMA = {
           url: { type: "string" },
           price: { type: "number" },
           surface: nullableNumber,
-          price_m2: nullableNumber,
-          estimated_market_price: nullableNumber,
-          discount_pct: nullableNumber,
-          estimated_rent: nullableNumber,
-          gross_yield: nullableNumber,
+          // Anthropic rejects schemas with more than 16 union/anyOf fields.
+          // These legacy investment metrics are not produced by the model for
+          // this search; it emits 0 and the server normalizes them back to null.
+          price_m2: { type: "number" },
+          estimated_market_price: { type: "number" },
+          discount_pct: { type: "number" },
+          estimated_rent: { type: "number" },
+          gross_yield: { type: "number" },
           score: { type: "number" },
           verdict: { type: "string", enum: ["OPORTUNIDAD", "INTERESANTE", "DESCARTAR"] },
           occupied: { type: "boolean" },

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { businessPremisesSearchSchema } from "@/lib/inmobiliaria/contracts";
+import { businessPremisesSearchSchema, OPPORTUNITY_SCHEMA } from "@/lib/inmobiliaria/contracts";
+
+function countUnionParameters(schema: unknown): number {
+  if (!schema || typeof schema !== "object") return 0;
+  if (Array.isArray(schema)) return schema.reduce((total, item) => total + countUnionParameters(item), 0);
+  const record = schema as Record<string, unknown>;
+  const self = Array.isArray(record.anyOf) || Array.isArray(record.type) ? 1 : 0;
+  return self + Object.values(record).reduce((total, item) => total + countUnionParameters(item), 0);
+}
 
 describe("businessPremisesSearchSchema", () => {
   it("applies safe defaults for a rental search", () => {
@@ -28,5 +36,9 @@ describe("businessPremisesSearchSchema", () => {
       portals: []
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("keeps the Anthropic schema under the union parameter limit", () => {
+    expect(countUnionParameters(OPPORTUNITY_SCHEMA)).toBeLessThanOrEqual(16);
   });
 });

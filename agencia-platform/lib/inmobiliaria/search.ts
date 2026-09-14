@@ -708,6 +708,7 @@ async function analyzeListings(
   const system = [
     "Eres un analista de locales comerciales. Convierte una investigación web en datos estructurados, sin inventar anuncios ni atributos.",
     "Incluye TODOS los anuncios que aparezcan en la investigación. La puntuación final la calculará el servidor: devuelve score=0 y verdict='DESCARTAR' como valores provisionales.",
+    "Los campos históricos price_m2, estimated_market_price, discount_pct, estimated_rent y gross_yield deben valer 0; el servidor los normaliza y no se usan para puntuar el encaje comercial.",
     "Usa operation=rent/sale/both/transfer/unknown. monthly_rent es la renta anunciada al mes; sale_price es el precio de venta; transfer_price es el traspaso. Usa null si no aparece.",
     "Cabinas existentes y capacidad de cabinas son conceptos distintos. Un local open_plan puede tener existing_cabins=0 y cabin_capacity estimada si la superficie y geometría lo justifican.",
     "floor indica street/basement/mezzanine/upper/mixed/unknown; single_floor y has_basement usan null si no están claros. Completa todas las claves de spaces con true/false/null.",
