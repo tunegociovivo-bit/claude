@@ -1,32 +1,58 @@
 {
-  "name": "negocio-vivo-time-agent",
-  "version": "0.2.0",
-  "description": "Agente multiplataforma de control horario de Negocio Vivo",
-  "author": "Negocio Vivo",
-  "private": true,
-  "main": "src/main.js",
-  "scripts": { "dev": "electron .", "dist:win": "electron-builder --win nsis", "dist:mac": "electron-builder --mac dmg" },
-  "dependencies": {
-    "axios": "^1.12.0",
-    "electron-store": "^8.2.0",
-    "keytar": "^7.9.0",
-    "screenshot-desktop": "^1.15.0",
-    "sharp": "^0.33.5"
-  },
-  "devDependencies": { "electron": "^32.3.3", "electron-builder": "^25.1.8" },
-  "build": {
-    "appId": "app.negociovivo.timetracker",
-    "productName": "Negocio Vivo Control Horario",
-    "files": ["src/**/*", "package.json"],
-    "mac": { "category": "public.app-category.productivity", "target": ["dmg"], "hardenedRuntime": true, "entitlements": "build/entitlements.mac.plist", "entitlementsInherit": "build/entitlements.mac.plist" },
-    "win": {
-      "target": ["nsis"],
-      "icon": "../public/icon-512.png",
-      "signAndEditExecutable": true,
-      "requestedExecutionLevel": "asInvoker",
-      "publisherName": "Negocio Vivo Marketing",
-      "artifactName": "Negocio.Vivo.Control.Horario.Setup.${version}.${ext}"
+    "name": "negocio-vivo-time-agent",
+    "version": "0.3.4",
+    "description": "Agente multiplataforma de control horario de Negocio Vivo",
+    "author": "Negocio Vivo",
+    "private": true,
+    "main": "src/main.js",
+    "scripts": {
+        "dev": "electron .",
+        "dist:win": "electron-builder --win msi",
+        "dist:mac": "electron-builder --mac dmg"
     },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "perMachine": false, "runAfterFinish": true }
-  }
+    "dependencies": {
+        "axios": "^1.12.0",
+        "electron-store": "^8.2.0",
+        "keytar": "^7.9.0",
+        "screenshot-desktop": "^1.15.0",
+        "sharp": "^0.33.5"
+    },
+    "devDependencies": {
+        "electron": "^32.3.3",
+        "electron-builder": "^25.1.8"
+    },
+    "build": {
+        "appId": "app.negociovivo.timetracker",
+        "productName": "Negocio Vivo Control Horario",
+        "files": [
+            "src/**/*",
+            "package.json"
+        ],
+        "mac": {
+            "category": "public.app-category.productivity",
+            "target": [
+                "dmg"
+            ],
+            "hardenedRuntime": true,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist"
+        },
+        "win": {
+            "target": [
+                "msi"
+            ],
+            "icon": "../public/icon-512.png",
+            "signAndEditExecutable": true,
+            "requestedExecutionLevel": "asInvoker",
+            "certificateSha1": "7BD7D8745253F281D6A47A61CC396437257D2C7C",
+            "publisherName": "Negocio Vivo Marketing",
+            "artifactName": "Negocio.Vivo.Control.Horario.${version}.${ext}"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "perMachine": false,
+            "runAfterFinish": true
+        }
+    }
 }

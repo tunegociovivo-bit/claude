@@ -2,8 +2,6 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, powerMonitor, syst
 const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
-const { promisify } = require("util");
 const axios = require("axios");
 const screenshot = require("screenshot-desktop");
 const sharp = require("sharp");
@@ -18,23 +16,11 @@ store.set("deviceId", deviceId);
 let tray, window, timer, activityTimer, lastTick = Date.now();
 let lastPolicySync = 0;
 let lastShiftSync = 0;
-const execFileAsync = promisify(execFile);
 const traySvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#4f46e5"/><circle cx="10" cy="10" r="6" fill="none" stroke="white" stroke-width="1.6"/><path d="M10 6v4l3 2" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const trayIcon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(traySvg).toString("base64")}`);
 
 async function activeWindow() {
-  if (process.platform === "win32") {
-    const script = `$sig='[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();'; Add-Type -MemberDefinition $sig -Name Win32 -Namespace NV; $h=[NV.Win32]::GetForegroundWindow(); $p=Get-Process | Where-Object {$_.MainWindowHandle -eq $h} | Select-Object -First 1; if($p){[pscustomobject]@{name=$p.ProcessName;title=$p.MainWindowTitle}|ConvertTo-Json -Compress}`;
-    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 5000 });
-    const value = JSON.parse(stdout.trim() || "{}");
-    return { owner: { name: value.name || "" }, title: value.title || "" };
-  }
-  if (process.platform === "darwin") {
-    const script = 'tell application "System Events" to tell first application process whose frontmost is true to return {name, name of front window}';
-    const { stdout } = await execFileAsync("osascript", ["-e", script], { timeout: 5000 });
-    const [name, ...title] = stdout.trim().split(", ");
-    return { owner: { name: name || "" }, title: title.join(", ") };
-  }
+  // Keep this passive: external command probes are noisy for endpoint security tools.
   return null;
 }
 
@@ -48,6 +34,14 @@ function schedule() {
   timer = setTimeout(captureCycle, base - jitter + Math.random() * jitter * 2);
 }
 async function headers() { const t = await token(); return t ? { Authorization: `Bearer ${t}` } : {}; }
+async function connectWithAgentToken(agentToken) {
+  await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: { Authorization: `Bearer ${agentToken}` }, timeout: 15000 });
+  await keytar.setPassword(SERVICE, "agent-token", agentToken);
+  store.set("onboarded", true);
+  lastPolicySync = 0;
+  await syncPolicy();
+  schedule(); updateMenu();
+}
 async function syncShiftState(force = false) {
   if (!force && Date.now() - lastShiftSync < 30000) return;
   const response = await axios.get(api("/api/v1/time-tracking/me"), { headers: await headers(), timeout: 15000 });
@@ -140,7 +134,7 @@ function updateMenu() {
 }
 function showWindow() { if (!window) createWindow(); window.show(); window.focus(); }
 function createWindow() {
-  window = new BrowserWindow({ width: 520, height: 520, show: false, resizable: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
+  window = new BrowserWindow({ width: 520, height: 680, show: false, resizable: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
   window.loadFile(path.join(__dirname, "settings.html")); window.on("close", e => { if (!app.isQuitting) { e.preventDefault(); window.hide(); } });
 }
 ipcMain.handle("status:get", async () => {
@@ -169,18 +163,19 @@ ipcMain.handle("shift:set", async (_e, action) => {
 });
 ipcMain.handle("enrollment:set", async (_e, input) => {
   const code = String(input || "").trim();
-  if (!code) return { ok: false, error: "Introduce el código de vinculación" };
+  if (!code) return { ok: false, error: "Introduce el codigo de vinculacion" };
+  if (code.toUpperCase().startsWith("NVV-")) return { ok: false, error: "Ese es un codigo de verificacion antiguo. Pide al administrador una credencial nueva desde el Hub." };
   try {
-    await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: { Authorization: `Bearer ${code}` }, timeout: 15000 });
-    await keytar.setPassword(SERVICE, "agent-token", code);
-    store.set("onboarded", true);
-    lastPolicySync = 0;
-    await syncPolicy();
-    schedule(); updateMenu();
+    let agentToken = code;
+    if (code.toUpperCase().startsWith("NV-")) {
+      const redeemed = await axios.post(api("/api/public/time-tracking/enrollment-redeem"), { code, deviceId }, { timeout: 15000 });
+      agentToken = redeemed.data?.token;
+      if (!agentToken) throw new Error("missing_agent_token");
+    }
+    await connectWithAgentToken(agentToken);
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error?.response?.status === 401 ? "Código no válido o caducado" : "No se pudo conectar con el Hub" };
+    return { ok: false, error: error?.response?.status === 401 ? "Codigo no valido o caducado" : "No se pudo conectar con el Hub" };
   }
-});
-app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(trayIcon); updateMenu(); startActivityHeartbeat(); schedule(); if (!store.get("onboarded")) showWindow(); });
+});app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(trayIcon); updateMenu(); startActivityHeartbeat(); schedule(); if (!store.get("onboarded")) showWindow(); });
 app.on("before-quit", () => { app.isQuitting = true; }); app.on("window-all-closed", e => e.preventDefault());
