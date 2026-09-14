@@ -49,8 +49,9 @@ import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
-  keepAndroidAwakeDuringAutomation,
-  prepareAndroidForAutomation
+  prepareAndroidForAutomation,
+  startAndroidAwakeSession,
+  type AndroidAwakeSession
 } from "@/components/mobile/android-automation-ready";
 import {
   findAndroidUiNodeCenter,
@@ -653,6 +654,7 @@ function MobileDeviceCard({
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const adbRef = useRef<Adb>();
   const clientRef = useRef<AdbScrcpyClient<AdbScrcpyOptionsLatest<true>>>();
+  const awakeSessionRef = useRef<AndroidAwakeSession>();
   const decoderRef = useRef<WebCodecsVideoDecoder>();
   const sizeRef = useRef({ width: 0, height: 0 });
   const closingRef = useRef(false);
@@ -697,6 +699,9 @@ function MobileDeviceCard({
     decoderRef.current?.dispose();
     decoderRef.current = undefined;
     screenMountRef.current?.replaceChildren();
+    const awakeSession = awakeSessionRef.current;
+    awakeSessionRef.current = undefined;
+    try { await awakeSession?.restore(); } catch { /* restoration already reported */ }
     try { await clientRef.current?.close(); } catch { /* already disconnected */ }
     clientRef.current = undefined;
     try { await adbRef.current?.close(); } catch { /* already disconnected */ }
@@ -723,6 +728,9 @@ function MobileDeviceCard({
       });
       const adb = new Adb(transport);
       adbRef.current = adb;
+      awakeSessionRef.current = await startAndroidAwakeSession(
+        (command) => runAdbCommand(adb, command)
+      );
 
       const [reportedModel, version] = await Promise.all([
         adb.getProp("ro.product.model").catch(() => adb.banner.model || device.name || "Android"),
@@ -857,9 +865,10 @@ function MobileDeviceCard({
     if (!adb || !controller || status !== "mirroring") {
       throw new Error("La pantalla del móvil debe estar abierta para preparar el trabajo.");
     }
-    return keepAndroidAwakeDuringAutomation(
-      (command) => runAdbCommand(adb, command),
-      () => executeMobileAutomationJob(job, {
+    if (!awakeSessionRef.current) {
+      throw new Error("La protección de pantalla de Android no está activa.");
+    }
+    return executeMobileAutomationJob(job, {
       openUrl: (url) => runAdbCommand(adb, [
         "am",
         "start",
@@ -943,7 +952,7 @@ function MobileDeviceCard({
             : `${completed.length} grupos procesados por Facebook.`
         };
       }
-    }));
+    });
   }, [status]);
 
   const pasteApprovedAutomation = useCallback(async (content: string) => {

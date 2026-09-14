@@ -1,4 +1,5 @@
 export type AndroidAutomationCommandRunner = (command: readonly string[]) => Promise<unknown>;
+export type AndroidAwakeSession = { restore: () => Promise<void> };
 
 const AUTOMATION_SCREEN_TIMEOUT_MS = 60 * 60 * 1000;
 
@@ -21,6 +22,10 @@ async function restoreAndroidSetting(
   await runCommand(["settings", "put", namespace, key, String(value)]);
 }
 
+function reportAndroidRestoreError(error: unknown): void {
+  console.warn("[F-Móviles] No se ha podido restaurar el ajuste de pantalla de Android.", error);
+}
+
 export async function prepareAndroidForAutomation(
   runCommand: AndroidAutomationCommandRunner
 ): Promise<void> {
@@ -28,13 +33,10 @@ export async function prepareAndroidForAutomation(
   await runCommand(["wm", "dismiss-keyguard"]);
 }
 
-export async function keepAndroidAwakeDuringAutomation<T>(
+export async function startAndroidAwakeSession(
   runCommand: AndroidAutomationCommandRunner,
-  automation: () => Promise<T>,
-  reportRestoreError: (error: unknown) => void = (error) => {
-    console.warn("[F-Móviles] No se ha podido restaurar el ajuste de pantalla de Android.", error);
-  }
-): Promise<T> {
+  reportRestoreError: (error: unknown) => void = reportAndroidRestoreError
+): Promise<AndroidAwakeSession> {
   const stayAwakeValue = parseAndroidIntegerSetting(
     await runCommand(["settings", "get", "global", "stay_on_while_plugged_in"])
   );
@@ -46,6 +48,29 @@ export async function keepAndroidAwakeDuringAutomation<T>(
     screenTimeoutValue ?? 0,
     AUTOMATION_SCREEN_TIMEOUT_MS
   );
+  let restored = false;
+
+  const restore = async () => {
+    if (restored) return;
+    restored = true;
+
+    const settingsToRestore = [
+      ["system", "screen_off_timeout", screenTimeoutValue],
+      ["global", "stay_on_while_plugged_in", stayAwakeValue]
+    ] as const;
+
+    for (const [namespace, key, value] of settingsToRestore) {
+      try {
+        await restoreAndroidSetting(runCommand, namespace, key, value);
+      } catch (restoreError) {
+        try {
+          reportRestoreError(restoreError);
+        } catch {
+          // The session result remains authoritative even if reporting fails.
+        }
+      }
+    }
+  };
 
   try {
     await runCommand([
@@ -63,23 +88,23 @@ export async function keepAndroidAwakeDuringAutomation<T>(
       String(temporaryScreenTimeoutValue)
     ]);
     await runCommand(["input", "keyevent", "KEYCODE_WAKEUP"]);
+  } catch (activationError) {
+    await restore();
+    throw activationError;
+  }
+
+  return { restore };
+}
+
+export async function keepAndroidAwakeDuringAutomation<T>(
+  runCommand: AndroidAutomationCommandRunner,
+  automation: () => Promise<T>,
+  reportRestoreError: (error: unknown) => void = reportAndroidRestoreError
+): Promise<T> {
+  const session = await startAndroidAwakeSession(runCommand, reportRestoreError);
+  try {
     return await automation();
   } finally {
-    const settingsToRestore = [
-      ["system", "screen_off_timeout", screenTimeoutValue],
-      ["global", "stay_on_while_plugged_in", stayAwakeValue]
-    ] as const;
-
-    for (const [namespace, key, value] of settingsToRestore) {
-      try {
-        await restoreAndroidSetting(runCommand, namespace, key, value);
-      } catch (restoreError) {
-        try {
-          reportRestoreError(restoreError);
-        } catch {
-          // The automation result remains authoritative even if reporting fails.
-        }
-      }
-    }
+    await session.restore();
   }
 }
