@@ -885,7 +885,8 @@ async function processNonPlacesBatch(opts: {
       workspaceId: opts.workspaceId,
       keyword: search.keyword,
       location: search.location,
-      scope: search.scope as "custom" | "spain"
+      scope: search.scope as "custom" | "spain",
+      sourceConfig: search.sourceConfig && typeof search.sourceConfig === "object" ? search.sourceConfig : undefined
     });
   } catch (e: any) {
     errorMessage = String(e?.message ?? e).slice(0, 600);

@@ -233,10 +233,10 @@ function companyKey(name: string): string {
 // (de ahí el bug de empresas de EE. UU.). Acotamos la consulta a España y,
 // además, filtramos por texto de ubicación como red de seguridad.
 
-// Ciudades para el barrido "toda España": las áreas metropolitanas con más
-// oferta de empleo. LinkedIn geolocaliza por texto ("Madrid, España"), que es el
-// método probado. Cubre el grueso del mercado sin disparar el nº de llamadas.
-const SPAIN_METROS = ["Madrid", "Barcelona", "Valencia", "Sevilla", "Málaga", "Bilbao"];
+/** Capitales de las 52 provincias/ciudades autónomas para un barrido nacional real. */
+export function spainJobAreas(): string[] {
+  return [...new Set(SPAIN_PROVINCES.map((province) => province.capital))];
+}
 
 /** Normaliza para comparar ubicaciones (minúsculas, sin acentos). */
 function norm(s: string | null | undefined): string {
@@ -337,6 +337,7 @@ export async function collectJobs(opts: {
   location: string;
   apiKey: string;
   scope: "custom" | "spain";
+  boards?: Array<"linkedin" | "infojobs">;
 }): Promise<PlacesResult[]> {
   if (!opts.apiKey) {
     throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
@@ -348,10 +349,10 @@ export async function collectJobs(opts: {
   // el usuario elige provincia/ciudad y filtramos por ella.
   const wanted = opts.scope === "spain" ? "" : opts.location.trim();
   // Áreas a barrer en LinkedIn: en "custom" solo la zona pedida (3 páginas);
-  // en "toda España" iteramos las metrópolis principales (1 página cada una)
-  // — el método por TEXTO de ciudad es el que de verdad devuelve resultados.
-  const areas = opts.scope === "spain" ? SPAIN_METROS : [wanted];
+  // en "toda España" recorremos las 52 capitales (1 página cada una).
+  const areas = opts.scope === "spain" ? spainJobAreas() : [wanted];
   const liPages = opts.scope === "spain" ? 1 : 3;
+  const boards = new Set(opts.boards?.length ? opts.boards : ["linkedin", "infojobs"]);
 
   // Recogida con concurrencia acotada y CONTEO de errores: si TODO falla (0
   // respuestas OK), lanzamos el error para que la búsqueda salga FAILED con el
@@ -361,7 +362,7 @@ export async function collectJobs(opts: {
   let okCalls = 0;
   let errCalls = 0;
   let lastErr = "";
-  const linkedInJobs = queries.flatMap((q) => areas.map((area) => ({ q, area })));
+  const linkedInJobs = boards.has("linkedin") ? queries.flatMap((q) => areas.map((area) => ({ q, area }))) : [];
   // Concurrencia BAJA: Scrapfly limita las peticiones simultáneas por plan y
   // devuelve 429 si te pasas. 2 en paralelo es lo que toleró el plan actual.
   const CONC = 2;
@@ -380,15 +381,17 @@ export async function collectJobs(opts: {
     }
   });
   // InfoJobs es nacional (no por ciudad): una consulta por keyword.
-  await runChunked(queries, async (q) => {
-    try {
-      ij.push(...(await collectInfoJobs(q, opts.apiKey)));
-      okCalls++;
-    } catch (e: any) {
-      errCalls++;
-      lastErr = String(e?.message ?? e);
-    }
-  });
+  if (boards.has("infojobs")) {
+    await runChunked(queries, async (q) => {
+      try {
+        ij.push(...(await collectInfoJobs(q, opts.apiKey)));
+        okCalls++;
+      } catch (e: any) {
+        errCalls++;
+        lastErr = String(e?.message ?? e);
+      }
+    });
+  }
   if (okCalls === 0 && errCalls > 0) {
     throw new Error(`No se pudo scrapear ninguna oferta (Scrapfly): ${lastErr}`);
   }

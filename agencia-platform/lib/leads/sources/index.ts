@@ -58,6 +58,7 @@ export type CollectorContext = {
   keyword: string;
   location: string;
   scope: "custom" | "spain";
+  sourceConfig?: Record<string, unknown>;
 };
 
 const STUB_MSG: Record<string, string> = {
@@ -137,7 +138,16 @@ export async function collectFromSource(
       // luego sacamos el email de contacto de la web (para el outreach por email).
       const key = await scrapflyKey(ctx.workspaceId);
       if (!key) throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
-      const raw = await collectJobs({ keyword: ctx.keyword, location: ctx.location, apiKey: key, scope: ctx.scope });
+      const requestedBoards = Array.isArray(ctx.sourceConfig?.jobBoards)
+        ? ctx.sourceConfig.jobBoards.filter((board): board is "linkedin" | "infojobs" => board === "linkedin" || board === "infojobs")
+        : undefined;
+      const raw = await collectJobs({
+        keyword: ctx.keyword,
+        location: ctx.location,
+        apiKey: key,
+        scope: ctx.scope,
+        boards: requestedBoards?.length ? requestedBoards : undefined
+      });
       return enrichJobsResults(ctx.workspaceId, raw);
     }
     case "doctoralia": {
