@@ -8739,7 +8739,7 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
       followupTaskEnabled: s.followupTaskEnabled,
       gmbMultichannelEnabled: !!s.gmbMultichannelEnabled,
       gmbSenderName: s.gmbSenderName ?? "Negocio Vivo",
-      gmbSenderEmail: s.gmbSenderEmail ?? "contacto@prospeccion.negociovivo.com",
+      gmbSenderEmail: s.gmbSenderEmail ?? "info@ia.negociovivo.app",
       gmbReplyTo: s.gmbReplyTo ?? "",
       gmbComplianceAccepted: !!s.gmbComplianceAccepted,
       channels: Array.isArray(channelsOverride) ? channelsOverride : (Array.isArray(s.channels) ? s.channels : [])
@@ -9033,10 +9033,10 @@ function LeadsSettingsModal({ open, onClose }: { open: boolean; onClose: () => v
               <input value={s.gmbSenderName ?? "Negocio Vivo"} onChange={(e) => setField("gmbSenderName", e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
             </label>
             <label className="text-xs text-slate-700">Email del subdominio
-              <input type="email" value={s.gmbSenderEmail ?? "contacto@prospeccion.negociovivo.com"} onChange={(e) => setField("gmbSenderEmail", e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
+              <input type="email" value={s.gmbSenderEmail ?? "info@ia.negociovivo.app"} onChange={(e) => setField("gmbSenderEmail", e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
             </label>
             <label className="text-xs text-slate-700 sm:col-span-2">Responder a (obligatorio para activar)
-              <input type="email" value={s.gmbReplyTo ?? ""} onChange={(e) => setField("gmbReplyTo", e.target.value)} placeholder="respuestas@prospeccion.negociovivo.com" className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
+              <input type="email" value={s.gmbReplyTo ?? ""} onChange={(e) => setField("gmbReplyTo", e.target.value)} placeholder="info@ia.negociovivo.app" className="mt-1 w-full px-2 py-1.5 rounded border bg-white text-sm" />
               <span className="mt-1 block text-[10px] text-slate-500">Debe ser una dirección del dominio receptor configurado en Resend.</span>
             </label>
           </div>
