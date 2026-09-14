@@ -1,5 +1,7 @@
 import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 
+type AndroidUiCommandRunner = (command: readonly string[]) => Promise<unknown>;
+
 function comparable(value: string): string {
   return value
     .normalize("NFD")
@@ -23,6 +25,28 @@ function matchesAny(value: string, labels: readonly string[]): boolean {
 function matchesExactly(value: string, labels: readonly string[]): boolean {
   const normalized = comparable(value);
   return labels.some((label) => normalized === comparable(label));
+}
+
+export async function submitFacebookSearchFromKeyboard(
+  runCommand: AndroidUiCommandRunner
+): Promise<void> {
+  const sizeOutput = String(await runCommand(["wm", "size"]));
+  const reportedSizes = Array.from(
+    sizeOutput.matchAll(/(?:Physical|Override) size:\s*(\d+)x(\d+)/gi)
+  );
+  const activeSize = reportedSizes.at(-1);
+  const width = Number(activeSize?.[1]);
+  const height = Number(activeSize?.[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 200 || height < 200) {
+    throw new Error("Android no ha informado de un tamaño de pantalla válido para pulsar Buscar.");
+  }
+
+  await runCommand([
+    "input",
+    "tap",
+    String(Math.round(width * 0.92)),
+    String(Math.round(height * 0.9))
+  ]);
 }
 
 export function findFacebookSearchImeTarget(hierarchy: string): AndroidUiPoint | null {
