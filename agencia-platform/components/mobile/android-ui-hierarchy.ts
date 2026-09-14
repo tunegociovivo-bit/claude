@@ -19,6 +19,24 @@ export type AndroidUiNodeCriteria = {
   focused?: boolean;
 };
 
+type AndroidUiCommandRunner = (command: readonly string[]) => Promise<unknown>;
+
+const ANDROID_UI_DUMP_PATH = "/sdcard/nv-mobile-window.xml";
+
+export async function readAndroidUiHierarchySafely(
+  runCommand: AndroidUiCommandRunner
+): Promise<string> {
+  const hierarchy = String(await runCommand([
+    "sh",
+    "-c",
+    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout 4 uiautomator dump ${ANDROID_UI_DUMP_PATH} >/dev/null && cat ${ANDROID_UI_DUMP_PATH}`
+  ]));
+  if (!hierarchy.includes("<hierarchy") || !hierarchy.includes("</hierarchy>")) {
+    throw new Error("Android no ha devuelto la estructura accesible de Facebook.");
+  }
+  return hierarchy;
+}
+
 function decodeXmlAttribute(value: string): string {
   return value
     .replace(/&quot;/g, '"')
