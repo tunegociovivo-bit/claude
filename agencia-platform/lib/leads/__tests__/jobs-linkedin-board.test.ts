@@ -35,4 +35,21 @@ describe("fuente Empleos para NV Prospección", () => {
       boards: ["linkedin"]
     }));
   });
+
+  it("permite usar LinkedIn público aunque Scrapfly no esté configurado", async () => {
+    mocks.workspaceFind.mockResolvedValue({ settings: { leads: {} } });
+
+    await collectFromSource("jobs", {
+      workspaceId: "workspace-1",
+      keyword: "marketing",
+      location: "Toda España",
+      scope: "spain",
+      sourceConfig: { jobBoards: ["linkedin"] }
+    });
+
+    expect(mocks.collectJobs).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: "",
+      boards: ["linkedin"]
+    }));
+  });
 });
