@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
   findFacebookSearchImeTarget,
-  findFacebookSearchSuggestionTarget
+  findFacebookSearchSuggestionTarget,
+  submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 
 describe("Facebook Android UI", () => {
@@ -87,5 +88,38 @@ describe("Facebook Android UI", () => {
 
     expect(findFacebookSearchSuggestionTarget(hierarchy, "franquicias"))
       .toEqual({ x: 470, y: 285 });
+  });
+
+  it("submits the visible Gboard search action without waiting for an accessibility dump", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command.join(" ") === "wm size" ? "Physical size: 1080x2340\n" : ""
+    ));
+
+    await submitFacebookSearchFromKeyboard(runCommand);
+
+    expect(runCommand.mock.calls).toEqual([
+      [["wm", "size"]],
+      [["input", "tap", "994", "2106"]]
+    ]);
+  });
+
+  it("uses Android's active override size for the keyboard action point", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command.join(" ") === "wm size"
+        ? "Physical size: 1080x2340\nOverride size: 720x1560\n"
+        : ""
+    ));
+
+    await submitFacebookSearchFromKeyboard(runCommand);
+
+    expect(runCommand).toHaveBeenLastCalledWith(["input", "tap", "662", "1404"]);
+  });
+
+  it("fails quickly when Android does not report a usable display size", async () => {
+    const runCommand = vi.fn(async () => "unknown");
+
+    await expect(submitFacebookSearchFromKeyboard(runCommand))
+      .rejects.toThrow("tamaño de pantalla");
+    expect(runCommand).toHaveBeenCalledTimes(1);
   });
 });
