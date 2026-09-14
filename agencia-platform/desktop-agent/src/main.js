@@ -16,6 +16,9 @@ store.set("deviceId", deviceId);
 let tray, window, timer, activityTimer, lastTick = Date.now();
 let lastPolicySync = 0;
 let lastShiftSync = 0;
+const isBackgroundLaunch = process.argv.some(arg => ["--background", "--hidden", "--minimized"].includes(String(arg).toLowerCase()));
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
 const traySvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#4f46e5"/><circle cx="10" cy="10" r="6" fill="none" stroke="white" stroke-width="1.6"/><path d="M10 6v4l3 2" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const trayIcon = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(traySvg).toString("base64")}`);
 
@@ -132,7 +135,13 @@ function updateMenu() {
     { type: "separator" }, { label: "Salir", click: () => app.quit() }
   ]));
 }
-function showWindow() { if (!window) createWindow(); window.show(); window.focus(); }
+function showWindow() {
+  if (!window) createWindow();
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  window.moveTop();
+}
 function createWindow() {
   window = new BrowserWindow({ width: 520, height: 680, show: false, resizable: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
   window.loadFile(path.join(__dirname, "settings.html")); window.on("close", e => { if (!app.isQuitting) { e.preventDefault(); window.hide(); } });
@@ -177,5 +186,15 @@ ipcMain.handle("enrollment:set", async (_e, input) => {
   } catch (error) {
     return { ok: false, error: error?.response?.status === 401 ? "Codigo no valido o caducado" : "No se pudo conectar con el Hub" };
   }
-});app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(trayIcon); updateMenu(); startActivityHeartbeat(); schedule(); if (!store.get("onboarded")) showWindow(); });
+});
+app.on("second-instance", () => showWindow());
+app.whenReady().then(() => {
+  app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true, args: ["--background"] });
+  createWindow();
+  tray = new Tray(trayIcon);
+  updateMenu();
+  startActivityHeartbeat();
+  schedule();
+  if (!isBackgroundLaunch) showWindow();
+});
 app.on("before-quit", () => { app.isQuitting = true; }); app.on("window-all-closed", e => e.preventDefault());
