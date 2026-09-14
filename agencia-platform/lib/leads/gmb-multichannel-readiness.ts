@@ -30,7 +30,7 @@ export async function getGmbMultichannelSettings(workspaceId: string) {
     hunterReady,
     complianceReady,
     senderName: String(leads.gmbSenderName || envName || "Negocio Vivo").trim(),
-    senderEmail: String(leads.gmbSenderEmail || envEmail || "contacto@prospeccion.negociovivo.com").trim(),
+    senderEmail: String(leads.gmbSenderEmail || envEmail || "info@ia.negociovivo.app").trim(),
     replyTo: replyTo || null,
     compliance: {
       version: leads.gmbComplianceVersion ?? null,

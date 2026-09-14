@@ -118,6 +118,99 @@ export function retrieveResendReceivedEmail(workspaceId: string, emailId: string
   return resendGetJson(`/emails/receiving/${encodeURIComponent(emailId)}?html_format=cid`, opts?.globalConfigOnly ? undefined : workspaceId);
 }
 
+const MAX_RESEND_RAW_EMAIL_BYTES = 40_000_000;
+
+async function readResponseBuffer(response: Response, maxBytes: number): Promise<Buffer> {
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > maxBytes) throw new Error("El email recibido supera el tamaño máximo permitido");
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.from(await response.arrayBuffer());
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error("El email recibido supera el tamaño máximo permitido");
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total);
+}
+
+/**
+ * Reenvía un mensaje recibido por Resend conservando cuerpo y adjuntos.
+ * La clave de idempotencia evita duplicados si Resend reintenta el webhook.
+ */
+export async function forwardResendReceivedEmail(opts: {
+  emailId: string;
+  from: string;
+  to: string | string[];
+  workspaceId?: string;
+  idempotencyKey?: string;
+  globalConfigOnly?: boolean;
+}): Promise<{ id: string }> {
+  const { apiKey } = await getResendConfig(opts.globalConfigOnly ? undefined : opts.workspaceId);
+  if (!apiKey) throw new Error("Resend no configurado para reenviar el email recibido");
+
+  const received = await resendGetJson(
+    `/emails/receiving/${encodeURIComponent(opts.emailId)}`,
+    opts.globalConfigOnly ? undefined : opts.workspaceId
+  );
+  const rawUrl = String(received?.raw?.download_url ?? "").trim();
+  if (!rawUrl) throw new Error("Resend no devolvió el contenido original del email recibido");
+  let parsedRawUrl: URL;
+  try {
+    parsedRawUrl = new URL(rawUrl);
+  } catch {
+    throw new Error("Resend devolvió una URL inválida para el contenido original");
+  }
+  if (parsedRawUrl.protocol !== "https:") {
+    throw new Error("Resend devolvió una URL no segura para el contenido original");
+  }
+
+  const rawResponse = await fetch(parsedRawUrl, { signal: AbortSignal.timeout(20_000) });
+  if (!rawResponse.ok) {
+    throw new Error(`No se pudo descargar el contenido original del email (${rawResponse.status})`);
+  }
+  const rawEmail = await readResponseBuffer(rawResponse, MAX_RESEND_RAW_EMAIL_BYTES);
+  const { simpleParser } = await import("mailparser");
+  const parsed = await simpleParser(rawEmail);
+  const replyTo = parsed.from?.value?.[0]?.address?.trim();
+  const attachments = parsed.attachments.map((attachment) => ({
+    filename: attachment.filename || "adjunto",
+    content: attachment.content.toString("base64"),
+    content_type: attachment.contentType,
+    ...(attachment.cid ? { content_id: attachment.cid.replace(/^<|>$/g, "") } : {})
+  }));
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {})
+    },
+    body: JSON.stringify({
+      from: opts.from,
+      to: Array.isArray(opts.to) ? opts.to : [opts.to],
+      subject: parsed.subject || received?.subject || "(sin asunto)",
+      ...(parsed.text ? { text: parsed.text } : {}),
+      ...(typeof parsed.html === "string" && parsed.html ? { html: parsed.html } : {}),
+      ...(replyTo ? { reply_to: replyTo } : {}),
+      ...(attachments.length ? { attachments } : {})
+    }),
+    signal: AbortSignal.timeout(20_000)
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Resend no pudo reenviar el email (${response.status}): ${body.slice(0, 200)}`);
+  }
+  return response.json();
+}
+
 export function getFromAddress(): string {
   // Default: dominio propio VERIFICADO en Resend (info@negociovivo.com).
   return process.env.EMAIL_FROM ?? DEFAULT_FROM;
