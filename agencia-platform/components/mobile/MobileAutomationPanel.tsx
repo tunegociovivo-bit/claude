@@ -404,7 +404,14 @@ export default function MobileAutomationPanel({
         })
       });
       await loadJobs();
-      if (action === "APPROVE") {
+      if (action === "APPROVE" || action === "RETRY") {
+        if (action === "RETRY") {
+          setWorkerMessage(ready
+            ? "Reintento lanzado. El movil empezara con los grupos pendientes."
+            : "Reintento en cola hasta que abras la pantalla del movil.");
+          void claimAndExecute();
+          return;
+        }
         setWorkerMessage(job.action === "JOIN_FACEBOOK_GROUP_BATCH"
           ? ready
             ? "Lote aprobado. El móvil empezará a solicitar acceso a los grupos seleccionados."
