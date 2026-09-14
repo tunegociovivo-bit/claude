@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   keepAndroidAwakeDuringAutomation,
-  prepareAndroidForAutomation
+  prepareAndroidForAutomation,
+  startAndroidAwakeSession
 } from "@/components/mobile/android-automation-ready";
 
 describe("Android automation readiness", () => {
@@ -38,6 +39,40 @@ describe("Android automation readiness", () => {
       "settings put system screen_off_timeout 3600000",
       "input keyevent KEYCODE_WAKEUP",
       "automation",
+      "settings put system screen_off_timeout 15000",
+      "settings put global stay_on_while_plugged_in 0"
+    ]);
+  });
+
+  it("keeps the screen awake from session start until the session is explicitly restored", async () => {
+    const events: string[] = [];
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      const serialized = command.join(" ");
+      events.push(serialized);
+      if (serialized === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (serialized === "settings get system screen_off_timeout") return "15000\n";
+      return "";
+    });
+
+    const session = await startAndroidAwakeSession(runCommand);
+
+    expect(events).toEqual([
+      "settings get global stay_on_while_plugged_in",
+      "settings get system screen_off_timeout",
+      "settings put global stay_on_while_plugged_in 2",
+      "settings put system screen_off_timeout 3600000",
+      "input keyevent KEYCODE_WAKEUP"
+    ]);
+
+    await session.restore();
+    await session.restore();
+
+    expect(events).toEqual([
+      "settings get global stay_on_while_plugged_in",
+      "settings get system screen_off_timeout",
+      "settings put global stay_on_while_plugged_in 2",
+      "settings put system screen_off_timeout 3600000",
+      "input keyevent KEYCODE_WAKEUP",
       "settings put system screen_off_timeout 15000",
       "settings put global stay_on_while_plugged_in 0"
     ]);
