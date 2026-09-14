@@ -39,6 +39,26 @@ function matchesExactly(value: string, labels: readonly string[]): boolean {
   return labels.some((label) => normalized === comparable(label));
 }
 
+function currentEditorInfoBlocks(inputMethodOutput: string): string[] {
+  const lines = inputMethodOutput.split(/\r?\n/);
+  const blocks: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = /^(\s*)(?:mCurrentTextBoxAttribute|mInputEditorInfo):\s*(.*)$/i.exec(lines[index]);
+    if (!heading) continue;
+    const headingIndent = heading[1].length;
+    const blockLines = heading[2] ? [heading[2]] : [];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const line = lines[cursor];
+      if (!line.trim()) continue;
+      const indent = /^\s*/.exec(line)?.[0].length ?? 0;
+      if (indent <= headingIndent) break;
+      blockLines.push(line.trim());
+    }
+    blocks.push(blockLines.join("\n"));
+  }
+  return blocks;
+}
+
 async function assertVisibleGboard(runCommand: AndroidUiCommandRunner): Promise<void> {
   const inputMethodOutput = String(await runCommand(["dumpsys", "input_method"]));
   const currentImePattern = /(?:mCurMethodId|mCurId|mSelectedMethodId|mCurMethod)\s*[:=]\s*[^\r\n]*com\.google\.android\.inputmethod\.latin/i;
@@ -55,18 +75,25 @@ async function assertVisibleGboard(runCommand: AndroidUiCommandRunner): Promise<
     );
   }
 
-  const editorInfo = /(?:mCurAttribute|mCurEditorInfo)\s*=\s*EditorInfo\{([^}]*)}/i
-    .exec(inputMethodOutput)?.[1] ?? "";
-  if (!/packageName\s*=\s*com\.facebook\.(?:katana|lite)\b/i.test(editorInfo)) {
+  const editorInfoBlocks = currentEditorInfoBlocks(inputMethodOutput);
+  if (
+    !editorInfoBlocks.length
+    || editorInfoBlocks.some((block) => (
+      !/packageName\s*=\s*com\.facebook\.(?:katana|lite)\b/i.test(block)
+    ))
+  ) {
     throw new Error(
       "Android no ha confirmado que el campo de búsqueda de Facebook tenga el foco."
     );
   }
-  const imeOptionsMatch = /imeOptions\s*=\s*(?:0x([0-9a-f]+)|(\d+))/i.exec(editorInfo);
-  const imeOptions = imeOptionsMatch?.[1]
-    ? Number.parseInt(imeOptionsMatch[1], 16)
-    : Number(imeOptionsMatch?.[2]);
-  if (!Number.isFinite(imeOptions) || (imeOptions & 0xff) !== 3) {
+  const hasOnlySearchActions = editorInfoBlocks.every((block) => {
+    const imeOptionsMatch = /imeOptions\s*=\s*(?:0x([0-9a-f]+)|(\d+))/i.exec(block);
+    const imeOptions = imeOptionsMatch?.[1]
+      ? Number.parseInt(imeOptionsMatch[1], 16)
+      : Number(imeOptionsMatch?.[2]);
+    return Number.isFinite(imeOptions) && (imeOptions & 0xff) === 3;
+  });
+  if (!hasOnlySearchActions) {
     throw new Error(
       "Android no ha confirmado la acción Buscar en el campo enfocado de Facebook."
     );
