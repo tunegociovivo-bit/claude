@@ -7,6 +7,7 @@ import {
   findFacebookSearchEntryTarget,
   findFacebookSearchImeTarget,
   findFacebookSearchSuggestionTarget,
+  hasVisibleFacebookUi,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 
@@ -123,6 +124,16 @@ describe("Facebook Android UI", () => {
       kind: "button",
       point: { x: 890, y: 82 }
     });
+  });
+
+  it("distinguishes visible Facebook UI from an empty launch transition", () => {
+    expect(hasVisibleFacebookUi(`<hierarchy>
+      <node text="" content-desc="" package="com.facebook.katana" class="android.view.View" clickable="true" bounds="[850,42][930,122]" />
+    </hierarchy>`)).toBe(true);
+
+    expect(hasVisibleFacebookUi(`<hierarchy>
+      <node text="" content-desc="" package="android" class="android.widget.FrameLayout" clickable="false" bounds="[0,0][1080,2340]" />
+    </hierarchy>`)).toBe(false);
   });
 
   it("clears a restored query before pasting the next approved group name", async () => {
