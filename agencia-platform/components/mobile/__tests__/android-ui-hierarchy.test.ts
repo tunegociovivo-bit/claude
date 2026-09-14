@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { findAndroidUiNodeCenter } from "@/components/mobile/android-ui-hierarchy";
+import { describe, expect, it, vi } from "vitest";
+import {
+  findAndroidUiNodeCenter,
+  readAndroidUiHierarchySafely
+} from "@/components/mobile/android-ui-hierarchy";
 
 const hierarchy = `<?xml version="1.0" encoding="UTF-8"?>
 <hierarchy rotation="0">
@@ -23,5 +26,26 @@ describe("jerarquía accesible de Android", () => {
 
   it("devuelve null cuando Facebook no expone el control", () => {
     expect(findAndroidUiNodeCenter(hierarchy, { labels: ["Unirme"] })).toBeNull();
+  });
+
+  it("limita dentro de Android el volcado de accesibilidad para que no bloquee el worker", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command[0] === "cat" ? hierarchy : "UI hierchary dumped"
+    ));
+
+    await expect(readAndroidUiHierarchySafely(runCommand)).resolves.toBe(hierarchy);
+    expect(runCommand.mock.calls).toEqual([
+      [["timeout", "4", "uiautomator", "dump", "/sdcard/nv-mobile-window.xml"]],
+      [["cat", "/sdcard/nv-mobile-window.xml"]]
+    ]);
+  });
+
+  it("rechaza un volcado incompleto después del límite en vez de continuar a ciegas", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command[0] === "cat" ? "sin jerarquía" : ""
+    ));
+
+    await expect(readAndroidUiHierarchySafely(runCommand))
+      .rejects.toThrow("estructura accesible");
   });
 });
