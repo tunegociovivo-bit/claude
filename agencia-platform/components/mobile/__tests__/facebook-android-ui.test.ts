@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  clearFocusedFacebookSearchInput,
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
+  findFacebookSearchEntryTarget,
   findFacebookSearchImeTarget,
   findFacebookSearchSuggestionTarget,
   submitFacebookSearchFromKeyboard
@@ -66,6 +68,40 @@ describe("Facebook Android UI", () => {
     </hierarchy>`;
 
     expect(findFacebookSearchImeTarget(hierarchy)).toEqual({ x: 1020, y: 2215 });
+  });
+
+  it("reuses Facebook's restored search field instead of requiring the home search button", () => {
+    const hierarchy = `<hierarchy>
+      <node text="Franquicias, Negocios y más" package="com.facebook.katana" class="android.widget.EditText" focused="false" bounds="[90,45][960,145]" />
+      <node text="¿Qué estás pensando?" package="com.facebook.katana" class="android.widget.EditText" focused="false" bounds="[70,520][980,680]" />
+    </hierarchy>`;
+
+    expect(findFacebookSearchEntryTarget(hierarchy)).toEqual({
+      kind: "input",
+      point: { x: 525, y: 95 }
+    });
+  });
+
+  it("falls back to Facebook's header search control from the home screen", () => {
+    const hierarchy = `<hierarchy>
+      <node text="" content-desc="Buscar" package="com.facebook.katana" class="android.view.View" clickable="true" bounds="[940,40][1060,160]" />
+    </hierarchy>`;
+
+    expect(findFacebookSearchEntryTarget(hierarchy)).toEqual({
+      kind: "button",
+      point: { x: 1000, y: 100 }
+    });
+  });
+
+  it("clears a restored query before pasting the next approved group name", async () => {
+    const runCommand = vi.fn(async () => "");
+
+    await clearFocusedFacebookSearchInput(runCommand);
+
+    expect(runCommand.mock.calls).toEqual([
+      [["input", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_A"]],
+      [["input", "keyevent", "KEYCODE_DEL"]]
+    ]);
   });
 
   it("refuses a lower-page search control that does not belong to an input method", () => {
