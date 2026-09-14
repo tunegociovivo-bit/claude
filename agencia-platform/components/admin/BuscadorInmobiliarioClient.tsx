@@ -1,83 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import PageHeader from "@/components/PageHeader";
 import clsx from "clsx";
 import {
-  Building2,
-  Loader2,
-  Search,
-  ExternalLink,
-  MapPin,
-  TrendingUp,
   AlertTriangle,
+  Building2,
   CheckCircle2,
+  ExternalLink,
+  Loader2,
+  MapPin,
+  Phone,
+  Search,
   Star,
-  Phone
+  TrendingUp
 } from "lucide-react";
+import {
+  REQUIRED_SPACES,
+  REQUIRED_SPACE_LABELS,
+  type Opportunity,
+  type RequiredSpace,
+  type SearchOperation,
+  type SearchResult
+} from "@/lib/inmobiliaria/contracts";
 
-type Portal = { key: string; label: string; bank: string; url: string; note: string | null };
-
-type Opportunity = {
-  portal: string;
-  portal_label: string;
+type Portal = {
+  key: string;
+  label: string;
   bank: string;
-  title: string;
-  property_type: string;
-  location: string;
   url: string;
-  price: number;
-  surface: number | null;
-  price_m2: number | null;
-  estimated_market_price: number | null;
-  discount_pct: number | null;
-  estimated_rent: number | null;
-  gross_yield: number | null;
-  score: number;
-  verdict: "OPORTUNIDAD" | "INTERESANTE" | "DESCARTAR";
-  occupied: boolean;
-  pros: string[];
-  cons: string[];
-  reasoning: string;
-  phone?: string;
-  searchUrl?: string;
+  note: string | null;
+  kind: "generalist" | "bank_asset";
+  operations: Array<"rent" | "sale">;
+  fetchMode: "verify" | "search_only";
 };
 
-type SearchResult = {
-  opportunities: Opportunity[];
-  summary: string;
-  notes?: string;
-  searchedPortals: { key: string; label: string; bank: string }[];
-};
-
-const PROPERTY_TYPES = ["Cualquiera", "Piso", "Casa / Chalet", "Ático", "Local", "Garaje", "Suelo"];
-const OBJECTIVES = ["Alquiler", "Reventa", "Vivienda habitual"];
-
-type Occupancy = "any" | "free" | "occupied";
-const OCCUPANCY_OPTIONS: { id: Occupancy; label: string; hint: string }[] = [
-  { id: "any", label: "Indiferente", hint: "Libres y ocupadas" },
-  { id: "free", label: "Libre", hint: "Posesión inmediata" },
-  { id: "occupied", label: "Con okupas", hint: "Ocupada · más descuento, más riesgo" }
-];
-
-function eur(n: number | null | undefined): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  return new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(n) + " €";
-}
-
-function verdictColor(v: string): string {
-  if (v === "OPORTUNIDAD") return "emerald";
-  if (v === "INTERESANTE") return "amber";
-  return "rose";
-}
-
-// ── Favoritos (persistidos en el navegador) ──────────────────────────────
 const FAVS_KEY = "inmob_favoritos";
 type FavItem = { id: string; savedAt: number; o: Opportunity };
 
-function favId(o: Opportunity): string {
-  return (o.url || "").trim() || `${o.title}__${o.location}__${o.price}`;
+function eur(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return "Por confirmar";
+  return `${new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(n)} €`;
 }
+
+function norm(value: string): string {
+  return (value || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
+
+function favId(o: Opportunity): string {
+  return o.id || (o.url || "").trim() || o.sources?.find((source) => source.url)?.url ||
+    `${o.title}__${o.location}__${o.price}`;
+}
+
+function canonicalIdentity(value: string): string {
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    [...url.searchParams.keys()].forEach((key) => {
+      if (key.toLowerCase().startsWith("utm_")) url.searchParams.delete(key);
+    });
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function favIdentities(o: Opportunity): Set<string> {
+  return new Set([
+    o.id,
+    o.url,
+    ...(o.sources ?? []).map((source) => source.url),
+    `${o.title}__${o.location}__${o.price}`
+  ].filter(Boolean).map(canonicalIdentity));
+}
+
+function favMatches(item: FavItem, opportunity: Opportunity): boolean {
+  const saved = favIdentities(item.o);
+  saved.add(canonicalIdentity(item.id));
+  return [...favIdentities(opportunity)].some((identity) => saved.has(identity));
+}
+
 function loadFavs(): FavItem[] {
   if (typeof window === "undefined") return [];
   try {
@@ -87,65 +92,90 @@ function loadFavs(): FavItem[] {
     return [];
   }
 }
+
 function persistFavs(favs: FavItem[]) {
   try {
     localStorage.setItem(FAVS_KEY, JSON.stringify(favs));
   } catch {}
 }
 
-// Normaliza para búsqueda local: minúsculas y sin acentos.
-function norm(s: string): string {
-  return (s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
-}
-function matchesQuery(o: Opportunity, q: string): boolean {
-  if (!q.trim()) return true;
-  const hay = norm(
-    [o.title, o.location, o.property_type, o.portal_label, o.bank, o.verdict].join(" ")
-  );
-  // Todas las palabras del término deben aparecer.
-  return norm(q)
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((w) => hay.includes(w));
+function matchesQuery(o: Opportunity, query: string): boolean {
+  if (!query.trim()) return true;
+  const haystack = norm([
+    o.title,
+    o.location,
+    o.property_type,
+    o.portal_label,
+    o.bank,
+    o.verdict,
+    o.operation,
+    o.floor,
+    o.condition,
+    ...(o.pros ?? []),
+    ...(o.cons ?? [])
+  ].filter(Boolean).join(" "));
+  return norm(query).split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
 }
 
-function ScoreBadge({ score, verdict }: { score: number; verdict: string }) {
-  const c = verdictColor(verdict);
+function numeric(value: string): number | undefined {
+  return value.trim() ? Number(value) : undefined;
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  suffix
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  suffix?: string;
+}) {
   return (
-    <div
-      className={clsx(
-        "shrink-0 h-14 w-14 rounded-xl grid place-items-center text-white font-bold",
-        c === "emerald" && "bg-emerald-500",
-        c === "amber" && "bg-amber-500",
-        c === "rose" && "bg-rose-500"
-      )}
-    >
-      <span className="text-lg leading-none">{score}</span>
-      <span className="text-[9px] opacity-80">/100</span>
-    </div>
+    <label className="block">
+      <span className="text-xs font-medium text-slate-700">{label}</span>
+      <div className="relative mt-1">
+        <input
+          type="number"
+          min="0"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className={clsx("w-full px-3 py-2 rounded-lg border text-sm", suffix && "pr-14")}
+        />
+        {suffix && <span className="absolute right-3 top-2 text-xs text-slate-400">{suffix}</span>}
+      </div>
+    </label>
   );
 }
 
 export default function BuscadorInmobiliarioClient() {
   const [portals, setPortals] = useState<Portal[]>([]);
   const [selectedPortals, setSelectedPortals] = useState<string[]>([]);
-
   const [location, setLocation] = useState("");
-  const [propertyType, setPropertyType] = useState(PROPERTY_TYPES[0]);
-  const [objective, setObjective] = useState(OBJECTIVES[0]);
-  const [occupancy, setOccupancy] = useState<Occupancy>("any");
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
+  const [operation, setOperation] = useState<SearchOperation>("rent");
+  const [businessDescription, setBusinessDescription] = useState("");
   const [minSurface, setMinSurface] = useState("");
-  const [onlyOpportunities, setOnlyOpportunities] = useState(true);
-
+  const [maxSurface, setMaxSurface] = useState("");
+  const [minCabins, setMinCabins] = useState("");
+  const [allowOpenPlan, setAllowOpenPlan] = useState(true);
+  const [preferStreetLevel, setPreferStreetLevel] = useState(true);
+  const [preferSingleFloor, setPreferSingleFloor] = useState(true);
+  const [basementPolicy, setBasementPolicy] = useState<"allow_penalize" | "exclude">("allow_penalize");
+  const [requiredSpaces, setRequiredSpaces] = useState<RequiredSpace[]>([...REQUIRED_SPACES]);
+  const [distributionNotes, setDistributionNotes] = useState("");
+  const [maxMonthlyRent, setMaxMonthlyRent] = useState("");
+  const [maxPurchasePrice, setMaxPurchasePrice] = useState("");
+  const [maxFitOutBudget, setMaxFitOutBudget] = useState("");
+  const [maxInitialInvestment, setMaxInitialInvestment] = useState("");
+  const [preferReadyToEnter, setPreferReadyToEnter] = useState(true);
+  const [onlyMatches, setOnlyMatches] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
-
   const [view, setView] = useState<"results" | "favs">("results");
   const [favs, setFavs] = useState<FavItem[]>([]);
   const [query, setQuery] = useState("");
@@ -153,377 +183,249 @@ export default function BuscadorInmobiliarioClient() {
   useEffect(() => {
     setFavs(loadFavs());
     fetch("/api/v1/admin/buscador-inmobiliario")
-      .then((r) => (r.ok ? r.json() : { portals: [] }))
-      .then((d) => {
-        setPortals(d.portals ?? []);
-        setSelectedPortals((d.portals ?? []).map((p: Portal) => p.key));
+      .then((response) => (response.ok ? response.json() : { portals: [] }))
+      .then((data) => {
+        const available = (data.portals ?? []) as Portal[];
+        setPortals(available);
+        setSelectedPortals(available.map((portal) => portal.key));
       })
       .catch(() => {});
   }, []);
 
-  function toggleFav(o: Opportunity) {
-    setFavs((prev) => {
-      const id = favId(o);
-      const exists = prev.some((f) => f.id === id);
-      const next = exists
-        ? prev.filter((f) => f.id !== id)
-        : [{ id, savedAt: Date.now(), o }, ...prev];
+  function toggleFav(opportunity: Opportunity) {
+    setFavs((previous) => {
+      const id = favId(opportunity);
+      const next = previous.some((item) => favMatches(item, opportunity))
+        ? previous.filter((item) => !favMatches(item, opportunity))
+        : [{ id, savedAt: Date.now(), o: opportunity }, ...previous];
       persistFavs(next);
       return next;
     });
   }
-  const isFav = (o: Opportunity) => favs.some((f) => f.id === favId(o));
 
-  function togglePortal(key: string) {
-    setSelectedPortals((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+  function toggleSpace(space: RequiredSpace) {
+    setRequiredSpaces((previous) =>
+      previous.includes(space) ? previous.filter((item) => item !== space) : [...previous, space]
     );
   }
 
   async function runSearch() {
     if (!location.trim() || busy) return;
+    const min = numeric(minSurface);
+    const max = numeric(maxSurface);
+    if (min !== undefined && max !== undefined && min > max) {
+      setError("La superficie máxima debe ser igual o mayor que la mínima.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setResult(null);
+    setView("results");
     try {
-      const r = await fetch("/api/v1/admin/buscador-inmobiliario", {
+      const response = await fetch("/api/v1/admin/buscador-inmobiliario", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           location: location.trim(),
-          propertyType: propertyType === "Cualquiera" ? undefined : propertyType,
-          objective,
-          occupancy,
-          minPrice: minPrice ? Number(minPrice) : undefined,
-          maxPrice: maxPrice ? Number(maxPrice) : undefined,
-          minSurface: minSurface ? Number(minSurface) : undefined,
+          operation,
+          businessDescription: businessDescription.trim() || undefined,
+          minSurface: min,
+          maxSurface: max,
+          minCabins: numeric(minCabins) ?? 0,
+          allowOpenPlan,
+          preferStreetLevel,
+          preferSingleFloor,
+          basementPolicy,
+          requiredSpaces,
+          distributionNotes: distributionNotes.trim() || undefined,
+          maxMonthlyRent: operation !== "sale" ? numeric(maxMonthlyRent) : undefined,
+          maxPurchasePrice: operation !== "rent" ? numeric(maxPurchasePrice) : undefined,
+          maxFitOutBudget: numeric(maxFitOutBudget),
+          maxInitialInvestment: numeric(maxInitialInvestment),
+          preferReadyToEnter,
           portals: selectedPortals,
-          onlyOpportunities
+          onlyMatches
         })
       });
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e?.error?.message ?? e?.message ?? "Error en la búsqueda");
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.error?.message ?? data?.message ?? "Error en la búsqueda");
       }
-      setResult(await r.json());
-    } catch (e: any) {
-      setError(e?.message ?? "Error");
+      setResult(await response.json());
+    } catch (caught: any) {
+      setError(caught?.message ?? "No se pudo completar la búsqueda");
     } finally {
       setBusy(false);
     }
   }
 
-  // Filtrado local rápido por el buscador de la sección.
-  const filteredFavs = favs.filter((f) => matchesQuery(f.o, query));
-  const filteredResults = result ? result.opportunities.filter((o) => matchesQuery(o, query)) : [];
+  const filteredFavs = favs.filter((item) => matchesQuery(item.o, query));
+  const filteredResults = result?.opportunities.filter((item) => matchesQuery(item, query)) ?? [];
+  const generalist = portals.filter((portal) => portal.kind === "generalist");
+  const bankAssets = portals.filter((portal) => portal.kind === "bank_asset");
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <PageHeader
-        title="Buscador Inmobiliario"
-        description="Rastrea portales de activos bancarios (Aliseda, Solvia, Gia, Trial3, Ikesa) y deja que la IA detecte las mejores oportunidades de inversión."
+        title="Buscador de locales para negocios"
+        description="Rastrea portales inmobiliarios en tiempo real y ordena los locales por encaje operativo, coste de adecuación e inversión inicial."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Panel de búsqueda */}
-        <div className="lg:col-span-4 bg-white rounded-xl border p-5 space-y-4 h-fit">
-          <div>
-            <label className="text-xs font-medium text-slate-700">Zona / ubicación *</label>
-            <input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runSearch()}
-              placeholder="Ej. Valencia capital, Málaga, Madrid centro…"
-              className="mt-1 w-full px-3 py-2 rounded-lg border text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-700">Tipo</label>
-              <select
-                value={propertyType}
-                onChange={(e) => setPropertyType(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm bg-white"
-              >
-                {PROPERTY_TYPES.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-700">Objetivo</label>
-              <select
-                value={objective}
-                onChange={(e) => setObjective(e.target.value)}
-                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm bg-white"
-              >
-                {OBJECTIVES.map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-slate-700">Estado de ocupación</label>
-            <div className="mt-1 grid grid-cols-3 gap-1">
-              {OCCUPANCY_OPTIONS.map((o) => (
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="xl:col-span-5 bg-white rounded-xl border p-5 space-y-5 h-fit">
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-900">Negocio y zona</h2>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-700">Zona / ubicación *</span>
+              <input
+                value={location}
+                onChange={(event) => setLocation(event.target.value)}
+                placeholder="Ej. Málaga centro, Teatinos, Valencia capital…"
+                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm"
+              />
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {(["rent", "sale", "both"] as SearchOperation[]).map((value) => (
                 <button
-                  key={o.id}
+                  key={value}
                   type="button"
-                  onClick={() => setOccupancy(o.id)}
-                  title={o.hint}
+                  onClick={() => setOperation(value)}
                   className={clsx(
-                    "px-2 py-1.5 text-xs rounded-md border text-center leading-tight",
-                    occupancy === o.id
-                      ? "bg-brand-600 text-white border-brand-600"
-                      : "bg-white text-slate-600 hover:bg-slate-50"
+                    "px-3 py-2 rounded-lg border text-xs font-medium",
+                    operation === value ? "bg-brand-600 text-white border-brand-600" : "text-slate-600 hover:bg-slate-50"
                   )}
                 >
-                  {o.label}
+                  {value === "rent" ? "Alquiler" : value === "sale" ? "Compra" : "Ambos"}
                 </button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">
-              {OCCUPANCY_OPTIONS.find((o) => o.id === occupancy)?.hint}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-700">Precio mín. (€)</label>
-              <input
-                type="number"
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
-                placeholder="0"
-                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm"
+            <label className="block">
+              <span className="text-xs font-medium text-slate-700">Actividad y necesidades</span>
+              <textarea
+                value={businessDescription}
+                onChange={(event) => setBusinessDescription(event.target.value)}
+                rows={3}
+                placeholder="Ej. centro de estética con cuatro cabinas; valoro accesibilidad, escaparate y licencia compatible."
+                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm resize-y"
               />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-700">Precio máx. (€)</label>
-              <input
-                type="number"
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
-                placeholder="Sin límite"
-                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm"
-              />
-            </div>
-          </div>
+            </label>
+          </section>
 
-          <div>
-            <label className="text-xs font-medium text-slate-700">Superficie mín. (m²)</label>
+          <section className="space-y-3 border-t pt-4">
+            <h2 className="text-sm font-semibold text-slate-900">Superficie y distribución</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <NumberField label="Superficie mín." value={minSurface} onChange={setMinSurface} placeholder="100" suffix="m²" />
+              <NumberField label="Superficie máxima" value={maxSurface} onChange={setMaxSurface} placeholder="140" suffix="m²" />
+              <NumberField label="Cabinas mínimas" value={minCabins} onChange={setMinCabins} placeholder="4" />
+            </div>
+            <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={allowOpenPlan} onChange={(event) => setAllowOpenPlan(event.target.checked)} className="mt-0.5" />
+              <span>
+                Acepto un local diáfano
+                <span className="block text-[11px] text-slate-400">La IA valorará si se pueden crear las cabinas, aunque no existan todavía.</span>
+              </span>
+            </label>
+            <div>
+              <div className="text-xs font-medium text-slate-700">Espacios necesarios</div>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {REQUIRED_SPACES.map((space) => (
+                  <label key={space} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={requiredSpaces.includes(space)} onChange={() => toggleSpace(space)} />
+                    {REQUIRED_SPACE_LABELS[space]}
+                  </label>
+                ))}
+              </div>
+            </div>
             <input
-              type="number"
-              value={minSurface}
-              onChange={(e) => setMinSurface(e.target.value)}
-              placeholder="Cualquiera"
-              className="mt-1 w-full px-3 py-2 rounded-lg border text-sm"
+              value={distributionNotes}
+              onChange={(event) => setDistributionNotes(event.target.value)}
+              placeholder="Otras necesidades: accesibilidad, salida de humos, fachada…"
+              className="w-full px-3 py-2 rounded-lg border text-sm"
             />
-          </div>
+          </section>
 
-          <div>
-            <label className="text-xs font-medium text-slate-700">Portales</label>
-            <div className="mt-2 space-y-1.5">
-              {portals.map((p) => (
-                <label
-                  key={p.key}
-                  className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedPortals.includes(p.key)}
-                    onChange={() => togglePortal(p.key)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <span className="font-medium">{p.label}</span>
-                    <span className="text-xs text-slate-400"> · {p.bank}</span>
-                    {p.note && <span className="block text-[11px] text-slate-400">{p.note}</span>}
-                  </span>
-                </label>
-              ))}
+          <section className="space-y-3 border-t pt-4">
+            <h2 className="text-sm font-semibold text-slate-900">Planta y estado</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Toggle label="Preferir planta calle" checked={preferStreetLevel} onChange={setPreferStreetLevel} />
+              <Toggle label="Preferir una sola planta" checked={preferSingleFloor} onChange={setPreferSingleFloor} />
+              <Toggle label="Priorizar listo para entrar" checked={preferReadyToEnter} onChange={setPreferReadyToEnter} />
             </div>
-          </div>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-700">Sótano</span>
+              <select
+                value={basementPolicy}
+                onChange={(event) => setBasementPolicy(event.target.value as typeof basementPolicy)}
+                className="mt-1 w-full px-3 py-2 rounded-lg border text-sm bg-white"
+              >
+                <option value="allow_penalize">Permitir, pero penalizar riesgo y obra</option>
+                <option value="exclude">Excluir si todo el local está en sótano</option>
+              </select>
+            </label>
+          </section>
+
+          <section className="space-y-3 border-t pt-4">
+            <h2 className="text-sm font-semibold text-slate-900">Límites económicos</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {operation !== "sale" && <NumberField label="Renta máxima" value={maxMonthlyRent} onChange={setMaxMonthlyRent} placeholder="Sin límite" suffix="€/mes" />}
+              {operation !== "rent" && <NumberField label="Compra máxima" value={maxPurchasePrice} onChange={setMaxPurchasePrice} placeholder="Sin límite" suffix="€" />}
+              <NumberField label="Obra máxima" value={maxFitOutBudget} onChange={setMaxFitOutBudget} placeholder="Sin límite" suffix="€" />
+              <NumberField label="Inversión inicial máx." value={maxInitialInvestment} onChange={setMaxInitialInvestment} placeholder="Sin límite" suffix="€" />
+            </div>
+            <p className="text-[11px] text-slate-400">Los límites solo descartan un local cuando el anuncio confirma que los supera. Las estimaciones se usan para ordenar.</p>
+          </section>
+
+          <section className="space-y-3 border-t pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-900">Portales configurados</h2>
+              <div className="flex gap-2 text-[11px]">
+                <button type="button" onClick={() => setSelectedPortals(portals.map((portal) => portal.key))} className="text-brand-700 hover:underline">Todos</button>
+                <button type="button" onClick={() => setSelectedPortals([])} className="text-slate-500 hover:underline">Ninguno</button>
+              </div>
+            </div>
+            <PortalGroup title="Generalistas" portals={generalist} selected={selectedPortals} onToggle={(key) => setSelectedPortals((previous) => previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key])} />
+            <PortalGroup title="Activos bancarios" portals={bankAssets} selected={selectedPortals} onToggle={(key) => setSelectedPortals((previous) => previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key])} />
+          </section>
 
           <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={onlyOpportunities}
-              onChange={(e) => setOnlyOpportunities(e.target.checked)}
-            />
-            Mostrar solo oportunidades (ocultar descartes)
+            <input type="checkbox" checked={onlyMatches} onChange={(event) => setOnlyMatches(event.target.checked)} />
+            Ocultar encajes bajos
           </label>
-
           <button
             onClick={runSearch}
             disabled={busy || !location.trim() || selectedPortals.length === 0}
             className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            {busy ? "Analizando portales…" : "Buscar oportunidades"}
+            {busy ? "Rastreando y comparando…" : "Buscar locales"}
           </button>
-          <p className="text-[11px] text-slate-400 leading-snug">
-            La IA busca en los portales en tiempo real y analiza cada propiedad. Puede tardar 1-3 minutos.
-          </p>
+          <p className="text-[11px] text-slate-400">La IA rastrea cada portal seleccionado por lotes. Puede tardar varios minutos.</p>
         </div>
 
-        {/* Resultados / Favoritos */}
-        <div className="lg:col-span-8 space-y-4">
-          {/* Conmutador */}
+        <div className="xl:col-span-7 space-y-4">
           <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-            <button
-              type="button"
-              onClick={() => setView("results")}
-              className={clsx(
-                "px-3 py-1.5 text-xs font-medium rounded-md",
-                view === "results" ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              Resultados
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("favs")}
-              className={clsx(
-                "px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5",
-                view === "favs" ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700"
-              )}
-            >
+            <TabButton active={view === "results"} onClick={() => setView("results")}>Resultados</TabButton>
+            <TabButton active={view === "favs"} onClick={() => setView("favs")}>
               <Star className="h-3.5 w-3.5" fill={favs.length ? "currentColor" : "none"} />
               Favoritos{favs.length ? ` (${favs.length})` : ""}
-            </button>
+            </TabButton>
           </div>
 
-          {/* Buscador local de la sección */}
-          {((view === "favs" && favs.length > 0) ||
-            (view === "results" && result && result.opportunities.length > 0)) && (
+          {((view === "favs" && favs.length > 0) || (view === "results" && result?.opportunities.length)) ? (
             <div className="relative">
               <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  view === "favs"
-                    ? "Filtrar favoritos por calle, zona, portal…"
-                    : "Filtrar resultados por calle, zona, portal…"
-                }
-                className="w-full pl-9 pr-9 py-2 rounded-lg border text-sm"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none px-1"
-                  title="Limpiar"
-                >
-                  ×
-                </button>
-              )}
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar por calle, zona, portal, planta o estado…" className="w-full pl-9 pr-3 py-2 rounded-lg border text-sm" />
             </div>
-          )}
+          ) : null}
 
           {view === "favs" ? (
-            favs.length === 0 ? (
-              <div className="bg-white rounded-xl border p-10 text-center text-slate-400">
-                <Star className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                <p className="text-sm">
-                  Aún no has guardado favoritos. Pulsa la <span className="font-medium">estrella</span> en
-                  cualquier propiedad para guardarla aquí.
-                </p>
-              </div>
-            ) : filteredFavs.length === 0 ? (
-              <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
-                Ningún favorito coincide con “{query}”.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="text-xs text-slate-500">
-                  {query
-                    ? `${filteredFavs.length} de ${favs.length} favoritos`
-                    : `${favs.length} ${favs.length === 1 ? "favorito guardado" : "favoritos guardados"}`}
-                </div>
-                {filteredFavs.map((f) => (
-                  <OpportunityCard
-                    key={f.id}
-                    o={f.o}
-                    fav={true}
-                    onToggleFav={() => toggleFav(f.o)}
-                  />
-                ))}
-              </div>
-            )
+            <FavoriteResults favs={favs} filtered={filteredFavs} query={query} onToggle={toggleFav} />
           ) : (
             <>
-              {busy && (
-                <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
-                  Rastreando portales y evaluando oportunidades de inversión…
-                </div>
-              )}
-
-              {error && (
-                <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700 flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                  {error}
-                </div>
-              )}
-
-              {!busy && !error && !result && (
-                <div className="bg-white rounded-xl border p-10 text-center text-slate-400">
-                  <Building2 className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                  <p className="text-sm">
-                    Introduce una zona y pulsa <span className="font-medium">Buscar oportunidades</span>.
-                  </p>
-                </div>
-              )}
-
-              {result && (
-                <>
-                  {result.summary && (
-                    <div className="bg-slate-50 border rounded-xl p-4">
-                      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                        Resumen del análisis
-                      </div>
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{result.summary}</p>
-                    </div>
-                  )}
-
-                  {result.opportunities.length === 0 ? (
-                    <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
-                      No se encontraron propiedades que encajen con los criterios en los portales seleccionados.
-                      {result.notes && <p className="mt-2 text-xs text-slate-400">{result.notes}</p>}
-                    </div>
-                  ) : filteredResults.length === 0 ? (
-                    <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">
-                      Ninguna propiedad coincide con “{query}”.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="text-xs text-slate-500">
-                        {query
-                          ? `${filteredResults.length} de ${result.opportunities.length} propiedades`
-                          : `${result.opportunities.length} ${
-                              result.opportunities.length !== 1 ? "propiedades analizadas" : "propiedad analizada"
-                            }`}
-                      </div>
-                      {filteredResults.map((o, i) => (
-                        <OpportunityCard
-                          key={i}
-                          o={o}
-                          fav={isFav(o)}
-                          onToggleFav={() => toggleFav(o)}
-                        />
-                      ))}
-                      {result.notes && (
-                        <p className="text-[11px] text-slate-400 px-1">{result.notes}</p>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
+              {busy && <StatusCard icon={<Loader2 className="h-5 w-5 animate-spin text-brand-600" />} text="Rastreando portales, comprobando fichas y evaluando el encaje del negocio…" />}
+              {error && <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{error}</div>}
+              {!busy && !error && !result && <div className="bg-white rounded-xl border p-10 text-center text-slate-400"><Building2 className="h-10 w-10 mx-auto mb-3 text-slate-300" /><p className="text-sm">Describe el local que necesitas y pulsa <span className="font-medium">Buscar locales</span>.</p></div>}
+              {result && <SearchResults result={result} filtered={filteredResults} query={query} favs={favs} onToggle={toggleFav} />}
             </>
           )}
         </div>
@@ -532,183 +434,112 @@ export default function BuscadorInmobiliarioClient() {
   );
 }
 
-function OpportunityCard({
-  o,
-  fav,
-  onToggleFav
-}: {
-  o: Opportunity;
-  fav?: boolean;
-  onToggleFav?: () => void;
-}) {
-  const c = verdictColor(o.verdict);
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />{label}</label>;
+}
+
+function PortalGroup({ title, portals, selected, onToggle }: { title: string; portals: Portal[]; selected: string[]; onToggle: (key: string) => void }) {
+  if (!portals.length) return null;
   return (
-    <div className="bg-white rounded-xl border p-4">
-      <div className="flex items-start gap-4">
-        <ScoreBadge score={o.score} verdict={o.verdict} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={clsx(
-                "text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded",
-                c === "emerald" && "bg-emerald-100 text-emerald-700",
-                c === "amber" && "bg-amber-100 text-amber-700",
-                c === "rose" && "bg-rose-100 text-rose-700"
-              )}
-            >
-              {o.verdict}
-            </span>
-            <span className="text-[11px] text-slate-400">
-              {o.portal_label} · {o.bank}
-            </span>
-            {o.occupied && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-orange-100 text-orange-700">
-                Ocupada
-              </span>
-            )}
-            {onToggleFav && (
-              <button
-                type="button"
-                onClick={onToggleFav}
-                title={fav ? "Quitar de favoritos" : "Guardar en favoritos"}
-                className={clsx(
-                  "ml-auto inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border",
-                  fav
-                    ? "border-amber-300 bg-amber-50 text-amber-700"
-                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
-                )}
-              >
-                <Star className="h-3.5 w-3.5" fill={fav ? "currentColor" : "none"} />
-                {fav ? "Guardada" : "Guardar"}
-              </button>
-            )}
-          </div>
-          {o.url || o.searchUrl ? (
-            <a
-              href={o.url || o.searchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 block text-sm font-semibold text-brand-700 hover:underline truncate"
-              title={o.url ? o.title : `${o.title} (búsqueda en el portal)`}
-            >
-              {o.title}
-            </a>
-          ) : (
-            <h3 className="mt-1 text-sm font-semibold text-slate-800 truncate">{o.title}</h3>
-          )}
-          <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 flex-wrap">
-            <MapPin className="h-3 w-3" /> {o.location} · {o.property_type}
-            {o.phone && (
-              <a
-                href={`tel:${o.phone.replace(/\s+/g, "")}`}
-                className="ml-2 inline-flex items-center gap-1 text-brand-700 hover:underline"
-              >
-                <Phone className="h-3 w-3" /> {o.phone}
-              </a>
-            )}
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <Metric label="Precio" value={eur(o.price)} strong />
-            <Metric label="Superficie" value={o.surface ? `${o.surface} m²` : "—"} />
-            <Metric label="€/m²" value={o.price_m2 ? eur(o.price_m2) : "—"} />
-            <Metric
-              label="Descuento"
-              value={o.discount_pct != null ? `${o.discount_pct}%` : "—"}
-              positive={o.discount_pct != null && o.discount_pct > 0}
-            />
-            <Metric label="Precio mercado" value={eur(o.estimated_market_price)} />
-            <Metric label="Alquiler est." value={o.estimated_rent ? `${eur(o.estimated_rent)}/mes` : "—"} />
-            <Metric
-              label="Rentab. bruta"
-              value={o.gross_yield != null ? `${o.gross_yield}%` : "—"}
-              positive={o.gross_yield != null && o.gross_yield >= 6}
-            />
-            <div className="flex items-end">
-              {o.url ? (
-                <a
-                  href={o.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white font-medium"
-                >
-                  Ver oferta <ExternalLink className="h-3 w-3" />
-                </a>
-              ) : o.searchUrl ? (
-                <a
-                  href={o.searchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="No tenemos el enlace directo; abre una búsqueda en el portal para encontrar esta propiedad"
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-brand-300 text-brand-700 hover:bg-brand-50 font-medium"
-                >
-                  Buscar en el portal <ExternalLink className="h-3 w-3" />
-                </a>
-              ) : (
-                <span className="text-slate-400">Sin enlace</span>
-              )}
-            </div>
-          </div>
-
-          {(o.pros?.length > 0 || o.cons?.length > 0) && (
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {o.pros?.length > 0 && (
-                <ul className="space-y-0.5">
-                  {o.pros.map((p, i) => (
-                    <li key={i} className="text-xs text-emerald-700 flex items-start gap-1">
-                      <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" /> {p}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {o.cons?.length > 0 && (
-                <ul className="space-y-0.5">
-                  {o.cons.map((p, i) => (
-                    <li key={i} className="text-xs text-rose-600 flex items-start gap-1">
-                      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" /> {p}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {o.reasoning && (
-            <p className="mt-2 text-xs text-slate-600 leading-relaxed flex items-start gap-1">
-              <TrendingUp className="h-3 w-3 mt-0.5 shrink-0 text-slate-400" />
-              {o.reasoning}
-            </p>
-          )}
-        </div>
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">{title}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {portals.map((portal) => (
+          <label key={portal.key} className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={selected.includes(portal.key)} onChange={() => onToggle(portal.key)} className="mt-0.5" />
+            <span><span className="font-medium">{portal.label}</span>{portal.note && <span className="block text-[10px] text-slate-400">{portal.note}</span>}</span>
+          </label>
+        ))}
       </div>
     </div>
   );
 }
 
-function Metric({
-  label,
-  value,
-  strong,
-  positive
-}: {
-  label: string;
-  value: string;
-  strong?: boolean;
-  positive?: boolean;
-}) {
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return <button type="button" onClick={onClick} className={clsx("px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5", active ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700")}>{children}</button>;
+}
+
+function StatusCard({ icon, text }: { icon: ReactNode; text: string }) {
+  return <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-3">{icon}{text}</div>;
+}
+
+function FavoriteResults({ favs, filtered, query, onToggle }: { favs: FavItem[]; filtered: FavItem[]; query: string; onToggle: (opportunity: Opportunity) => void }) {
+  if (!favs.length) return <div className="bg-white rounded-xl border p-10 text-center text-slate-400"><Star className="h-10 w-10 mx-auto mb-3 text-slate-300" /><p className="text-sm">Aún no has guardado locales favoritos.</p></div>;
+  if (!filtered.length) return <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">Ningún favorito coincide con “{query}”.</div>;
+  return <div className="space-y-3">{filtered.map((item) => <OpportunityCard key={item.id} o={item.o} fav onToggleFav={() => onToggle(item.o)} />)}</div>;
+}
+
+function SearchResults({ result, filtered, query, favs, onToggle }: { result: SearchResult; filtered: Opportunity[]; query: string; favs: FavItem[]; onToggle: (opportunity: Opportunity) => void }) {
   return (
-    <div>
-      <div className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</div>
-      <div
-        className={clsx(
-          "font-medium",
-          strong && "text-sm text-slate-900",
-          positive && "text-emerald-600",
-          !strong && !positive && "text-slate-700"
-        )}
-      >
-        {value}
-      </div>
+    <div className="space-y-4">
+      {result.summary && <div className="bg-slate-50 border rounded-xl p-4"><div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Resumen del análisis</div><p className="text-sm text-slate-700 whitespace-pre-wrap">{result.summary}</p></div>}
+      {result.stats && <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{[
+        ["Candidatos", result.stats.candidatesFound], ["Duplicados", result.stats.duplicatesMerged],
+        ["Fuera de límites", result.stats.hardFiltered], ["Mostrados", result.stats.returned]
+      ].map(([label, value]) => <div key={String(label)} className="rounded-lg border bg-white px-3 py-2"><div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div><div className="text-lg font-semibold text-slate-800">{value}</div></div>)}</div>}
+      {result.portalCoverage?.some((item) => item.status === "failed") && <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Búsqueda parcial: {result.portalCoverage.filter((item) => item.status === "failed").map((item) => item.label).join(", ")} no pudieron completarse en este rastreo.</div>}
+      {!result.opportunities.length ? <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">No se encontraron locales con encaje suficiente. Los datos desconocidos no se han usado para descartar.{result.notes && <p className="mt-2 text-xs text-slate-400">{result.notes}</p>}</div> : !filtered.length ? <div className="bg-white rounded-xl border p-8 text-center text-slate-500 text-sm">Ningún local coincide con “{query}”.</div> : <div className="space-y-3">{filtered.map((opportunity) => <OpportunityCard key={opportunity.id || `${opportunity.portal}-${opportunity.title}`} o={opportunity} fav={favs.some((item) => favMatches(item, opportunity))} onToggleFav={() => onToggle(opportunity)} />)}</div>}
+      {result.notes && result.opportunities.length > 0 && <p className="text-[11px] text-slate-400 px-1">{result.notes}</p>}
     </div>
   );
+}
+
+function ScoreBadge({ score, verdict }: { score: number; verdict: string }) {
+  const color = verdict === "OPORTUNIDAD" ? "emerald" : verdict === "INTERESANTE" ? "amber" : "rose";
+  return <div className={clsx("shrink-0 h-14 w-14 rounded-xl grid place-items-center text-white font-bold", color === "emerald" && "bg-emerald-500", color === "amber" && "bg-amber-500", color === "rose" && "bg-rose-500")}><span className="text-lg leading-none">{score}</span><span className="text-[9px] opacity-80">encaje</span></div>;
+}
+
+function OpportunityCard({ o, fav, onToggleFav }: { o: Opportunity; fav?: boolean; onToggleFav?: () => void }) {
+  const legacy = !Array.isArray(o.fit_breakdown);
+  const verdictLabel = o.verdict === "OPORTUNIDAD" ? "Encaje alto" : o.verdict === "INTERESANTE" ? "Encaje medio" : "Encaje bajo";
+  const color = o.verdict === "OPORTUNIDAD" ? "emerald" : o.verdict === "INTERESANTE" ? "amber" : "rose";
+  const verifiedDirectLink = legacy || o.url_verified === true;
+  const link = verifiedDirectLink ? (o.url || o.searchUrl) : o.searchUrl;
+  return (
+    <article className="bg-white rounded-xl border p-4">
+      <div className="flex items-start gap-4">
+        <ScoreBadge score={o.score ?? 0} verdict={o.verdict} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={clsx("text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded", color === "emerald" && "bg-emerald-100 text-emerald-700", color === "amber" && "bg-amber-100 text-amber-700", color === "rose" && "bg-rose-100 text-rose-700")}>{verdictLabel}</span>
+            <span className="text-[11px] text-slate-400">{o.portal_label} · {o.bank}</span>
+            {onToggleFav && <button type="button" onClick={onToggleFav} className={clsx("ml-auto inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border", fav ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 text-slate-500 hover:bg-slate-50")}><Star className="h-3.5 w-3.5" fill={fav ? "currentColor" : "none"} />{fav ? "Guardado" : "Guardar"}</button>}
+          </div>
+          {link ? <a href={link} target="_blank" rel="noopener noreferrer" className="mt-1 block text-sm font-semibold text-brand-700 hover:underline">{o.title}</a> : <h3 className="mt-1 text-sm font-semibold text-slate-800">{o.title}</h3>}
+          <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5 flex-wrap"><MapPin className="h-3 w-3" />{o.location} · {o.property_type}{o.phone && <a href={`tel:${o.phone.replace(/\s+/g, "")}`} className="ml-2 inline-flex items-center gap-1 text-brand-700 hover:underline"><Phone className="h-3 w-3" />{o.phone}</a>}</div>
+
+          {legacy ? <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Análisis guardado con el formato anterior. Precio: {eur(o.price)} · Superficie: {o.surface ? `${o.surface} m²` : "por confirmar"}.</div> : <>
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <Metric label="Renta" value={o.monthly_rent ? `${eur(o.monthly_rent)}/mes` : "Por confirmar"} strong={o.operation === "rent"} />
+              <Metric label="Compra" value={eur(o.sale_price)} strong={o.operation === "sale"} />
+              <Metric label="Superficie" value={o.surface ? `${o.surface} m²` : "Por confirmar"} />
+              <Metric label="Cabinas" value={o.cabin_capacity != null ? `Capacidad ${o.cabin_capacity}` : o.existing_cabins != null ? `${o.existing_cabins} existentes` : "Por confirmar"} />
+              <Metric label="Planta" value={floorLabel(o.floor)} />
+              <Metric label="Distribución" value={layoutLabel(o.layout)} />
+              <Metric label="Adecuación" value={o.fit_out_estimate ? `${eur(o.fit_out_estimate.min)}–${eur(o.fit_out_estimate.max)}` : "Por estimar"} />
+              <Metric label="Confianza" value={`${o.fit_confidence ?? 0}%`} />
+            </div>
+            {o.fit_breakdown?.length > 0 && <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">{o.fit_breakdown.map((item) => <div key={item.key} className={clsx("rounded-md border px-2.5 py-2 text-[11px]", item.status === "match" && "border-emerald-200 bg-emerald-50 text-emerald-800", item.status === "mismatch" && "border-rose-200 bg-rose-50 text-rose-700", ["partial", "unknown", "not_applicable"].includes(item.status) && "border-slate-200 bg-slate-50 text-slate-600")}><div className="font-semibold">{item.label} · {item.points}/{item.maxPoints}</div><div>{item.reason}</div></div>)}</div>}
+            {o.unknown_fields?.length > 0 && <p className="mt-2 text-[11px] text-amber-700">Por confirmar antes de decidir: {o.unknown_fields.join(", ")}.</p>}
+          </>}
+
+          {(o.pros?.length > 0 || o.cons?.length > 0) && <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">{o.pros?.length > 0 && <ul className="space-y-0.5">{o.pros.map((item, index) => <li key={index} className="text-xs text-emerald-700 flex items-start gap-1"><CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />{item}</li>)}</ul>}{o.cons?.length > 0 && <ul className="space-y-0.5">{o.cons.map((item, index) => <li key={index} className="text-xs text-rose-600 flex items-start gap-1"><AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />{item}</li>)}</ul>}</div>}
+          {o.reasoning && <p className="mt-2 text-xs text-slate-600 leading-relaxed flex items-start gap-1"><TrendingUp className="h-3 w-3 mt-0.5 shrink-0 text-slate-400" />{o.reasoning}</p>}
+          <div className="mt-3 flex items-center gap-3 flex-wrap">{link ? <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium">{verifiedDirectLink && o.url ? "Ver oferta" : "Buscar en el portal"}<ExternalLink className="h-3 w-3" /></a> : <span className="text-xs text-slate-400">Sin enlace disponible</span>}{!legacy && o.url && !o.url_verified && <span className="text-[11px] text-amber-700">Ficha directa sin verificar</span>}{o.sources?.length > 1 && <span className="text-[11px] text-slate-500">Publicado en {o.sources.length} fuentes</span>}</div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function floorLabel(value: Opportunity["floor"] | undefined): string {
+  return ({ street: "Planta calle", basement: "Sótano", mezzanine: "Entreplanta", upper: "Planta alta", mixed: "Varias plantas", unknown: "Por confirmar" } as const)[value ?? "unknown"];
+}
+
+function layoutLabel(value: Opportunity["layout"] | undefined): string {
+  return ({ open_plan: "Diáfano", partitioned: "Compartimentado", mixed: "Mixto", unknown: "Por confirmar" } as const)[value ?? "unknown"];
+}
+
+function Metric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return <div><div className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</div><div className={clsx("font-medium text-slate-700", strong && "text-sm text-slate-900")}>{value}</div></div>;
 }
