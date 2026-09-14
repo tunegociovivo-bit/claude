@@ -26,17 +26,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.authenticate.mockResolvedValue({ workspaceId: "workspace-1", userId: "user-1", scopes: new Set(["*"]) });
   mocks.startSearch.mockResolvedValue({ searchId: "search-1", totalProvinces: 1 });
-  mocks.processSearchBatch.mockResolvedValue({
-    processed: 1,
-    pending: 0,
-    status: "COMPLETED",
-    leadsInserted: 14,
-    leadsSkipped: 3
-  });
 });
 
 describe("POST /api/v1/leads/prospecting/jobs/search", () => {
-  it("lanza LinkedIn Jobs en toda España y ejecuta el puente multicanal", async () => {
+  it("encola LinkedIn Jobs en toda España y responde sin esperar al barrido largo", async () => {
     const response = await POST(new NextRequest("https://hub.example/api/v1/leads/prospecting/jobs/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -53,17 +46,11 @@ describe("POST /api/v1/leads/prospecting/jobs/search", () => {
       skipExisting: true,
       sourceConfig: { jobBoards: ["linkedin"] }
     });
-    expect(mocks.processSearchBatch).toHaveBeenCalledWith({
-      workspaceId: "workspace-1",
-      searchId: "search-1",
-      batchSize: 1
-    });
-    expect(response.status).toBe(201);
+    expect(mocks.processSearchBatch).not.toHaveBeenCalled();
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({
       searchId: "search-1",
-      status: "COMPLETED",
-      offersAdded: 14,
-      duplicatesSkipped: 3
+      status: "PENDING"
     });
   });
 
