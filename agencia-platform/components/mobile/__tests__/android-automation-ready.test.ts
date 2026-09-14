@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createAndroidAwakeSession,
   keepAndroidAwakeDuringAutomation,
   prepareAndroidForAutomation,
   startAndroidAwakeSession
@@ -67,6 +68,86 @@ describe("Android automation readiness", () => {
     await session.restore();
     await session.restore();
 
+    expect(events).toEqual([
+      "settings get global stay_on_while_plugged_in",
+      "settings get system screen_off_timeout",
+      "settings put global stay_on_while_plugged_in 2",
+      "settings put system screen_off_timeout 3600000",
+      "input keyevent KEYCODE_WAKEUP",
+      "settings put system screen_off_timeout 15000",
+      "settings put global stay_on_while_plugged_in 0"
+    ]);
+  });
+
+  it("makes concurrent restore calls wait for the same cleanup", async () => {
+    let releaseTimeoutRestore: (() => void) | undefined;
+    const timeoutRestoreGate = new Promise<void>((resolve) => {
+      releaseTimeoutRestore = resolve;
+    });
+    const events: string[] = [];
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      const serialized = command.join(" ");
+      events.push(serialized);
+      if (serialized === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (serialized === "settings get system screen_off_timeout") return "15000\n";
+      if (serialized === "settings put system screen_off_timeout 15000") {
+        await timeoutRestoreGate;
+      }
+      return "";
+    });
+    const session = await startAndroidAwakeSession(runCommand);
+
+    const firstRestore = session.restore();
+    await vi.waitFor(() => {
+      expect(events).toContain("settings put system screen_off_timeout 15000");
+    });
+    let secondRestoreFinished = false;
+    const secondRestore = session.restore().then(() => {
+      secondRestoreFinished = true;
+    });
+
+    await Promise.resolve();
+    expect(secondRestoreFinished).toBe(false);
+
+    releaseTimeoutRestore?.();
+    await Promise.all([firstRestore, secondRestore]);
+    expect(events.filter((event) => event === "settings put system screen_off_timeout 15000"))
+      .toHaveLength(1);
+    expect(events.filter((event) => event === "settings put global stay_on_while_plugged_in 0"))
+      .toHaveLength(1);
+  });
+
+  it("waits for an in-flight activation before restoring a closing session", async () => {
+    let releaseActivation: (() => void) | undefined;
+    const activationGate = new Promise<void>((resolve) => {
+      releaseActivation = resolve;
+    });
+    const events: string[] = [];
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      const serialized = command.join(" ");
+      events.push(serialized);
+      if (serialized === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (serialized === "settings get system screen_off_timeout") return "15000\n";
+      if (serialized === "settings put system screen_off_timeout 3600000") {
+        await activationGate;
+      }
+      return "";
+    });
+
+    const session = createAndroidAwakeSession(runCommand);
+    await vi.waitFor(() => {
+      expect(events).toContain("settings put system screen_off_timeout 3600000");
+    });
+    let restoreFinished = false;
+    const restore = session.restore().then(() => {
+      restoreFinished = true;
+    });
+
+    await Promise.resolve();
+    expect(restoreFinished).toBe(false);
+
+    releaseActivation?.();
+    await Promise.all([session.ready, restore]);
     expect(events).toEqual([
       "settings get global stay_on_while_plugged_in",
       "settings get system screen_off_timeout",
