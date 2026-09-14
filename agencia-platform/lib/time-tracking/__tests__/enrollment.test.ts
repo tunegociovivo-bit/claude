@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAdminEnrollmentEmail,
+  buildEmailVerificationEmail,
   buildWorkerCodeEmail,
   createEnrollmentApiCredential,
   createEnrollmentCode,
   createEnrollmentRequestKey,
+  createEmailVerificationCode,
   hashEnrollmentToken,
   normalizeEnrollmentCode,
   normalizeEnrollmentRequest,
@@ -35,10 +37,16 @@ describe("solicitudes de vinculación del control horario", () => {
     expect(first).not.toContain("secreto");
   });
 
-  it("deduplica atómicamente las solicitudes por trabajador y ventana temporal", () => {
+  it("deduplica atómicamente las solicitudes por trabajador y día", () => {
     const now = new Date("2026-09-14T10:04:00.000Z");
-    expect(createEnrollmentRequestKey("ANA@EMPRESA.COM", now)).toBe(createEnrollmentRequestKey("ana@empresa.com", new Date("2026-09-14T10:09:59.000Z")));
-    expect(createEnrollmentRequestKey("ana@empresa.com", now)).not.toBe(createEnrollmentRequestKey("ana@empresa.com", new Date("2026-09-14T10:10:00.000Z")));
+    expect(createEnrollmentRequestKey("ANA@EMPRESA.COM", now)).toBe(createEnrollmentRequestKey("ana@empresa.com", new Date("2026-09-14T23:59:59.000Z")));
+    expect(createEnrollmentRequestKey("ana@empresa.com", now)).not.toBe(createEnrollmentRequestKey("ana@empresa.com", new Date("2026-09-15T00:00:00.000Z")));
+  });
+
+  it("crea un código distinto para verificar primero el correo", () => {
+    const generated = createEmailVerificationCode();
+    expect(generated.display).toMatch(/^NVV-[A-F0-9]{10}-[A-Z0-9_-]{14}$/);
+    expect(buildEmailVerificationEmail({ name: "Ana", code: generated.display }).html).toContain(generated.display);
   });
 
   it("produce la misma credencial al reintentar el canje desde el mismo equipo", () => {

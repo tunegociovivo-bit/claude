@@ -63,6 +63,7 @@ describe("interfaz del agente de control horario", () => {
     expect(preload).toContain("requestEnrollment");
     expect(main).toContain('ipcMain.handle("enrollment:request"');
     expect(main).toContain("/api/public/time-tracking/enrollment-request");
+    expect(main).toContain("/api/public/time-tracking/enrollment-verify");
   });
 
   it("protege en servidor los límites de la jornada del agente", () => {
@@ -99,7 +100,7 @@ describe("interfaz del agente de control horario", () => {
     expect(dashboard).toContain("Get-FileHash");
     expect(dashboard).toContain("TrustedPublisher");
     expect(dashboard).toContain("Unblock-File -LiteralPath $installerPath");
-    expect(dashboard).toContain("7585F12639DFDC3F5045B97A14848F7ECAD7E4761ADFDEFFAC0EA11CC6CBB26F");
+    expect(dashboard).toContain("B3827AC80B785168B3D72DAEACA4B448C4CF82CBF68E99008A1F55B187CF4F6F");
     expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
   });
 

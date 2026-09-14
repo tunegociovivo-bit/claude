@@ -16,8 +16,8 @@ export function hashEnrollmentToken(token: string) {
 }
 
 export function createEnrollmentRequestKey(email: string, now = new Date()) {
-  const tenMinuteBucket = Math.floor(now.getTime() / (10 * 60_000));
-  return hashEnrollmentToken(`${email.trim().toLowerCase()}:${tenMinuteBucket}`);
+  const dayBucket = now.toISOString().slice(0, 10);
+  return hashEnrollmentToken(`${email.trim().toLowerCase()}:${dayBucket}`);
 }
 
 export function createEnrollmentApiCredential(input: { requestId: string; code: string; deviceId: string; serverSecret: string }) {
@@ -32,12 +32,23 @@ export function createEnrollmentCode() {
   return { prefix, display: `NV-${prefix}-${secret}` };
 }
 
+export function createEmailVerificationCode() {
+  const prefix = randomBytes(5).toString("hex").toUpperCase();
+  const secret = randomBytes(10).toString("base64url").toUpperCase();
+  return { prefix, display: `NVV-${prefix}-${secret}` };
+}
+
 export function normalizeEnrollmentCode(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, "");
 }
 
 export function enrollmentCodePrefix(value: string) {
   const match = normalizeEnrollmentCode(value).match(/^NV-([A-F0-9]{10})-([A-Z0-9_-]{14})$/);
+  return match?.[1] ?? null;
+}
+
+export function emailVerificationCodePrefix(value: string) {
+  const match = normalizeEnrollmentCode(value).match(/^NVV-([A-F0-9]{10})-([A-Z0-9_-]{14})$/);
   return match?.[1] ?? null;
 }
 
@@ -52,6 +63,15 @@ export function buildAdminEnrollmentEmail(input: { name: string; email: string; 
   return {
     subject: `Solicitud de vinculación · ${input.name}`,
     html: `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.55"><h2>Nuevo equipo pendiente de vincular</h2><p><strong>Nombre:</strong> ${name}<br><strong>Email:</strong> ${email}</p><p>Selecciona en el Hub el trabajador correspondiente. El código se enviará automáticamente al correo facilitado.</p><p><a href="${approvalUrl}" style="display:inline-block;background:#4f46e5;color:white;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:700">Revisar y generar código</a></p><p style="font-size:12px;color:#64748b">El enlace caduca en 24 horas y requiere iniciar sesión como administrador.</p></div>`,
+  };
+}
+
+export function buildEmailVerificationEmail(input: { name: string; code: string }) {
+  const name = escapeHtml(input.name);
+  const code = escapeHtml(input.code);
+  return {
+    subject: "Confirma la solicitud de vinculación · Negocio Vivo",
+    html: `<div style="font-family:Arial,sans-serif;color:#172033;line-height:1.55"><h2>Confirma tu equipo</h2><p>Hola ${name},</p><p>Introduce este código en el programa Control horario para confirmar que el correo es tuyo:</p><p style="font:700 20px monospace;letter-spacing:1px;background:#eef2ff;padding:14px;border-radius:9px">${code}</p><p>Después, el administrador recibirá la solicitud para asociar el equipo a tu usuario. El código caduca en 24 horas.</p></div>`,
   };
 }
 

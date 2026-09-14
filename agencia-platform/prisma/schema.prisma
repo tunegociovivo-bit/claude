@@ -2859,7 +2859,10 @@ model TimeTrackerEnrollmentRequest {
   deviceId          String
   requestKey        String    @unique
   approvalTokenHash String    @unique
-  status            String    @default("PENDING")
+  verificationPrefix String   @unique
+  verificationHash String
+  verifiedAt        DateTime?
+  status            String    @default("EMAIL_PENDING")
   selectedUserId    String?
   codePrefix        String?   @unique
   codeHash          String?

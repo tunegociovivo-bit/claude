@@ -1,9 +1,10 @@
 import { randomBytes } from "crypto";
+import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { rateLimitPublic } from "@/lib/api/handler";
 import { sendEmail } from "@/lib/integrations/email";
-import { buildAdminEnrollmentEmail, createEnrollmentRequestKey, hashEnrollmentToken, normalizeEnrollmentRequest } from "@/lib/time-tracking/enrollment";
+import { buildEmailVerificationEmail, createEmailVerificationCode, createEnrollmentRequestKey, hashEnrollmentToken, normalizeEnrollmentRequest } from "@/lib/time-tracking/enrollment";
 
 export async function POST(req: NextRequest) {
   const limited = rateLimitPublic(req, { tag: "time-enrollment-request", limit: 5 });
@@ -22,9 +23,10 @@ export async function POST(req: NextRequest) {
       where: { workspaceId: admin.workspaceId, user: { email: { equals: input.email, mode: "insensitive" } } },
       select: { user: { select: { email: true } } },
     });
-    if (!member?.user.email) return NextResponse.json({ error: { message: "Utiliza el email registrado en el Hub" } }, { status: 400 });
+    if (!member?.user.email) return NextResponse.json({ ok: true });
 
     const approvalToken = randomBytes(32).toString("base64url");
+    const verification = createEmailVerificationCode();
     const enrollmentRequest = await prisma.timeTrackerEnrollmentRequest.create({ data: {
       workspaceId: admin.workspaceId,
       requesterName: input.name,
@@ -32,13 +34,13 @@ export async function POST(req: NextRequest) {
       deviceId: input.deviceId,
       requestKey: createEnrollmentRequestKey(member.user.email),
       approvalTokenHash: hashEnrollmentToken(approvalToken),
+      verificationPrefix: verification.prefix,
+      verificationHash: await bcrypt.hash(verification.display, 10),
       expiresAt: new Date(Date.now() + 24 * 60 * 60_000),
     } });
     createdRequestId = enrollmentRequest.id;
-    const hubUrl = (process.env.NEXTAUTH_URL || "https://hub.negociovivo.app").replace(/\/$/, "");
-    const approvalUrl = `${hubUrl}/control-horario?enrollmentRequest=${encodeURIComponent(approvalToken)}`;
-    const email = buildAdminEnrollmentEmail({ name: input.name, email: input.email, approvalUrl });
-    await sendEmail({ to: adminEmail, subject: email.subject, html: email.html, workspaceId: admin.workspaceId, idempotencyKey: `time-enrollment-request-${enrollmentRequest.id}` });
+    const email = buildEmailVerificationEmail({ name: input.name, code: verification.display });
+    await sendEmail({ to: member.user.email, subject: email.subject, html: email.html, workspaceId: admin.workspaceId, idempotencyKey: `time-enrollment-verification-${enrollmentRequest.id}` });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("[time-enrollment] request failed", error);

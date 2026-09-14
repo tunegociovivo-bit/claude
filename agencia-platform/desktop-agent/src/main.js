@@ -171,6 +171,10 @@ ipcMain.handle("enrollment:set", async (_e, input) => {
   const code = String(input || "").trim();
   if (!code) return { ok: false, error: "Introduce el código de vinculación" };
   try {
+    if (code.toUpperCase().startsWith("NVV-")) {
+      await axios.post(api("/api/public/time-tracking/enrollment-verify"), { code, deviceId }, { timeout: 15000 });
+      return { ok: true, pendingApproval: true };
+    }
     let agentToken = code;
     if (code.toUpperCase().startsWith("NV-")) {
       const redeemed = await axios.post(api("/api/public/time-tracking/enrollment-redeem"), { code, deviceId }, { timeout: 15000 });
