@@ -99,6 +99,8 @@ describe("Facebook Android UI", () => {
           return "SurfaceOrientation: 0\n";
         case "wm size":
           return "Physical size: 1080x2340\n";
+        case "dumpsys window displays":
+          return "InsetsSource type=ime frame=[0,1480][1080,2340] visible=true\n";
         default:
           return "";
       }
@@ -110,6 +112,7 @@ describe("Facebook Android UI", () => {
       [["dumpsys", "input_method"]],
       [["dumpsys", "input"]],
       [["wm", "size"]],
+      [["dumpsys", "window", "displays"]],
       [["input", "tap", "994", "2106"]]
     ]);
   });
@@ -123,6 +126,8 @@ describe("Facebook Android UI", () => {
           return "SurfaceOrientation: 0\n";
         case "wm size":
           return "Physical size: 1080x2340\nOverride size: 720x1560\n";
+        case "dumpsys window displays":
+          return "InsetsSource type=ime frame=[0,986][720,1560] visible=true\n";
         default:
           return "";
       }
@@ -184,5 +189,26 @@ describe("Facebook Android UI", () => {
       [["dumpsys", "input_method"]],
       [["dumpsys", "input"]]
     ]);
+  });
+
+  it("does not tap when Gboard is floating instead of docked at the bottom", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      switch (command.join(" ")) {
+        case "dumpsys input_method":
+          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n";
+        case "dumpsys input":
+          return "SurfaceOrientation: 0\n";
+        case "wm size":
+          return "Physical size: 1080x2340\n";
+        case "dumpsys window displays":
+          return "InsetsSource type=ime frame=[220,900][860,1600] visible=true\n";
+        default:
+          return "";
+      }
+    });
+
+    await expect(submitFacebookSearchFromKeyboard(runCommand))
+      .rejects.toThrow("teclado acoplado");
+    expect(runCommand).not.toHaveBeenCalledWith(expect.arrayContaining(["tap"]));
   });
 });
