@@ -15,7 +15,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://hub.negociovivo.app").replace(/\/+$/, "");
   const requestedReturn = new URL(req.url).searchParams.get("returnTo");
-  const returnPath = requestedReturn === "meta-comments" ? "/admin/meta-comments" : "/admin/meta-mcp";
+  const returnPath =
+    requestedReturn === "meta-comments"
+      ? "/admin/meta-comments"
+      : requestedReturn === "editorial"
+        ? "/admin/editorial"
+        : "/admin/meta-mcp";
   if (!metaAppConfigured()) {
     return NextResponse.redirect(
       `${base}${returnPath}?error=${encodeURIComponent(

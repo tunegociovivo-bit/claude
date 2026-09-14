@@ -40,6 +40,7 @@ import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
 
 type EditorialPost = {
   id: string;
+  clientId?: string | null;
   title: string;
   content: string | null;
   excerpt: string | null;
@@ -58,6 +59,26 @@ type EditorialPost = {
   aspectRatio?: string | null;
   copyByNetwork?: Record<string, string> | null;
   metaJson?: any;
+  mediaVersions?: Array<{
+    id: string;
+    kind: string;
+    source: string;
+    url: string;
+    width: number | null;
+    height: number | null;
+    prompt: string | null;
+    createdAt: string;
+  }>;
+  publications?: Array<{
+    id: string;
+    network: string;
+    status: string;
+    scheduledFor: string | null;
+    publishedAt: string | null;
+    externalUrl: string | null;
+    lastError: string | null;
+    profile?: { label: string | null; facebookPageName?: string | null; instagramName?: string | null } | null;
+  }>;
   revisions?: Array<{
     id: string;
     body: string | null;
@@ -79,6 +100,16 @@ const STATUS_OPTIONS = [
 ];
 
 const NETWORK_OPTIONS = ["instagram", "facebook", "linkedin", "tiktok", "x", "youtube", "blog", "email"];
+
+function parseNetworks(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -255,7 +286,6 @@ export default function EditorialClient() {
   const [newPostDate, setNewPostDate] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditorialPost | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [metricoolOpen, setMetricoolOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [multiClientOpen, setMultiClientOpen] = useState(false);
   const [orphansOpen, setOrphansOpen] = useState(false);
@@ -380,7 +410,7 @@ export default function EditorialClient() {
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Calendario editorial"
-        description="Migrado de NV Dashboard. Genera meses completos con IA, aprueba en lote, exporta a Metricool."
+        description="Genera, aprueba, programa y publica contenido en Meta desde el Hub, con media IA integrada."
         actions={
           <>
             <button
@@ -434,14 +464,6 @@ export default function EditorialClient() {
               title="Webhook Make y otras opciones del módulo editorial"
             >
               ⚙️
-            </button>
-            <button
-              onClick={() => setMetricoolOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
-              title="Exporta las publicaciones aprobadas en CSV para subir a Metricool"
-            >
-              <FileDown className="h-4 w-4" />
-              Exportar a Metricool
             </button>
             <button
               onClick={() => { setEditing(null); setFormOpen(true); }}
@@ -948,15 +970,6 @@ export default function EditorialClient() {
       <EditorialSettingsModal
         open={editorialSettingsOpen}
         onClose={() => setEditorialSettingsOpen(false)}
-      />
-
-      <MetricoolExportModal
-        open={metricoolOpen}
-        onClose={() => setMetricoolOpen(false)}
-        month={month}
-        clients={clients}
-        defaultClientId={filterClient !== "ALL" ? filterClient : undefined}
-        onDone={() => { setMetricoolOpen(false); load(); }}
       />
 
       <Modal
@@ -2907,7 +2920,7 @@ function PostFormModal({
             placeholder="#hashtag1 #hashtag2 #hashtag3 …"
             className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
-          <p className="mt-1 text-[11px] text-slate-500">Se incluyen al final del copy en el CSV de Metricool.</p>
+          <p className="mt-1 text-[11px] text-slate-500">Se incluyen al final del copy al publicar en cada red.</p>
         </div>
 
         <div>
@@ -2930,6 +2943,22 @@ function PostFormModal({
             onApplyContent={(v) => setForm((f) => ({ ...f, content: v }))}
             onApplyHashtags={(v) => setForm((f) => ({ ...f, hashtags: v }))}
           />
+        )}
+
+        {isEdit && post && (
+          <UploadImageBar postId={post.id} onUploaded={() => onSaved()} />
+        )}
+
+        {isEdit && post && fullPost?.thumbnail && (
+          <ResizeImageBar postId={post.id} onResized={() => onSaved()} />
+        )}
+
+        {isEdit && post && fullPost && (
+          <MetaProfileBar post={fullPost} onChanged={() => onSaved()} />
+        )}
+
+        {isEdit && post && fullPost && (
+          <MetaPublishBar post={fullPost} onDone={() => onSaved()} />
         )}
 
         {/* Generar imagen con IA */}
@@ -2955,7 +2984,7 @@ function PostFormModal({
 
         {/* Generar vídeo con IA (reel/story/video) */}
         {isEdit && post && (
-          <GenerateVideoBar postId={post.id} onGenerated={() => onSaved()} />
+          <GenerateVideoBar postId={post.id} thumbnail={fullPost?.thumbnail ?? null} onGenerated={() => onSaved()} />
         )}
 
         {/* Re-aplicar overlay (logo + headlines) sobre imagen existente */}
@@ -4054,13 +4083,273 @@ function EditImageBar({
   );
 }
 
-function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated: () => void }) {
+function UploadImageBar({ postId, onUploaded }: { postId: string; onUploaded: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function onFile(file: File | null) {
+    if (!file) return;
+    setRunning(true);
+    setError(null);
+    setDone(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/media/upload`, { method: "POST", body: form });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone("Imagen subida y asociada al post.");
+      onUploaded();
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-slate-50 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-slate-600" />
+        <span className="text-xs font-semibold text-slate-800">Subir imagen propia</span>
+      </div>
+      <input
+        type="file"
+        accept="image/*"
+        disabled={running}
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        className="block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white disabled:opacity-50"
+      />
+      {running && <p className="text-[11px] text-slate-500">Subiendo imagen...</p>}
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ {done}</p>}
+    </div>
+  );
+}
+
+function ResizeImageBar({ postId, onResized }: { postId: string; onResized: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [preset, setPreset] = useState("instagram_portrait");
+  const [fit, setFit] = useState("cover");
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(null);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/media/resize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset, fit })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone(`Redimensionada a ${j.width}x${j.height}.`);
+      onResized();
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-sky-700" />
+        <span className="text-xs font-semibold text-sky-900">Redimensionar imagen actual</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={preset} onChange={(e) => setPreset(e.target.value)} className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] bg-white">
+          <option value="instagram_square">Instagram 1:1</option>
+          <option value="instagram_portrait">Instagram 4:5</option>
+          <option value="reel_story">Reel/Story 9:16</option>
+          <option value="facebook_feed">Facebook feed</option>
+          <option value="linkedin_feed">LinkedIn 1:1</option>
+        </select>
+        <select value={fit} onChange={(e) => setFit(e.target.value)} className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] bg-white">
+          <option value="cover">Recortar</option>
+          <option value="contain">Encajar</option>
+          <option value="fill">Estirar</option>
+        </select>
+        <button type="button" onClick={run} disabled={running} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-sky-700 hover:bg-sky-800 text-white text-xs font-medium disabled:opacity-50">
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {running ? "Redimensionando..." : "Crear versión"}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ {done}</p>}
+    </div>
+  );
+}
+
+function MetaProfileBar({ post, onChanged }: { post: EditorialPost; onChanged: () => void }) {
+  const [profiles, setProfiles] = useState<Array<{ id: string; label: string; active: boolean; facebookPageId: string | null; facebookPageName: string | null; instagramUserId: string | null; instagramName: string | null }>>([]);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({ label: "", facebookPageId: "", facebookPageName: "", instagramUserId: "", instagramName: "" });
+
+  async function loadProfiles() {
+    if (!post.clientId) return;
+    const r = await fetch(`/api/v1/editorial/meta-profiles?clientId=${encodeURIComponent(post.clientId)}`);
+    if (r.ok) setProfiles((await r.json()).items ?? []);
+  }
+
+  useEffect(() => {
+    loadProfiles();
+  }, [post.clientId]);
+
+  async function saveProfile() {
+    if (!post.clientId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/v1/editorial/meta-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: post.clientId,
+          label: form.label.trim() || post.client?.name || "Perfil Meta",
+          facebookPageId: form.facebookPageId.trim() || null,
+          facebookPageName: form.facebookPageName.trim() || null,
+          instagramUserId: form.instagramUserId.trim() || null,
+          instagramName: form.instagramName.trim() || null,
+          active: true
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setForm({ label: "", facebookPageId: "", facebookPageName: "", instagramUserId: "", instagramName: "" });
+      setOpen(false);
+      await loadProfiles();
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-white p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Send className="h-4 w-4 text-slate-700" />
+          <span className="text-xs font-semibold text-slate-800">Cuenta Meta del cliente</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <a href="/api/v1/admin/integrations/meta-login/connect?returnTo=editorial" className="px-2 py-1 rounded-md border bg-white hover:bg-slate-50 text-[11px] text-slate-700">
+            Conectar Meta
+          </a>
+          <button type="button" onClick={() => setOpen((v) => !v)} className="px-2 py-1 rounded-md border bg-white hover:bg-slate-50 text-[11px] text-slate-700">
+            {open ? "Cerrar" : "Configurar"}
+          </button>
+        </div>
+      </div>
+      {profiles.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {profiles.map((p) => (
+            <span key={p.id} className="rounded-full border bg-slate-50 px-2 py-1 text-[10px] text-slate-700">
+              {p.label} · {p.facebookPageName || p.facebookPageId || "sin Facebook"} · {p.instagramName || p.instagramUserId || "sin Instagram"}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-amber-700">Este cliente todavia no tiene perfil Meta activo.</p>
+      )}
+      {open && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t">
+          <input value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="Etiqueta" className="px-2 py-1.5 rounded-md border text-xs" />
+          <input value={form.facebookPageId} onChange={(e) => setForm((f) => ({ ...f, facebookPageId: e.target.value }))} placeholder="Facebook Page ID" className="px-2 py-1.5 rounded-md border text-xs" />
+          <input value={form.facebookPageName} onChange={(e) => setForm((f) => ({ ...f, facebookPageName: e.target.value }))} placeholder="Nombre pagina Facebook" className="px-2 py-1.5 rounded-md border text-xs" />
+          <input value={form.instagramUserId} onChange={(e) => setForm((f) => ({ ...f, instagramUserId: e.target.value }))} placeholder="Instagram Business ID" className="px-2 py-1.5 rounded-md border text-xs" />
+          <input value={form.instagramName} onChange={(e) => setForm((f) => ({ ...f, instagramName: e.target.value }))} placeholder="Usuario Instagram" className="px-2 py-1.5 rounded-md border text-xs" />
+          <button type="button" onClick={saveProfile} disabled={saving || (!form.facebookPageId.trim() && !form.instagramUserId.trim())} className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 text-white text-xs font-medium disabled:opacity-50">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Guardar perfil
+          </button>
+          {error && <p className="md:col-span-2 text-[11px] text-rose-600">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetaPublishBar({ post, onDone }: { post: EditorialPost; onDone: () => void }) {
+  const [running, setRunning] = useState<"schedule" | "publish" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const networks = parseNetworks(post.networks).filter((n) => n === "facebook" || n === "instagram");
+
+  async function run(publishNow: boolean) {
+    setRunning(publishNow ? "publish" : "schedule");
+    setError(null);
+    setDone(null);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${post.id}/publish-meta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ networks, schedule: !publishNow, publishNow })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone(publishNow ? "Publicación enviada a Meta." : "Publicación preparada para Meta.");
+      onDone();
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-emerald-50/40 border-emerald-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Send className="h-4 w-4 text-emerald-700" />
+        <span className="text-xs font-semibold text-emerald-900">Publicar en Meta desde el Hub</span>
+      </div>
+      {post.publications && post.publications.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {post.publications.map((p) => (
+            <span key={p.id} title={p.lastError ?? p.externalUrl ?? ""} className="inline-flex items-center gap-1 rounded-full border bg-white px-2 py-1 text-[10px] text-slate-700">
+              {p.network} · {p.status}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => run(false)} disabled={Boolean(running) || networks.length === 0} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-800 text-xs font-medium disabled:opacity-50">
+          {running === "schedule" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Programar Meta
+        </button>
+        <button type="button" onClick={() => run(true)} disabled={Boolean(running) || networks.length === 0} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium disabled:opacity-50">
+          {running === "publish" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Publicar ahora
+        </button>
+        {networks.length === 0 && <span className="text-[11px] text-amber-700">Marca Facebook o Instagram en redes.</span>}
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ {done}</p>}
+    </div>
+  );
+}
+
+function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; thumbnail?: string | null; onGenerated: () => void }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extra, setExtra] = useState("");
   const [shots, setShots] = useState(2);
   const [voiceover, setVoiceover] = useState(true);
   const [subtitles, setSubtitles] = useState(true);
+  const [useThumbnail, setUseThumbnail] = useState(Boolean(thumbnail));
   const [done, setDone] = useState<string | null>(null);
 
   async function run() {
@@ -4071,7 +4360,13 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
       const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ extraGuidance: extra.trim() || undefined, shots, voiceover, subtitles })
+        body: JSON.stringify({
+          extraGuidance: extra.trim() || undefined,
+          shots,
+          voiceover,
+          subtitles,
+          useCurrentImage: useThumbnail && Boolean(thumbnail)
+        })
       });
       const j = await r.json();
       if (!r.ok) {
@@ -4113,6 +4408,12 @@ function GenerateVideoBar({ postId, onGenerated }: { postId: string; onGenerated
         <span className="text-[10px] text-slate-400">una imagen + clip por toma</span>
       </div>
       <div className="flex flex-wrap items-center gap-3">
+        {thumbnail && (
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={useThumbnail} onChange={(e) => setUseThumbnail(e.target.checked)} className="accent-violet-600" />
+            Animar imagen actual
+          </label>
+        )}
         <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
           <input type="checkbox" checked={voiceover} onChange={(e) => setVoiceover(e.target.checked)} className="accent-violet-600" />
           Voz en off (ElevenLabs)

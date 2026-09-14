@@ -45,7 +45,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 
   const items = await prisma.editorialPost.findMany({
     where,
-    include: { client: { select: { id: true, name: true } }, _count: { select: { revisions: true } } },
+    include: {
+      client: { select: { id: true, name: true } },
+      publications: { include: { profile: true }, orderBy: { updatedAt: "desc" } },
+      mediaVersions: { orderBy: { createdAt: "desc" }, take: 20 },
+      _count: { select: { revisions: true } }
+    },
     orderBy: { scheduledFor: "asc" },
     take: 500
   });

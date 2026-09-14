@@ -38,6 +38,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
     where: { id: params.id, workspaceId: api.workspaceId },
     include: {
       client: { select: { id: true, name: true } },
+      publications: { include: { profile: true }, orderBy: { updatedAt: "desc" } },
+      mediaVersions: { orderBy: { createdAt: "desc" }, take: 20 },
       revisions: { orderBy: { createdAt: "desc" } }
     }
   });

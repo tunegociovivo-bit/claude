@@ -23,6 +23,7 @@ import { resignUrlLong } from "@/lib/storage/resign";
 import { logAiUsage } from "@/lib/ai/usage";
 import type { DimensionsByFormat, EditorialFormat } from "@/lib/editorial/client-meta";
 import { defaultDimensionsByFormat, visualPatternHint } from "@/lib/editorial/client-meta";
+import { prependMediaUrl, registerEditorialMediaVersion } from "@/lib/editorial/media";
 
 type Size = "1024x1024" | "1024x1536" | "1536x1024";
 
@@ -581,19 +582,20 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   await uploadBuffer({ s3Key, body: finalBuf, contentType: "image/png" });
   const url = await signedDownloadUrl(s3Key);
 
-  // Actualizar post: thumbnail + push a mediaUrls
-  let mediaUrls: string[] = [];
-  try {
-    mediaUrls = JSON.parse(post.mediaUrls);
-    if (!Array.isArray(mediaUrls)) mediaUrls = [];
-  } catch {
-    mediaUrls = [];
-  }
-  if (!mediaUrls.includes(url)) mediaUrls.unshift(url);
-
   await prisma.editorialPost.update({
     where: { id: post.id },
-    data: { thumbnail: url, mediaUrls: JSON.stringify(mediaUrls) }
+    data: { thumbnail: url, mediaUrls: prependMediaUrl(post.mediaUrls, url) }
+  });
+  await registerEditorialMediaVersion({
+    workspaceId: opts.workspaceId,
+    postId: post.id,
+    kind: "image",
+    source: "generated",
+    url,
+    s3Key,
+    prompt,
+    createdById: opts.userId ?? null,
+    metaJson: { size, quality, provider, model: modelLabel }
   });
 
   // Coste estimado para tracking
@@ -693,19 +695,20 @@ export async function editImageForPost(opts: EditImageOptions): Promise<{
   await uploadBuffer({ s3Key, body: buf, contentType: "image/png" });
   const url = await signedDownloadUrl(s3Key);
 
-  // Nuevo thumbnail; la versión anterior queda en mediaUrls como histórico.
-  let mediaUrls: string[] = [];
-  try {
-    mediaUrls = JSON.parse(post.mediaUrls);
-    if (!Array.isArray(mediaUrls)) mediaUrls = [];
-  } catch {
-    mediaUrls = [];
-  }
-  if (!mediaUrls.includes(url)) mediaUrls.unshift(url);
-
   await prisma.editorialPost.update({
     where: { id: post.id },
-    data: { thumbnail: url, mediaUrls: JSON.stringify(mediaUrls) }
+    data: { thumbnail: url, mediaUrls: prependMediaUrl(post.mediaUrls, url) }
+  });
+  await registerEditorialMediaVersion({
+    workspaceId: opts.workspaceId,
+    postId: post.id,
+    kind: "image",
+    source: "edited",
+    url,
+    s3Key,
+    prompt,
+    createdById: opts.userId ?? null,
+    metaJson: { size, quality }
   });
 
   const approxCost = quality === "high" ? 17 : quality === "low" ? 2 : 4;

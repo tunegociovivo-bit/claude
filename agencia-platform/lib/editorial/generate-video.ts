@@ -35,6 +35,7 @@ import { generateFreepikKlingVideo } from "@/lib/ai/freepik";
 import { elevenlabsSynthesize } from "@/lib/integrations/elevenlabs";
 import { completeJson } from "@/lib/ai/anthropic";
 import { openaiImagesEdits } from "./generate-image";
+import { getLatestEditorialImageBuffer, registerEditorialMediaVersion } from "@/lib/editorial/media";
 
 const execFileAsync = promisify(execFile);
 
@@ -508,6 +509,8 @@ export async function generatePostVideo(opts: {
   subtitles?: boolean;
   /** Voz de ElevenLabs a usar (default: la configurada en el workspace). */
   voiceId?: string;
+  /** Usa la imagen actual guardada del post como primera toma. */
+  useCurrentImage?: boolean;
   /** Personas del roster del cliente que DEBEN aparecer en las tomas. Si
    *  se pasa, las imágenes de cada toma se generan con gpt-image-2 /edits
    *  usando las fotos reales del roster como referencia, igual que el
@@ -596,7 +599,12 @@ export async function generatePostVideo(opts: {
   const clipBuffers: Buffer[] = [];
   for (let i = 0; i < shots.length; i++) {
     const shot = shots[i];
-    const imgBuf = await generateShotImageWithRefs(opts.workspaceId, shot.image_prompt, imageSize, shotRefUrls);
+    let imgBuf: Buffer;
+    if (i === 0 && opts.useCurrentImage) {
+      imgBuf = await getLatestEditorialImageBuffer({ postId: post.id, workspaceId: opts.workspaceId, fallbackUrl: post.thumbnail });
+    } else {
+      imgBuf = await generateShotImageWithRefs(opts.workspaceId, shot.image_prompt, imageSize, shotRefUrls);
+    }
     const imgKey = buildS3Key({
       workspaceId: opts.workspaceId,
       targetType: "editorial",
@@ -697,6 +705,16 @@ export async function generatePostVideo(opts: {
     });
     await uploadBuffer({ s3Key: reelKey, body: composite, contentType: "video/mp4" });
     finalUrl = await signedDownloadUrl(reelKey);
+    await registerEditorialMediaVersion({
+      workspaceId: opts.workspaceId,
+      postId: post.id,
+      kind: "video",
+      source: "video",
+      url: finalUrl,
+      s3Key: reelKey,
+      prompt: opts.promptOverride ?? baseCtx,
+      metaJson: { aspectRatio, shots: shots.length, useCurrentImage: opts.useCurrentImage ?? false }
+    });
   }
 
   // 4) Adjuntar al post: vídeo compuesto (si hay) → clips de cada toma →

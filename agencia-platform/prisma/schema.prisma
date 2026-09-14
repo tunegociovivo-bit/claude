@@ -213,6 +213,9 @@ model Workspace {
   reviewClients              ReviewClient[]
   voiceBusinesses            VoiceBusiness[]
   editorialPosts             EditorialPost[]
+  editorialMediaVersions     EditorialMediaVersion[]
+  editorialMetaProfiles      EditorialMetaProfile[]
+  editorialPublications      EditorialPublication[]
   approvalLinks              ClientApprovalLink[]
   deliverables               Deliverable[]
   credentialGrants           CredentialAccessGrant[]
@@ -962,6 +965,7 @@ model Client {
   tasks          Task[]
   events         CalendarEvent[]
   editorialPosts EditorialPost[]
+  editorialMetaProfiles EditorialMetaProfile[]
   deliverables   Deliverable[]
   aiMemory       AiClientMemory?
   aiOwnership    AiOwnership?
@@ -1197,10 +1201,87 @@ model EditorialPost {
   client    Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
   revisions EditorialRevision[]
   messages  EditorialPostMessage[]
+  mediaVersions EditorialMediaVersion[]
+  publications EditorialPublication[]
 
   @@index([workspaceId, status])
   @@index([clientId])
   @@index([scheduledFor])
+}
+
+model EditorialMediaVersion {
+  id          String   @id @default(cuid())
+  workspaceId String
+  postId      String
+  kind        String   @default("image") // image|video
+  source      String   @default("generated") // uploaded|generated|edited|resized|video
+  url         String
+  s3Key       String?
+  width       Int?
+  height      Int?
+  prompt      String?  @db.Text
+  metaJson    Json?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post      EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, postId, createdAt])
+  @@index([postId, kind])
+}
+
+model EditorialMetaProfile {
+  id               String  @id @default(cuid())
+  workspaceId      String
+  clientId         String
+  metaConnectionId String?
+  label            String
+  facebookPageId   String?
+  facebookPageName String?
+  instagramUserId  String?
+  instagramName    String?
+  active           Boolean @default(true)
+  lastSyncAt       DateTime?
+  lastError        String? @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  metaConnection MetaConnection? @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
+  publications   EditorialPublication[]
+
+  @@unique([workspaceId, clientId, facebookPageId, instagramUserId])
+  @@index([workspaceId, clientId, active])
+  @@index([metaConnectionId])
+}
+
+model EditorialPublication {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  postId         String
+  profileId      String?
+  network        String // facebook|instagram
+  status         String   @default("PENDING") // PENDING|SCHEDULED|PUBLISHING|PUBLISHED|FAILED|CANCELLED
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+  externalPostId String?
+  externalUrl    String?
+  attempts       Int      @default(0)
+  lastError      String?  @db.Text
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post      EditorialPost          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile   EditorialMetaProfile?  @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, status, scheduledFor])
+  @@index([postId, network])
+  @@index([profileId])
 }
 
 // Mensajes de hilo en una pieza editorial. Permiten conversación
@@ -3972,6 +4053,7 @@ model MetaConnection {
   workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   campaigns    MetaCampaign[]
   commentFeeds MetaCommentFeed[]
+  editorialMetaProfiles EditorialMetaProfile[]
 
   @@unique([workspaceId, metaUserId])
   @@index([workspaceId])

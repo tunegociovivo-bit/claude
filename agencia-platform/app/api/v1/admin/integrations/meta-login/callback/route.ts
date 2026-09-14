@@ -19,7 +19,12 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
   const saved = (ws?.settings as any)?.integrations?.metaLogin;
-  const returnPath = saved?.returnPath === "/admin/meta-comments" ? "/admin/meta-comments" : "/admin/meta-mcp";
+  const returnPath =
+    saved?.returnPath === "/admin/meta-comments"
+      ? "/admin/meta-comments"
+      : saved?.returnPath === "/admin/editorial"
+        ? "/admin/editorial"
+        : "/admin/meta-mcp";
   const fail = (m: string) => NextResponse.redirect(`${base}${returnPath}?error=${encodeURIComponent(m.slice(0, 200))}`);
   const err = url.searchParams.get("error_description") || url.searchParams.get("error");
   if (err) return fail(err);

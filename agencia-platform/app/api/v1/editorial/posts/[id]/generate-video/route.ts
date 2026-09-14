@@ -14,6 +14,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { generatePostVideo } from "@/lib/editorial/generate-video";
+import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
@@ -24,7 +25,8 @@ const schema = z.object({
   model: z.string().optional(),
   shots: z.number().int().min(1).max(4).optional(),
   voiceover: z.boolean().optional(),
-  subtitles: z.boolean().optional()
+  subtitles: z.boolean().optional(),
+  useCurrentImage: z.boolean().optional()
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
@@ -33,6 +35,14 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
   try {
+    let useCurrentImage = false;
+    if (parsed.data.useCurrentImage) {
+      const post = await prisma.editorialPost.findFirst({
+        where: { id: params.id, workspaceId: api.workspaceId },
+        select: { thumbnail: true }
+      });
+      useCurrentImage = Boolean(post?.thumbnail);
+    }
     const out = await generatePostVideo({
       workspaceId: api.workspaceId,
       postId: params.id,
@@ -41,7 +51,8 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
       model: parsed.data.model,
       shots: parsed.data.shots,
       voiceover: parsed.data.voiceover,
-      subtitles: parsed.data.subtitles
+      subtitles: parsed.data.subtitles,
+      useCurrentImage
     });
     return NextResponse.json(out);
   } catch (e: any) {
