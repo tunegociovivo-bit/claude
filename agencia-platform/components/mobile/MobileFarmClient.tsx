@@ -60,10 +60,12 @@ import {
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
 import {
+  clearFocusedFacebookSearchInput,
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
+  findFacebookSearchEntryTarget,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 import {
@@ -158,6 +160,23 @@ async function waitForAndroidUiNode(
   throw new Error(failureMessage);
 }
 
+async function waitForFacebookSearchEntry(adb: Adb): Promise<AndroidUiPoint> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const target = findFacebookSearchEntryTarget(await readAndroidUiHierarchy(adb));
+      if (target) return target.point;
+    } catch (error) {
+      lastError = error;
+    }
+    await waitForAndroidUi(500);
+  }
+  if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
+  throw new Error(
+    "Facebook se ha abierto, pero no encuentro su buscador. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
+  );
+}
+
 async function mobileApiJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...init });
   const payload = await response.json().catch(() => null);
@@ -192,18 +211,10 @@ async function openFacebookGroupSearch(
     "1"
   ]);
 
-  const search = await waitForAndroidUiNode(
-    adb,
-    { labels: ["Buscar", "Search"] },
-    "Facebook se ha abierto, pero no encuentro el botón Buscar. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
-  );
-  await runAdbCommand(adb, ["input", "tap", String(search.x), String(search.y)]);
-  const input = await waitForAndroidUiNode(
-    adb,
-    { className: "android.widget.EditText", focused: true },
-    "Facebook no ha abierto el campo de búsqueda. Vuelve a intentarlo con la aplicación en primer plano."
-  );
-  await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
+  const searchEntry = await waitForFacebookSearchEntry(adb);
+  await runAdbCommand(adb, ["input", "tap", String(searchEntry.x), String(searchEntry.y)]);
+  await waitForAndroidUi(500);
+  await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
   await submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command));

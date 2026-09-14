@@ -9,6 +9,11 @@ type AndroidUiRect = {
   bottom: number;
 };
 
+export type FacebookSearchEntryTarget = {
+  kind: "input" | "button";
+  point: AndroidUiPoint;
+};
+
 function comparable(value: string): string {
   return value
     .normalize("NFD")
@@ -34,9 +39,7 @@ function matchesExactly(value: string, labels: readonly string[]): boolean {
   return labels.some((label) => normalized === comparable(label));
 }
 
-export async function submitFacebookSearchFromKeyboard(
-  runCommand: AndroidUiCommandRunner
-): Promise<void> {
+async function assertVisibleGboard(runCommand: AndroidUiCommandRunner): Promise<void> {
   const inputMethodOutput = String(await runCommand(["dumpsys", "input_method"]));
   const currentImePattern = /(?:mCurMethodId|mCurId|mSelectedMethodId|mCurMethod)\s*[:=]\s*[^\r\n]*com\.google\.android\.inputmethod\.latin/i;
   if (!currentImePattern.test(inputMethodOutput)) {
@@ -48,9 +51,45 @@ export async function submitFacebookSearchFromKeyboard(
     || /mImeWindowVis\s*=\s*0x[1-9a-f]/i.test(inputMethodOutput);
   if (!keyboardVisible) {
     throw new Error(
-      "Android no ha confirmado un teclado visible; se ha detenido la pulsación para no tocar contenido de Facebook."
+      "Android no ha confirmado un teclado visible; se ha detenido la acción para no tocar contenido de Facebook."
     );
   }
+}
+
+export function findFacebookSearchEntryTarget(hierarchy: string): FacebookSearchEntryTarget | null {
+  const nodes = parseAndroidUiNodes(hierarchy);
+  const belongsToFacebook = (packageName: string) => /^com\.facebook\.(?:katana|lite)$/i.test(packageName);
+  const restoredInput = nodes
+    .filter((node) => (
+      belongsToFacebook(node.packageName)
+      && node.className === "android.widget.EditText"
+      && node.bounds.top <= 350
+    ))
+    .sort((left, right) => left.bounds.top - right.bounds.top)[0];
+  if (restoredInput) return { kind: "input", point: restoredInput.center };
+
+  const headerSearch = nodes
+    .filter((node) => (
+      belongsToFacebook(node.packageName)
+      && node.bounds.top <= 350
+      && matchesExactly(nodeLabel(node), ["Buscar", "Search"])
+    ))
+    .sort((left, right) => left.bounds.top - right.bounds.top)[0];
+  return headerSearch ? { kind: "button", point: headerSearch.center } : null;
+}
+
+export async function clearFocusedFacebookSearchInput(
+  runCommand: AndroidUiCommandRunner
+): Promise<void> {
+  await assertVisibleGboard(runCommand);
+  await runCommand(["input", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_A"]);
+  await runCommand(["input", "keyevent", "KEYCODE_DEL"]);
+}
+
+export async function submitFacebookSearchFromKeyboard(
+  runCommand: AndroidUiCommandRunner
+): Promise<void> {
+  await assertVisibleGboard(runCommand);
 
   const inputOutput = String(await runCommand(["dumpsys", "input"]));
   const orientations = Array.from(
