@@ -29,21 +29,31 @@ describe("jerarquía accesible de Android", () => {
   });
 
   it("limita dentro de Android el volcado de accesibilidad para que no bloquee el worker", async () => {
-    const runCommand = vi.fn(async (command: readonly string[]) => (
-      command[0] === "cat" ? hierarchy : "UI hierchary dumped"
-    ));
+    const runCommand = vi.fn(async () => hierarchy);
 
     await expect(readAndroidUiHierarchySafely(runCommand)).resolves.toBe(hierarchy);
     expect(runCommand.mock.calls).toEqual([
-      [["timeout", "4", "uiautomator", "dump", "/sdcard/nv-mobile-window.xml"]],
-      [["cat", "/sdcard/nv-mobile-window.xml"]]
+      [[
+        "sh",
+        "-c",
+        "rm -f /sdcard/nv-mobile-window.xml && timeout 4 uiautomator dump /sdcard/nv-mobile-window.xml >/dev/null && cat /sdcard/nv-mobile-window.xml"
+      ]]
     ]);
   });
 
-  it("rechaza un volcado incompleto después del límite en vez de continuar a ciegas", async () => {
-    const runCommand = vi.fn(async (command: readonly string[]) => (
-      command[0] === "cat" ? "sin jerarquía" : ""
-    ));
+  it("no reutiliza un XML anterior cuando el nuevo volcado agota el tiempo", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      expect(command[2]).toContain("rm -f /sdcard/nv-mobile-window.xml && timeout 4");
+      expect(command[2]).toContain("&& cat /sdcard/nv-mobile-window.xml");
+      return "";
+    });
+
+    await expect(readAndroidUiHierarchySafely(runCommand))
+      .rejects.toThrow("estructura accesible");
+  });
+
+  it("rechaza un XML truncado aunque contenga la etiqueta inicial", async () => {
+    const runCommand = vi.fn(async () => '<hierarchy rotation="0"><node text="Buscar" />');
 
     await expect(readAndroidUiHierarchySafely(runCommand))
       .rejects.toThrow("estructura accesible");
