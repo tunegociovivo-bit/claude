@@ -52,6 +52,19 @@ describe("interfaz del agente de control horario", () => {
     expect(main).not.toContain('click: () => { store.set("paused", !paused)');
   });
 
+  it("permite solicitar al administrador el código indicando nombre y email", () => {
+    const html = readFileSync(resolve(root, "src/settings.html"), "utf8");
+    const preload = readFileSync(resolve(root, "src/preload.js"), "utf8");
+    const main = readFileSync(resolve(root, "src/main.js"), "utf8");
+
+    expect(html).toContain('id="requestName"');
+    expect(html).toContain('id="requestEmail"');
+    expect(html).toContain('id="requestCode"');
+    expect(preload).toContain("requestEnrollment");
+    expect(main).toContain('ipcMain.handle("enrollment:request"');
+    expect(main).toContain("/api/public/time-tracking/enrollment-request");
+  });
+
   it("protege en servidor los límites de la jornada del agente", () => {
     const shiftRoute = readFileSync(resolve(root, "../app/api/v1/time-tracking/route.ts"), "utf8");
     const meRoute = readFileSync(resolve(root, "../app/api/v1/time-tracking/me/route.ts"), "utf8");
