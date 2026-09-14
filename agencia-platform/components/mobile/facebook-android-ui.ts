@@ -54,9 +54,29 @@ async function assertVisibleGboard(runCommand: AndroidUiCommandRunner): Promise<
       "Android no ha confirmado un teclado visible; se ha detenido la acción para no tocar contenido de Facebook."
     );
   }
+
+  const editorInfo = /(?:mCurAttribute|mCurEditorInfo)\s*=\s*EditorInfo\{([^}]*)}/i
+    .exec(inputMethodOutput)?.[1] ?? "";
+  if (!/packageName\s*=\s*com\.facebook\.(?:katana|lite)\b/i.test(editorInfo)) {
+    throw new Error(
+      "Android no ha confirmado que el campo de búsqueda de Facebook tenga el foco."
+    );
+  }
+  const imeOptionsMatch = /imeOptions\s*=\s*(?:0x([0-9a-f]+)|(\d+))/i.exec(editorInfo);
+  const imeOptions = imeOptionsMatch?.[1]
+    ? Number.parseInt(imeOptionsMatch[1], 16)
+    : Number(imeOptionsMatch?.[2]);
+  if (!Number.isFinite(imeOptions) || (imeOptions & 0xff) !== 3) {
+    throw new Error(
+      "Android no ha confirmado la acción Buscar en el campo enfocado de Facebook."
+    );
+  }
 }
 
-export function findFacebookSearchEntryTarget(hierarchy: string): FacebookSearchEntryTarget | null {
+export function findFacebookSearchEntryTarget(
+  hierarchy: string,
+  knownQueries: readonly string[] = []
+): FacebookSearchEntryTarget | null {
   const nodes = parseAndroidUiNodes(hierarchy);
   const belongsToFacebook = (packageName: string) => /^com\.facebook\.(?:katana|lite)$/i.test(packageName);
   const restoredInput = nodes
@@ -64,6 +84,11 @@ export function findFacebookSearchEntryTarget(hierarchy: string): FacebookSearch
       belongsToFacebook(node.packageName)
       && node.className === "android.widget.EditText"
       && node.bounds.top <= 350
+      && (
+        matchesExactly(nodeLabel(node), knownQueries)
+        || matchesAny(node.contentDescription, ["Buscar", "Search"])
+        || matchesAny(node.resourceId, ["search", "buscar"])
+      )
     ))
     .sort((left, right) => left.bounds.top - right.bounds.top)[0];
   if (restoredInput) return { kind: "input", point: restoredInput.center };

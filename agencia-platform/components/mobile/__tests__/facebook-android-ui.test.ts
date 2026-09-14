@@ -10,6 +10,12 @@ import {
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 
+const visibleFacebookSearchGboard = [
+  "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME",
+  "mInputShown=true",
+  "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x3 privateImeOptions=null}"
+].join("\n");
+
 describe("Facebook Android UI", () => {
   it("pairs the join control with the requested group instead of the first result", () => {
     const hierarchy = `<hierarchy>
@@ -76,10 +82,19 @@ describe("Facebook Android UI", () => {
       <node text="¿Qué estás pensando?" package="com.facebook.katana" class="android.widget.EditText" focused="false" bounds="[70,520][980,680]" />
     </hierarchy>`;
 
-    expect(findFacebookSearchEntryTarget(hierarchy)).toEqual({
+    expect(findFacebookSearchEntryTarget(hierarchy, ["Franquicias, Negocios y más"])).toEqual({
       kind: "input",
       point: { x: 525, y: 95 }
     });
+  });
+
+  it("does not treat an upper Facebook post composer as a restored search", () => {
+    const hierarchy = `<hierarchy>
+      <node text="¿Qué estás pensando?" package="com.facebook.katana" class="android.widget.EditText" focused="false" bounds="[70,90][980,190]" />
+    </hierarchy>`;
+
+    expect(findFacebookSearchEntryTarget(hierarchy, ["Franquicias, Negocios y más"]))
+      .toBeNull();
   });
 
   it("falls back to Facebook's header search control from the home screen", () => {
@@ -96,7 +111,7 @@ describe("Facebook Android UI", () => {
   it("clears a restored query before pasting the next approved group name", async () => {
     const runCommand = vi.fn(async (command: readonly string[]) => (
       command.join(" ") === "dumpsys input_method"
-        ? "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n"
+        ? visibleFacebookSearchGboard
         : ""
     ));
 
@@ -111,11 +126,37 @@ describe("Facebook Android UI", () => {
 
   it("does not send clearing shortcuts unless Facebook has a visible Gboard input", async () => {
     const runCommand = vi.fn(async () => (
-      "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=false\n"
+      "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
+      + "mInputShown=false\n"
+      + "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x3}"
     ));
 
     await expect(clearFocusedFacebookSearchInput(runCommand))
       .rejects.toThrow("teclado visible");
+    expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
+  });
+
+  it("does not clear or submit when Gboard exposes Send instead of the Search action", async () => {
+    const runCommand = vi.fn(async () => (
+      "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
+      + "mInputShown=true\n"
+      + "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x4}"
+    ));
+
+    await expect(clearFocusedFacebookSearchInput(runCommand))
+      .rejects.toThrow("acción Buscar");
+    expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
+  });
+
+  it("does not clear a search field focused by another Android application", async () => {
+    const runCommand = vi.fn(async () => (
+      "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
+      + "mInputShown=true\n"
+      + "mCurAttribute=EditorInfo{packageName=com.google.android.apps.messaging inputType=0x1 imeOptions=0x3}"
+    ));
+
+    await expect(clearFocusedFacebookSearchInput(runCommand))
+      .rejects.toThrow("campo de búsqueda de Facebook");
     expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
   });
 
@@ -145,7 +186,7 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       switch (command.join(" ")) {
         case "dumpsys input_method":
-          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n";
+          return visibleFacebookSearchGboard;
         case "dumpsys input":
           return "SurfaceOrientation: 0\n";
         case "wm size":
@@ -172,7 +213,7 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       switch (command.join(" ")) {
         case "dumpsys input_method":
-          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmWindowVisible=true\n";
+          return visibleFacebookSearchGboard.replace("mInputShown=true", "mWindowVisible=true");
         case "dumpsys input":
           return "SurfaceOrientation: 0\n";
         case "wm size":
@@ -193,7 +234,7 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       switch (command.join(" ")) {
         case "dumpsys input_method":
-          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n";
+          return visibleFacebookSearchGboard;
         case "dumpsys input":
           return "SurfaceOrientation: 0\n";
         default:
@@ -210,6 +251,7 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async () => (
       "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
       + "mInputShown=false\nmWindowVisible=false\n"
+      + "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x3}\n"
     ));
 
     await expect(submitFacebookSearchFromKeyboard(runCommand))
@@ -230,7 +272,7 @@ describe("Facebook Android UI", () => {
   it("does not tap a rotated display with portrait-calibrated coordinates", async () => {
     const runCommand = vi.fn(async (command: readonly string[]) => (
       command.join(" ") === "dumpsys input_method"
-        ? "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n"
+        ? visibleFacebookSearchGboard
         : "SurfaceOrientation: 1\n"
     ));
 
@@ -246,7 +288,7 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       switch (command.join(" ")) {
         case "dumpsys input_method":
-          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n";
+          return visibleFacebookSearchGboard;
         case "dumpsys input":
           return "SurfaceOrientation: 0\n";
         case "wm size":

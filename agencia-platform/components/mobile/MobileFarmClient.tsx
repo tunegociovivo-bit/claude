@@ -160,11 +160,17 @@ async function waitForAndroidUiNode(
   throw new Error(failureMessage);
 }
 
-async function waitForFacebookSearchEntry(adb: Adb): Promise<AndroidUiPoint> {
+async function waitForFacebookSearchEntry(
+  adb: Adb,
+  knownQueries: readonly string[]
+): Promise<AndroidUiPoint> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     try {
-      const target = findFacebookSearchEntryTarget(await readAndroidUiHierarchy(adb));
+      const target = findFacebookSearchEntryTarget(
+        await readAndroidUiHierarchy(adb),
+        knownQueries
+      );
       if (target) return target.point;
     } catch (error) {
       lastError = error;
@@ -196,7 +202,8 @@ async function resolveFacebookPackage(adb: Adb): Promise<string> {
 async function openFacebookGroupSearch(
   adb: Adb,
   controller: AndroidClipboardController,
-  query: string
+  query: string,
+  knownQueries: readonly string[] = [query]
 ): Promise<void> {
   await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(500);
@@ -211,7 +218,7 @@ async function openFacebookGroupSearch(
     "1"
   ]);
 
-  const searchEntry = await waitForFacebookSearchEntry(adb);
+  const searchEntry = await waitForFacebookSearchEntry(adb, knownQueries);
   await runAdbCommand(adb, ["input", "tap", String(searchEntry.x), String(searchEntry.y)]);
   await waitForAndroidUi(500);
   await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
@@ -279,7 +286,12 @@ async function joinSingleFacebookGroup(input: {
   phoneKey: string;
   deviceSerial: string;
 }): Promise<FacebookGroupCandidate> {
-  await openFacebookGroupSearch(input.adb, input.controller, input.candidate.name);
+  await openFacebookGroupSearch(
+    input.adb,
+    input.controller,
+    input.candidate.name,
+    input.batch.candidates.map((candidate) => candidate.name)
+  );
   const currentHierarchy = await readAndroidUiHierarchy(input.adb);
   const existingState = findFacebookMembershipState(currentHierarchy);
   if (existingState) {
