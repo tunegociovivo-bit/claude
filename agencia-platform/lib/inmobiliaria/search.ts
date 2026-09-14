@@ -424,6 +424,18 @@ function isAllowedUrl(url: URL, allowedDomains: string[]): boolean {
     allowedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
 }
 
+function isPortalListingUrl(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+  if (hostname === "idealista.com") return /^\/inmueble\/\d+/.test(path);
+  if (hostname === "fotocasa.es") return /\/\d{6,}(?:\/|$)/.test(path);
+  if (hostname === "pisos.com") return /\/\d{6,}(?:\/|$)/.test(path) || /-[0-9]+_[0-9]+\/?$/.test(path);
+  if (hostname === "yaencontre.com") return /\/\d{6,}(?:\/|$)/.test(path);
+  if (hostname === "habitaclia.com") return /-i\d{6,}\.htm$/.test(path);
+  if (hostname === "milanuncios.com") return /-\d{6,}\.htm$/.test(path);
+  return true;
+}
+
 export function cleanOfferUrl(raw: string | null | undefined, allowedDomains: string[] = []): string {
   const s = (raw || "").trim();
   if (!s) return "";
@@ -458,6 +470,7 @@ export function cleanOfferUrl(raw: string | null | undefined, allowedDomains: st
     "/listado"
   ];
   if (listingTails.some((t) => path.endsWith(t))) return "";
+  if (!isPortalListingUrl(url)) return "";
   return s;
 }
 
