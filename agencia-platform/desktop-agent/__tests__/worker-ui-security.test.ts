@@ -70,17 +70,18 @@ describe("interfaz del agente de control horario", () => {
     const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
 
     expect(dashboard).toContain("Negocio-Vivo-Editor-Confiable.cer");
-    expect(dashboard).toContain("Instalar certificado de confianza");
+    expect(dashboard).toContain('label="Certificado"');
+    expect(dashboard).toContain('label="Instalador original"');
     expect(dashboard).toContain("Solo para equipos internos de Negocio Vivo");
     expect(dashboard).toContain("660043706FBF95556DFDC81B09D3F89271C3037C674CBEEEB3EA4376C18E6FD9");
     expect(dashboard).toContain("7BD7D8745253F281D6A47A61CC396437257D2C7C");
-    expect(dashboard).toContain("Comprueba que coincida antes de instalarlo");
+    expect(dashboard).toContain("Opciones para administración");
   });
 
   it("ofrece una instalación interna que verifica firma y hash antes de quitar la marca de Internet", () => {
     const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
 
-    expect(dashboard).toContain("Copiar instalación segura");
+    expect(dashboard).toContain("Copiar comando técnico");
     expect(dashboard).toContain("Get-AuthenticodeSignature");
     expect(dashboard).toContain("Get-FileHash");
     expect(dashboard).toContain("TrustedPublisher");
