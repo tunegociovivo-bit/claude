@@ -91,24 +91,42 @@ describe("Facebook Android UI", () => {
   });
 
   it("submits the visible Gboard search action without waiting for an accessibility dump", async () => {
-    const runCommand = vi.fn(async (command: readonly string[]) => (
-      command.join(" ") === "wm size" ? "Physical size: 1080x2340\n" : ""
-    ));
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      switch (command.join(" ")) {
+        case "dumpsys input_method":
+          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n";
+        case "dumpsys input":
+          return "SurfaceOrientation: 0\n";
+        case "wm size":
+          return "Physical size: 1080x2340\n";
+        default:
+          return "";
+      }
+    });
 
     await submitFacebookSearchFromKeyboard(runCommand);
 
     expect(runCommand.mock.calls).toEqual([
+      [["dumpsys", "input_method"]],
+      [["dumpsys", "input"]],
       [["wm", "size"]],
       [["input", "tap", "994", "2106"]]
     ]);
   });
 
   it("uses Android's active override size for the keyboard action point", async () => {
-    const runCommand = vi.fn(async (command: readonly string[]) => (
-      command.join(" ") === "wm size"
-        ? "Physical size: 1080x2340\nOverride size: 720x1560\n"
-        : ""
-    ));
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      switch (command.join(" ")) {
+        case "dumpsys input_method":
+          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmWindowVisible=true\n";
+        case "dumpsys input":
+          return "SurfaceOrientation: 0\n";
+        case "wm size":
+          return "Physical size: 1080x2340\nOverride size: 720x1560\n";
+        default:
+          return "";
+      }
+    });
 
     await submitFacebookSearchFromKeyboard(runCommand);
 
@@ -116,10 +134,55 @@ describe("Facebook Android UI", () => {
   });
 
   it("fails quickly when Android does not report a usable display size", async () => {
-    const runCommand = vi.fn(async () => "unknown");
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      switch (command.join(" ")) {
+        case "dumpsys input_method":
+          return "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n";
+        case "dumpsys input":
+          return "SurfaceOrientation: 0\n";
+        default:
+          return "unknown";
+      }
+    });
 
     await expect(submitFacebookSearchFromKeyboard(runCommand))
       .rejects.toThrow("tamaño de pantalla");
-    expect(runCommand).toHaveBeenCalledTimes(1);
+    expect(runCommand).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not tap Facebook content when the Android keyboard is hidden", async () => {
+    const runCommand = vi.fn(async () => (
+      "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
+      + "mInputShown=false\nmWindowVisible=false\n"
+    ));
+
+    await expect(submitFacebookSearchFromKeyboard(runCommand))
+      .rejects.toThrow("teclado visible");
+    expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
+  });
+
+  it("fails closed for an uncalibrated Android keyboard", async () => {
+    const runCommand = vi.fn(async () => (
+      "mCurMethodId=com.touchtype.swiftkey/com.touchtype.KeyboardService\nmInputShown=true\n"
+    ));
+
+    await expect(submitFacebookSearchFromKeyboard(runCommand))
+      .rejects.toThrow("Gboard");
+    expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
+  });
+
+  it("does not tap a rotated display with portrait-calibrated coordinates", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command.join(" ") === "dumpsys input_method"
+        ? "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n"
+        : "SurfaceOrientation: 1\n"
+    ));
+
+    await expect(submitFacebookSearchFromKeyboard(runCommand))
+      .rejects.toThrow("orientación vertical");
+    expect(runCommand.mock.calls).toEqual([
+      [["dumpsys", "input_method"]],
+      [["dumpsys", "input"]]
+    ]);
   });
 });
