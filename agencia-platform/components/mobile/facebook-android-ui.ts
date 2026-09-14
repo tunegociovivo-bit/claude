@@ -2,6 +2,13 @@ import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/an
 
 type AndroidUiCommandRunner = (command: readonly string[]) => Promise<unknown>;
 
+type AndroidUiRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
 function comparable(value: string): string {
   return value
     .normalize("NFD")
@@ -30,6 +37,32 @@ function matchesExactly(value: string, labels: readonly string[]): boolean {
 export async function submitFacebookSearchFromKeyboard(
   runCommand: AndroidUiCommandRunner
 ): Promise<void> {
+  const inputMethodOutput = String(await runCommand(["dumpsys", "input_method"]));
+  const currentImePattern = /(?:mCurMethodId|mCurId|mSelectedMethodId|mCurMethod)\s*[:=]\s*[^\r\n]*com\.google\.android\.inputmethod\.latin/i;
+  if (!currentImePattern.test(inputMethodOutput)) {
+    throw new Error(
+      "La búsqueda automática está calibrada para Gboard. Activa Gboard y vuelve a intentarlo."
+    );
+  }
+  const keyboardVisible = /(?:mInputShown|mWindowVisible)\s*=\s*true/i.test(inputMethodOutput)
+    || /mImeWindowVis\s*=\s*0x[1-9a-f]/i.test(inputMethodOutput);
+  if (!keyboardVisible) {
+    throw new Error(
+      "Android no ha confirmado un teclado visible; se ha detenido la pulsación para no tocar contenido de Facebook."
+    );
+  }
+
+  const inputOutput = String(await runCommand(["dumpsys", "input"]));
+  const orientations = Array.from(
+    inputOutput.matchAll(/SurfaceOrientation\s*:\s*(\d+)/gi),
+    (match) => Number(match[1])
+  );
+  if (!orientations.length || orientations.some((orientation) => orientation !== 0)) {
+    throw new Error(
+      "La búsqueda automática requiere el móvil en orientación vertical."
+    );
+  }
+
   const sizeOutput = String(await runCommand(["wm", "size"]));
   const reportedSizes = Array.from(
     sizeOutput.matchAll(/(?:Physical|Override) size:\s*(\d+)x(\d+)/gi)
@@ -40,12 +73,53 @@ export async function submitFacebookSearchFromKeyboard(
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 200 || height < 200) {
     throw new Error("Android no ha informado de un tamaño de pantalla válido para pulsar Buscar.");
   }
+  if (width >= height) {
+    throw new Error(
+      "La búsqueda automática requiere el móvil en orientación vertical."
+    );
+  }
+
+  const windowOutput = String(await runCommand(["dumpsys", "window", "displays"]));
+  const imeFrame = windowOutput
+    .split(/\r?\n/)
+    .filter((line) => /(?:type|mType)\s*=\s*ime\b/i.test(line) && /(?:visible|mVisible)\s*=\s*true\b/i.test(line))
+    .map((line): AndroidUiRect | null => {
+      const frame = /(?:frame|mFrame)\s*=\s*\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]/i.exec(line);
+      if (!frame) return null;
+      return {
+        left: Number(frame[1]),
+        top: Number(frame[2]),
+        right: Number(frame[3]),
+        bottom: Number(frame[4])
+      };
+    })
+    .find((frame): frame is AndroidUiRect => frame !== null);
+
+  const target = {
+    x: Math.round(width * 0.92),
+    y: Math.round(height * 0.9)
+  };
+  const dockedKeyboard = imeFrame
+    && imeFrame.left <= width * 0.05
+    && imeFrame.right >= width * 0.95
+    && imeFrame.top >= height * 0.45
+    && imeFrame.bottom >= height * 0.95
+    && imeFrame.bottom - imeFrame.top >= height * 0.15
+    && target.x >= imeFrame.left
+    && target.x <= imeFrame.right
+    && target.y >= imeFrame.top
+    && target.y <= imeFrame.bottom;
+  if (!dockedKeyboard) {
+    throw new Error(
+      "Android no ha confirmado un teclado acoplado en la parte inferior; se ha detenido la pulsación para no tocar contenido de Facebook."
+    );
+  }
 
   await runCommand([
     "input",
     "tap",
-    String(Math.round(width * 0.92)),
-    String(Math.round(height * 0.9))
+    String(target.x),
+    String(target.y)
   ]);
 }
 
