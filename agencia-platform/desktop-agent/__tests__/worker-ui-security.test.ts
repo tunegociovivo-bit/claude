@@ -76,4 +76,16 @@ describe("interfaz del agente de control horario", () => {
     expect(dashboard).toContain("7BD7D8745253F281D6A47A61CC396437257D2C7C");
     expect(dashboard).toContain("Comprueba que coincida antes de instalarlo");
   });
+
+  it("ofrece una instalación interna que verifica firma y hash antes de quitar la marca de Internet", () => {
+    const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
+
+    expect(dashboard).toContain("Copiar instalación segura");
+    expect(dashboard).toContain("Get-AuthenticodeSignature");
+    expect(dashboard).toContain("Get-FileHash");
+    expect(dashboard).toContain("TrustedPublisher");
+    expect(dashboard).toContain("Unblock-File -LiteralPath $installerPath");
+    expect(dashboard).toContain("036EE3AAE6C8E30D96CC6C3AD4976A9F0E4A2930F5B918AF3A9F6F09CA19B751");
+    expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
+  });
 });
