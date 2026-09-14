@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -90,16 +90,12 @@ describe("interfaz del agente de control horario", () => {
     expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
   });
 
-  it("permite al trabajador descargar un instalador fácil de doble clic", () => {
+  it("no ofrece un bootstrap descargable sin autenticar y explica el único aviso manual", () => {
     const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
-    const bootstrap = readFileSync(resolve(root, "../public/downloads/Instalar-Control-Horario-Negocio-Vivo.cmd"), "utf8");
 
-    expect(dashboard).toContain("Descargar instalador fácil");
-    expect(dashboard).toContain("Solo tienes que descargarlo y hacer doble clic");
-    expect(bootstrap).toContain("Get-FileHash");
-    expect(bootstrap).toContain("Get-AuthenticodeSignature");
-    expect(bootstrap).toContain("TrustedPublisher");
-    expect(bootstrap).toContain("Unblock-File -LiteralPath $installerPath");
-    expect(bootstrap.indexOf("Get-AuthenticodeSignature")).toBeLessThan(bootstrap.indexOf("Unblock-File -LiteralPath $installerPath"));
+    expect(existsSync(resolve(root, "../public/downloads/Instalar-Control-Horario-Negocio-Vivo.cmd"))).toBe(false);
+    expect(dashboard).not.toContain("WIN_EASY_INSTALL_URL");
+    expect(dashboard).toContain("Más información");
+    expect(dashboard).toContain("Ejecutar de todas formas");
   });
 });
