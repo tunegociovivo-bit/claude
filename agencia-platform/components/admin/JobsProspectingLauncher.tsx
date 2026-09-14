@@ -51,7 +51,7 @@ export default function JobsProspectingLauncher({ onCompleted }: { onCompleted: 
             Encontrar empresas que están contratando
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            Busca vacantes en LinkedIn Jobs por las 52 provincias de España, reúne los datos de la empresa y del responsable,
+            Busca vacantes en LinkedIn Jobs en toda España, reúne los datos de la empresa y del responsable,
             y prepara el email y el mensaje privado en una sola campaña. Se deduplican empresas ya conocidas.
           </p>
         </div>

@@ -136,8 +136,9 @@ export async function collectFromSource(
       // Empresas con una oferta de empleo de marketing/IA abierta. Las ofertas
       // no traen email ni web fiable: enriquecemos web+teléfono con Places y
       // luego sacamos el email de contacto de la web (para el outreach por email).
-      const key = await scrapflyKey(ctx.workspaceId);
-      if (!key) throw new Error("La fuente Empleos necesita la API key de Scrapfly. Configúrala en Ajustes de Leads.");
+      // LinkedIn Jobs tiene un endpoint público. Scrapfly es solo el respaldo
+      // cuando LinkedIn limita la petición directa y puede no estar configurado.
+      const key = (await scrapflyKey(ctx.workspaceId)) ?? "";
       const requestedBoards = Array.isArray(ctx.sourceConfig?.jobBoards)
         ? ctx.sourceConfig.jobBoards.filter((board): board is "linkedin" | "infojobs" => board === "linkedin" || board === "infojobs")
         : undefined;
