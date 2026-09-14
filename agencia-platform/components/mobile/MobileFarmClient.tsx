@@ -57,7 +57,6 @@ import {
 import {
   findAndroidUiNodeCenter,
   readAndroidUiHierarchySafely,
-  type AndroidUiNodeCriteria,
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
 import {
@@ -155,25 +154,6 @@ async function readAndroidUiHierarchy(adb: Adb): Promise<string> {
   return readAndroidUiHierarchySafely((command) => runAdbCommand(adb, command));
 }
 
-async function waitForAndroidUiNode(
-  adb: Adb,
-  criteria: AndroidUiNodeCriteria,
-  failureMessage: string
-): Promise<AndroidUiPoint> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    try {
-      const point = findAndroidUiNodeCenter(await readAndroidUiHierarchy(adb), criteria);
-      if (point) return point;
-    } catch (error) {
-      lastError = error;
-    }
-    await waitForAndroidUi(500);
-  }
-  if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
-  throw new Error(failureMessage);
-}
-
 async function waitForFacebookSearchEntry(
   adb: Adb,
   knownQueries: readonly string[],
@@ -239,6 +219,41 @@ async function resolveFacebookPackage(adb: Adb): Promise<string> {
   throw new Error("No encuentro la aplicación de Facebook instalada en este móvil.");
 }
 
+async function tapFacebookGroupsTabIfVisible(adb: Adb): Promise<boolean> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const point = findAndroidUiNodeCenter(await readAndroidUiHierarchy(adb), {
+      labels: ["Grupos", "Groups"]
+    });
+    if (point) {
+      await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]);
+      await waitForAndroidUi(750);
+      return true;
+    }
+    await waitForAndroidUi(500);
+  }
+  return false;
+}
+
+async function openFacebookSearchThroughAndroidIntent(
+  adb: Adb,
+  facebookPackage: string,
+  query: string
+): Promise<boolean> {
+  await runAdbCommand(adb, [
+    "am",
+    "start",
+    "-a",
+    "android.intent.action.SEARCH",
+    "-p",
+    facebookPackage,
+    "--es",
+    "query",
+    query
+  ]).catch(() => "");
+  await waitForAndroidUi(1500);
+  return tapFacebookGroupsTabIfVisible(adb);
+}
+
 async function openFacebookGroupSearch(
   adb: Adb,
   controller: AndroidClipboardController,
@@ -257,6 +272,9 @@ async function openFacebookGroupSearch(
     "android.intent.category.LAUNCHER",
     "1"
   ]);
+  await waitForAndroidUi(1200);
+
+  if (await openFacebookSearchThroughAndroidIntent(adb, facebookPackage, query)) return;
 
   const relaunchFacebook = async () => {
     await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
@@ -278,15 +296,11 @@ async function openFacebookGroupSearch(
   await waitForAndroidUi(250);
   await submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(750);
-  const groups = await waitForAndroidUiNode(
-    adb,
-    { labels: ["Grupos", "Groups"] },
-    "Facebook ha buscado la temática, pero no encuentro la pestaña Grupos. Revisa la pantalla y vuelve a intentarlo."
+  if (await tapFacebookGroupsTabIfVisible(adb)) return;
+  throw new Error(
+    "Facebook ha buscado la tematica, pero no encuentro la pestana Grupos. Revisa la pantalla y vuelve a intentarlo."
   );
-  await runAdbCommand(adb, ["input", "tap", String(groups.x), String(groups.y)]);
-  await waitForAndroidUi(750);
 }
-
 async function captureFacebookGroupScreens(adb: Adb, count = 5): Promise<string[]> {
   const screens: string[] = [];
   for (let index = 0; index < count; index += 1) {
