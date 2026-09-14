@@ -1,5 +1,26 @@
 export type AndroidAutomationCommandRunner = (command: readonly string[]) => Promise<unknown>;
 
+const AUTOMATION_SCREEN_TIMEOUT_MS = 60 * 60 * 1000;
+
+function parseAndroidIntegerSetting(value: unknown): number | null {
+  const storedValue = String(value).trim();
+  return /^\d+$/.test(storedValue) ? Number(storedValue) : null;
+}
+
+async function restoreAndroidSetting(
+  runCommand: AndroidAutomationCommandRunner,
+  namespace: "global" | "system",
+  key: string,
+  value: number | null
+): Promise<void> {
+  if (value === null) {
+    await runCommand(["settings", "delete", namespace, key]);
+    return;
+  }
+
+  await runCommand(["settings", "put", namespace, key, String(value)]);
+}
+
 export async function prepareAndroidForAutomation(
   runCommand: AndroidAutomationCommandRunner
 ): Promise<void> {
@@ -14,11 +35,17 @@ export async function keepAndroidAwakeDuringAutomation<T>(
     console.warn("[F-Móviles] No se ha podido restaurar el ajuste de pantalla de Android.", error);
   }
 ): Promise<T> {
-  const storedValue = String(
+  const stayAwakeValue = parseAndroidIntegerSetting(
     await runCommand(["settings", "get", "global", "stay_on_while_plugged_in"])
-  ).trim();
-  const parsedValue = /^\d+$/.test(storedValue) ? Number(storedValue) : null;
-  const temporaryValue = (parsedValue ?? 0) | 2;
+  );
+  const screenTimeoutValue = parseAndroidIntegerSetting(
+    await runCommand(["settings", "get", "system", "screen_off_timeout"])
+  );
+  const temporaryStayAwakeValue = (stayAwakeValue ?? 0) | 2;
+  const temporaryScreenTimeoutValue = Math.max(
+    screenTimeoutValue ?? 0,
+    AUTOMATION_SCREEN_TIMEOUT_MS
+  );
 
   try {
     await runCommand([
@@ -26,27 +53,32 @@ export async function keepAndroidAwakeDuringAutomation<T>(
       "put",
       "global",
       "stay_on_while_plugged_in",
-      String(temporaryValue)
+      String(temporaryStayAwakeValue)
     ]);
+    await runCommand([
+      "settings",
+      "put",
+      "system",
+      "screen_off_timeout",
+      String(temporaryScreenTimeoutValue)
+    ]);
+    await runCommand(["input", "keyevent", "KEYCODE_WAKEUP"]);
     return await automation();
   } finally {
-    try {
-      if (parsedValue === null) {
-        await runCommand(["settings", "delete", "global", "stay_on_while_plugged_in"]);
-      } else {
-        await runCommand([
-          "settings",
-          "put",
-          "global",
-          "stay_on_while_plugged_in",
-          String(parsedValue)
-        ]);
-      }
-    } catch (restoreError) {
+    const settingsToRestore = [
+      ["system", "screen_off_timeout", screenTimeoutValue],
+      ["global", "stay_on_while_plugged_in", stayAwakeValue]
+    ] as const;
+
+    for (const [namespace, key, value] of settingsToRestore) {
       try {
-        reportRestoreError(restoreError);
-      } catch {
-        // The automation result remains authoritative even if reporting fails.
+        await restoreAndroidSetting(runCommand, namespace, key, value);
+      } catch (restoreError) {
+        try {
+          reportRestoreError(restoreError);
+        } catch {
+          // The automation result remains authoritative even if reporting fails.
+        }
       }
     }
   }
