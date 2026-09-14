@@ -71,7 +71,7 @@ describe("interfaz del agente de control horario", () => {
 
     expect(dashboard).toContain("Negocio-Vivo-Editor-Confiable.cer");
     expect(dashboard).toContain('label="Certificado"');
-    expect(dashboard).toContain('label="Instalador original"');
+    expect(dashboard).toContain('label="Descargar para Windows"');
     expect(dashboard).toContain("Solo para equipos internos de Negocio Vivo");
     expect(dashboard).toContain("660043706FBF95556DFDC81B09D3F89271C3037C674CBEEEB3EA4376C18E6FD9");
     expect(dashboard).toContain("7BD7D8745253F281D6A47A61CC396437257D2C7C");
