@@ -49,8 +49,8 @@ import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
+  createAndroidAwakeSession,
   prepareAndroidForAutomation,
-  startAndroidAwakeSession,
   type AndroidAwakeSession
 } from "@/components/mobile/android-automation-ready";
 import {
@@ -655,6 +655,7 @@ function MobileDeviceCard({
   const adbRef = useRef<Adb>();
   const clientRef = useRef<AdbScrcpyClient<AdbScrcpyOptionsLatest<true>>>();
   const awakeSessionRef = useRef<AndroidAwakeSession>();
+  const closeSessionPromiseRef = useRef<Promise<void>>();
   const decoderRef = useRef<WebCodecsVideoDecoder>();
   const sizeRef = useRef({ width: 0, height: 0 });
   const closingRef = useRef(false);
@@ -694,19 +695,30 @@ function MobileDeviceCard({
     setIpAuthorizationConfirmed(false);
   }, [linkedPhone?.androidProxy?.host, linkedPhone?.androidProxy?.port]);
 
-  const closeSession = useCallback(async () => {
+  const closeSession = useCallback(() => {
+    if (closeSessionPromiseRef.current) return closeSessionPromiseRef.current;
     closingRef.current = true;
-    decoderRef.current?.dispose();
-    decoderRef.current = undefined;
-    screenMountRef.current?.replaceChildren();
-    const awakeSession = awakeSessionRef.current;
-    awakeSessionRef.current = undefined;
-    try { await awakeSession?.restore(); } catch { /* restoration already reported */ }
-    try { await clientRef.current?.close(); } catch { /* already disconnected */ }
-    clientRef.current = undefined;
-    try { await adbRef.current?.close(); } catch { /* already disconnected */ }
-    adbRef.current = undefined;
-    sizeRef.current = { width: 0, height: 0 };
+    const closePromise = (async () => {
+      decoderRef.current?.dispose();
+      decoderRef.current = undefined;
+      screenMountRef.current?.replaceChildren();
+      const awakeSession = awakeSessionRef.current;
+      try { await awakeSession?.restore(); } catch { /* restoration already reported */ }
+      if (awakeSessionRef.current === awakeSession) awakeSessionRef.current = undefined;
+      try { await clientRef.current?.close(); } catch { /* already disconnected */ }
+      clientRef.current = undefined;
+      try { await adbRef.current?.close(); } catch { /* already disconnected */ }
+      adbRef.current = undefined;
+      sizeRef.current = { width: 0, height: 0 };
+    })();
+    closeSessionPromiseRef.current = closePromise;
+    const clearClosePromise = () => {
+      if (closeSessionPromiseRef.current === closePromise) {
+        closeSessionPromiseRef.current = undefined;
+      }
+    };
+    void closePromise.then(clearClosePromise, clearClosePromise);
+    return closePromise;
   }, []);
 
   useEffect(() => () => { void closeSession(); }, [closeSession]);
@@ -728,9 +740,19 @@ function MobileDeviceCard({
       });
       const adb = new Adb(transport);
       adbRef.current = adb;
-      awakeSessionRef.current = await startAndroidAwakeSession(
+      if (closingRef.current) {
+        await closeSession();
+        return;
+      }
+      const awakeSession = createAndroidAwakeSession(
         (command) => runAdbCommand(adb, command)
       );
+      awakeSessionRef.current = awakeSession;
+      await awakeSession.ready;
+      if (closingRef.current) {
+        await closeSession();
+        return;
+      }
 
       const [reportedModel, version] = await Promise.all([
         adb.getProp("ro.product.model").catch(() => adb.banner.model || device.name || "Android"),
