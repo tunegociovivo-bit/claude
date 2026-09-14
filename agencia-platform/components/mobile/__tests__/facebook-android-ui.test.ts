@@ -112,6 +112,19 @@ describe("Facebook Android UI", () => {
     });
   });
 
+  it("uses the unlabeled top bar search icon when Facebook hides accessibility labels", () => {
+    const hierarchy = `<hierarchy>
+      <node text="" content-desc="" package="com.facebook.katana" class="android.view.View" clickable="true" bounds="[755,42][835,122]" />
+      <node text="" content-desc="" package="com.facebook.katana" class="android.view.View" clickable="true" bounds="[850,42][930,122]" />
+      <node text="" content-desc="" package="com.facebook.katana" class="android.view.View" clickable="true" bounds="[945,42][1025,122]" />
+    </hierarchy>`;
+
+    expect(findFacebookSearchEntryTarget(hierarchy)).toEqual({
+      kind: "button",
+      point: { x: 890, y: 82 }
+    });
+  });
+
   it("clears a restored query before pasting the next approved group name", async () => {
     const runCommand = vi.fn(async (command: readonly string[]) => (
       command.join(" ") === "dumpsys input_method"

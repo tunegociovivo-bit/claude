@@ -127,7 +127,25 @@ export function findFacebookSearchEntryTarget(
       && matchesExactly(nodeLabel(node), ["Buscar", "Search"])
     ))
     .sort((left, right) => left.bounds.top - right.bounds.top)[0];
-  return headerSearch ? { kind: "button", point: headerSearch.center } : null;
+  if (headerSearch) return { kind: "button", point: headerSearch.center };
+
+  const topBarIcons = nodes
+    .filter((node) => {
+      const width = node.bounds.right - node.bounds.left;
+      const height = node.bounds.bottom - node.bounds.top;
+      return belongsToFacebook(node.packageName)
+        && node.clickable
+        && !nodeLabel(node)
+        && node.bounds.top <= 180
+        && width >= 35
+        && height >= 35
+        && width <= 170
+        && height <= 170
+        && Math.abs(width - height) <= 55;
+    })
+    .sort((left, right) => right.center.x - left.center.x);
+  const likelySearchIcon = topBarIcons[1] ?? (topBarIcons.length === 1 ? topBarIcons[0] : null);
+  return likelySearchIcon ? { kind: "button", point: likelySearchIcon.center } : null;
 }
 
 export async function clearFocusedFacebookSearchInput(
