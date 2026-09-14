@@ -13,7 +13,11 @@ import {
 const visibleFacebookSearchGboard = [
   "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME",
   "mInputShown=true",
-  "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x3 privateImeOptions=null}"
+  "mCurrentTextBoxAttribute:",
+  "  inputType=0x1 imeOptions=0x3 privateImeOptions=null",
+  "  actionLabel=null actionId=0",
+  "  initialSelStart=12 initialSelEnd=12",
+  "  packageName=com.facebook.katana autofillId=null fieldId=0 fieldName=null"
 ].join("\n");
 
 describe("Facebook Android UI", () => {
@@ -124,11 +128,31 @@ describe("Facebook Android UI", () => {
     ]);
   });
 
+  it("accepts Android 13 InputMethodService's multiline editor block", async () => {
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command.join(" ") === "dumpsys input_method"
+        ? [
+          "mCurId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME",
+          "mWindowVisible=true",
+          "mInputEditorInfo:",
+          "  inputType=0x1 imeOptions=0x12000003 privateImeOptions=null",
+          "  packageName=com.facebook.lite autofillId=null fieldId=0"
+        ].join("\n")
+        : ""
+    ));
+
+    await clearFocusedFacebookSearchInput(runCommand);
+
+    expect(runCommand).toHaveBeenLastCalledWith(["input", "keyevent", "KEYCODE_DEL"]);
+  });
+
   it("does not send clearing shortcuts unless Facebook has a visible Gboard input", async () => {
     const runCommand = vi.fn(async () => (
       "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
       + "mInputShown=false\n"
-      + "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x3}"
+      + "mCurrentTextBoxAttribute:\n"
+      + "  inputType=0x1 imeOptions=0x3 privateImeOptions=null\n"
+      + "  packageName=com.facebook.katana autofillId=null"
     ));
 
     await expect(clearFocusedFacebookSearchInput(runCommand))
@@ -140,7 +164,9 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async () => (
       "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
       + "mInputShown=true\n"
-      + "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x4}"
+      + "mInputEditorInfo:\n"
+      + "  inputType=0x1 imeOptions=0x4 privateImeOptions=null\n"
+      + "  packageName=com.facebook.katana autofillId=null"
     ));
 
     await expect(clearFocusedFacebookSearchInput(runCommand))
@@ -152,7 +178,9 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async () => (
       "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
       + "mInputShown=true\n"
-      + "mCurAttribute=EditorInfo{packageName=com.google.android.apps.messaging inputType=0x1 imeOptions=0x3}"
+      + "mCurrentTextBoxAttribute:\n"
+      + "  inputType=0x1 imeOptions=0x3 privateImeOptions=null\n"
+      + "  packageName=com.google.android.apps.messaging autofillId=null"
     ));
 
     await expect(clearFocusedFacebookSearchInput(runCommand))
@@ -251,7 +279,9 @@ describe("Facebook Android UI", () => {
     const runCommand = vi.fn(async () => (
       "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\n"
       + "mInputShown=false\nmWindowVisible=false\n"
-      + "mCurAttribute=EditorInfo{packageName=com.facebook.katana inputType=0x1 imeOptions=0x3}\n"
+      + "mCurrentTextBoxAttribute:\n"
+      + "  inputType=0x1 imeOptions=0x3 privateImeOptions=null\n"
+      + "  packageName=com.facebook.katana autofillId=null\n"
     ));
 
     await expect(submitFacebookSearchFromKeyboard(runCommand))
