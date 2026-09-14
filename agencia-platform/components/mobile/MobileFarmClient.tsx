@@ -55,6 +55,7 @@ import {
 } from "@/components/mobile/android-automation-ready";
 import {
   findAndroidUiNodeCenter,
+  readAndroidUiHierarchySafely,
   type AndroidUiNodeCriteria,
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
@@ -135,13 +136,7 @@ function waitForAndroidUi(milliseconds: number): Promise<void> {
 }
 
 async function readAndroidUiHierarchy(adb: Adb): Promise<string> {
-  const dumpPath = "/sdcard/nv-mobile-window.xml";
-  await runAdbCommand(adb, ["uiautomator", "dump", dumpPath]);
-  const hierarchy = await runAdbCommand(adb, ["cat", dumpPath]);
-  if (!hierarchy.includes("<hierarchy")) {
-    throw new Error("Android no ha devuelto la estructura accesible de Facebook.");
-  }
-  return hierarchy;
+  return readAndroidUiHierarchySafely((command) => runAdbCommand(adb, command));
 }
 
 async function waitForAndroidUiNode(
