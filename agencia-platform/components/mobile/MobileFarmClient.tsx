@@ -67,6 +67,7 @@ import {
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
   findFacebookSearchEntryTarget,
+  hasVisibleFacebookUi,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 import {
@@ -175,25 +176,51 @@ async function waitForAndroidUiNode(
 
 async function waitForFacebookSearchEntry(
   adb: Adb,
-  knownQueries: readonly string[]
+  knownQueries: readonly string[],
+  onRetryLaunch: () => Promise<void>
 ): Promise<AndroidUiPoint> {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  let sawFacebookUi = false;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
+      const hierarchy = await readAndroidUiHierarchy(adb);
+      sawFacebookUi ||= hasVisibleFacebookUi(hierarchy);
       const target = findFacebookSearchEntryTarget(
-        await readAndroidUiHierarchy(adb),
+        hierarchy,
         knownQueries
       );
       if (target) return target.point;
     } catch (error) {
       lastError = error;
     }
-    await waitForAndroidUi(500);
+    if (attempt === 4) await onRetryLaunch();
+    await waitForAndroidUi(900);
   }
   if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
+  if (sawFacebookUi) {
+    const fallback = await readAndroidPortraitSize(adb);
+    return {
+      x: Math.round(fallback.width * 0.84),
+      y: Math.round(Math.min(120, fallback.height * 0.075))
+    };
+  }
   throw new Error(
     "Facebook se ha abierto, pero no encuentro su buscador. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
   );
+}
+
+async function readAndroidPortraitSize(adb: Adb): Promise<{ width: number; height: number }> {
+  const sizeOutput = await runAdbCommand(adb, ["wm", "size"]);
+  const reportedSizes = Array.from(
+    sizeOutput.matchAll(/(?:Physical|Override) size:\s*(\d+)x(\d+)/gi)
+  );
+  const activeSize = reportedSizes.at(-1);
+  const width = Number(activeSize?.[1]);
+  const height = Number(activeSize?.[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 200 || height < 200 || width >= height) {
+    throw new Error("Android no ha informado de una pantalla vertical valida para abrir la busqueda de Facebook.");
+  }
+  return { width, height };
 }
 
 async function mobileApiJson(url: string, init?: RequestInit) {
@@ -231,7 +258,19 @@ async function openFacebookGroupSearch(
     "1"
   ]);
 
-  const searchEntry = await waitForFacebookSearchEntry(adb, knownQueries);
+  const relaunchFacebook = async () => {
+    await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
+    await waitForAndroidUi(500);
+    await runAdbCommand(adb, [
+      "monkey",
+      "-p",
+      facebookPackage,
+      "-c",
+      "android.intent.category.LAUNCHER",
+      "1"
+    ]);
+  };
+  const searchEntry = await waitForFacebookSearchEntry(adb, knownQueries, relaunchFacebook);
   await runAdbCommand(adb, ["input", "tap", String(searchEntry.x), String(searchEntry.y)]);
   await waitForAndroidUi(500);
   await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));

@@ -39,6 +39,18 @@ function matchesExactly(value: string, labels: readonly string[]): boolean {
   return labels.some((label) => normalized === comparable(label));
 }
 
+export function hasVisibleFacebookUi(hierarchy: string): boolean {
+  return parseAndroidUiNodes(hierarchy).some((node) => (
+    /^com\.facebook\.(?:katana|lite)$/i.test(node.packageName)
+    && node.bounds.top <= 500
+    && (
+      Boolean(nodeLabel(node))
+      || node.clickable
+      || node.className === "android.widget.EditText"
+    )
+  ));
+}
+
 function currentEditorInfoBlocks(inputMethodOutput: string): string[] {
   const lines = inputMethodOutput.split(/\r?\n/);
   const blocks: string[] = [];
