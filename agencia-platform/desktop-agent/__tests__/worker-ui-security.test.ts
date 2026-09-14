@@ -99,7 +99,7 @@ describe("interfaz del agente de control horario", () => {
     expect(dashboard).toContain("Get-FileHash");
     expect(dashboard).toContain("TrustedPublisher");
     expect(dashboard).toContain("Unblock-File -LiteralPath $installerPath");
-    expect(dashboard).toContain("036EE3AAE6C8E30D96CC6C3AD4976A9F0E4A2930F5B918AF3A9F6F09CA19B751");
+    expect(dashboard).toContain("7585F12639DFDC3F5045B97A14848F7ECAD7E4761ADFDEFFAC0EA11CC6CBB26F");
     expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
   });
 

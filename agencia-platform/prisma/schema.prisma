@@ -2851,6 +2851,28 @@ model ApiKey {
   @@index([workspaceId])
 }
 
+model TimeTrackerEnrollmentRequest {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  requesterName     String
+  requesterEmail    String
+  deviceId          String
+  requestKey        String    @unique
+  approvalTokenHash String    @unique
+  status            String    @default("PENDING")
+  selectedUserId    String?
+  codePrefix        String?   @unique
+  codeHash          String?
+  expiresAt         DateTime
+  codeExpiresAt     DateTime?
+  consumedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([workspaceId, status, createdAt])
+  @@index([requesterEmail, deviceId, createdAt])
+}
+
 model Webhook {
   id          String   @id @default(cuid())
   workspaceId String

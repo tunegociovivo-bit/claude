@@ -140,7 +140,7 @@ function updateMenu() {
 }
 function showWindow() { if (!window) createWindow(); window.show(); window.focus(); }
 function createWindow() {
-  window = new BrowserWindow({ width: 520, height: 520, show: false, resizable: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
+  window = new BrowserWindow({ width: 520, height: 680, show: false, resizable: false, title: "Negocio Vivo Control Horario", webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } });
   window.loadFile(path.join(__dirname, "settings.html")); window.on("close", e => { if (!app.isQuitting) { e.preventDefault(); window.hide(); } });
 }
 ipcMain.handle("status:get", async () => {
@@ -171,8 +171,14 @@ ipcMain.handle("enrollment:set", async (_e, input) => {
   const code = String(input || "").trim();
   if (!code) return { ok: false, error: "Introduce el código de vinculación" };
   try {
-    await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: { Authorization: `Bearer ${code}` }, timeout: 15000 });
-    await keytar.setPassword(SERVICE, "agent-token", code);
+    let agentToken = code;
+    if (code.toUpperCase().startsWith("NV-")) {
+      const redeemed = await axios.post(api("/api/public/time-tracking/enrollment-redeem"), { code, deviceId }, { timeout: 15000 });
+      agentToken = redeemed.data?.token;
+      if (!agentToken) throw new Error("missing_agent_token");
+    }
+    await axios.get(api("/api/v1/time-tracking/agent-config"), { headers: { Authorization: `Bearer ${agentToken}` }, timeout: 15000 });
+    await keytar.setPassword(SERVICE, "agent-token", agentToken);
     store.set("onboarded", true);
     lastPolicySync = 0;
     await syncPolicy();
@@ -180,6 +186,18 @@ ipcMain.handle("enrollment:set", async (_e, input) => {
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error?.response?.status === 401 ? "Código no válido o caducado" : "No se pudo conectar con el Hub" };
+  }
+});
+ipcMain.handle("enrollment:request", async (_e, details) => {
+  const name = String(details?.name || "").trim();
+  const email = String(details?.email || "").trim().toLowerCase();
+  if (name.length < 2) return { ok: false, error: "Escribe tu nombre" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Escribe un email válido" };
+  try {
+    await axios.post(api("/api/public/time-tracking/enrollment-request"), { name, email, deviceId }, { timeout: 15000 });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.response?.data?.error?.message || "No se pudo enviar la solicitud" };
   }
 });
 app.whenReady().then(() => { app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true }); createWindow(); tray = new Tray(trayIcon); updateMenu(); startActivityHeartbeat(); schedule(); if (!store.get("onboarded")) showWindow(); });

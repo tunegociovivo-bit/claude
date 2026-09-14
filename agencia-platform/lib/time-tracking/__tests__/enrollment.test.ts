@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildAdminEnrollmentEmail,
   buildWorkerCodeEmail,
+  createEnrollmentApiCredential,
   createEnrollmentCode,
+  createEnrollmentRequestKey,
   hashEnrollmentToken,
   normalizeEnrollmentCode,
   normalizeEnrollmentRequest,
@@ -31,6 +33,18 @@ describe("solicitudes de vinculación del control horario", () => {
     expect(first).toMatch(/^[a-f0-9]{64}$/);
     expect(first).not.toBe(second);
     expect(first).not.toContain("secreto");
+  });
+
+  it("deduplica atómicamente las solicitudes por trabajador y ventana temporal", () => {
+    const now = new Date("2026-09-14T10:04:00.000Z");
+    expect(createEnrollmentRequestKey("ANA@EMPRESA.COM", now)).toBe(createEnrollmentRequestKey("ana@empresa.com", new Date("2026-09-14T10:09:59.000Z")));
+    expect(createEnrollmentRequestKey("ana@empresa.com", now)).not.toBe(createEnrollmentRequestKey("ana@empresa.com", new Date("2026-09-14T10:10:00.000Z")));
+  });
+
+  it("produce la misma credencial al reintentar el canje desde el mismo equipo", () => {
+    const input = { requestId: "req-1", code: "NV-1234567890-ABCDEFGHIJKLMN", deviceId: "pc-ana_01", serverSecret: "test-secret" };
+    expect(createEnrollmentApiCredential(input)).toEqual(createEnrollmentApiCredential(input));
+    expect(createEnrollmentApiCredential(input)).not.toEqual(createEnrollmentApiCredential({ ...input, deviceId: "otro-equipo" }));
   });
 
   it("escapa los datos del trabajador en ambos correos", () => {
