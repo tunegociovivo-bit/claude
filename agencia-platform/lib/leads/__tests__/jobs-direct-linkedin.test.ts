@@ -50,6 +50,31 @@ describe("LinkedIn Jobs nacional", () => {
     expect(urls.some((url) => url.startsWith("https://api.scrapfly.io/"))).toBe(false);
   });
 
+  it("recorre cien páginas nacionales para ampliar el potencial hasta mil ofertas", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (!url.startsWith("https://www.linkedin.com/jobs-guest/")) {
+        throw new Error(`URL inesperada: ${url}`);
+      }
+      const start = new URL(url).searchParams.get("start") ?? "0";
+      return new Response(LINKEDIN_HTML.replace("Acme España", `Empresa ${start}`), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await collectJobs({
+      keyword: "marketing",
+      location: "",
+      apiKey: "",
+      scope: "spain",
+      boards: ["linkedin"]
+    });
+
+    expect(results).toHaveLength(100);
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls).toHaveLength(100);
+    expect(urls.at(-1)).toContain("start=990");
+  });
+
   it("mantiene Scrapfly como respaldo cuando LinkedIn bloquea la petición directa", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -77,6 +102,6 @@ describe("LinkedIn Jobs nacional", () => {
     expect(results).toHaveLength(1);
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(urls.some((url) => url.startsWith("https://www.linkedin.com/jobs-guest/"))).toBe(true);
-    expect(urls.some((url) => url.startsWith("https://api.scrapfly.io/"))).toBe(true);
+    expect(urls.filter((url) => url.startsWith("https://api.scrapfly.io/"))).toHaveLength(1);
   });
 });
