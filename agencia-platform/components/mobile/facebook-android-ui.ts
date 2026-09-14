@@ -82,7 +82,10 @@ export async function submitFacebookSearchFromKeyboard(
   const windowOutput = String(await runCommand(["dumpsys", "window", "displays"]));
   const imeFrame = windowOutput
     .split(/\r?\n/)
-    .filter((line) => /(?:type|mType)\s*=\s*ime\b/i.test(line) && /(?:visible|mVisible)\s*=\s*true\b/i.test(line))
+    .filter((line) => (
+      /(?:type|mType)\s*=\s*(?:ITYPE_)?IME\b/i.test(line)
+      && /(?:visible|mVisible)\s*=\s*true\b/i.test(line)
+    ))
     .map((line): AndroidUiRect | null => {
       const frame = /(?:frame|mFrame)\s*=\s*\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]/i.exec(line);
       if (!frame) return null;
