@@ -94,14 +94,29 @@ describe("Facebook Android UI", () => {
   });
 
   it("clears a restored query before pasting the next approved group name", async () => {
-    const runCommand = vi.fn(async () => "");
+    const runCommand = vi.fn(async (command: readonly string[]) => (
+      command.join(" ") === "dumpsys input_method"
+        ? "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=true\n"
+        : ""
+    ));
 
     await clearFocusedFacebookSearchInput(runCommand);
 
     expect(runCommand.mock.calls).toEqual([
+      [["dumpsys", "input_method"]],
       [["input", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_A"]],
       [["input", "keyevent", "KEYCODE_DEL"]]
     ]);
+  });
+
+  it("does not send clearing shortcuts unless Facebook has a visible Gboard input", async () => {
+    const runCommand = vi.fn(async () => (
+      "mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME\nmInputShown=false\n"
+    ));
+
+    await expect(clearFocusedFacebookSearchInput(runCommand))
+      .rejects.toThrow("teclado visible");
+    expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
   });
 
   it("refuses a lower-page search control that does not belong to an input method", () => {
