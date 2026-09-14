@@ -5,7 +5,7 @@ import { finishProspectIfDone, markLeadEmailOpened, markLeadHumanReply } from "@
 import { recordLeadContactEvent } from "@/lib/leads/contact-events";
 import { addSuppression } from "@/lib/leads/suppressions";
 import { blockLeadCompletely } from "@/lib/leads/optout";
-import { retrieveResendReceivedEmail, retrieveResendSentEmail } from "@/lib/integrations/email";
+import { forwardResendReceivedEmail, retrieveResendReceivedEmail, retrieveResendSentEmail } from "@/lib/integrations/email";
 import { normalizeEmail } from "@/lib/leads/email-verification";
 import { triggerNvIaFromInbound } from "@/lib/ai/nv-ia/inbound-trigger";
 import { isPermanentNoContactReply } from "@/lib/leads/reply-classification";
@@ -227,6 +227,17 @@ async function handleReceivedEmail(opts: { payload: any; emailId: string; eventI
   const recipients = [...(Array.isArray(opts.payload.data?.to) ? opts.payload.data.to : []), ...(Array.isArray(opts.payload.data?.received_for) ? opts.payload.data.received_for : [])]
     .map((value) => normalizeEmail(String(value).match(/[\w.+-]+@[\w.-]+/)?.[0]))
     .filter((value): value is string => !!value);
+  const inboundAddress = normalizeEmail(process.env.LEADS_INBOUND_ADDRESS ?? "info@ia.negociovivo.app");
+  const forwardTo = normalizeEmail(process.env.LEADS_INBOUND_FORWARD_TO ?? "info@negociovivo.com");
+  if (inboundAddress && forwardTo && recipients.includes(inboundAddress)) {
+    await forwardResendReceivedEmail({
+      emailId: opts.emailId,
+      from: `Negocio Vivo <${inboundAddress}>`,
+      to: forwardTo,
+      idempotencyKey: `nv-inbound-forward:${opts.eventId || opts.emailId}`,
+      globalConfigOnly: true
+    });
+  }
   const campaigns = await prisma.prospectingCampaign.findMany({
     where: { kind: "gmb_multichannel", replyTo: { not: null } },
     select: { id: true, workspaceId: true, replyTo: true }

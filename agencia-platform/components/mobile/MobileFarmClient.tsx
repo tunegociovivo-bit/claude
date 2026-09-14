@@ -55,6 +55,7 @@ import {
 } from "@/components/mobile/android-automation-ready";
 import {
   findAndroidUiNodeCenter,
+  readAndroidUiHierarchySafely,
   type AndroidUiNodeCriteria,
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
@@ -63,8 +64,7 @@ import {
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
-  findFacebookSearchImeTarget,
-  findFacebookSearchSuggestionTarget
+  submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 import {
   executeMobileAutomationJob,
@@ -136,13 +136,7 @@ function waitForAndroidUi(milliseconds: number): Promise<void> {
 }
 
 async function readAndroidUiHierarchy(adb: Adb): Promise<string> {
-  const dumpPath = "/sdcard/nv-mobile-window.xml";
-  await runAdbCommand(adb, ["uiautomator", "dump", dumpPath]);
-  const hierarchy = await runAdbCommand(adb, ["cat", dumpPath]);
-  if (!hierarchy.includes("<hierarchy")) {
-    throw new Error("Android no ha devuelto la estructura accesible de Facebook.");
-  }
-  return hierarchy;
+  return readAndroidUiHierarchySafely((command) => runAdbCommand(adb, command));
 }
 
 async function waitForAndroidUiNode(
@@ -212,15 +206,7 @@ async function openFacebookGroupSearch(
   await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
-  const hierarchy = await readAndroidUiHierarchy(adb).catch(() => "");
-  const submitSearch = findFacebookSearchSuggestionTarget(hierarchy, query)
-    ?? findFacebookSearchImeTarget(hierarchy);
-  if (!submitSearch) {
-    throw new Error(
-      "Facebook no ha expuesto una sugerencia exacta ni el botón Buscar del teclado. Revisa la pantalla y vuelve a ejecutar el lote."
-    );
-  }
-  await runAdbCommand(adb, ["input", "tap", String(submitSearch.x), String(submitSearch.y)]);
+  await submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(750);
   const groups = await waitForAndroidUiNode(
     adb,

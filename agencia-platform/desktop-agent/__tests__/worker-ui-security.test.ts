@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -70,10 +70,32 @@ describe("interfaz del agente de control horario", () => {
     const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
 
     expect(dashboard).toContain("Negocio-Vivo-Editor-Confiable.cer");
-    expect(dashboard).toContain("Instalar certificado de confianza");
+    expect(dashboard).toContain('label="Certificado"');
+    expect(dashboard).toContain('label="Descargar para Windows"');
     expect(dashboard).toContain("Solo para equipos internos de Negocio Vivo");
     expect(dashboard).toContain("660043706FBF95556DFDC81B09D3F89271C3037C674CBEEEB3EA4376C18E6FD9");
     expect(dashboard).toContain("7BD7D8745253F281D6A47A61CC396437257D2C7C");
-    expect(dashboard).toContain("Comprueba que coincida antes de instalarlo");
+    expect(dashboard).toContain("Opciones para administración");
+  });
+
+  it("ofrece una instalación interna que verifica firma y hash antes de quitar la marca de Internet", () => {
+    const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
+
+    expect(dashboard).toContain("Copiar comando técnico");
+    expect(dashboard).toContain("Get-AuthenticodeSignature");
+    expect(dashboard).toContain("Get-FileHash");
+    expect(dashboard).toContain("TrustedPublisher");
+    expect(dashboard).toContain("Unblock-File -LiteralPath $installerPath");
+    expect(dashboard).toContain("036EE3AAE6C8E30D96CC6C3AD4976A9F0E4A2930F5B918AF3A9F6F09CA19B751");
+    expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
+  });
+
+  it("no ofrece un bootstrap descargable sin autenticar y explica el único aviso manual", () => {
+    const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
+
+    expect(existsSync(resolve(root, "../public/downloads/Instalar-Control-Horario-Negocio-Vivo.cmd"))).toBe(false);
+    expect(dashboard).not.toContain("WIN_EASY_INSTALL_URL");
+    expect(dashboard).toContain("Más información");
+    expect(dashboard).toContain("Ejecutar de todas formas");
   });
 });

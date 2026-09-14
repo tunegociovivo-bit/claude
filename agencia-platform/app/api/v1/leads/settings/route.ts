@@ -45,7 +45,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   const hunterConfigured = !!(s.hunterApiKeyEnc || process.env.HUNTER_API_KEY);
   const gmbComplianceAccepted = s.gmbComplianceVersion === GMB_COMPLIANCE_VERSION && !!s.gmbComplianceConfirmedAt;
   const envGmbFrom = String(process.env.LEADS_EMAIL_FROM ?? "").trim();
-  const defaultGmbEmail = envGmbFrom.match(/<([^>]+)>/)?.[1]?.trim() || (envGmbFrom.includes("@") ? envGmbFrom : "contacto@prospeccion.negociovivo.com");
+  const defaultGmbEmail = envGmbFrom.match(/<([^>]+)>/)?.[1]?.trim() || (envGmbFrom.includes("@") ? envGmbFrom : "info@ia.negociovivo.app");
   const defaultGmbName = envGmbFrom.includes("<") ? envGmbFrom.slice(0, envGmbFrom.indexOf("<")).trim() || "Negocio Vivo" : "Negocio Vivo";
   const configuredChannels = Array.isArray(s.channels) ? s.channels : [];
   const effectiveLimitsByChannel = Object.fromEntries(
@@ -574,7 +574,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { api }) => {
     where: { workspaceId: api.workspaceId, kind: "gmb_multichannel", isDefault: true },
     data: {
       senderName: s.gmbSenderName ?? "Negocio Vivo",
-      senderEmail: s.gmbSenderEmail ?? "contacto@prospeccion.negociovivo.com",
+      senderEmail: s.gmbSenderEmail ?? "info@ia.negociovivo.app",
       replyTo: s.gmbReplyTo || null,
       status: s.gmbMultichannelEnabled === true ? "active" : "paused",
       complianceMode: s.gmbMultichannelEnabled === true ? "active" : "review"
