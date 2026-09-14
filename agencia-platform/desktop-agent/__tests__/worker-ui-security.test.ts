@@ -88,4 +88,17 @@ describe("interfaz del agente de control horario", () => {
     expect(dashboard).toContain("036EE3AAE6C8E30D96CC6C3AD4976A9F0E4A2930F5B918AF3A9F6F09CA19B751");
     expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
   });
+
+  it("permite al trabajador descargar un instalador fácil de doble clic", () => {
+    const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
+    const bootstrap = readFileSync(resolve(root, "../public/downloads/Instalar-Control-Horario-Negocio-Vivo.cmd"), "utf8");
+
+    expect(dashboard).toContain("Descargar instalador fácil");
+    expect(dashboard).toContain("Solo tienes que descargarlo y hacer doble clic");
+    expect(bootstrap).toContain("Get-FileHash");
+    expect(bootstrap).toContain("Get-AuthenticodeSignature");
+    expect(bootstrap).toContain("TrustedPublisher");
+    expect(bootstrap).toContain("Unblock-File -LiteralPath $installerPath");
+    expect(bootstrap.indexOf("Get-AuthenticodeSignature")).toBeLessThan(bootstrap.indexOf("Unblock-File -LiteralPath $installerPath"));
+  });
 });
