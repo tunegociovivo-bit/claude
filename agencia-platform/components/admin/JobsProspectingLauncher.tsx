@@ -95,7 +95,7 @@ export default function JobsProspectingLauncher({ onCompleted }: { onCompleted: 
             Encontrar empresas que están contratando
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            Busca vacantes en LinkedIn Jobs en toda España, reúne los datos de la empresa y del responsable,
+            Recorre hasta 1.000 vacantes de LinkedIn Jobs en toda España, reúne los datos de la empresa y del responsable,
             y prepara el email y el mensaje privado en una sola campaña. Se deduplican empresas ya conocidas.
           </p>
         </div>

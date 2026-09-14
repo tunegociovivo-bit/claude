@@ -25,12 +25,20 @@ const PRIORITIZE_THROTTLE_MS = 10 * 60 * 1000;
 // redesplegar (aceptable).
 const _lastJobsInboxAt = new Map<string, number>();
 const JOBS_INBOX_THROTTLE_MS = 30 * 60 * 1000;
+// Recuperación automática del mismo trabajo que ofrece el botón «Generar
+// email + LinkedIn». Las operaciones internas son idempotentes, pero las
+// llamadas de redacción/enriquecimiento pueden ser costosas, así que solo se
+// reconcilian como máximo una vez cada 10 minutos por workspace y sin solapes.
+const _lastJobsOutreachAt = new Map<string, number>();
+const _jobsOutreachBusy = new Set<string>();
+const JOBS_OUTREACH_THROTTLE_MS = 10 * 60 * 1000;
 const _gmbBackgroundBusy = new Set<string>();
 import { processSequencesTick } from "@/lib/leads/sequences";
 import { processBroadcastTick } from "@/lib/leads/broadcast";
 import { processAutoFollowupTick } from "@/lib/leads/auto-followup";
-import { processExecOutreachTick } from "@/lib/leads/exec-outreach";
+import { generateJobsReviewDrafts, processExecOutreachTick } from "@/lib/leads/exec-outreach";
 import { ingestJobsInbox } from "@/lib/leads/search-manager";
+import { syncJobLeadsToProspecting } from "@/lib/leads/job-prospecting-bridge";
 import { runProspectingEngine } from "@/lib/leads/prospecting-engine";
 import { processEmailEnrichmentTick } from "@/lib/leads/email-enrichment-worker";
 import { processGmbCadenceTick } from "@/lib/leads/lead-cadence";
@@ -167,6 +175,7 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
   // todos los workspaces, con concurrencia acotada y guard frente a cron solapado.
   const reportsByWorkspace = new Map(report.map((item) => [item.workspaceId, item]));
   const pending = [...workspaces];
+  const pendingJobsOutreach = [...workspaces];
   const worker = async () => {
     while (pending.length) {
       const ws = pending.shift();
@@ -195,7 +204,38 @@ export async function runLeadsCronAllWorkspaces(): Promise<any[]> {
       }
     }
   };
-  await Promise.all([worker(), worker()]);
+  // La redacción de hasta cientos de mensajes no bloquea los ticks esenciales
+  // de otros workspaces. Un único worker limita la presión sobre IA/Apollo.
+  const jobsOutreachWorker = async () => {
+    while (pendingJobsOutreach.length) {
+      const ws = pendingJobsOutreach.shift();
+      if (!ws) return;
+      const wsReport = reportsByWorkspace.get(ws.id);
+      const last = _lastJobsOutreachAt.get(ws.id) ?? 0;
+      if (_jobsOutreachBusy.has(ws.id) || Date.now() - last <= JOBS_OUTREACH_THROTTLE_MS) continue;
+      _lastJobsOutreachAt.set(ws.id, Date.now());
+      _jobsOutreachBusy.add(ws.id);
+      try {
+        const [email, linkedin] = await Promise.allSettled([
+          generateJobsReviewDrafts(ws.id),
+          syncJobLeadsToProspecting({ workspaceId: ws.id })
+        ]);
+        if (wsReport) {
+          wsReport.jobsOutreach = {
+            ...(email.status === "fulfilled"
+              ? { email: email.value }
+              : { emailError: email.reason?.message ?? String(email.reason) }),
+            ...(linkedin.status === "fulfilled"
+              ? { linkedin: linkedin.value }
+              : { linkedinError: linkedin.reason?.message ?? String(linkedin.reason) })
+          };
+        }
+      } finally {
+        _jobsOutreachBusy.delete(ws.id);
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), jobsOutreachWorker()]);
 
   return report;
 }

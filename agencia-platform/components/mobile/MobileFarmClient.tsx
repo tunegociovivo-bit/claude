@@ -26,6 +26,7 @@ import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 import {
   AdbDaemonWebUsbDevice,
   AdbDaemonWebUsbDeviceManager,
+  type AdbDaemonWebUsbConnection,
   type AdbDaemonWebUsbDeviceObserver
 } from "@yume-chan/adb-daemon-webusb";
 import {
@@ -60,10 +61,12 @@ import {
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
 import {
+  clearFocusedFacebookSearchInput,
   extractFacebookMembershipQuestions,
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
+  findFacebookSearchEntryTarget,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 import {
@@ -72,6 +75,12 @@ import {
   type MobileAutomationExecutionResult
 } from "@/components/mobile/mobile-automation-executor";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
+import {
+  closeMobileSessionResources,
+  createMobileSessionAttemptTracker,
+  createMobileSessionCoordinator,
+  runBoundedMobileSessionCleanup
+} from "@/components/mobile/mobile-session-coordinator";
 import {
   formatAndroidProxy,
   getAndroidProxySyncState,
@@ -97,6 +106,12 @@ type SessionStatus =
   | "mirroring"
   | "stopping"
   | "error";
+
+class MobileSessionAttemptCancelledError extends Error {
+  constructor() {
+    super("La conexiÃ³n anterior del mÃ³vil ha sido sustituida por una sesiÃ³n nueva.");
+  }
+}
 
 const credentialStore = new AdbWebCredentialStore("F-Moviles@NegocioVivo");
 
@@ -158,6 +173,29 @@ async function waitForAndroidUiNode(
   throw new Error(failureMessage);
 }
 
+async function waitForFacebookSearchEntry(
+  adb: Adb,
+  knownQueries: readonly string[]
+): Promise<AndroidUiPoint> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const target = findFacebookSearchEntryTarget(
+        await readAndroidUiHierarchy(adb),
+        knownQueries
+      );
+      if (target) return target.point;
+    } catch (error) {
+      lastError = error;
+    }
+    await waitForAndroidUi(500);
+  }
+  if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
+  throw new Error(
+    "Facebook se ha abierto, pero no encuentro su buscador. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
+  );
+}
+
 async function mobileApiJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...init });
   const payload = await response.json().catch(() => null);
@@ -177,7 +215,8 @@ async function resolveFacebookPackage(adb: Adb): Promise<string> {
 async function openFacebookGroupSearch(
   adb: Adb,
   controller: AndroidClipboardController,
-  query: string
+  query: string,
+  knownQueries: readonly string[] = [query]
 ): Promise<void> {
   await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(500);
@@ -192,18 +231,10 @@ async function openFacebookGroupSearch(
     "1"
   ]);
 
-  const search = await waitForAndroidUiNode(
-    adb,
-    { labels: ["Buscar", "Search"] },
-    "Facebook se ha abierto, pero no encuentro el botón Buscar. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
-  );
-  await runAdbCommand(adb, ["input", "tap", String(search.x), String(search.y)]);
-  const input = await waitForAndroidUiNode(
-    adb,
-    { className: "android.widget.EditText", focused: true },
-    "Facebook no ha abierto el campo de búsqueda. Vuelve a intentarlo con la aplicación en primer plano."
-  );
-  await runAdbCommand(adb, ["input", "tap", String(input.x), String(input.y)]);
+  const searchEntry = await waitForFacebookSearchEntry(adb, knownQueries);
+  await runAdbCommand(adb, ["input", "tap", String(searchEntry.x), String(searchEntry.y)]);
+  await waitForAndroidUi(500);
+  await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
   await submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command));
@@ -268,7 +299,12 @@ async function joinSingleFacebookGroup(input: {
   phoneKey: string;
   deviceSerial: string;
 }): Promise<FacebookGroupCandidate> {
-  await openFacebookGroupSearch(input.adb, input.controller, input.candidate.name);
+  await openFacebookGroupSearch(
+    input.adb,
+    input.controller,
+    input.candidate.name,
+    input.batch.candidates.map((candidate) => candidate.name)
+  );
   const currentHierarchy = await readAndroidUiHierarchy(input.adb);
   const existingState = findFacebookMembershipState(currentHierarchy);
   if (existingState) {
@@ -639,10 +675,15 @@ function MobileDeviceCard({
   const screenMountRef = useRef<HTMLDivElement>(null);
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const adbRef = useRef<Adb>();
+  const connectionRef = useRef<AdbDaemonWebUsbConnection>();
+  const connectionPromiseRef = useRef<Promise<AdbDaemonWebUsbConnection>>();
+  const startSessionPromiseRef = useRef<Promise<void>>();
   const clientRef = useRef<AdbScrcpyClient<AdbScrcpyOptionsLatest<true>>>();
   const awakeSessionRef = useRef<AndroidAwakeSession>();
   const closeSessionPromiseRef = useRef<Promise<void>>();
   const decoderRef = useRef<WebCodecsVideoDecoder>();
+  const sessionCoordinatorRef = useRef<ReturnType<typeof createMobileSessionCoordinator>>();
+  const [sessionAttemptTracker] = useState(createMobileSessionAttemptTracker);
   const sizeRef = useRef({ width: 0, height: 0 });
   const closingRef = useRef(false);
   const [status, setStatus] = useState<SessionStatus>("idle");
@@ -682,6 +723,7 @@ function MobileDeviceCard({
   }, [linkedPhone?.androidProxy?.host, linkedPhone?.androidProxy?.port]);
 
   const closeSession = useCallback(() => {
+    sessionAttemptTracker.invalidate();
     if (closeSessionPromiseRef.current) return closeSessionPromiseRef.current;
     closingRef.current = true;
     const closePromise = (async () => {
@@ -689,13 +731,23 @@ function MobileDeviceCard({
       decoderRef.current = undefined;
       screenMountRef.current?.replaceChildren();
       const awakeSession = awakeSessionRef.current;
-      try { await awakeSession?.restore(); } catch { /* restoration already reported */ }
-      if (awakeSessionRef.current === awakeSession) awakeSessionRef.current = undefined;
-      try { await clientRef.current?.close(); } catch { /* already disconnected */ }
+      const client = clientRef.current;
+      const adb = adbRef.current;
+      const connection = connectionRef.current;
+      const pendingConnection = connectionPromiseRef.current;
+      awakeSessionRef.current = undefined;
       clientRef.current = undefined;
-      try { await adbRef.current?.close(); } catch { /* already disconnected */ }
       adbRef.current = undefined;
+      connectionRef.current = undefined;
+      connectionPromiseRef.current = undefined;
       sizeRef.current = { width: 0, height: 0 };
+      await closeMobileSessionResources({
+        awakeSession,
+        client,
+        adb,
+        connection,
+        pendingConnection
+      });
     })();
     closeSessionPromiseRef.current = closePromise;
     const clearClosePromise = () => {
@@ -705,19 +757,69 @@ function MobileDeviceCard({
     };
     void closePromise.then(clearClosePromise, clearClosePromise);
     return closePromise;
-  }, []);
+  }, [sessionAttemptTracker]);
 
-  useEffect(() => () => { void closeSession(); }, [closeSession]);
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") {
+      return () => { void closeSession(); };
+    }
+    const coordinator = createMobileSessionCoordinator({
+      serial: device.serial,
+      release: async () => {
+        const pendingStart = startSessionPromiseRef.current;
+        closingRef.current = true;
+        setStatus((current) => current === "idle" ? current : "stopping");
+        await closeSession();
+        if (pendingStart) {
+          await runBoundedMobileSessionCleanup([async () => { await pendingStart; }], 3_000);
+          await closeSession();
+        }
+        closingRef.current = false;
+        setStatus("idle");
+      }
+    });
+    sessionCoordinatorRef.current = coordinator;
+    return () => {
+      if (sessionCoordinatorRef.current === coordinator) {
+        sessionCoordinatorRef.current = undefined;
+      }
+      coordinator.close();
+      void closeSession();
+    };
+  }, [closeSession, device.serial]);
 
   async function startMirroring() {
     if (status !== "idle" && status !== "error") return;
+    let finishStartSession: () => void = () => {};
+    const startSessionPromise = new Promise<void>((resolve) => {
+      finishStartSession = resolve;
+    });
+    startSessionPromiseRef.current = startSessionPromise;
+    const sessionAttempt = sessionAttemptTracker.begin();
+    const assertCurrentSessionAttempt = () => {
+      if (!sessionAttempt.isCurrent()) throw new MobileSessionAttemptCancelledError();
+    };
     closingRef.current = false;
     setError(null);
     setResolution(null);
     setStatus("connecting");
 
     try {
-      const connection = await device.connect();
+      await sessionCoordinatorRef.current?.requestRelease();
+      assertCurrentSessionAttempt();
+      const connectionPromise = device.connect();
+      connectionPromiseRef.current = connectionPromise;
+      const connection = await connectionPromise;
+      if (connectionPromiseRef.current === connectionPromise) {
+        connectionPromiseRef.current = undefined;
+      }
+      connectionRef.current = connection;
+      if (!sessionAttempt.isCurrent()) {
+        await runBoundedMobileSessionCleanup([
+          async () => { await connection.device.raw.close(); }
+        ]);
+        throw new MobileSessionAttemptCancelledError();
+      }
       setStatus("authorizing");
       const transport = await AdbDaemonTransport.authenticate({
         serial: device.serial,
@@ -726,27 +828,23 @@ function MobileDeviceCard({
       });
       const adb = new Adb(transport);
       adbRef.current = adb;
-      if (closingRef.current) {
-        await closeSession();
-        return;
-      }
+      assertCurrentSessionAttempt();
       const awakeSession = createAndroidAwakeSession(
         (command) => runAdbCommand(adb, command)
       );
       awakeSessionRef.current = awakeSession;
       await awakeSession.ready;
-      if (closingRef.current) {
-        await closeSession();
-        return;
-      }
+      assertCurrentSessionAttempt();
 
       const [reportedModel, version] = await Promise.all([
         adb.getProp("ro.product.model").catch(() => adb.banner.model || device.name || "Android"),
         adb.getProp("ro.build.version.release").catch(() => "")
       ]);
+      assertCurrentSessionAttempt();
       setModel(reportedModel || device.name || "Android");
       setAndroidVersion(version || null);
       let currentProxy = await readAndroidProxy(adb).catch(() => null);
+      assertCurrentSessionAttempt();
       const configuredProxy = linkedPhone?.androidProxy ?? null;
       if (
         configuredProxy
@@ -754,7 +852,9 @@ function MobileDeviceCard({
         && formatAndroidProxy(configuredProxy) !== (currentProxy ? formatAndroidProxy(currentProxy) : "")
       ) {
         await runAdbCommand(adb, ["settings", "put", "global", "http_proxy", formatAndroidProxy(configuredProxy)]);
+        assertCurrentSessionAttempt();
         currentProxy = await readAndroidProxy(adb);
+        assertCurrentSessionAttempt();
         if (!currentProxy || formatAndroidProxy(currentProxy) !== formatAndroidProxy(configuredProxy)) {
           throw new Error("Android no ha confirmado el proxy configurado en NV Leads.");
         }
@@ -774,11 +874,13 @@ function MobileDeviceCard({
 
       setStatus("preparing");
       const serverResponse = await fetch("/api/v1/mobile/scrcpy-server", { cache: "force-cache" });
+      assertCurrentSessionAttempt();
       if (!serverResponse.ok || !serverResponse.body) {
         const detail = await serverResponse.json().catch(() => null);
         throw new Error(detail?.error?.message || detail?.message || "No se ha podido descargar el servicio de pantalla");
       }
       await AdbScrcpyClient.pushServer(adb, serverResponse.body as never);
+      assertCurrentSessionAttempt();
 
       const options = new AdbScrcpyOptionsLatest({
         video: true,
@@ -792,7 +894,9 @@ function MobileDeviceCard({
       });
       const client = await AdbScrcpyClient.start(adb, "/data/local/tmp/scrcpy-server.jar", options);
       clientRef.current = client;
+      assertCurrentSessionAttempt();
       const video = await client.videoStream;
+      assertCurrentSessionAttempt();
       if (!video) throw new Error("El móvil no ha entregado una señal de vídeo");
 
       const renderer = WebGLVideoFrameRenderer.isSupported
@@ -817,12 +921,23 @@ function MobileDeviceCard({
         setError(friendlyError(pipeError));
         setStatus("error");
       });
+      assertCurrentSessionAttempt();
       setStatus("mirroring");
     } catch (startError) {
+      const cancelled = startError instanceof MobileSessionAttemptCancelledError;
       await closeSession();
       closingRef.current = false;
+      if (cancelled) {
+        setStatus("idle");
+        return;
+      }
       setError(friendlyError(startError));
       setStatus("error");
+    } finally {
+      finishStartSession();
+      if (startSessionPromiseRef.current === startSessionPromise) {
+        startSessionPromiseRef.current = undefined;
+      }
     }
   }
 

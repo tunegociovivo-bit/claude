@@ -4306,9 +4306,9 @@ function JobsReviewPanel() {
           onClick={() => void generateDrafts()}
           disabled={generating}
           className="inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-          title="Prepara el email y el mensaje de LinkedIn de cada oferta que todavía no tenga borrador"
+          title="Fuerza ahora la generación; los borradores pendientes también se preparan automáticamente en segundo plano"
         >
-          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🪄"} Generar email + LinkedIn
+          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🪄"} Generar ahora
         </button>
         <a href="/admin/prospeccion" className="inline-flex items-center gap-1 rounded-md border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50">
           Abrir NV Prospección ↗
@@ -4335,8 +4335,8 @@ function JobsReviewPanel() {
       </div>
       <div className="text-[11px] text-slate-600 mt-1">
         {mode === "auto"
-          ? "Modo automático: el email sale solo cuando existe destinatario; el mensaje de LinkedIn siempre queda supervisado en NV Prospección para proteger la cuenta."
-          : "Modo revisión: cada oferta alimenta ambas vías. El email queda aquí y el mensaje privado queda en NV Prospección. Nada sale sin tu visto bueno."}
+          ? "Modo automático: los borradores se generan solos; el email sale cuando existe destinatario y LinkedIn siempre queda supervisado en NV Prospección."
+          : "Modo revisión: los borradores se generan solos. El email queda aquí y el mensaje privado queda en NV Prospección. Nada sale sin tu visto bueno."}
       </div>
       {sentMsg && (
         <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800">
