@@ -20,7 +20,9 @@ describe("Android automation readiness", () => {
     const events: string[] = [];
     const runCommand = vi.fn(async (command: readonly string[]) => {
       events.push(command.join(" "));
-      return command.join(" ") === "settings get global stay_on_while_plugged_in" ? "0\n" : "";
+      if (command.join(" ") === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (command.join(" ") === "settings get system screen_off_timeout") return "15000\n";
+      return "";
     });
 
     const result = await keepAndroidAwakeDuringAutomation(runCommand, async () => {
@@ -31,16 +33,23 @@ describe("Android automation readiness", () => {
     expect(result).toBe(17);
     expect(events).toEqual([
       "settings get global stay_on_while_plugged_in",
+      "settings get system screen_off_timeout",
       "settings put global stay_on_while_plugged_in 2",
+      "settings put system screen_off_timeout 3600000",
+      "input keyevent KEYCODE_WAKEUP",
       "automation",
+      "settings put system screen_off_timeout 15000",
       "settings put global stay_on_while_plugged_in 0"
     ]);
   });
 
   it("restores an unset stay-awake preference when automation fails", async () => {
-    const runCommand = vi.fn(async (command: readonly string[]) =>
-      command.join(" ") === "settings get global stay_on_while_plugged_in" ? "null\n" : ""
-    );
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      const serialized = command.join(" ");
+      if (serialized === "settings get global stay_on_while_plugged_in") return "null\n";
+      if (serialized === "settings get system screen_off_timeout") return "null\n";
+      return "";
+    });
 
     await expect(keepAndroidAwakeDuringAutomation(runCommand, async () => {
       throw new Error("automation failed");
@@ -48,7 +57,11 @@ describe("Android automation readiness", () => {
 
     expect(runCommand.mock.calls).toEqual([
       [["settings", "get", "global", "stay_on_while_plugged_in"]],
+      [["settings", "get", "system", "screen_off_timeout"]],
       [["settings", "put", "global", "stay_on_while_plugged_in", "2"]],
+      [["settings", "put", "system", "screen_off_timeout", "3600000"]],
+      [["input", "keyevent", "KEYCODE_WAKEUP"]],
+      [["settings", "delete", "system", "screen_off_timeout"]],
       [["settings", "delete", "global", "stay_on_while_plugged_in"]]
     ]);
   });
@@ -57,7 +70,8 @@ describe("Android automation readiness", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       const serialized = command.join(" ");
       if (serialized === "settings get global stay_on_while_plugged_in") return "1\n";
-      if (serialized === "settings put global stay_on_while_plugged_in 3") {
+      if (serialized === "settings get system screen_off_timeout") return "30000\n";
+      if (serialized === "settings put system screen_off_timeout 3600000") {
         throw new Error("activation response lost");
       }
       return "";
@@ -70,7 +84,10 @@ describe("Android automation readiness", () => {
     expect(automation).not.toHaveBeenCalled();
     expect(runCommand.mock.calls).toEqual([
       [["settings", "get", "global", "stay_on_while_plugged_in"]],
+      [["settings", "get", "system", "screen_off_timeout"]],
       [["settings", "put", "global", "stay_on_while_plugged_in", "3"]],
+      [["settings", "put", "system", "screen_off_timeout", "3600000"]],
+      [["settings", "put", "system", "screen_off_timeout", "30000"]],
       [["settings", "put", "global", "stay_on_while_plugged_in", "1"]]
     ]);
   });
@@ -81,6 +98,7 @@ describe("Android automation readiness", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       const serialized = command.join(" ");
       if (serialized === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (serialized === "settings get system screen_off_timeout") return "15000\n";
       if (serialized === "settings put global stay_on_while_plugged_in 0") throw restoreError;
       return "";
     });
@@ -102,6 +120,7 @@ describe("Android automation readiness", () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
       const serialized = command.join(" ");
       if (serialized === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (serialized === "settings get system screen_off_timeout") return "15000\n";
       if (serialized === "settings put global stay_on_while_plugged_in 0") throw restoreError;
       return "";
     });
@@ -113,5 +132,34 @@ describe("Android automation readiness", () => {
     )).rejects.toBe(automationError);
 
     expect(reportRestoreError).toHaveBeenCalledWith(restoreError);
+  });
+
+  it("restores stay-awake even if restoring the original timeout fails", async () => {
+    const timeoutRestoreError = new Error("timeout restore failed");
+    const reportRestoreError = vi.fn();
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      const serialized = command.join(" ");
+      if (serialized === "settings get global stay_on_while_plugged_in") return "0\n";
+      if (serialized === "settings get system screen_off_timeout") return "15000\n";
+      if (serialized === "settings put system screen_off_timeout 15000") {
+        throw timeoutRestoreError;
+      }
+      return "";
+    });
+
+    await expect(keepAndroidAwakeDuringAutomation(
+      runCommand,
+      async () => "completed",
+      reportRestoreError
+    )).resolves.toBe("completed");
+
+    expect(runCommand).toHaveBeenCalledWith([
+      "settings",
+      "put",
+      "global",
+      "stay_on_while_plugged_in",
+      "0"
+    ]);
+    expect(reportRestoreError).toHaveBeenCalledWith(timeoutRestoreError);
   });
 });
