@@ -2072,6 +2072,9 @@ function PostFormModal({
   const [aiForcedRoster, setAiForcedRoster] = useState<string[]>([]);
   const [aiRosterOptions, setAiRosterOptions] = useState<string[]>([]);
   const [aiRunning, setAiRunning] = useState(false);
+  const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+  const [createImageEditPrompt, setCreateImageEditPrompt] = useState("");
+  const [createSavedPostId, setCreateSavedPostId] = useState<string | null>(null);
 
   // Cuando abrimos el modal para editar, refrescamos detalle desde el servidor
   useEffect(() => {
@@ -2160,6 +2163,9 @@ function PostFormModal({
         aspectRatio: "auto",
         copyByNetwork: {}
       });
+      setCreateImageFile(null);
+      setCreateImageEditPrompt("");
+      setCreateSavedPostId(null);
     }
   }, [open, post, clients, defaultMonth, defaultClientId, defaultDateIso]);
 
@@ -2289,6 +2295,10 @@ function PostFormModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isEdit && createImageEditPrompt.trim() && !createImageFile) {
+      setError("Sube una imagen para poder modificarla con un prompt al crear la publicacion.");
+      return;
+    }
     setSaving(true);
     setError(null);
     const payload: any = {
@@ -2305,16 +2315,60 @@ function PostFormModal({
       copyByNetwork: Object.keys(form.copyByNetwork).length > 0 ? form.copyByNetwork : null
     };
     if (form.scheduledFor) payload.scheduledFor = new Date(form.scheduledFor).toISOString();
-    const url = isEdit ? `/api/v1/editorial/posts/${post!.id}` : "/api/v1/editorial/posts";
-    const method = isEdit ? "PATCH" : "POST";
-    const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    setSaving(false);
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      setError(j?.error?.message ?? `Error ${r.status}`);
-      return;
+    const draftPostId = !isEdit ? createSavedPostId : null;
+    const url = isEdit
+      ? `/api/v1/editorial/posts/${post!.id}`
+      : draftPostId
+        ? `/api/v1/editorial/posts/${draftPostId}`
+        : "/api/v1/editorial/posts";
+    const method = isEdit || draftPostId ? "PATCH" : "POST";
+    try {
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const saved = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(saved?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+
+      const savedPostId = !isEdit ? (saved?.id ?? draftPostId) : null;
+      if (!isEdit && savedPostId) {
+        setCreateSavedPostId(savedPostId);
+      }
+
+      if (!isEdit && createImageFile && savedPostId) {
+        const uploadBody = new FormData();
+        uploadBody.append("file", createImageFile);
+        const uploadRes = await fetch(`/api/v1/editorial/posts/${savedPostId}/media/upload`, {
+          method: "POST",
+          body: uploadBody
+        });
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setError(uploadData?.error?.message ?? `Error ${uploadRes.status} subiendo la imagen`);
+          return;
+        }
+
+        const prompt = createImageEditPrompt.trim();
+        if (prompt) {
+          const editRes = await fetch(`/api/v1/editorial/posts/${savedPostId}/edit-image`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, quality: "medium" })
+          });
+          const editData = await editRes.json().catch(() => ({}));
+          if (!editRes.ok) {
+            setError(editData?.error?.message ?? `Error ${editRes.status} modificando la imagen`);
+            return;
+          }
+        }
+      }
+
+      onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
-    onSaved();
   }
 
   // Vista previa estilo plugin: imagen grande + copy + hashtags
@@ -2856,6 +2910,48 @@ function PostFormModal({
                     {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
                   </button>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isEdit && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="h-4 w-4 text-sky-700" />
+              <span className="text-sm font-medium text-sky-950">Imagen inicial y modificacion con IA</span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Sube una imagen para esta publicacion. Si escribes un prompt, el Hub la modificara automaticamente al guardar y dejara la version editada como imagen principal.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-[220px,1fr] gap-3">
+              <label className="flex min-h-[90px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sky-300 bg-white px-3 py-4 text-center text-xs text-slate-600 hover:bg-sky-50">
+                <ImageIcon className="mb-2 h-5 w-5 text-sky-600" />
+                <span className="font-medium text-sky-800">
+                  {createImageFile ? createImageFile.name : "Subir imagen"}
+                </span>
+                <span className="mt-1 text-[10px] text-slate-500">PNG, JPG o WEBP</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => setCreateImageFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Prompt para modificar la imagen subida
+                </label>
+                <textarea
+                  value={createImageEditPrompt}
+                  onChange={(e) => setCreateImageEditPrompt(e.target.value)}
+                  rows={4}
+                  placeholder="Ej. cambia el fondo por una clinica luminosa, manten a la persona igual, anade sensacion premium y colores de marca..."
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Si dejas el prompt vacio, solo se sube la imagen original.
+                </p>
               </div>
             </div>
           </div>
