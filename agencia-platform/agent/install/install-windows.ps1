@@ -32,6 +32,10 @@ if ($AutoStart) {
   Register-ScheduledTask -TaskName "NegocioVivoBankAgentWatchdog" -Action $action -Trigger @($logonTrigger, $recoveryTrigger) -Settings $settings -Force | Out-Null
   Disable-ScheduledTask -TaskName "NegocioVivoBankAgent" -ErrorAction SilentlyContinue | Out-Null
   Start-ScheduledTask -TaskName "NegocioVivoBankAgentWatchdog"
+  $guardian = Join-Path $PSScriptRoot "run-watchdog-guardian.ps1"
+  $guardianCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $guardian + '"'
+  New-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "NegocioVivoBankAgentGuardian" -Value $guardianCommand -PropertyType String -Force | Out-Null
+  Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $guardian)
   Write-Host "Scheduled task NegocioVivoBankAgentWatchdog installed with automatic recovery."
 }
 
