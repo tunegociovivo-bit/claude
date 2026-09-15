@@ -104,7 +104,14 @@ async function captureCycle() {
     form.append("deviceId", deviceId); form.append("capturedAt", new Date().toISOString());
     form.append("retentionDays", String(store.get("retentionDays"))); form.append("appName", win?.owner?.name || "");
     form.append("blurred", String(Boolean(store.get("blur"))));
-    await fetch(api("/api/v1/time-tracking/screenshots"), { method: "POST", headers: await headers(), body: form });
+    const response = await fetch(api("/api/v1/time-tracking/screenshots"), { method: "POST", headers: await headers(), body: form });
+    if (!response.ok) {
+      let detail = `Error subiendo captura (${response.status})`;
+      try { const payload = await response.json(); detail = payload?.error?.message || payload?.message || detail; } catch {}
+      throw new Error(detail);
+    }
+    store.delete("lastError");
+    store.set("lastScreenshotAt", new Date().toISOString());
   } catch (e) { store.set("lastError", String(e?.message || e)); } finally { schedule(); updateMenu(); }
 }
 async function togglePause() {
