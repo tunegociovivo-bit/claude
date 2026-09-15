@@ -67,6 +67,7 @@ import {
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
   findFacebookSearchEntryTarget,
+  findFacebookSearchSuggestionTarget,
   hasVisibleFacebookUi,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
@@ -277,6 +278,19 @@ async function openFacebookSearchThroughAndroidIntent(
   return tapFacebookGroupsTabIfVisible(adb);
 }
 
+async function tapFacebookSearchSuggestionIfVisible(adb: Adb, query: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const point = findFacebookSearchSuggestionTarget(await readAndroidUiHierarchy(adb), query);
+    if (point) {
+      await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]);
+      await waitForAndroidUi(1200);
+      return true;
+    }
+    await waitForAndroidUi(500);
+  }
+  return false;
+}
+
 async function openFacebookGroupSearch(
   adb: Adb,
   controller: AndroidClipboardController,
@@ -317,6 +331,7 @@ async function openFacebookGroupSearch(
   await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
+  if (await tapFacebookSearchSuggestionIfVisible(adb, query)) return;
   await submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(750);
   if (await tapFacebookGroupsTabIfVisible(adb)) return;
