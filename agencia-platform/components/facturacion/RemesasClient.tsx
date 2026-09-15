@@ -226,6 +226,7 @@ function SepaClientRow({ client, saving, onChange, onSave }: { client: SepaClien
 type Agent = {
   id: string; name: string; status: string; version: string | null; platform: string | null;
   lastHeartbeatAt: string | null; createdAt: string; revokedAt: string | null; online: boolean;
+  heartbeatAgeSeconds: number | null; connectionState: "ONLINE" | "OFFLINE" | "NEVER_CONNECTED" | "REVOKED";
 };
 type Job = {
   id: string; status: string; invoiceNumber: string | null; clientName: string;
@@ -372,6 +373,9 @@ function AgentTab() {
       {/* Agentes */}
       <div className="rounded-lg border bg-white p-3 space-y-3">
         <div className="font-semibold text-slate-800">Agentes bancarios</div>
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          El agente instalado conserva siempre la misma identidad. Su supervisor lo reinicia si se detiene y Windows vuelve a lanzarlo cada minuto si también cae el supervisor. Esta pantalla actualiza el estado cada 20 segundos.
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enroll()} placeholder="Nombre del agente (p. ej. PC-Oficina)" className="px-2 py-1.5 rounded border text-sm" />
           <button onClick={() => void enroll()} disabled={enrolling || !newName.trim()} className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">{enrolling ? "Enrolando…" : "Enrolar agente"}</button>
@@ -401,10 +405,12 @@ function AgentTab() {
                   <td className="px-3 py-2">
                     {a.status === "REVOKED" ? (
                       <span className="inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-500 border-slate-300">Revocado</span>
-                    ) : a.online ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-emerald-100 text-emerald-800 border-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Online</span>
+                    ) : a.connectionState === "ONLINE" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-emerald-100 text-emerald-800 border-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Online · hace {a.heartbeatAgeSeconds ?? 0}s</span>
+                    ) : a.connectionState === "NEVER_CONNECTED" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-800 border-amber-300"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Sin instalar</span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-500 border-slate-300"><span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Offline</span>
+                      <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-rose-100 text-rose-800 border-rose-300"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" />Offline · recuperación automática</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-500">{a.version ?? "—"}{a.platform ? ` · ${a.platform}` : ""}</td>

@@ -71,7 +71,16 @@ export async function listAgents(workspaceId: string) {
     select: { id: true, name: true, status: true, version: true, platform: true, lastHeartbeatAt: true, createdAt: true, revokedAt: true }
   });
   const now = Date.now();
-  return rows.map((a) => ({ ...a, online: a.status === "ACTIVE" && !!a.lastHeartbeatAt && now - a.lastHeartbeatAt.getTime() < ONLINE_WINDOW_MS }));
+  return rows.map((a) => {
+    const heartbeatAgeMs = a.lastHeartbeatAt ? Math.max(0, now - a.lastHeartbeatAt.getTime()) : null;
+    const online = a.status === "ACTIVE" && heartbeatAgeMs !== null && heartbeatAgeMs < ONLINE_WINDOW_MS;
+    return {
+      ...a,
+      online,
+      heartbeatAgeSeconds: heartbeatAgeMs === null ? null : Math.floor(heartbeatAgeMs / 1000),
+      connectionState: a.status === "REVOKED" ? "REVOKED" : online ? "ONLINE" : a.lastHeartbeatAt ? "OFFLINE" : "NEVER_CONNECTED"
+    };
+  });
 }
 
 /** Autentica al agente por su Bearer token (hash). Devuelve el agente ACTIVE o null. */

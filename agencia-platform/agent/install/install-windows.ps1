@@ -26,11 +26,13 @@ if ($AutoStart) {
   $watchdog = Join-Path $PSScriptRoot "run-agent-watchdog.ps1"
   $taskArgument = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $watchdog + '" -AgentRoot "' + $agentRoot + '"'
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgument
-  $trigger = New-ScheduledTaskTrigger -AtLogOn
-  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
-  Register-ScheduledTask -TaskName "NegocioVivoBankAgent" -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
-  Start-ScheduledTask -TaskName "NegocioVivoBankAgent"
-  Write-Host "Scheduled task NegocioVivoBankAgent installed."
+  $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
+  $recoveryTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+  Register-ScheduledTask -TaskName "NegocioVivoBankAgentWatchdog" -Action $action -Trigger @($logonTrigger, $recoveryTrigger) -Settings $settings -Force | Out-Null
+  Disable-ScheduledTask -TaskName "NegocioVivoBankAgent" -ErrorAction SilentlyContinue | Out-Null
+  Start-ScheduledTask -TaskName "NegocioVivoBankAgentWatchdog"
+  Write-Host "Scheduled task NegocioVivoBankAgentWatchdog installed with automatic recovery."
 }
 
 Write-Host "Installation completed."
