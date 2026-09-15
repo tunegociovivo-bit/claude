@@ -1,0 +1,26 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.1" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
+    <MajorUpgrade DowngradeErrorMessage="Ya hay una versión más reciente instalada." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="Negocio Vivo Control Horario">
+        <Component Id="AgentExecutable" Guid="*">
+          <File Id="AgentExe" Source="windows-time-agent\publish\Negocio Vivo Control Horario.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="AgentD3D" Guid="*"><File Source="windows-time-agent\publish\D3DCompiler_47_cor3.dll" KeyPath="yes" /></Component>
+        <Component Id="AgentPen" Guid="*"><File Source="windows-time-agent\publish\PenImc_cor3.dll" KeyPath="yes" /></Component>
+        <Component Id="AgentPresentation" Guid="*"><File Source="windows-time-agent\publish\PresentationNative_cor3.dll" KeyPath="yes" /></Component>
+        <Component Id="AgentVcruntime" Guid="*"><File Source="windows-time-agent\publish\vcruntime140_cor3.dll" KeyPath="yes" /></Component>
+        <Component Id="AgentWpf" Guid="*"><File Source="windows-time-agent\publish\wpfgfx_cor3.dll" KeyPath="yes" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="Negocio Vivo Control Horario" Level="1">
+      <ComponentRef Id="AgentExecutable" />
+      <ComponentRef Id="AgentD3D" />
+      <ComponentRef Id="AgentPen" />
+      <ComponentRef Id="AgentPresentation" />
+      <ComponentRef Id="AgentVcruntime" />
+      <ComponentRef Id="AgentWpf" />
+    </Feature>
+  </Package>
+</Wix>

@@ -11,7 +11,7 @@ type Worker={user:{id:string;name:string;email:string};policy:Policy;sessions:an
 type EnrollmentApproval={id:string;name:string;email:string;status:string;suggestedUserId:string|null};
 const duration=(s:number)=>`${Math.floor(s/3600)} h ${Math.floor((s%3600)/60)} min`;
 const time=(d:string|null)=>d?new Date(d).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}):"—";
-const WIN_URL="https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.3.1/Negocio.Vivo.Control.Horario.0.3.7.msi";
+const WIN_URL="https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.3.1/Negocio.Vivo.Control.Horario.Native.1.0.1.msi";
 const WIN_CERT_URL="/downloads/time-agent-v0.3.1-antivirus/Negocio-Vivo-Editor-Confiable.cer";
 const MAC_URL=process.env.NEXT_PUBLIC_TIME_AGENT_MAC_URL||"https://github.com/tunegociovivo-bit/claude/releases/download/time-agent-v0.1.1/Negocio.Vivo.Control.Horario-0.1.1-arm64.dmg";
 export default function TimeTrackingClient(){
