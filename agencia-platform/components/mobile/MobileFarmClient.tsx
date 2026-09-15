@@ -56,6 +56,7 @@ import {
 } from "@/components/mobile/android-automation-ready";
 import {
   findAndroidUiNodeCenter,
+  parseAndroidUiNodes,
   readAndroidUiHierarchySafely,
   type AndroidUiPoint
 } from "@/components/mobile/android-ui-hierarchy";
@@ -154,6 +155,28 @@ async function readAndroidUiHierarchy(adb: Adb): Promise<string> {
   return readAndroidUiHierarchySafely((command) => runAdbCommand(adb, command));
 }
 
+async function summarizeAndroidForeground(adb: Adb): Promise<string> {
+  const focusedWindow = await runAdbCommand(adb, [
+    "sh",
+    "-c",
+    "dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp|topResumedActivity' | head -n 6"
+  ]).catch(() => "");
+  const hierarchy = await readAndroidUiHierarchy(adb).catch(() => "");
+  const nodes = hierarchy ? parseAndroidUiNodes(hierarchy) : [];
+  const packages = Array.from(new Set(nodes.map((node) => node.packageName).filter(Boolean))).slice(0, 6);
+  const labels = nodes
+    .map((node) => (node.text.trim() || node.contentDescription.trim()))
+    .filter(Boolean)
+    .filter((label, index, all) => all.indexOf(label) === index)
+    .slice(0, 16);
+  const details = [
+    String(focusedWindow).trim() ? `foco: ${String(focusedWindow).trim().replace(/\s+/g, " ")}` : "",
+    packages.length ? `paquetes visibles: ${packages.join(", ")}` : "",
+    labels.length ? `textos visibles: ${labels.join(" | ")}` : ""
+  ].filter(Boolean);
+  return details.length ? details.join(" · ") : "Android no ha devuelto detalle accesible de la pantalla actual.";
+}
+
 async function waitForFacebookSearchEntry(
   adb: Adb,
   knownQueries: readonly string[],
@@ -185,7 +208,7 @@ async function waitForFacebookSearchEntry(
     };
   }
   throw new Error(
-    "Facebook se ha abierto, pero no encuentro su buscador. Comprueba que la sesión esté iniciada y vuelve a intentarlo."
+    `Facebook se ha abierto, pero no encuentro su buscador. Pantalla detectada: ${await summarizeAndroidForeground(adb)}`
   );
 }
 
