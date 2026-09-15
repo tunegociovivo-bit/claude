@@ -864,8 +864,9 @@ function MobileDeviceCard({
     };
   }, [closeSession, device.serial]);
 
-  async function startMirroring() {
-    if (status !== "idle" && status !== "error") return;
+  async function startMirroring(): Promise<boolean> {
+    if (status === "mirroring") return true;
+    if (status !== "idle" && status !== "error") return false;
     let finishStartSession: () => void = () => {};
     const startSessionPromise = new Promise<void>((resolve) => {
       finishStartSession = resolve;
@@ -999,16 +1000,18 @@ function MobileDeviceCard({
       });
       assertCurrentSessionAttempt();
       setStatus("mirroring");
+      return true;
     } catch (startError) {
       const cancelled = startError instanceof MobileSessionAttemptCancelledError;
       await closeSession();
       closingRef.current = false;
       if (cancelled) {
         setStatus("idle");
-        return;
+        return false;
       }
       setError(friendlyError(startError));
       setStatus("error");
+      return false;
     } finally {
       finishStartSession();
       if (startSessionPromiseRef.current === startSessionPromise) {
@@ -1526,6 +1529,7 @@ function MobileDeviceCard({
                   deviceSerial={device.serial}
                   phoneKey={linkedPhone.key}
                   ready={status === "mirroring"}
+                  onEnsureReady={startMirroring}
                   onExecuteJob={executeApprovedAutomation}
                   onPasteText={pasteApprovedAutomation}
                 />
