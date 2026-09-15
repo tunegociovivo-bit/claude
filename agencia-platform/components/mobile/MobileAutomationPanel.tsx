@@ -58,6 +58,7 @@ type Props = {
   deviceSerial: string;
   phoneKey: string;
   ready: boolean;
+  onEnsureReady?: () => Promise<boolean>;
   onExecuteJob: (job: MobileAutomationExecutableJob) => Promise<MobileAutomationExecutionResult>;
   onPasteText: (text: string) => Promise<void>;
 };
@@ -215,6 +216,7 @@ export default function MobileAutomationPanel({
   deviceSerial,
   phoneKey,
   ready,
+  onEnsureReady,
   onExecuteJob,
   onPasteText
 }: Props) {
@@ -406,6 +408,14 @@ export default function MobileAutomationPanel({
       await loadJobs();
       if (action === "APPROVE" || action === "RETRY") {
         if (action === "RETRY") {
+          if (!ready && onEnsureReady) {
+            setWorkerMessage("Abriendo pantalla del movil para lanzar el reintento...");
+            const opened = await onEnsureReady();
+            setWorkerMessage(opened
+              ? "Reintento lanzado. El movil empezara con los grupos pendientes."
+              : "Reintento en cola. No se ha podido abrir la pantalla del movil.");
+            return;
+          }
           setWorkerMessage(ready
             ? "Reintento lanzado. El movil empezara con los grupos pendientes."
             : "Reintento en cola hasta que abras la pantalla del movil.");
