@@ -547,7 +547,8 @@ async function fetchOfferPage(u: string, allowedDomains: string[]): Promise<{ ok
 }
 
 /** Verifica en paralelo las URLs y recoge el texto de las fichas válidas.
- *  Las no verificadas se vacían (la UI usará "Buscar en el portal"). */
+ *  Si el portal bloquea el fetch del servidor, conservamos la URL directa
+ *  saneada como enlace no verificado, pero nunca generamos enlaces a Google. */
 async function verifyAndCollectPages(
   opps: Opportunity[],
   portals: Portal[]
@@ -820,23 +821,10 @@ async function analyzeListings(
       sources: []
     } satisfies Opportunity;
   });
-  // Saneo de enlaces + enlace de respaldo:
-  //  - url: si es claramente listado/búsqueda/paginación/home, la vaciamos.
-  //  - searchUrl: SIEMPRE generamos una búsqueda en el portal (Google
-  //    site:dominio "título" zona) para que el usuario pueda llegar a la
-  //    ficha aunque no tengamos su URL directa verificada.
+  // Saneo de enlaces. La lista final solo debe ofrecer anuncios con ficha
+  // directa; si no hay URL individual, no se genera ningún enlace alternativo.
   const domainByKey = new Map(portals.map((p) => [p.key.toLowerCase(), p.domain]));
   const domainByLabel = new Map(portals.map((p) => [p.label.toLowerCase(), p.domain]));
-  const buildSearchUrl = (o: Opportunity): string => {
-    const domain =
-      domainByKey.get((o.portal || "").toLowerCase()) ||
-      domainByLabel.get((o.portal_label || "").toLowerCase()) ||
-      domainByLabel.get((o.portal || "").toLowerCase()) ||
-      "";
-    const terms = [o.title, o.location].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
-    const q = (domain ? `site:${domain} ` : `${o.portal_label || ""} `) + terms;
-    return "https://www.google.com/search?q=" + encodeURIComponent(q.trim());
-  };
   const allowedDomains = portals.map((portal) => portal.domain.toLowerCase());
   opps = opps.map((o) => {
     const opportunityDomain =
@@ -846,16 +834,18 @@ async function analyzeListings(
       ...o,
       url: cleanOfferUrl(o.url, opportunityDomain ? [opportunityDomain] : allowedDomains),
       url_verified: false,
-      searchUrl: buildSearchUrl(o)
+      searchUrl: undefined
     };
   });
-  // Verificación HTTP + recogida del texto de las fichas válidas. Las URLs
-  // que dan 404 o redirigen a la home se vacían (→ "Buscar en el portal").
+  // Verificación HTTP + recogida del texto de las fichas válidas.
   const verified = await verifyAndCollectPages(opps, portals);
   opps = verified.opps;
   // Enriquecimiento: extrae precio/teléfono/superficie reales de las fichas
   // verificadas y recalcula €/m², descuento y rentabilidad.
   opps = await enrichFromPages(workspaceId, opps, verified.pages);
+  const candidatesWithDirectUrl = opps.filter((opportunity) => opportunity.url);
+  const withoutDirectUrl = opps.length - candidatesWithDirectUrl.length;
+  opps = candidatesWithDirectUrl;
   const candidatesFound = opps.length;
   const matched = matchAndRankOpportunities(opps, params as BusinessPremisesSearch);
   const countedCoverage = coverage.map((item) => ({
@@ -869,7 +859,10 @@ async function analyzeListings(
   return {
     opportunities: matched.opportunities,
     summary: data.summary ?? "",
-    notes: data.notes || undefined,
+    notes: [
+      data.notes,
+      withoutDirectUrl > 0 ? `${withoutDirectUrl} candidatos se ocultaron porque no tenían enlace directo a la ficha del anuncio.` : ""
+    ].filter(Boolean).join(" ") || undefined,
     searchedPortals: portals.map((p) => ({ key: p.key, label: p.label, bank: p.bank })),
     portalCoverage: countedCoverage,
     stats: {

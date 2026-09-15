@@ -493,8 +493,7 @@ function OpportunityCard({ o, fav, onToggleFav }: { o: Opportunity; fav?: boolea
   const legacy = !Array.isArray(o.fit_breakdown);
   const verdictLabel = o.verdict === "OPORTUNIDAD" ? "Encaje alto" : o.verdict === "INTERESANTE" ? "Encaje medio" : "Encaje bajo";
   const color = o.verdict === "OPORTUNIDAD" ? "emerald" : o.verdict === "INTERESANTE" ? "amber" : "rose";
-  const verifiedDirectLink = legacy || o.url_verified === true;
-  const link = verifiedDirectLink ? (o.url || o.searchUrl) : o.searchUrl;
+  const link = o.url;
   return (
     <article className="bg-white rounded-xl border p-4">
       <div className="flex items-start gap-4">
@@ -525,7 +524,7 @@ function OpportunityCard({ o, fav, onToggleFav }: { o: Opportunity; fav?: boolea
 
           {(o.pros?.length > 0 || o.cons?.length > 0) && <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">{o.pros?.length > 0 && <ul className="space-y-0.5">{o.pros.map((item, index) => <li key={index} className="text-xs text-emerald-700 flex items-start gap-1"><CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />{item}</li>)}</ul>}{o.cons?.length > 0 && <ul className="space-y-0.5">{o.cons.map((item, index) => <li key={index} className="text-xs text-rose-600 flex items-start gap-1"><AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />{item}</li>)}</ul>}</div>}
           {o.reasoning && <p className="mt-2 text-xs text-slate-600 leading-relaxed flex items-start gap-1"><TrendingUp className="h-3 w-3 mt-0.5 shrink-0 text-slate-400" />{o.reasoning}</p>}
-          <div className="mt-3 flex items-center gap-3 flex-wrap">{link ? <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium">{verifiedDirectLink && o.url ? "Ver oferta" : "Buscar en el portal"}<ExternalLink className="h-3 w-3" /></a> : <span className="text-xs text-slate-400">Sin enlace disponible</span>}{!legacy && o.url && !o.url_verified && <span className="text-[11px] text-amber-700">Ficha directa sin verificar</span>}{o.sources?.length > 1 && <span className="text-[11px] text-slate-500">Publicado en {o.sources.length} fuentes</span>}</div>
+          <div className="mt-3 flex items-center gap-3 flex-wrap">{link ? <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium">Ver anuncio<ExternalLink className="h-3 w-3" /></a> : <span className="text-xs text-slate-400">Sin enlace disponible</span>}{!legacy && o.url && !o.url_verified && <span className="text-[11px] text-amber-700">Ficha directa sin verificar</span>}{o.sources?.length > 1 && <span className="text-[11px] text-slate-500">Publicado en {o.sources.length} fuentes</span>}</div>
         </div>
       </div>
     </article>
