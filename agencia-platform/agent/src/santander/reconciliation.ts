@@ -64,13 +64,16 @@ export async function clickAfterDismissingModal(page: any, locator: any, dismiss
     await locator.click({ timeout: 8000 });
   } catch (error) {
     const message = String(error);
-    if (!/(?:modal[\s\S]*intercepts pointer events|intercepts pointer events[\s\S]*modal)/i.test(message)) throw error;
+    const modalIntercepted = /(?:modal[\s\S]*intercepts pointer events|intercepts pointer events[\s\S]*modal)/i.test(message);
+    const stableClickTimedOut = /locator\.click:[\s\S]*Timeout \d+ms exceeded[\s\S]*(?:visible, enabled and stable|scrolling into view)/i.test(message);
+    if (!modalIntercepted && !stableClickTimedOut) throw error;
     if (dismissModal) await dismissModal();
-    else {
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
-    }
-    await locator.click({ timeout: 8000 });
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(300);
+    // PrimeNG puede conservar una capa transparente sobre el split-button aun
+    // después de cerrar el diálogo. El locator ya está restringido a la fila
+    // y al botón de menú; force evita únicamente esa capa, no cambia el destino.
+    await locator.click({ timeout: 8000, force: true, noWaitAfter: true });
   }
 }
 

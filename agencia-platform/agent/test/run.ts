@@ -115,7 +115,19 @@ async function main() {
       { click: async () => { if (++clicks === 1) throw new Error("div.modal subtree intercepts pointer events"); } },
       async () => { modalDismissed++; }
     );
-    ok("cierra el modal residual y reintenta el clic de la siguiente remesa", clicks === 2 && escaped === 0 && modalDismissed === 1);
+    ok("cierra el modal residual y reintenta el clic de la siguiente remesa", clicks === 2 && escaped === 1 && modalDismissed === 1);
+
+    let timeoutClicks = 0;
+    let forced = false;
+    await clickAfterDismissingModal(
+      { keyboard: { press: async () => {} }, waitForTimeout: async () => {} },
+      { click: async (options: any) => {
+        timeoutClicks++;
+        if (timeoutClicks === 1) throw new Error("locator.click: Timeout 8000ms exceeded - element is visible, enabled and stable - scrolling into view if needed");
+        forced = options.force === true && options.noWaitAfter === true;
+      } }
+    );
+    ok("fuerza de forma acotada el split-button estable que PrimeNG deja bloqueado", timeoutClicks === 2 && forced);
 
     let reopened = 0;
     const restoredFrame = await restoreRemittanceListFrame(
