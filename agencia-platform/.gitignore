@@ -5,6 +5,9 @@ out/
 *.log
 .env*.local
 tsconfig.tsbuildinfo
+windows-time-agent/bin/
+windows-time-agent/obj/
+windows-time-agent/publish/
 
 # Playwright
 /test-results/
