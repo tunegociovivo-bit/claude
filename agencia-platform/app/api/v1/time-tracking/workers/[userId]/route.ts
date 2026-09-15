@@ -5,12 +5,24 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 
+const clamp = (value: number, min: number, max: number, fallback: number) => {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value)));
+};
+const bool = z.coerce.boolean();
 const policySchema = z.object({
-  trackingEnabled: z.boolean(), collectApps: z.boolean(), collectDomains: z.boolean(),
-  collectWindowTitles: z.boolean(), collectIdle: z.boolean(), screenshotsEnabled: z.boolean(),
-  screenshotInterval: z.number().int().min(2).max(120), screenshotJitter: z.number().int().min(0).max(50),
-  blurScreenshots: z.boolean(), retentionDays: z.number().int().min(1).max(90),
-  allowPrivateMode: z.boolean(), excludedApps: z.array(z.string().min(1).max(120)).max(100)
+  trackingEnabled: bool.default(true),
+  collectApps: bool.default(true),
+  collectDomains: bool.default(true),
+  collectWindowTitles: bool.default(false),
+  collectIdle: bool.default(true),
+  screenshotsEnabled: bool.default(true),
+  screenshotInterval: z.coerce.number().transform(value => clamp(value, 2, 120, 10)).default(10),
+  screenshotJitter: z.coerce.number().transform(value => clamp(value, 0, 50, 20)).default(20),
+  blurScreenshots: bool.default(false),
+  retentionDays: z.coerce.number().transform(value => clamp(value, 1, 90, 30)).default(30),
+  allowPrivateMode: bool.default(true),
+  excludedApps: z.array(z.coerce.string().transform(value => value.trim()).pipe(z.string().min(1).max(120))).max(100).default([])
 });
 
 async function requireAdmin(workspaceId: string, actorId?: string) {
