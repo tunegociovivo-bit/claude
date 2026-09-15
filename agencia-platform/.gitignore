@@ -8,6 +8,8 @@ tsconfig.tsbuildinfo
 windows-time-agent/bin/
 windows-time-agent/obj/
 windows-time-agent/publish/
+windows-time-agent/installer/*.msi
+windows-time-agent/installer/*.wixpdb
 
 # Playwright
 /test-results/
