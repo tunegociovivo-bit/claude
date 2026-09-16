@@ -78,7 +78,7 @@ import {
 import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
-import { readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
+import { discardMobileClipboard, readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
 import {
   closeMobileSessionResources,
   createMobileSessionAttemptTracker,
@@ -957,6 +957,11 @@ function MobileDeviceCard({
       });
       const client = await AdbScrcpyClient.start(adb, "/data/local/tmp/scrcpy-server.jar", options);
       clientRef.current = client;
+      // Clipboard notifications share the channel with paste acknowledgements.
+      // An unread notification blocks every subsequent setClipboard promise.
+      if (client.clipboard) {
+        void discardMobileClipboard(client.clipboard).catch(() => { /* The connection lifecycle reports disconnection. */ });
+      }
       // Drain the server stream: input permission errors otherwise remain
       // invisible while the video stream still appears healthy.
       void readMobileControlOutput(client.output, (message) => {
