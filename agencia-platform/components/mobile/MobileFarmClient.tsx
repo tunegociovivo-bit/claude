@@ -1045,10 +1045,19 @@ function MobileDeviceCard({
     if (!awakeSessionRef.current) {
       throw new Error("La protección de pantalla de Android no está activa.");
     }
+    const dismissConversationKeyboard = async () => {
+      const inputState = String(await runAdbCommand(adb, ["dumpsys", "input_method"]));
+      if (/\bmInputShown\s*=\s*true\b/.test(inputState)) {
+        await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_BACK"]);
+        await waitForAndroidUi(400);
+      }
+    };
     const conversationDependencies = (batch: FacebookConversationBatch): ConversationRunnerDependencies => ({
       read: () => readAndroidUiHierarchy(adb),
+      dismissKeyboard: dismissConversationKeyboard,
       tap: async (point) => { await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
       scroll: async (xml, direction) => {
+        await dismissConversationKeyboard();
         const nodes = parseAndroidUiNodes(xml);
         const width = Math.max(...nodes.map((node) => node.bounds.right));
         const height = Math.max(...nodes.map((node) => node.bounds.bottom));

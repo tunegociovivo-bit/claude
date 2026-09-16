@@ -7,6 +7,7 @@ export type ConversationRunnerDependencies = {
   tap: (point: AndroidUiPoint) => Promise<void>;
   scroll: (xml: string, direction: "up" | "down") => Promise<void>;
   back: () => Promise<void>;
+  dismissKeyboard?: () => Promise<void>;
   openUrl: (url: string) => Promise<void>;
   paste: (text: string) => Promise<void>;
   wait: (ms: number) => Promise<void>;
@@ -106,12 +107,14 @@ async function allCommentsFilter(deps: ConversationRunnerDependencies) {
 
 async function openCommentThread(deps: ConversationRunnerDependencies) {
   await deps.wait(800);
+  await deps.dismissKeyboard?.();
   const initial = await deps.read();
   if (parseAndroidUiNodes(initial).some((node) => /inputmethod|keyboard/.test(node.packageName))) { await deps.back(); await deps.wait(400); }
   const xml = await deps.read();
   const counter = namedControl(xml, /^\d+[\d., mil]* comentarios?(?:[.,].*)?$/i);
   const extraLevel = !visibleComments(xml).length && !!counter;
   if (extraLevel && counter) { await deps.tap(counter.center); await deps.wait(600); }
+  await deps.dismissKeyboard?.();
   await allCommentsFilter(deps);
   return extraLevel;
 }
