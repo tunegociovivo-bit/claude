@@ -194,6 +194,20 @@ async function waitForFacebookSearchEntry(
         knownQueries
       );
       if (target) return target.point;
+      // Facebook hides its search header while the news feed is scrolled.
+      // Recover it only on a recognized feed, using the actual screen bounds.
+      const nodes = parseAndroidUiNodes(hierarchy).filter((node) => /^com\.facebook\.(katana|lite)$/.test(node.packageName));
+      const isFeed = nodes.some((node) => /^(¿Qué estás pensando\?|What's on your mind\?|Bandeja de historias)$/i.test(node.text || node.contentDescription));
+      if (isFeed && (attempt === 1 || attempt === 3)) {
+        const screen = nodes.reduce<typeof nodes[number] | undefined>((largest, node) =>
+          !largest || (node.bounds.right - node.bounds.left) * (node.bounds.bottom - node.bounds.top)
+            > (largest.bounds.right - largest.bounds.left) * (largest.bounds.bottom - largest.bounds.top) ? node : largest, undefined);
+        if (screen) {
+          const { left, right, top, bottom } = screen.bounds;
+          const x = String(Math.round((left + right) / 2));
+          await runAdbCommand(adb, ["input", "swipe", x, String(Math.round(top + (bottom - top) * 0.3)), x, String(Math.round(top + (bottom - top) * 0.8)), "400"]);
+        }
+      }
     } catch (error) {
       lastError = error;
     }

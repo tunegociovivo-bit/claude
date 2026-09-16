@@ -42,10 +42,17 @@ export async function launchFacebookForAutomation(
   if (parseAndroidUiNodes(current).some((node) => node.packageName === packageName)) return;
   // ActivityManager resolves the launcher for the active Android user. Monkey
   // can finish without launching an activity (especially on vendor ROMs).
+  const resolved = String(await dependencies.runCommand([
+    "cmd", "package", "resolve-activity", "--brief", "--user", "current",
+    "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-p", packageName
+  ]));
+  const component = resolved.split(/\r?\n/).map((line) => line.trim())
+    .find((line) => line.startsWith(`${packageName}/`) && /^[\w.$]+\/[\w.$]+$/.test(line));
+  if (!component) throw new FacebookNavigationError("Android no encuentra el acceso de Facebook. Abre la aplicación desde su icono y reintenta.");
   const output = String(await dependencies.runCommand([
     "timeout", "20", "am", "start", "-W", "--user", "current",
     "-a", "android.intent.action.MAIN",
-    "-c", "android.intent.category.LAUNCHER", "-p", packageName
+    "-c", "android.intent.category.LAUNCHER", "-n", component
   ]));
   if (/Error:|Exception|Permission Denial|Status:\s*(?:timeout|error)/i.test(output)) {
     throw new FacebookNavigationError(`Android no ha podido abrir Facebook: ${output.trim().slice(0, 500)}`);

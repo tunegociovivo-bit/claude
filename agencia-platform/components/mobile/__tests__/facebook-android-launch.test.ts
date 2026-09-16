@@ -3,7 +3,7 @@ import { launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@
 
 const screen = (pkg: string) => `<hierarchy><node package="${pkg}" bounds="[0,0][1080,2340]" /></hierarchy>`;
 const setup = () => ({
-  runCommand: vi.fn(async () => "Status: ok"),
+  runCommand: vi.fn(async (command: readonly string[]): Promise<string> => command[0] === "cmd" ? "com.facebook.katana/.LoginActivity" : "Status: ok"),
   readHierarchy: vi.fn(async () => screen("com.facebook.katana")).mockResolvedValueOnce(screen("com.miui.home")),
   wait: vi.fn(async () => {})
 });
@@ -12,9 +12,9 @@ describe("verified Facebook launch", () => {
   it("launches the current user's Facebook without force-stopping it", async () => {
     const dependencies = setup();
     await launchFacebookForAutomation("com.facebook.katana", dependencies);
-    expect(dependencies.runCommand.mock.calls).toEqual([[
-      ["timeout", "20", "am", "start", "-W", "--user", "current", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-p", "com.facebook.katana"]
-    ]]);
+    expect(dependencies.runCommand).toHaveBeenLastCalledWith(
+      ["timeout", "20", "am", "start", "-W", "--user", "current", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-n", "com.facebook.katana/.LoginActivity"]
+    );
   });
   it("does not mistake a successful command for a launched app", async () => {
     const dependencies = setup();
@@ -30,7 +30,7 @@ describe("verified Facebook launch", () => {
   });
   it("surfaces ActivityManager errors even when the shell exits successfully", async () => {
     const dependencies = setup();
-    dependencies.runCommand.mockResolvedValue("Error: Activity not started, unable to resolve Intent");
+    dependencies.runCommand.mockResolvedValueOnce("com.facebook.katana/.LoginActivity").mockResolvedValueOnce("Error: Activity not started, unable to resolve Intent");
     await expect(launchFacebookForAutomation("com.facebook.katana", dependencies)).rejects.toThrow("unable to resolve Intent");
     expect(dependencies.readHierarchy).toHaveBeenCalledOnce();
   });
