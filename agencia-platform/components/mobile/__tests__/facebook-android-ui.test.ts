@@ -273,4 +273,19 @@ describe("Facebook Android UI", () => {
     expect(runCommand.mock.calls).toEqual([[["dumpsys", "input_method"]]]);
   });
 
+  it("recognizes Ir only for the exact group result", () => {
+    const result = '<node text="Franquicias Más Rentables · Ir" package="com.facebook.katana" bounds="[200,300][950,350]" />';
+    expect(findFacebookMembershipState(result, "Franquicias Más Rentables")).toBe("joined");
+    expect(findFacebookMembershipState(result, "Franquicias")).toBeNull();
+    expect(findFacebookMembershipState(result, "Otro grupo")).toBeNull();
+  });
+  it("does not attribute another row's Ir button to the searched group", () => {
+    const result = '<node text="Franquicias" package="com.facebook.katana" bounds="[200,300][700,350]" /><node text="Ir" package="com.facebook.katana" bounds="[720,400][800,440]" />';
+    expect(findFacebookMembershipState(result, "Franquicias")).toBeNull();
+  });
+  it("never borrows a neighboring result's join button", () => {
+    const result = '<node text="Franquicias" bounds="[120,120][700,160]" /><node text="Otro grupo" bounds="[120,200][700,240]" /><node text="Unirte" bounds="[800,200][930,240]" />';
+    expect(findFacebookGroupJoinTarget(result, "Franquicias")).toBeNull();
+    expect(findFacebookGroupJoinTarget(result, "Otro grupo")).toEqual({ x: 865, y: 220 });
+  });
 });

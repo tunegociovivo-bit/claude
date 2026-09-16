@@ -215,10 +215,8 @@ export function findFacebookGroupJoinTarget(
   const nodes = parseAndroidUiNodes(hierarchy);
   const expected = comparable(groupName);
   const titleNodes = nodes.filter((node) => {
-    const label = comparable(nodeLabel(node));
-    if (label === expected) return true;
-    if (label.length < 6 || expected.length < 6) return false;
-    return label.includes(expected) || expected.includes(label);
+    const label = comparable(nodeLabel(node)).replace(/\s*·\s*(unirte|unirse|join(?: group)?|ir|visit)$/, "").trim();
+    return label === expected;
   });
   const joinNodes = nodes.filter((node) => matchesExactly(nodeLabel(node), [
     "Unirte",
@@ -231,6 +229,8 @@ export function findFacebookGroupJoinTarget(
   let best: { point: AndroidUiPoint; distance: number } | null = null;
   for (const title of titleNodes) {
     for (const join of joinNodes) {
+      if (join.packageName !== title.packageName || join.center.y < title.bounds.top
+        || join.center.y > title.bounds.bottom || join.bounds.left < title.bounds.left) continue;
       const verticalDistance = Math.abs(title.center.y - join.center.y);
       const horizontalPenalty = join.center.x < title.center.x ? 200 : 0;
       const distance = verticalDistance + horizontalPenalty;
@@ -265,8 +265,24 @@ export function extractFacebookMembershipQuestions(hierarchy: string): FacebookM
   });
 }
 
-export function findFacebookMembershipState(hierarchy: string): "joined" | "requested" | null {
-  const labels = parseAndroidUiNodes(hierarchy).map(nodeLabel);
+export function findFacebookMembershipState(hierarchy: string, groupName?: string): "joined" | "requested" | null {
+  const nodes = parseAndroidUiNodes(hierarchy);
+  const labels = nodes.map(nodeLabel);
+  if (groupName) {
+    const expected = comparable(groupName);
+    const titles = nodes.filter((node) => {
+      const label = comparable(nodeLabel(node));
+      return label === expected || label === `${expected} · ir` || label === `${expected} · visit`;
+    });
+    if (titles.some((title) => {
+      const label = comparable(nodeLabel(title));
+      if (label === `${expected} · ir` || label === `${expected} · visit`) return true;
+      return nodes.some((node) => matchesExactly(nodeLabel(node), ["Ir", "Visit"])
+        && node.packageName === title.packageName
+        && node.bounds.left >= title.bounds.left
+        && node.center.y >= title.bounds.top && node.center.y <= title.bounds.bottom);
+    })) return "joined";
+  }
   if (labels.some((label) => matchesAny(label, [
     "Solicitud enviada",
     "Solicitud pendiente",

@@ -327,7 +327,7 @@ async function captureFacebookGroupScreens(adb: Adb, count = 5): Promise<string[
 async function waitForFacebookJoinTarget(adb: Adb, groupName: string): Promise<AndroidUiPoint | null> {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const hierarchy = await readAndroidUiHierarchy(adb);
-    const membership = findFacebookMembershipState(hierarchy);
+    const membership = findFacebookMembershipState(hierarchy, groupName);
     if (membership) return null;
     const target = findFacebookGroupJoinTarget(hierarchy, groupName);
     if (target) return target;
@@ -344,9 +344,9 @@ function withGroupOutcome(
   return { ...candidate, outcome, resultDetail: resultDetail.slice(0, 800) };
 }
 
-async function waitForFacebookMembershipState(adb: Adb): Promise<"joined" | "requested" | null> {
+async function waitForFacebookMembershipState(adb: Adb, groupName: string): Promise<"joined" | "requested" | null> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const state = findFacebookMembershipState(await readAndroidUiHierarchy(adb));
+    const state = findFacebookMembershipState(await readAndroidUiHierarchy(adb), groupName);
     if (state) return state;
     await waitForAndroidUi(500);
   }
@@ -368,7 +368,7 @@ async function joinSingleFacebookGroup(input: {
     [input.batch.query, ...input.batch.candidates.map((candidate) => candidate.name)]
   );
   const currentHierarchy = await readAndroidUiHierarchy(input.adb);
-  const existingState = findFacebookMembershipState(currentHierarchy);
+  const existingState = findFacebookMembershipState(currentHierarchy, input.candidate.name);
   if (existingState) {
     return withGroupOutcome(
       input.candidate,
@@ -447,7 +447,7 @@ async function joinSingleFacebookGroup(input: {
     await runAdbCommand(input.adb, ["input", "tap", String(submit.x), String(submit.y)]);
     await waitForAndroidUi(800);
   }
-  const confirmedState = await waitForFacebookMembershipState(input.adb);
+  const confirmedState = await waitForFacebookMembershipState(input.adb, input.candidate.name);
   if (!confirmedState) {
     return withGroupOutcome(
       input.candidate,
