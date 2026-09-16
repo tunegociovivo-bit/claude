@@ -753,6 +753,7 @@ function MobileDeviceCard({
   const [model, setModel] = useState(device.name || "Android");
   const [androidVersion, setAndroidVersion] = useState<string | null>(null);
   const [resolution, setResolution] = useState<string | null>(null);
+  const [automationDiagnostics, setAutomationDiagnostics] = useState("");
   const [text, setText] = useState("");
   const [proxyHost, setProxyHost] = useState("");
   const [proxyPort, setProxyPort] = useState("");
@@ -1333,6 +1334,7 @@ function MobileDeviceCard({
         </div>
 
         {status === "mirroring" && (
+          <>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-white">
             <ControlButton label="Atrás" icon={ArrowLeft} onClick={() => sendKey(AndroidKeyCode.AndroidBack)} />
             <ControlButton label="Inicio" icon={Home} onClick={() => sendKey(AndroidKeyCode.AndroidHome)} />
@@ -1341,6 +1343,21 @@ function MobileDeviceCard({
             <ControlButton label="Girar" icon={RotateCw} onClick={() => clientRef.current?.controller?.rotateDevice()} />
             <ControlButton label="Pantalla completa" icon={Maximize2} onClick={() => fullscreenRef.current?.requestFullscreen()} />
           </div>
+          <details className="p-3 text-xs text-slate-300">
+            <summary>Diagnóstico de automatización</summary>
+            <button type="button" className="my-2 rounded bg-slate-700 px-3 py-2" onClick={() => {
+              const adb = adbRef.current;
+              if (!adb) return;
+              setAutomationDiagnostics("Leyendo pantalla…");
+              void readAndroidUiHierarchy(adb).then((hierarchy) => {
+                setAutomationDiagnostics(JSON.stringify(parseAndroidUiNodes(hierarchy)
+                  .filter((node) => node.text || node.contentDescription)
+                  .map(({ text, contentDescription, packageName, className, bounds }) => ({ text, contentDescription, packageName, className, bounds })), null, 2));
+              }).catch((error: unknown) => setAutomationDiagnostics(error instanceof Error ? error.message : "No se ha podido leer la pantalla."));
+            }}>Comprobar pantalla</button>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap">{automationDiagnostics}</pre>
+          </details>
+          </>
         )}
       </div>
 
