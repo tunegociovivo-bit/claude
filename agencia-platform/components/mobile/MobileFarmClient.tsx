@@ -75,7 +75,7 @@ import {
   type MobileAutomationExecutableJob,
   type MobileAutomationExecutionResult
 } from "@/components/mobile/mobile-automation-executor";
-import { FacebookNavigationError, launchFacebookForAutomation } from "@/components/mobile/facebook-android-launch";
+import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import {
@@ -215,10 +215,10 @@ async function mobileApiJson(url: string, init?: RequestInit) {
 }
 
 async function resolveFacebookPackage(adb: Adb): Promise<string> {
-  for (const candidate of ["com.facebook.katana", "com.facebook.lite"]) {
-    if (await runAdbCommand(adb, ["pm", "path", candidate]).catch(() => "")) return candidate;
-  }
-  throw new Error("No encuentro la aplicación de Facebook instalada en este móvil.");
+  return resolveLaunchableFacebookPackage({
+    runCommand: (command) => runAdbCommand(adb, command),
+    readHierarchy: () => readAndroidUiHierarchy(adb)
+  });
 }
 
 async function tapFacebookGroupsTabIfVisible(adb: Adb): Promise<boolean> {

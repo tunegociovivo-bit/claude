@@ -8,6 +8,29 @@ type LaunchDependencies = {
   wait: (milliseconds: number) => Promise<void>;
 };
 
+const FACEBOOK_PACKAGES = ["com.facebook.katana", "com.facebook.lite"] as const;
+
+export async function resolveLaunchableFacebookPackage(
+  dependencies: Pick<LaunchDependencies, "runCommand" | "readHierarchy">
+): Promise<string> {
+  const hierarchy = await dependencies.readHierarchy().catch(() => "");
+  const foreground = parseAndroidUiNodes(hierarchy)
+    .find((node) => FACEBOOK_PACKAGES.some((pkg) => pkg === node.packageName));
+  if (foreground) return foreground.packageName;
+
+  for (const packageName of FACEBOOK_PACKAGES) {
+    const resolved = String(await dependencies.runCommand([
+      "cmd", "package", "resolve-activity", "--brief", "--user", "current",
+      "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+      "-p", packageName
+    ]));
+    if (resolved.split(/\r?\n/).some((line) => line.trim().startsWith(`${packageName}/`))) {
+      return packageName;
+    }
+  }
+  throw new FacebookNavigationError("No hay una versión de Facebook disponible para abrir en este usuario de Android. Abre Facebook o Facebook Lite en el móvil y vuelve a intentarlo.");
+}
+
 export async function launchFacebookForAutomation(
   packageName: string,
   dependencies: LaunchDependencies
@@ -15,6 +38,8 @@ export async function launchFacebookForAutomation(
   if (!/^com\.facebook\.(katana|lite)$/.test(packageName)) {
     throw new FacebookNavigationError("La aplicación seleccionada no es Facebook.");
   }
+  const current = await dependencies.readHierarchy().catch(() => "");
+  if (parseAndroidUiNodes(current).some((node) => node.packageName === packageName)) return;
   // ActivityManager resolves the launcher for the active Android user. Monkey
   // can finish without launching an activity (especially on vendor ROMs).
   const output = String(await dependencies.runCommand([
