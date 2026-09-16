@@ -53,6 +53,7 @@ internal sealed class AgentForm : Form
         this.hideOnStart = hideOnStart;
         hub = new HubClient(store);
         Text = "Negocio Vivo · Control horario";
+        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = true;
         StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(460, 400);
         var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(26), FlowDirection = FlowDirection.TopDown, WrapContents = false };
@@ -67,7 +68,7 @@ internal sealed class AgentForm : Form
         var menu = new ContextMenuStrip();
         menu.Items.Add("Abrir control horario", null, (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
         menu.Items.Add("Salir", null, (_, _) => { quitting = true; Close(); });
-        tray.Icon = SystemIcons.Application; tray.Text = "Negocio Vivo · Control horario";
+        tray.Icon = Icon; tray.Text = "Negocio Vivo · Control horario";
         tray.ContextMenuStrip = menu; tray.Visible = true;
         tray.DoubleClick += (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
         FormClosing += (_, e) => { if (!quitting && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };

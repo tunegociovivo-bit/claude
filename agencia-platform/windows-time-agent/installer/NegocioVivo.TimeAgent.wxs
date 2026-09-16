@@ -1,5 +1,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.4" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
+  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.5" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
+    <Icon Id="AgentBrandIcon" SourceFile="windows-time-agent\assets\negocio-vivo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AgentBrandIcon" />
     <MajorUpgrade DowngradeErrorMessage="Ya hay una versión más reciente instalada." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="LocalAppDataFolder">
@@ -17,14 +19,21 @@
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="AgentMenu" Name="Negocio Vivo">
         <Component Id="AgentShortcuts" Guid="*">
-          <Shortcut Id="AgentStartMenu" Name="Control horario" Target="[#AgentExe]" WorkingDirectory="INSTALLFOLDER" />
+          <Shortcut Id="AgentStartMenu" Name="Control horario" Target="[#AgentExe]" WorkingDirectory="INSTALLFOLDER" Icon="AgentBrandIcon" />
           <RegistryValue Root="HKCU" Key="Software\NegocioVivo\TimeAgent" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
           <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Negocio Vivo Control Horario" Type="string" Value="&quot;[#AgentExe]&quot; --background" />
           <RemoveFolder Id="RemoveAgentMenu" On="uninstall" />
         </Component>
       </Directory>
     </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="AgentDesktopShortcut" Guid="*">
+        <Shortcut Id="AgentDesktop" Name="Negocio Vivo - Control horario" Target="[#AgentExe]" WorkingDirectory="INSTALLFOLDER" Icon="AgentBrandIcon" />
+        <RegistryValue Root="HKCU" Key="Software\NegocioVivo\TimeAgent" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
     <Feature Id="MainFeature" Title="Negocio Vivo Control Horario" Level="1">
+      <ComponentRef Id="AgentDesktopShortcut" />
       <ComponentRef Id="AgentExecutable" />
       <ComponentRef Id="AgentShortcuts" />
       <ComponentRef Id="AgentD3D" />

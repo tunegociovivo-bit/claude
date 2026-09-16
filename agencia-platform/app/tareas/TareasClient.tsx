@@ -28,6 +28,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import AiSpendBadge from "@/components/AiSpendBadge";
+import AgentDownload from "@/components/time-tracking/AgentDownload";
 import AvatarStack from "@/components/AvatarStack";
 import TaskFormModal from "@/components/forms/TaskFormModal";
 import ProjectFormModal from "@/components/forms/ProjectFormModal";
@@ -1172,6 +1173,7 @@ export default function TareasClient({
         flex column + min-h-screen para que las columnas se estiren hasta
         abajo cuando no hay otra cosa que las empuje. */}
     <div className="flex flex-col min-h-[calc(100vh-8rem)] flex-1 min-w-0">
+      <AgentDownload />
       {/* Cabecera + filtros: ocultos en mobile. En el móvil ganamos
           espacio vertical para las columnas — el user crea tareas
           desde los FABs flotantes y filtra (cuando haga falta) desde

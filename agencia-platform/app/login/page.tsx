@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
+import AgentDownload from "@/components/time-tracking/AgentDownload";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles, Eye, EyeOff, Loader2, Mail, Lock, ArrowRight, ShieldCheck } from "lucide-react";
 
@@ -138,6 +139,8 @@ function LoginInner() {
         <div className="w-full max-w-sm">
           <h2 className="text-2xl font-semibold text-slate-900 mb-1">Inicia sesión</h2>
           <p className="text-sm text-slate-500 mb-7">Accede con tu cuenta de trabajador.</p>
+
+          <AgentDownload login />
 
           <form onSubmit={submit} className="space-y-4" autoComplete="off">
             {!totpStep ? (
