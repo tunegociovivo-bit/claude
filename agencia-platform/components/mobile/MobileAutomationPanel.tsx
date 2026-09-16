@@ -254,6 +254,11 @@ export default function MobileAutomationPanel({
   const [replyGuidance, setReplyGuidance] = useState("");
   const [postsPerGroup, setPostsPerGroup] = useState(5);
   const [commentScreensPerPost, setCommentScreensPerPost] = useState(5);
+  const [searchMode, setSearchMode] = useState<"groups" | "posts">("groups");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [customDates, setCustomDates] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [lookbackDays, setLookbackDays] = useState<7 | 30 | 90>(30);
   const [queueOpen, setQueueOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -385,10 +390,10 @@ export default function MobileAutomationPanel({
           idempotencyKey,
           phoneKey,
           deviceSerial,
-          targetName: (conversationScan ? niche.trim() || "Grupos de mi cuenta" : targetName.trim()) || undefined,
+          targetName: (conversationScan ? searchTerm.trim() || niche.trim() || "Grupos de mi cuenta" : targetName.trim()) || undefined,
           targetUrl: generatedTargetUrl ?? targetUrl.trim(),
           facts: facts.trim(),
-          ...(conversationScan ? { niche, replyGuidance, postsPerGroup, commentScreensPerPost, lookbackDays } : {}),
+          ...(conversationScan ? { niche, replyGuidance, postsPerGroup, commentScreensPerPost, lookbackDays, searchMode, searchTerm, ...(customDates ? { dateFrom, dateTo } : {}) } : {}),
           membershipAnswers: sourceKind === "GROUP_DISCOVERY" ? membershipAnswers.trim() : undefined,
           maxGroups: sourceKind === "GROUP_DISCOVERY" ? maxGroups : undefined,
           tone: tone.trim() || undefined,
@@ -488,7 +493,7 @@ export default function MobileAutomationPanel({
 
   function changePlatform(next: Platform) {
     setPlatform(next);
-    setSourceKind(getAutomationWorkflows(next)[0]!.sourceKind);
+    setSourceKind(next === "facebook" ? "COMMENT_DISCOVERY" : getAutomationWorkflows(next)[0]!.sourceKind);
     setTargetName("");
     setTargetUrl("");
     setFacts("");
@@ -552,7 +557,7 @@ export default function MobileAutomationPanel({
               className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
             />
           </label>}
-          {selectedWorkflow.targetUrlLabel && (
+          {selectedWorkflow.targetUrlLabel && !conversationScan && (
             <label className="text-xs font-semibold text-slate-700">
               {selectedWorkflow.targetUrlLabel}{conversationScan ? " (opcional)" : ""}
               <input
@@ -579,7 +584,21 @@ export default function MobileAutomationPanel({
             className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
           />
         </label>
+        {platform === "facebook" && sourceKind === "COMMENT_REPLY" && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs">
+          <p>Esta acción responde a un enlace concreto. Para buscar por palabras clave y fechas, usa la búsqueda de conversaciones.</p>
+          <button type="button" className="mt-2 font-bold text-blue-800 underline" onClick={() => { setReplyGuidance(facts); setSearchTerm(targetUrl && !/^https?:/i.test(targetUrl) ? targetUrl : targetName); if (!/^https?:/i.test(targetUrl)) setTargetUrl(""); setFacts(""); setScheduledAt(""); setSourceKind("COMMENT_DISCOVERY"); }}>Buscar conversaciones sin URL</button>
+        </div>}
         {conversationScan && <div className="space-y-3 rounded-xl border border-indigo-100 bg-white p-3">
+          <label className="block text-xs font-semibold">Dónde buscar
+            <select value={searchMode} onChange={e => setSearchMode(e.target.value as "groups" | "posts")} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm">
+              <option value="groups">Grupos de mi cuenta por nombre o temática</option><option value="posts">Publicaciones sobre una temática en mis grupos</option>
+            </select>
+          </label>
+          <label className="block text-xs font-semibold">{searchMode === "groups" ? "Palabra clave o nombre del grupo (opcional)" : "Palabra clave de las publicaciones (opcional)"}
+            <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} maxLength={200} placeholder="Ej. franquicias" className="mt-1 w-full rounded-lg border p-2 text-sm font-normal" />
+          </label>
+          <p className="text-xs text-slate-500">No necesitas URL. Sin palabra clave ni nicho, se recorren los grupos a los que pertenece la cuenta. La búsqueda de publicaciones se realiza dentro de esos grupos.</p>
+          <details className="text-xs"><summary className="cursor-pointer font-semibold">Usar un enlace concreto (opcional)</summary><label className="mt-2 block">URL de grupo, perfil o publicación<input value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://www.facebook.com/…" className="mt-1 w-full rounded-lg border p-2 text-sm" /></label><p className="mt-1 text-slate-500">Si añades un enlace, se revisará ese destino.</p></details>
           <p className="text-xs leading-5 text-slate-600">Deja el destino vacío para recorrer los grupos de esta cuenta. El nicho filtra los grupos por su temática. Si lo dejas vacío, se revisarán todos.</p>
           <label className="block text-xs font-semibold text-slate-700">Nicho de los grupos (opcional)
             <input value={niche} onChange={(event) => setNiche(event.target.value)} placeholder="Ej. franquicias" maxLength={200} className="mt-1 w-full rounded-lg border p-2 text-sm font-normal" />
@@ -588,11 +607,13 @@ export default function MobileAutomationPanel({
             <textarea value={replyGuidance} onChange={(event) => setReplyGuidance(event.target.value)} required minLength={3} maxLength={4000} rows={4} placeholder="Ej. Quiero transmitir que actualmente considero que las franquicias de supermercado serán las más rentables en el futuro. Adapta esa opinión a cada comentario." className="mt-1 w-full rounded-lg border p-2 text-sm font-normal" />
             <span className="mt-1 block text-[11px] font-normal text-slate-500">La IA adaptará esta idea a cada comentario. Podrás editar cada respuesta antes de enviarla.</span>
           </label>
-          <label className="block text-xs font-semibold text-slate-700">Antigüedad de los comentarios
-            <select value={lookbackDays} onChange={(event) => setLookbackDays(Number(event.target.value) as 7 | 30 | 90)} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm font-normal">
-              <option value={7}>Últimos 7 días</option><option value={30}>Último mes (30 días)</option><option value={90}>Últimos 3 meses (90 días)</option>
+          <label className="block text-xs font-semibold text-slate-700">Periodo de los comentarios
+            <select value={customDates ? "custom" : lookbackDays} onChange={(event) => { setCustomDates(event.target.value === "custom"); if (event.target.value !== "custom") setLookbackDays(Number(event.target.value) as 7 | 30 | 90); }} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm font-normal">
+              <option value={7}>Últimos 7 días</option><option value={30}>Último mes (30 días)</option><option value={90}>Últimos 3 meses (90 días)</option><option value="custom">Elegir fechas: desde / hasta</option>
             </select>
           </label>
+          {customDates && <div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-semibold">Comentarios desde<input type="date" required value={dateFrom} max={dateTo || undefined} onChange={e => setDateFrom(e.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label><label className="text-xs font-semibold">Comentarios hasta<input type="date" required value={dateTo} min={dateFrom || undefined} onChange={e => setDateTo(e.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label></div>}
+          <p className="text-xs text-slate-500">El periodo filtra la fecha de los comentarios, no la hora a la que se ejecuta la automatización.</p>
           <p className="text-xs text-slate-500">Solo se abren publicaciones con un contador visible mayor que cero. Se omiten las que no muestran contador y los comentarios cuya fecha no se puede comprobar. El periodo se aplica al comentario, aunque la publicación sea anterior.</p>
           <details className="text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Profundidad de lectura</summary>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -633,9 +654,9 @@ export default function MobileAutomationPanel({
             <input value={tone} onChange={(event) => setTone(event.target.value)} placeholder="Tono" className="rounded-lg border bg-white px-3 py-2 text-sm" />
           ) : <span className="hidden sm:block" />}
           <label className="relative text-xs font-semibold text-slate-700">
-            <span className="sr-only">Fecha y hora</span>
-            <Clock3 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="w-full rounded-lg border bg-white py-2 pl-9 pr-3 text-sm" />
+            <span className="mb-1 block">Programar ejecución (opcional)</span>
+            <Clock3 className="pointer-events-none absolute left-3 bottom-3 h-4 w-4 text-slate-400" />
+            <input type="datetime-local" aria-label="Programar ejecución (opcional)" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="w-full rounded-lg border bg-white py-2 pl-9 pr-3 text-sm" />
           </label>
         </div>
         {sourceKind === "REAL_REVIEW" && (

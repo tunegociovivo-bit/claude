@@ -16,7 +16,8 @@ export default function FacebookConversationBatchView({ batch, editable, disable
     <details className="rounded-lg border p-2 text-xs text-slate-600">
       <summary className="cursor-pointer font-semibold">Alcance y grupos revisados</summary>
       <p className="my-2">{batch.config.targetUrl || "Grupos de esta cuenta"} · Nicho: {batch.config.niche || "Todos"}. Hasta {batch.config.postsPerGroup} publicaciones y {batch.config.commentScreensPerPost} pantallas por publicación.</p>
-      <p className="my-2">Comentarios de los últimos {batch.config.lookbackDays ?? 30} días{batch.config.referenceTime ? ` hasta ${new Date(batch.config.referenceTime).toLocaleString("es-ES")}` : ""}. Las fechas no legibles se excluyen.</p>
+      <p className="my-2">Palabra clave: {batch.config.searchTerm || "Todas"} · Buscar en: {batch.config.searchMode === "posts" ? "Publicaciones de mis grupos" : "Grupos por nombre o temática"}.</p>
+      {batch.config.dateFrom && batch.config.dateTo ? <p className="my-2">Comentarios desde {batch.config.dateFrom} hasta {batch.config.dateTo}, ambos días incluidos.</p> : <p className="my-2">Comentarios de los últimos {batch.config.lookbackDays ?? 30} días{batch.config.referenceTime ? ` hasta ${new Date(batch.config.referenceTime).toLocaleString("es-ES")}` : ""}. Las fechas no legibles se excluyen.</p>}
       {batch.groups.map((group, index) => <p key={`${group.name}-${index}`} className="my-1"><strong>{group.name}</strong> · {({ pending: "Pendiente", done: "Revisado", excluded: "Fuera del nicho", failed: "Necesita revisión" })[group.status]}{group.detail ? `: ${group.detail}` : ""}</p>)}
       {batch.warnings.map((warning, index) => <p key={index} className="mt-2 text-amber-800">{warning}</p>)}
     </details>

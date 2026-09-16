@@ -1,7 +1,8 @@
 import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 import { facebookNodes, findExactComment, joinedGroupRows, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments, type NativeComment } from "@/components/mobile/facebook-conversation-ui";
 import { conversationFingerprint, normalizeFacebookText, type FacebookConversationBatch, type ConversationReply } from "@/lib/mobile/facebook-conversations";
-import { commentWithinPeriod } from "@/lib/mobile/facebook-comment-dates";
+import { postMatchesKeyword } from "@/lib/mobile/conversation-search";
+import { commentWithinDateRange, commentWithinPeriod } from "@/lib/mobile/facebook-comment-dates";
 
 export type ConversationRunnerDependencies = {
   read: () => Promise<string>;
@@ -79,7 +80,9 @@ async function openGroup(name: string, details: string | undefined, deps: Conver
     if (matches.length === 1) {
       await deps.tap(matches[0].point);
       await deps.wait(1000);
-      const opened = await deps.read();
+      let opened = await deps.read();
+      for (let wait = 0; wait < 4 && (joinedGroupRows(opened).length || namedControl(opened, /^Buscar tus grupos por nombre$|^Search your groups$/i)); wait++) { await deps.wait(600); opened = await deps.read(); }
+      if (joinedGroupRows(opened).length || namedControl(opened, /^Buscar tus grupos por nombre$|^Search your groups$/i)) throw new Error("Facebook no abrió el grupo seleccionado. La pantalla sigue mostrando Tus grupos.");
       if (!facebookNodes(opened).some((node) => normalizeFacebookText(nodeText(node)).includes(normalizeFacebookText(name)))) {
         throw new Error("No se ha podido confirmar el grupo abierto.");
       }
@@ -120,7 +123,12 @@ async function openCommentThread(deps: ConversationRunnerDependencies) {
   if (extraLevel && counter) { await deps.tap(counter.center); await deps.wait(600); }
   await deps.dismissKeyboard?.();
   await allCommentsFilter(deps);
-  return extraLevel;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const shown = await deps.read();
+    if (visibleComments(shown).length || namedControl(shown, /^Comentarios$|^Comments$|^No hay comentarios|^Aún no hay comentarios|^No comments|^Sé el primero en comentar|^Todos los comentarios|^All comments|^Se muestran Más pertinentes/i)) return extraLevel;
+    await deps.wait(500);
+  }
+  throw new Error("Facebook no ha confirmado la apertura de los comentarios. Se conserva la pantalla actual para no salir del grupo.");
 }
 
 async function readThread(deps: ConversationRunnerDependencies, screens: number, consume: (comments: NativeComment[]) => Promise<void>) {
@@ -155,7 +163,12 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
       const found = await inventory(deps);
       batch.inventoryComplete = found.complete;
       if (!found.complete) batch.warnings.push("La lista de grupos no llegó al final; el alcance es parcial.");
-      const selected = new Set(await deps.filterGroups(found.groups.map((group) => group.name), batch.config.niche));
+      let selected = new Set(await deps.filterGroups(found.groups.map((group) => group.name), batch.config.niche));
+      if (batch.config.searchMode !== "posts" && batch.config.searchTerm) {
+        const names = found.groups.filter(group => selected.has(group.name)).map(group => group.name);
+        const exact = names.filter(name => normalizeFacebookText(name) === normalizeFacebookText(batch.config.searchTerm!));
+        selected = new Set(exact.length ? exact : await deps.filterGroups(names, batch.config.searchTerm));
+      }
       batch.groups = found.groups.map((group) => ({ ...group, status: selected.has(group.name) ? "pending" : "excluded", detail: "" }));
     }
     await save(`${batch.groups.filter((group) => group.status === "pending").length} grupos coinciden con el alcance.`);
@@ -178,7 +191,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
         // A direct publication link may open its comments immediately.
         const directComments = visibleComments(xml);
         const posts = visiblePostComments(xml);
-        const post = posts.find((item) => !processed.has(item.anchor));
+        const post = posts.find((item) => !processed.has(item.anchor) && (batch.config.searchMode !== "posts" || postMatchesKeyword(item.anchor, batch.config.searchTerm ?? "")));
         if (post || (batch.config.targetUrl && directComments.length && checked === 0)) {
           const anchor = post?.anchor ?? batch.config.targetUrl;
           processed.add(anchor);
@@ -188,7 +201,9 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
               const warning = "Se omitieron comentarios cuya fecha no era legible. Solo se preparan respuestas dentro del periodo elegido.";
               if (!batch.warnings.includes(warning)) batch.warnings.push(warning);
             }
-            const fresh = comments.filter((comment) => commentWithinPeriod(comment.dateLabel ?? "", days, reference)
+            const fresh = comments.filter((comment) => (batch.config.dateFrom && batch.config.dateTo
+              ? commentWithinDateRange(comment.dateLabel ?? "", batch.config.dateFrom, batch.config.dateTo, reference)
+              : commentWithinPeriod(comment.dateLabel ?? "", days, reference))
               && !seen.has(conversationFingerprint([group.name, group.details ?? "", anchor, comment.author, comment.text])));
             if (!fresh.length) return;
             const replies = await deps.analyze(fresh, group.name);
@@ -225,7 +240,8 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
     }
     await save(`${batch.groups.filter((item) => item.status === "done").length} grupos revisados · ${batch.candidates.length} comentarios encontrados.`);
   }
-  await save(`Búsqueda terminada: ${batch.candidates.length} comentarios para revisar.`);
+  const failed = batch.groups.filter(group => group.status === "failed").length;
+  await save(failed ? `Búsqueda incompleta: ${failed} grupos necesitan revisión · ${batch.candidates.length} comentarios preparados.` : `Búsqueda terminada: ${batch.candidates.length} comentarios para revisar.`);
   return batch;
 }
 

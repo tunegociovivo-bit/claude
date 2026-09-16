@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { conversationDestination, validCalendarDate } from "./conversation-search";
 import { isAutomationWorkflowAllowed } from "@/lib/mobile/automation-catalog";
 
 export const MOBILE_AUTOMATION_PLATFORMS = [
@@ -102,6 +103,10 @@ export const mobileAutomationDraftSchema = z
     deviceSerial: z.string().trim().min(1).max(160),
     targetUrl: z.string().trim().max(2048).default(""),
     facts: z.string().trim().max(4000),
+    searchMode: z.enum(["groups", "posts"]).optional(),
+    searchTerm: z.string().trim().max(200).optional(),
+    dateFrom: z.string().refine(validCalendarDate, "Fecha inicial no válida").optional(),
+    dateTo: z.string().refine(validCalendarDate, "Fecha final no válida").optional(),
     niche: z.string().trim().max(200).optional(),
     replyGuidance: z.string().trim().max(4000).optional(),
     postsPerGroup: z.number().int().min(1).max(20).optional(),
@@ -151,7 +156,14 @@ export const mobileAutomationDraftSchema = z
     const conversationScan = value.platform === "facebook" && value.sourceKind === "COMMENT_DISCOVERY";
     if (conversationScan && (!value.replyGuidance || value.replyGuidance.length < 3)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["replyGuidance"], message: "Indica el texto base para las respuestas." });
     if (!conversationScan && value.facts.length < 20) context.addIssue({ code: z.ZodIssueCode.custom, path: ["facts"], message: "Aporta al menos 20 caracteres de contexto." });
-    if (conversationScan && !value.targetUrl) return;
+    if (conversationScan) {
+      if (Boolean(value.dateFrom) !== Boolean(value.dateTo) || (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["dateTo"], message: "Selecciona una fecha inicial y final válidas." });
+      try {
+        const destination = conversationDestination(value.targetUrl, value.searchTerm);
+        if (destination.searchTerm.length > 200) context.addIssue({ code: z.ZodIssueCode.custom, path: ["searchTerm"], message: "La palabra clave admite hasta 200 caracteres." });
+        if (!destination.targetUrl) return;
+      } catch (error) { context.addIssue({ code: z.ZodIssueCode.custom, path: ["targetUrl"], message: error instanceof Error ? error.message : "Destino no válido" }); return; }
+    }
     try {
       validateAutomationTargetUrl(value.platform, value.targetUrl);
     } catch (error) {

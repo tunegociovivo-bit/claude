@@ -1,3 +1,4 @@
+import { conversationDestination } from "@/lib/mobile/conversation-search";
 import { createConversationBatch, serializeConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/auth";
@@ -49,7 +50,8 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
   }
   requireLinkedMobile(phones, parsed.data.phoneKey, parsed.data.deviceSerial);
   const conversationScan = parsed.data.platform === "facebook" && parsed.data.sourceKind === "COMMENT_DISCOVERY";
-  const targetUrl = conversationScan && !parsed.data.targetUrl ? "https://www.facebook.com/groups/?category=membership" : validateAutomationTargetUrl(parsed.data.platform, parsed.data.targetUrl);
+  const destination = conversationScan ? conversationDestination(parsed.data.targetUrl, parsed.data.searchTerm) : { targetUrl: parsed.data.targetUrl, searchTerm: "" };
+  const targetUrl = conversationScan && !destination.targetUrl ? "https://www.facebook.com/groups/?category=membership" : validateAutomationTargetUrl(parsed.data.platform, destination.targetUrl);
   const existing = await prisma.mobileAutomationJob.findUnique({
     where: {
       workspaceId_idempotencyKey: {
@@ -63,7 +65,8 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
   }
   const directGroupSearch = parsed.data.sourceKind === "GROUP_DISCOVERY";
   const text = conversationScan ? serializeConversationBatch(createConversationBatch({
-    targetUrl: parsed.data.targetUrl, niche: parsed.data.niche ?? "", criteria: parsed.data.facts,
+    targetUrl: destination.targetUrl, searchTerm: destination.searchTerm, searchMode: parsed.data.searchMode,
+    dateFrom: parsed.data.dateFrom, dateTo: parsed.data.dateTo, niche: parsed.data.niche ?? "", criteria: parsed.data.facts,
     replyGuidance: parsed.data.replyGuidance!, postsPerGroup: parsed.data.postsPerGroup ?? 5,
     commentScreensPerPost: parsed.data.commentScreensPerPost ?? 5, lookbackDays: parsed.data.lookbackDays ?? 30,
     referenceTime: parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt).toISOString() : new Date().toISOString()

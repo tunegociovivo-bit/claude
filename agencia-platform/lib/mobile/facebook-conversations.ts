@@ -1,8 +1,13 @@
 import { z } from "zod";
+import { validCalendarDate } from "./conversation-search";
 
 export const MAX_CONVERSATION_BATCH_TEXT = 500_000;
 export const conversationScanConfigSchema = z.object({
   targetUrl: z.string().max(2048).default(""),
+  searchMode: z.enum(["groups", "posts"]).optional(),
+  searchTerm: z.string().trim().max(200).optional(),
+  dateFrom: z.string().refine(validCalendarDate, "Fecha inicial no válida").optional(),
+  dateTo: z.string().refine(validCalendarDate, "Fecha final no válida").optional(),
   niche: z.string().trim().max(200).default(""),
   criteria: z.string().trim().max(4000).default(""),
   replyGuidance: z.string().trim().min(3).max(4000),
@@ -10,7 +15,9 @@ export const conversationScanConfigSchema = z.object({
   referenceTime: z.string().datetime().optional(),
   postsPerGroup: z.number().int().min(1).max(20).default(5),
   commentScreensPerPost: z.number().int().min(1).max(20).default(5)
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (Boolean(value.dateFrom) !== Boolean(value.dateTo) || (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["dateTo"], message: "Indica un intervalo válido, con fecha inicial y final." });
+});
 export type ConversationScanConfig = z.infer<typeof conversationScanConfigSchema>;
 
 export const conversationReplySchema = z.object({

@@ -32,3 +32,14 @@ export function commentWithinPeriod(label: string, days: number, reference: numb
   const date = facebookCommentDate(label, reference);
   return date !== null && date >= reference - days * DAY && date <= reference;
 }
+
+/** Calendar-date limits are inclusive; rounded relative labels must fit wholly in the range. */
+export function commentWithinDateRange(label: string, from: string, to: string, reference: number): boolean {
+  const earliest = facebookCommentDate(label, reference);
+  if (earliest === null || earliest > reference) return false;
+  const normalized = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  const relative = /^(?:hace\s+)?(\d+)\s*(?:s|seg|segundos?|seconds?|m|min|minutos?|minutes?|h|horas?|hours?|d|dias?|days?|sem|semanas?|w|weeks?|mes|meses|months?|a|anos?|years?)(?:\s+ago)?\.?$/.exec(normalized);
+  const day = (time: number) => new Date(time).toISOString().slice(0, 10);
+  const latest = relative ? reference - (reference - earliest) * Number(relative[1]) / (Number(relative[1]) + 1) : earliest;
+  return day(earliest) >= from && day(latest) <= to;
+}

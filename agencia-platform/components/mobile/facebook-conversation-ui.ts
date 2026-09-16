@@ -33,10 +33,12 @@ export function visibleComments(xml: string): NativeComment[] {
       && node.bounds.bottom < reply.bounds.top);
     if (!authorNode) return [];
     const author = nodeText(authorNode);
-    const dateNode = nodes.find((node) => node.bounds.left >= authorNode.bounds.right - 15
-      && Math.abs(node.bounds.top - authorNode.bounds.top) < 45 && node.bounds.bottom < reply.bounds.top
+    const dates = nodes.filter((node) => node.bounds.left >= profile.bounds.right - 15
+      && node.bounds.top >= authorNode.bounds.top - 10 && node.bounds.bottom <= reply.bounds.bottom
       && facebookCommentDate(nodeText(node), Date.now()) !== null);
-    const lines = [...new Set(nodes.filter((node) => node.bounds.top >= authorNode.bounds.bottom
+    const dateNode = dates.find(node => Math.abs(node.bounds.top - authorNode.bounds.top) < 45)
+      ?? dates.find(node => Math.abs(node.bounds.top - reply.bounds.top) < 60);
+    const lines = [...new Set(nodes.filter((node) => node !== dateNode && node.bounds.top >= authorNode.bounds.bottom
       && node.bounds.bottom <= reply.bounds.top && node.bounds.left >= profile.bounds.right
       && !/ImageView|EditText|AutoCompleteTextView/.test(node.className))
       .map(nodeText).filter((text) => text && !/^(Autor|Author|GIPHY|El GIF |GIF |Ver traducción|See translation|\d+\s*(min|h|d|sem|s|m)|[·\s]+$)/i.test(text)))];

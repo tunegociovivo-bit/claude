@@ -101,3 +101,32 @@ describe("Facebook conversation execution", () => {
     expect(result.candidates[0].outcome).toBe("review");
   });
 });
+
+
+describe("regresiones de búsqueda y fechas", () => {
+  it("aplica el intervalo personalizado antes de generar respuestas", async () => {
+    for (const [label, count] of [["10 de septiembre de 2026", 1], ["10 de agosto de 2026", 0]] as const) {
+      const deps = setup();
+      vi.mocked(deps.read).mockResolvedValue(commentScreen.replace('text="1 d"', 'text="' + label + '"'));
+      const result = await scanFacebookConversations(createConversationBatch({ ...config, dateFrom: "2026-09-01", dateTo: "2026-09-16", referenceTime: "2026-09-16T12:00:00Z" }), deps);
+      expect(result.candidates).toHaveLength(count);
+      if (!count) expect(deps.analyze).not.toHaveBeenCalled();
+    }
+  });
+  it("no pulsa Atrás cuando Facebook no abrió un hilo de comentarios", async () => {
+    const deps = setup();
+    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="5 comentarios" bounds="[100,600][500,700]" />';
+    vi.mocked(deps.read).mockResolvedValue(feed);
+    const result = await scanFacebookConversations(createConversationBatch(config), deps);
+    expect(deps.back).not.toHaveBeenCalled();
+    expect(result.groups[0].status).toBe("failed");
+    expect(result.progress).toContain("incompleta");
+  });
+  it("omite publicaciones ajenas a la palabra clave antes de abrirlas", async () => {
+    const deps = setup();
+    vi.mocked(deps.read).mockResolvedValue('<node package="com.facebook.katana" class="android.view.ViewGroup" text="Viajes y turismo en el Caribe" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="5 comentarios" bounds="[100,600][500,700]" />');
+    await scanFacebookConversations(createConversationBatch({ ...config, searchMode: "posts", searchTerm: "franquicias" }), deps);
+    expect(deps.tap).not.toHaveBeenCalled();
+    expect(deps.analyze).not.toHaveBeenCalled();
+  });
+});

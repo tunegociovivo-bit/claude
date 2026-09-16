@@ -94,8 +94,8 @@ const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkf
       factsPlaceholder: "Por qué te interesa el grupo y qué información real debe incluir la solicitud.",
       submitLabel: "Preparar solicitud"
     },
-    COMMENT_DISCOVERY,
-    COMMENT_REPLY,
+    { ...COMMENT_DISCOVERY, description: "Busca por palabra clave en tus grupos y prepara respuestas revisables, sin necesidad de URL." },
+    { ...COMMENT_REPLY, label: "Responder a un enlace concreto" },
     COMMON_POST,
     COMMON_LINK
   ],
