@@ -1,4 +1,4 @@
-import type { AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
+import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 import { facebookNodes, findExactComment, joinedGroupRows, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments, type NativeComment } from "@/components/mobile/facebook-conversation-ui";
 import { conversationFingerprint, normalizeFacebookText, type FacebookConversationBatch, type ConversationReply } from "@/lib/mobile/facebook-conversations";
 
@@ -106,6 +106,8 @@ async function allCommentsFilter(deps: ConversationRunnerDependencies) {
 
 async function readThread(deps: ConversationRunnerDependencies, screens: number, consume: (comments: NativeComment[]) => Promise<void>) {
   await deps.wait(800);
+  const initial = await deps.read();
+  if (parseAndroidUiNodes(initial).some((node) => /inputmethod|keyboard/.test(node.packageName))) { await deps.back(); await deps.wait(400); }
   await allCommentsFilter(deps);
   let previous = "";
   for (let page = 0; page < screens; page++) {
@@ -145,7 +147,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
     try {
       await save(`Leyendo ${group.name}…`);
       if (batch.config.targetUrl) await deps.openUrl(batch.config.targetUrl);
-      else await openGroup(group.name, group.details, deps);
+      else await openGroup(group.name, batch.groups.filter((candidate) => normalizeFacebookText(candidate.name) === normalizeFacebookText(group.name)).length > 1 ? group.details : undefined, deps);
       const processed = new Set<string>();
       let previous = "";
       let checked = 0;
@@ -189,7 +191,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
         await deps.scroll(xml, "down");
       }
       group.status = "done";
-      group.detail = `${checked} publicaciones con comentarios revisadas. Lectura limitada a ${batch.config.commentScreensPerPost} pantallas por publicación.`;
+      group.detail = `${checked} publicaciones revisadas. Lectura limitada a ${batch.config.commentScreensPerPost} pantallas por publicación.`;
     } catch (error) {
       group.status = "failed";
       group.detail = error instanceof Error ? error.message.slice(0, 500) : "No se pudo leer el grupo.";
@@ -202,7 +204,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
 
 async function locateReply(item: ConversationReply, batch: FacebookConversationBatch, deps: ConversationRunnerDependencies) {
   if (item.groupUrl) await deps.openUrl(item.groupUrl);
-  else await openGroup(item.groupName, item.groupDetails, deps);
+  else await openGroup(item.groupName, batch.groups.filter((candidate) => normalizeFacebookText(candidate.name) === normalizeFacebookText(item.groupName)).length > 1 ? item.groupDetails : undefined, deps);
   let previous = "";
   for (let page = 0; page < batch.config.postsPerGroup * 8; page++) {
     const xml = await deps.read();

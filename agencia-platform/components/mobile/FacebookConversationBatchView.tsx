@@ -15,7 +15,7 @@ export default function FacebookConversationBatchView({ batch, editable, disable
     </div>
     <details className="rounded-lg border p-2 text-xs text-slate-600">
       <summary className="cursor-pointer font-semibold">Alcance y grupos revisados</summary>
-      <p className="my-2">{batch.config.targetUrl || "Grupos de esta cuenta"} · Nicho: {batch.config.niche || "Todos"}. Hasta {batch.config.postsPerGroup} publicaciones con comentarios y {batch.config.commentScreensPerPost} pantallas por publicación.</p>
+      <p className="my-2">{batch.config.targetUrl || "Grupos de esta cuenta"} · Nicho: {batch.config.niche || "Todos"}. Hasta {batch.config.postsPerGroup} publicaciones y {batch.config.commentScreensPerPost} pantallas por publicación.</p>
       {batch.groups.map((group, index) => <p key={`${group.name}-${index}`} className="my-1"><strong>{group.name}</strong> · {({ pending: "Pendiente", done: "Revisado", excluded: "Fuera del nicho", failed: "Necesita revisión" })[group.status]}{group.detail ? `: ${group.detail}` : ""}</p>)}
       {batch.warnings.map((warning, index) => <p key={index} className="mt-2 text-amber-800">{warning}</p>)}
     </details>

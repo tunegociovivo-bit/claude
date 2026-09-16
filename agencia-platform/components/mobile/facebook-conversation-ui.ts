@@ -45,7 +45,7 @@ export function visibleComments(xml: string): NativeComment[] {
 export type NativePost = { anchor: string; point: AndroidUiPoint };
 export function visiblePostComments(xml: string): NativePost[] {
   const nodes = facebookNodes(xml);
-  const buttons = nodes.filter((node) => /^(?:Ver (?:los )?)?\d+[\d., mil]* comentarios?$/i.test(nodeText(node))
+  const buttons = nodes.filter((node) => /^(?:(?:Ver (?:los )?)?\d+[\d., mil]* comentarios?(?:[.,].*)?|Comentar|Comment)$/i.test(nodeText(node))
     && (node.clickable || node.className === "android.widget.Button"));
   return buttons.flatMap((button) => {
     const previous = nodes.filter((node) => node.bounds.bottom <= button.bounds.top && node.bounds.top > 210

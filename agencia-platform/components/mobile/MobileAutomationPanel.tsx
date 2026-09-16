@@ -588,7 +588,7 @@ export default function MobileAutomationPanel({
           </label>
           <details className="text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Profundidad de lectura</summary>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <label>Publicaciones con comentarios por grupo<input type="number" min={1} max={20} value={postsPerGroup} onChange={(event) => setPostsPerGroup(Number(event.target.value))} className="mt-1 w-full rounded-lg border p-2" /></label>
+              <label>Publicaciones por grupo<input type="number" min={1} max={20} value={postsPerGroup} onChange={(event) => setPostsPerGroup(Number(event.target.value))} className="mt-1 w-full rounded-lg border p-2" /></label>
               <label>Pantallas de comentarios por publicación<input type="number" min={1} max={20} value={commentScreensPerPost} onChange={(event) => setCommentScreensPerPost(Number(event.target.value))} className="mt-1 w-full rounded-lg border p-2" /></label>
             </div><p className="mt-2">Se mostrará la cobertura real de la búsqueda. Los comentarios ocultos, eliminados o fuera de esta profundidad no se incluyen.</p>
           </details>

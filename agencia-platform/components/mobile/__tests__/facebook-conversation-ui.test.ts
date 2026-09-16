@@ -33,6 +33,7 @@ describe("native Facebook conversation matching", () => {
   it("only opens a comments counter with a readable post anchor", () => {
     const xml = node("Una pregunta sobre abrir un supermercado de franquicia", "TextView", "[30,700][1000,900]") + node("12 comentarios", "Button", "[600,920][1000,1000]");
     expect(visiblePostComments(xml)[0].anchor).toContain("supermercado");
+    expect(visiblePostComments(xml.replace("12 comentarios", "Comentar"))[0].anchor).toContain("supermercado");
     expect(visiblePostComments(node("Comentar", "Button", "[600,920][1000,1000]"))).toEqual([]);
   });
 });
