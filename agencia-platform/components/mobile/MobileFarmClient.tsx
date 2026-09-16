@@ -1047,7 +1047,8 @@ function MobileDeviceCard({
     }
     const dismissConversationKeyboard = async () => {
       const inputState = String(await runAdbCommand(adb, ["dumpsys", "input_method"]));
-      if (/\bmInputShown\s*=\s*true\b/.test(inputState)) {
+      if (/\bmIsInputViewShown\s*=\s*true\b/.test(inputState)
+        && /\bm(?:WindowVisible|DecorViewVisible)\s*=\s*true\b/.test(inputState)) {
         await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_BACK"]);
         await waitForAndroidUi(400);
       }
