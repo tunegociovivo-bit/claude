@@ -54,6 +54,8 @@ export type GenerateMonthOptions = {
   // guarda en cada EditorialPost creado y los pipelines de imagen/vídeo lo
   // usan para fijar las dimensiones de salida.
   aspectRatio?: string;
+  /** Referencias visuales subidas para esta generación puntual. */
+  extraReferenceUrls?: string[];
   // ID del BackgroundJob para chequear cancelRequested entre
   // iteraciones (cancelación cooperativa).
   jobId?: string;
@@ -631,7 +633,8 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
             userId: opts.userId,
             postId,
             quality,
-            forceRosterPersons: opts.useRosterPersons
+            forceRosterPersons: opts.useRosterPersons,
+            extraReferenceUrls: opts.extraReferenceUrls
           });
           imagesGenerated++;
         } catch (e: any) {

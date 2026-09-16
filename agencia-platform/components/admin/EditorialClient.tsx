@@ -2235,35 +2235,51 @@ function PostFormModal({
       setError("Selecciona al menos una red.");
       return;
     }
+    if (createImageEditPrompt.trim() && !createImageFile) {
+      setError("Sube una imagen para que el prompt pueda usarse como referencia al generar con IA.");
+      return;
+    }
     setError(null);
     setAiRunning(true);
     const scheduledIso = form.scheduledFor
       ? new Date(form.scheduledFor).toISOString()
       : new Date().toISOString();
     try {
+      const payload = {
+        clientId: form.clientId,
+        title: form.title.trim(),
+        format: formatToAi(form.format),
+        networks: form.networks,
+        scheduledFor: scheduledIso,
+        copyLength: aiCopyLength,
+        perNetworkCopy: aiPerNetworkCopy,
+        extraGuidance: aiExtraGuidance || undefined,
+        imageIncludeHint: aiImageInclude || undefined,
+        imageAvoidHint: aiImageAvoid || undefined,
+        useRosterPersons: aiForcedRoster.length > 0 ? aiForcedRoster : undefined,
+        status: form.status === "REVIEW" ? "REVIEW" : "DRAFT",
+        imageQuality: aiImageQuality,
+        referenceInstruction: createImageEditPrompt.trim() || undefined,
+        // Si el usuario eligió un aspect ratio en el modal (1:1, 9:16, …),
+        // se lo pasamos al generador para que respete las dimensiones tanto
+        // en la imagen como en el storyboard del vídeo.
+        aspectRatio:
+          form.aspectRatio && form.aspectRatio !== "auto" ? form.aspectRatio : undefined
+      };
+      const requestInit: RequestInit = createImageFile
+        ? (() => {
+            const fd = new FormData();
+            fd.append("payload", JSON.stringify(payload));
+            fd.append("referenceImage", createImageFile);
+            return { method: "POST", body: fd };
+          })()
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          };
       const r = await fetch("/api/v1/editorial/generate-single", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: form.clientId,
-          title: form.title.trim(),
-          format: formatToAi(form.format),
-          networks: form.networks,
-          scheduledFor: scheduledIso,
-          copyLength: aiCopyLength,
-          perNetworkCopy: aiPerNetworkCopy,
-          extraGuidance: aiExtraGuidance || undefined,
-          imageIncludeHint: aiImageInclude || undefined,
-          imageAvoidHint: aiImageAvoid || undefined,
-          useRosterPersons: aiForcedRoster.length > 0 ? aiForcedRoster : undefined,
-          status: form.status === "REVIEW" ? "REVIEW" : "DRAFT",
-          imageQuality: aiImageQuality,
-          // Si el usuario eligió un aspect ratio en el modal (1:1, 9:16, …),
-          // se lo pasamos al generador para que respete las dimensiones tanto
-          // en la imagen como en el storyboard del vídeo.
-          aspectRatio:
-            form.aspectRatio && form.aspectRatio !== "auto" ? form.aspectRatio : undefined
-        })
+        ...requestInit
       });
       const data = await r.json().catch(() => null);
       if (!r.ok) {

@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import sharp from "sharp";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
@@ -16,6 +17,7 @@ import { generateMonth } from "@/lib/editorial/generate-month";
 import { generatePostVideo } from "@/lib/editorial/generate-video";
 import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
+import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
 
 /** Formatos que se generan como VÍDEO (pipeline tomas + voz + subtítulos)
  *  en vez de como imagen estática. */
@@ -38,13 +40,18 @@ const schema = z.object({
   imageQuality: z.enum(["low", "medium", "high"]).default("medium"),
   // Aspect ratio elegido por el usuario en el modal (1:1, 9:16, 16:9, …).
   // Se guarda en el post para que generate-image y generate-video lo respeten.
-  aspectRatio: z.string().optional()
+  aspectRatio: z.string().optional(),
+  extraReferenceUrls: z.array(z.string().url()).optional()
 });
 
 type Params = z.infer<typeof schema>;
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
-  const body = await req.json().catch(() => null);
+  const contentType = req.headers.get("content-type") ?? "";
+  const body =
+    contentType.includes("multipart/form-data")
+      ? await parseMultipartGenerateRequest(req, api.workspaceId)
+      : await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
@@ -73,6 +80,46 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     { status: 202 }
   );
 });
+
+async function parseMultipartGenerateRequest(req: Request, workspaceId: string) {
+  const form = await req.formData();
+  const rawPayload = form.get("payload");
+  if (typeof rawPayload !== "string") throw new ApiError(400, "validation_error", "Falta payload.");
+  let payload: any;
+  try {
+    payload = JSON.parse(rawPayload);
+  } catch {
+    throw new ApiError(400, "validation_error", "Payload inválido.");
+  }
+
+  const reference = form.get("referenceImage");
+  if (reference instanceof File && reference.size > 0) {
+    if (!isStorageEnabled()) throw new ApiError(503, "storage_disabled", "Storage no configurado para subir imágenes.");
+    if (!reference.type.startsWith("image/")) throw new ApiError(400, "validation_error", "La referencia debe ser una imagen.");
+    if (reference.size > 20 * 1024 * 1024) throw new ApiError(400, "validation_error", "La imagen supera 20MB.");
+
+    const input = Buffer.from(await reference.arrayBuffer());
+    const normalized = await sharp(input).rotate().png().toBuffer();
+    const s3Key = buildS3Key({
+      workspaceId,
+      targetType: "editorial",
+      targetId: "generation-references",
+      filename: `reference-${Date.now()}.png`
+    });
+    await uploadBuffer({ s3Key, body: normalized, contentType: "image/png" });
+    const url = await signedDownloadUrl(s3Key, 604800);
+    payload.extraReferenceUrls = [...(Array.isArray(payload.extraReferenceUrls) ? payload.extraReferenceUrls : []), url];
+
+    const userInstruction = typeof payload.referenceInstruction === "string" ? payload.referenceInstruction.trim() : "";
+    const referenceHint = userInstruction
+      ? `Use the uploaded reference image as the main visual reference. Apply this requested change or direction: ${userInstruction}`
+      : "Use the uploaded reference image as the main visual reference for subject, composition, style and context.";
+    payload.imageIncludeHint = [payload.imageIncludeHint, referenceHint].filter(Boolean).join("\n\n");
+  }
+
+  delete payload.referenceInstruction;
+  return payload;
+}
 
 async function runJobAsync(
   jobId: string,
@@ -130,6 +177,7 @@ async function runJobAsync(
       imageAvoidHint: params.imageAvoidHint,
       useRosterPersons: (params as any).useRosterPersons,
       aspectRatio: params.aspectRatio,
+      extraReferenceUrls: params.extraReferenceUrls,
       onProgress: async (msg, pct) => {
         // En vídeo el copy es la primera mitad: dejamos espacio para el vídeo.
         await updateProgress(msg, isVideo ? Math.min(40, Math.round(pct * 0.4)) : pct);

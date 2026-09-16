@@ -241,6 +241,8 @@ export type GenerateImageOptions = {
    *  que SÍ deben aparecer (refs forzadas, ignorando si están mencionadas
    *  o no en el copy). */
   forceRosterPersons?: string[];
+  /** URLs de referencia subidas para esta generación puntual desde el modal. */
+  extraReferenceUrls?: string[];
 };
 
 export async function generateImageForPost(opts: GenerateImageOptions): Promise<{
@@ -461,9 +463,14 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   const TOTAL_CAP = 5;
   const perPerson = names.length >= 4 ? 1 : 2;
   const referenceUrls: string[] = [];
+  for (const u of opts.extraReferenceUrls ?? []) {
+    if (typeof u === "string" && u.trim() && referenceUrls.length < TOTAL_CAP) {
+      referenceUrls.push(u.trim());
+    }
+  }
   // La plantilla visual (si la hay y su intensidad > 0) ocupa el primer
   // slot: es la guía de estilo y queremos asegurar que la IA la reciba.
-  if (templateUrl && patternStrength > 0) referenceUrls.push(templateUrl);
+  if (templateUrl && patternStrength > 0 && referenceUrls.length < TOTAL_CAP) referenceUrls.push(templateUrl);
   for (const name of names) {
     const info = peopleByName.get(name);
     if (!info) continue;
@@ -480,6 +487,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     haystackPreview: haystack.slice(0, 200),
     mentionsCollective,
     forcedFromModal: forced,
+    extraReferences: opts.extraReferenceUrls?.length ?? 0,
     peopleInRoster: Array.from(peopleByName.values()).map((p) => ({ name: p.name, type: p.type, photos: p.urls.length })),
     includedPersons: Array.from(includedNames),
     finalRefCount: referenceUrls.length
@@ -487,7 +495,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
 
   let buf: Buffer;
   let modelLabel: string;
-  if (provider === "freepik") {
+  if (provider === "freepik" && referenceUrls.length === 0) {
     buf = await generateFreepikImage({
       workspaceId: opts.workspaceId,
       prompt,
