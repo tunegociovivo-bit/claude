@@ -67,6 +67,7 @@ type Props = {
   deviceSerial: string;
   phoneKey: string;
   ready: boolean;
+  composer?: { allowed: boolean; submitLabel: string; create: (body: Record<string, unknown>) => Promise<void> };
   onEnsureReady?: () => Promise<boolean>;
   onExecuteJob: (job: MobileAutomationExecutableJob) => Promise<MobileAutomationExecutionResult>;
   onPasteText: (text: string) => Promise<void>;
@@ -233,7 +234,8 @@ export default function MobileAutomationPanel({
   ready,
   onEnsureReady,
   onExecuteJob,
-  onPasteText
+  onPasteText,
+  composer
 }: Props) {
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [canManage, setCanManage] = useState(false);
@@ -272,6 +274,7 @@ export default function MobileAutomationPanel({
   ));
 
   const loadJobs = useCallback(async () => {
+    if (composer) { setCanManage(composer.allowed); setLoading(false); return; }
     try {
       const payload = await apiJson(`/api/v1/mobile/automations?deviceSerial=${encodeURIComponent(deviceSerial)}`);
       setJobs(Array.isArray(payload.jobs) ? payload.jobs : []);
@@ -282,10 +285,10 @@ export default function MobileAutomationPanel({
     } finally {
       setLoading(false);
     }
-  }, [deviceSerial]);
+  }, [deviceSerial, composer]);
 
   const claimAndExecute = useCallback(async () => {
-    if (!ready || !canManage || workerBusyRef.current) return;
+    if (composer || !ready || !canManage || workerBusyRef.current) return;
     workerBusyRef.current = true;
     const executorSessionId = sessionIdFor(deviceSerial);
     try {
@@ -351,7 +354,7 @@ export default function MobileAutomationPanel({
     } finally {
       workerBusyRef.current = false;
     }
-  }, [canManage, deviceSerial, loadJobs, onExecuteJob, ready]);
+  }, [canManage, composer, deviceSerial, loadJobs, onExecuteJob, ready]);
 
   useEffect(() => { void loadJobs(); }, [loadJobs]);
 
@@ -376,10 +379,7 @@ export default function MobileAutomationPanel({
       const generatedTargetUrl = buildAutomationTargetUrl(platform, sourceKind, targetName);
       const idempotencyKey = draftRequestIdRef.current ?? crypto.randomUUID();
       draftRequestIdRef.current = idempotencyKey;
-      await apiJson("/api/v1/mobile/automations/drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const draftBody = {
           platform,
           sourceKind,
           idempotencyKey,
@@ -394,8 +394,9 @@ export default function MobileAutomationPanel({
           tone: tone.trim() || undefined,
           experienceConfirmed: sourceKind === "REAL_REVIEW" ? experienceConfirmed : false,
           scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined
-        })
-      });
+      };
+      if (composer) { await composer.create(draftBody); draftRequestIdRef.current = null; return; }
+      await apiJson("/api/v1/mobile/automations/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draftBody) });
       draftRequestIdRef.current = null;
       setQueueOpen(true);
       setFacts("");
@@ -511,15 +512,15 @@ export default function MobileAutomationPanel({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
-            <Bot className="h-4 w-4 text-violet-700" /> Centro de automatizaciones
+            <Bot className="h-4 w-4 text-violet-700" /> {composer ? "Configurar encargo común" : "Centro de automatizaciones"}
           </h3>
           <p className="mt-1 text-xs leading-5 text-slate-600">
             El Hub analiza resultados y procesa lotes completos. Una sola aprobación autoriza las solicitudes seleccionadas.
           </p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
+        {!composer && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
           {ready ? "Worker conectado" : "Abre la pantalla para ejecutar"}
-        </span>
+        </span>}
       </div>
 
       <form onSubmit={createDraft} className="mt-3 space-y-2">
@@ -645,14 +646,14 @@ export default function MobileAutomationPanel({
         )}
         <button type="submit" disabled={busy || !canManage} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {sourceKind === "GROUP_DISCOVERY" ? "Analizar y seleccionar grupos" : conversationScan ? "Buscar comentarios y preparar respuestas" : selectedWorkflow.submitLabel}
+          {composer ? composer.submitLabel : sourceKind === "GROUP_DISCOVERY" ? "Analizar y seleccionar grupos" : conversationScan ? "Buscar comentarios y preparar respuestas" : selectedWorkflow.submitLabel}
         </button>
       </form>
 
       {workerMessage && <p role="status" className="mt-3 rounded-lg bg-indigo-100 px-3 py-2 text-xs text-indigo-800">{workerMessage}</p>}
       {error && <p role="alert" className="mt-3 rounded-lg bg-rose-100 px-3 py-2 text-xs text-rose-800">{error}</p>}
 
-      <div className="mt-4 border-t border-violet-100 pt-3">
+      {!composer && <div className="mt-4 border-t border-violet-100 pt-3">
         <div className="flex items-center justify-between gap-2">
           <button type="button" onClick={() => setQueueOpen((open) => !open)} aria-expanded={queueOpen} aria-controls="mobile-supervised-queue" className="flex items-center gap-2 text-xs font-bold text-slate-700"><ChevronDown className={`h-4 w-4 transition-transform ${queueOpen ? "" : "-rotate-90"}`} /> Cola supervisada · {activeJobs.length} activos</button>
           <button type="button" onClick={() => void loadJobs()} disabled={loading} aria-label="Actualizar automatizaciones" className="rounded-lg p-1.5 text-slate-500 hover:bg-white hover:text-slate-900">
@@ -752,7 +753,7 @@ export default function MobileAutomationPanel({
           </div>
         )}
         </div>}
-      </div>
+      </div>}
 
       <p className="mt-3 flex items-start gap-2 text-[11px] leading-4 text-slate-500">
         <Send className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Primero revisa el resultado. Solo se ejecutan las solicitudes o respuestas que selecciones y apruebes. Mantén el móvil conectado y esta pantalla abierta.

@@ -48,6 +48,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
+import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
   createAndroidAwakeSession,
@@ -510,6 +511,7 @@ export default function MobileFarmClient() {
   const [sharedPhones, setSharedPhones] = useState<SharedMobilePhone[]>([]);
   const [clientStorageScope, setClientStorageScope] = useState("");
   const [canManagePhones, setCanManagePhones] = useState(false);
+  const [fleetOpen, setFleetOpen] = useState<{ id: string; serials: string[] } | null>(null);
   const [phonesLoading, setPhonesLoading] = useState(true);
   const [phonesError, setPhonesError] = useState<string | null>(null);
 
@@ -634,6 +636,8 @@ export default function MobileFarmClient() {
         <Notice tone="danger" icon={AlertTriangle}>{discoveryError}</Notice>
       )}
 
+      <MobileFleetAutomationPanel devices={devices.map(d => ({ deviceSerial: d.serial, label: d.name || "Android", phoneKey: sharedPhones.find(p => p.deviceSerial === d.serial)?.key }))} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
+
       <SharedPhoneInventory
         items={sharedPhones}
         connectedDevices={devices.map((device) => ({ serial: device.serial, name: device.name || "Android" }))}
@@ -651,6 +655,7 @@ export default function MobileFarmClient() {
             <MobileDeviceCard
               key={device.serial}
               device={device}
+              fleetOpen={fleetOpen}
               linkedPhone={sharedPhones.find((phone) => phone.deviceSerial === device.serial) ?? null}
               clientStorageScope={clientStorageScope}
             />
@@ -701,10 +706,12 @@ function EmptyState({ onConnect, disabled }: { onConnect: () => void; disabled: 
 }
 
 function MobileDeviceCard({
+  fleetOpen,
   device,
   linkedPhone,
   clientStorageScope
 }: {
+  fleetOpen: { id: string; serials: string[] } | null;
   device: UsbDevice;
   linkedPhone: SharedMobilePhone | null;
   clientStorageScope: string;
@@ -1316,12 +1323,18 @@ function MobileDeviceCard({
     }
   }
 
+  const startForFleetRef = useRef(startMirroring);
+  startForFleetRef.current = startMirroring;
+  useEffect(() => {
+    if (fleetOpen?.serials.includes(device.serial)) void startForFleetRef.current();
+  }, [fleetOpen, device.serial]);
+
   const busy = ["connecting", "authorizing", "preparing", "stopping"].includes(status);
   const configuredProxy = linkedPhone?.androidProxy ?? null;
   const proxySyncState = getAndroidProxySyncState(configuredProxy, appliedProxy);
 
   return (
-    <article className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+    <article id={`mobile-device-${encodeURIComponent(device.serial)}`} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
