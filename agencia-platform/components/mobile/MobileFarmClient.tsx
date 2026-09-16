@@ -68,7 +68,6 @@ import {
   findFacebookMembershipSubmitTarget,
   findFacebookSearchEntryTarget,
   findFacebookSearchSuggestionTarget,
-  hasVisibleFacebookUi,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 import {
@@ -76,6 +75,8 @@ import {
   type MobileAutomationExecutableJob,
   type MobileAutomationExecutionResult
 } from "@/components/mobile/mobile-automation-executor";
+import { FacebookNavigationError, launchFacebookForAutomation } from "@/components/mobile/facebook-android-launch";
+import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import {
   closeMobileSessionResources,
@@ -184,11 +185,9 @@ async function waitForFacebookSearchEntry(
   onRetryLaunch: () => Promise<void>
 ): Promise<AndroidUiPoint> {
   let lastError: unknown;
-  let sawFacebookUi = false;
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       const hierarchy = await readAndroidUiHierarchy(adb);
-      sawFacebookUi ||= hasVisibleFacebookUi(hierarchy);
       const target = findFacebookSearchEntryTarget(
         hierarchy,
         knownQueries
@@ -201,30 +200,9 @@ async function waitForFacebookSearchEntry(
     await waitForAndroidUi(900);
   }
   if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
-  if (sawFacebookUi) {
-    const fallback = await readAndroidPortraitSize(adb);
-    return {
-      x: Math.round(fallback.width * 0.84),
-      y: Math.round(Math.min(120, fallback.height * 0.075))
-    };
-  }
-  throw new Error(
-    `Facebook se ha abierto, pero no encuentro su buscador. Pantalla detectada: ${await summarizeAndroidForeground(adb)}`
+  throw new FacebookNavigationError(
+    `Facebook no muestra un buscador accesible. Pantalla detectada: ${await summarizeAndroidForeground(adb)}`
   );
-}
-
-async function readAndroidPortraitSize(adb: Adb): Promise<{ width: number; height: number }> {
-  const sizeOutput = await runAdbCommand(adb, ["wm", "size"]);
-  const reportedSizes = Array.from(
-    sizeOutput.matchAll(/(?:Physical|Override) size:\s*(\d+)x(\d+)/gi)
-  );
-  const activeSize = reportedSizes.at(-1);
-  const width = Number(activeSize?.[1]);
-  const height = Number(activeSize?.[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 200 || height < 200 || width >= height) {
-    throw new Error("Android no ha informado de una pantalla vertical valida para abrir la busqueda de Facebook.");
-  }
-  return { width, height };
 }
 
 async function mobileApiJson(url: string, init?: RequestInit) {
@@ -258,26 +236,6 @@ async function tapFacebookGroupsTabIfVisible(adb: Adb): Promise<boolean> {
   return false;
 }
 
-async function openFacebookSearchThroughAndroidIntent(
-  adb: Adb,
-  facebookPackage: string,
-  query: string
-): Promise<boolean> {
-  await runAdbCommand(adb, [
-    "am",
-    "start",
-    "-a",
-    "android.intent.action.SEARCH",
-    "-p",
-    facebookPackage,
-    "--es",
-    "query",
-    query
-  ]).catch(() => "");
-  await waitForAndroidUi(1500);
-  return tapFacebookGroupsTabIfVisible(adb);
-}
-
 async function tapFacebookSearchSuggestionIfVisible(adb: Adb, query: string): Promise<boolean> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const point = findFacebookSearchSuggestionTarget(await readAndroidUiHierarchy(adb), query);
@@ -297,47 +255,45 @@ async function openFacebookGroupSearch(
   query: string,
   knownQueries: readonly string[] = [query]
 ): Promise<void> {
+  try {
+    await navigateFacebookGroupSearch(adb, controller, query, knownQueries);
+  } catch (error) {
+    throw error instanceof FacebookNavigationError ? error : new FacebookNavigationError(
+      error instanceof Error ? error.message : "No se ha podido abrir la búsqueda de Facebook."
+    );
+  }
+}
+
+async function navigateFacebookGroupSearch(
+  adb: Adb,
+  controller: AndroidClipboardController,
+  query: string,
+  knownQueries: readonly string[] = [query]
+): Promise<void> {
   await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(500);
   const facebookPackage = await resolveFacebookPackage(adb);
-  await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
-  await runAdbCommand(adb, [
-    "monkey",
-    "-p",
-    facebookPackage,
-    "-c",
-    "android.intent.category.LAUNCHER",
-    "1"
-  ]);
-  await waitForAndroidUi(1200);
+  const relaunchFacebook = () => launchFacebookForAutomation(facebookPackage, {
+    runCommand: (command) => runAdbCommand(adb, command),
+    readHierarchy: () => readAndroidUiHierarchy(adb),
+    wait: waitForAndroidUi
+  });
+  await relaunchFacebook();
 
-  if (await openFacebookSearchThroughAndroidIntent(adb, facebookPackage, query)) return;
-
-  const relaunchFacebook = async () => {
-    await runAdbCommand(adb, ["am", "force-stop", facebookPackage]);
-    await waitForAndroidUi(500);
-    await runAdbCommand(adb, [
-      "monkey",
-      "-p",
-      facebookPackage,
-      "-c",
-      "android.intent.category.LAUNCHER",
-      "1"
-    ]);
-  };
   const searchEntry = await waitForFacebookSearchEntry(adb, knownQueries, relaunchFacebook);
   await runAdbCommand(adb, ["input", "tap", String(searchEntry.x), String(searchEntry.y)]);
   await waitForAndroidUi(500);
   await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
-  if (await tapFacebookSearchSuggestionIfVisible(adb, query)) return;
-  await submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command));
-  await waitForAndroidUi(750);
-  if (await tapFacebookGroupsTabIfVisible(adb)) return;
-  throw new Error(
-    "Facebook ha buscado la tematica, pero no encuentro la pestana Grupos. Revisa la pantalla y vuelve a intentarlo."
-  );
+  await finishFacebookGroupSearch({
+    selectSuggestion: () => tapFacebookSearchSuggestionIfVisible(adb, query),
+    submitKeyboard: () => submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command)),
+    selectGroups: async () => {
+      await waitForAndroidUi(750);
+      return tapFacebookGroupsTabIfVisible(adb);
+    }
+  });
 }
 async function captureFacebookGroupScreens(adb: Adb, count = 5): Promise<string[]> {
   const screens: string[] = [];
@@ -394,7 +350,7 @@ async function joinSingleFacebookGroup(input: {
     input.adb,
     input.controller,
     input.candidate.name,
-    input.batch.candidates.map((candidate) => candidate.name)
+    [input.batch.query, ...input.batch.candidates.map((candidate) => candidate.name)]
   );
   const currentHierarchy = await readAndroidUiHierarchy(input.adb);
   const existingState = findFacebookMembershipState(currentHierarchy);
@@ -1133,30 +1089,14 @@ function MobileDeviceCard({
         if (!job.phoneKey || !job.deviceSerial) {
           throw new Error("El lote no está asociado correctamente con este móvil.");
         }
-        const updatedCandidates: FacebookGroupCandidate[] = [];
-        for (const candidate of batch.candidates) {
-          if (!candidate.selected || candidate.outcome === "joined" || candidate.outcome === "requested") {
-            updatedCandidates.push(candidate);
-            continue;
-          }
-          try {
-            updatedCandidates.push(await joinSingleFacebookGroup({
-              adb,
-              controller,
-              candidate,
-              batch,
-              phoneKey: job.phoneKey,
-              deviceSerial: job.deviceSerial
-            }));
-          } catch (joinError) {
-            updatedCandidates.push(withGroupOutcome(
-              candidate,
-              "failed",
-              joinError instanceof Error ? joinError.message : "No se ha podido procesar este grupo."
-            ));
-          }
-          await waitForAndroidUi(3_000);
-        }
+        const updatedCandidates = await runFacebookGroupCandidates(
+          batch.candidates,
+          (candidate) => joinSingleFacebookGroup({
+            adb, controller, candidate, batch,
+            phoneKey: job.phoneKey!, deviceSerial: job.deviceSerial!
+          }),
+          () => waitForAndroidUi(3_000)
+        );
         const resultBatch = { ...batch, candidates: updatedCandidates };
         const selected = updatedCandidates.filter((candidate) => candidate.selected);
         const completed = selected.filter((candidate) => ["joined", "requested"].includes(candidate.outcome));

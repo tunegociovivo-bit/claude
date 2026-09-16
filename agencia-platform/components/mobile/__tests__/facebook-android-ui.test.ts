@@ -22,6 +22,12 @@ const visibleFacebookSearchGboard = [
 ].join("\n");
 
 describe("Facebook Android UI", () => {
+  it("recognizes the empty native Facebook search field by its placeholder", () => {
+    expect(findFacebookSearchEntryTarget(`<hierarchy>
+      <node text="Buscar en Facebook" package="com.facebook.katana" class="android.widget.EditText" bounds="[90,45][960,145]" />
+    </hierarchy>`)).toEqual({ kind: "input", point: { x: 525, y: 95 } });
+  });
+
   it("pairs the join control with the requested group instead of the first result", () => {
     const hierarchy = `<hierarchy>
       <node text="Franquicias y Negocios rentables en España para emprender" class="android.view.View" bounds="[120,120][790,160]" />

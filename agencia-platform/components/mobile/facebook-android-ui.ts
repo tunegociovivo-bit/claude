@@ -125,6 +125,7 @@ export function findFacebookSearchEntryTarget(
       && node.bounds.top <= 350
       && (
         matchesExactly(nodeLabel(node), knownQueries)
+        || matchesExactly(node.text, ["Buscar", "Search", "Buscar en Facebook", "Search Facebook"])
         || matchesAny(node.contentDescription, ["Buscar", "Search"])
         || matchesAny(node.resourceId, ["search", "buscar"])
       )
@@ -136,7 +137,7 @@ export function findFacebookSearchEntryTarget(
     .filter((node) => (
       belongsToFacebook(node.packageName)
       && node.bounds.top <= 350
-      && matchesExactly(nodeLabel(node), ["Buscar", "Search"])
+      && matchesExactly(nodeLabel(node), ["Buscar", "Search", "Buscar en Facebook", "Search Facebook"])
     ))
     .sort((left, right) => left.bounds.top - right.bounds.top)[0];
   if (headerSearch) return { kind: "button", point: headerSearch.center };
