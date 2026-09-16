@@ -6,7 +6,7 @@ function countUnionParameters(schema: unknown): number {
   if (Array.isArray(schema)) return schema.reduce((total, item) => total + countUnionParameters(item), 0);
   const record = schema as Record<string, unknown>;
   const self = Array.isArray(record.anyOf) || Array.isArray(record.type) ? 1 : 0;
-  return self + Object.values(record).reduce((total, item) => total + countUnionParameters(item), 0);
+  return self + Object.values(record).reduce<number>((total, item) => total + countUnionParameters(item), 0);
 }
 
 describe("businessPremisesSearchSchema", () => {
