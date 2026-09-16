@@ -2,13 +2,6 @@ import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/an
 
 type AndroidUiCommandRunner = (command: readonly string[]) => Promise<unknown>;
 
-type AndroidUiRect = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-};
-
 export type FacebookSearchEntryTarget = {
   kind: "input" | "button";
   point: AndroidUiPoint;
@@ -173,79 +166,10 @@ export async function submitFacebookSearchFromKeyboard(
   runCommand: AndroidUiCommandRunner
 ): Promise<void> {
   await assertVisibleGboard(runCommand);
-
-  const inputOutput = String(await runCommand(["dumpsys", "input"]));
-  const orientations = Array.from(
-    inputOutput.matchAll(/SurfaceOrientation\s*:\s*(\d+)/gi),
-    (match) => Number(match[1])
-  );
-  if (!orientations.length || orientations.some((orientation) => orientation !== 0)) {
-    throw new Error(
-      "La búsqueda automática requiere el móvil en orientación vertical."
-    );
-  }
-
-  const sizeOutput = String(await runCommand(["wm", "size"]));
-  const reportedSizes = Array.from(
-    sizeOutput.matchAll(/(?:Physical|Override) size:\s*(\d+)x(\d+)/gi)
-  );
-  const activeSize = reportedSizes.at(-1);
-  const width = Number(activeSize?.[1]);
-  const height = Number(activeSize?.[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 200 || height < 200) {
-    throw new Error("Android no ha informado de un tamaño de pantalla válido para pulsar Buscar.");
-  }
-  if (width >= height) {
-    throw new Error(
-      "La búsqueda automática requiere el móvil en orientación vertical."
-    );
-  }
-
-  const windowOutput = String(await runCommand(["dumpsys", "window", "displays"]));
-  const imeFrame = windowOutput
-    .split(/\r?\n/)
-    .filter((line) => (
-      /(?:type|mType)\s*=\s*(?:ITYPE_)?IME\b/i.test(line)
-      && /(?:visible|mVisible)\s*=\s*true\b/i.test(line)
-    ))
-    .map((line): AndroidUiRect | null => {
-      const frame = /(?:frame|mFrame)\s*=\s*\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]/i.exec(line);
-      if (!frame) return null;
-      return {
-        left: Number(frame[1]),
-        top: Number(frame[2]),
-        right: Number(frame[3]),
-        bottom: Number(frame[4])
-      };
-    })
-    .find((frame): frame is AndroidUiRect => frame !== null);
-
-  const target = {
-    x: Math.round(width * 0.92),
-    y: Math.round(height * 0.9)
-  };
-  const dockedKeyboard = imeFrame
-    && imeFrame.left <= width * 0.05
-    && imeFrame.right >= width * 0.95
-    && imeFrame.top >= height * 0.45
-    && imeFrame.bottom >= height * 0.95
-    && imeFrame.bottom - imeFrame.top >= height * 0.15
-    && target.x >= imeFrame.left
-    && target.x <= imeFrame.right
-    && target.y >= imeFrame.top
-    && target.y <= imeFrame.bottom;
-  if (!dockedKeyboard) {
-    throw new Error(
-      "Android no ha confirmado un teclado acoplado en la parte inferior; se ha detenido la pulsación para no tocar contenido de Facebook."
-    );
-  }
-
-  await runCommand([
-    "input",
-    "tap",
-    String(target.x),
-    String(target.y)
-  ]);
+  // The focused Facebook editor explicitly declares IME_ACTION_SEARCH.
+  // Dispatch Enter to that editor; display rotation and keyboard placement
+  // must not turn a search action into a tap on unrelated screen content.
+  await runCommand(["input", "keyevent", "KEYCODE_ENTER"]);
 }
 
 export function findFacebookSearchImeTarget(hierarchy: string): AndroidUiPoint | null {
