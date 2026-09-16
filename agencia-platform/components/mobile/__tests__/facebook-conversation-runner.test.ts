@@ -53,6 +53,15 @@ describe("Facebook conversation execution", () => {
     expect(resumed.candidates).toHaveLength(2);
     expect(deps.analyze).not.toHaveBeenCalled();
   });
+  it("does not leave the group when a normal post exposes a horizontal comment counter", async () => {
+    const deps = setup();
+    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="Comentar" bounds="[100,600][500,700]" />';
+    const post = '<node package="com.facebook.katana" class="android.widget.Button" content-desc="5 comentarios" bounds="[100,1400][1080,1500]" />';
+    vi.mocked(deps.read).mockResolvedValueOnce(feed).mockResolvedValueOnce(post).mockResolvedValueOnce(post).mockResolvedValue(commentScreen);
+    await scanFacebookConversations(createConversationBatch(config), deps);
+    expect(deps.tap).toHaveBeenCalledTimes(1);
+    expect(deps.back).toHaveBeenCalledTimes(1);
+  });
   it("does not send when the original author or comment changed", async () => {
     const deps = setup();
     const result = await sendFacebookConversationReplies({ ...createConversationBatch(config), candidates: [{ ...item, author: "Otro autor" }] }, deps);

@@ -112,7 +112,10 @@ async function openCommentThread(deps: ConversationRunnerDependencies) {
   if (parseAndroidUiNodes(initial).some((node) => /inputmethod|keyboard/.test(node.packageName))) { await deps.back(); await deps.wait(400); }
   const xml = await deps.read();
   const counter = namedControl(xml, /^\d+[\d., mil]* comentarios?(?:[.,].*)?$/i);
-  const extraLevel = !visibleComments(xml).length && !!counter;
+  const screenWidth = Math.max(0, ...parseAndroidUiNodes(xml).map((node) => node.bounds.right));
+  // Full-screen reels place their comments control in the right-side action rail.
+  // A counter inside a normal post is not an extra navigation level.
+  const extraLevel = !visibleComments(xml).length && !!counter && counter.bounds.left >= screenWidth * 0.8;
   if (extraLevel && counter) { await deps.tap(counter.center); await deps.wait(600); }
   await deps.dismissKeyboard?.();
   await allCommentsFilter(deps);
@@ -166,6 +169,9 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
       let checked = 0;
       for (let page = 0; page < batch.config.postsPerGroup * 6 && checked < batch.config.postsPerGroup; page++) {
         const xml = await deps.read();
+        if (!batch.config.targetUrl && (joinedGroupRows(xml).length >= 4 || namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i))) {
+          throw new Error("Facebook ha vuelto a la lista de grupos durante la lectura. El recorrido quedó incompleto.");
+        }
         // A direct publication link may open its comments immediately.
         const directComments = visibleComments(xml);
         const posts = visiblePostComments(xml);
