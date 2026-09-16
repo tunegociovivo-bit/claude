@@ -26,7 +26,9 @@ export const MOBILE_AUTOMATION_ACTIONS = [
   "OPEN_URL_AND_COPY_TEXT",
   "SEARCH_FACEBOOK_GROUPS",
   "DISCOVER_FACEBOOK_GROUPS",
-  "JOIN_FACEBOOK_GROUP_BATCH"
+  "JOIN_FACEBOOK_GROUP_BATCH",
+  "DISCOVER_FACEBOOK_CONVERSATIONS",
+  "REPLY_FACEBOOK_CONVERSATIONS"
 ] as const;
 
 export type MobileAutomationPlatform = (typeof MOBILE_AUTOMATION_PLATFORMS)[number];
@@ -98,8 +100,12 @@ export const mobileAutomationDraftSchema = z
     idempotencyKey: z.string().uuid(),
     phoneKey: z.string().trim().min(1).max(160),
     deviceSerial: z.string().trim().min(1).max(160),
-    targetUrl: z.string().trim().min(1).max(2048),
-    facts: z.string().trim().min(20).max(4000),
+    targetUrl: z.string().trim().max(2048).default(""),
+    facts: z.string().trim().max(4000),
+    niche: z.string().trim().max(200).optional(),
+    replyGuidance: z.string().trim().max(4000).optional(),
+    postsPerGroup: z.number().int().min(1).max(20).optional(),
+    commentScreensPerPost: z.number().int().min(1).max(20).optional(),
     experienceConfirmed: z.boolean().optional().default(false),
     targetName: z.string().trim().max(200).optional(),
     tone: z.string().trim().max(120).optional(),
@@ -141,6 +147,10 @@ export const mobileAutomationDraftSchema = z
         });
       }
     }
+    const conversationScan = value.platform === "facebook" && value.sourceKind === "COMMENT_DISCOVERY";
+    if (conversationScan && (!value.replyGuidance || value.replyGuidance.length < 3)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["replyGuidance"], message: "Indica el texto base para las respuestas." });
+    if (!conversationScan && value.facts.length < 20) context.addIssue({ code: z.ZodIssueCode.custom, path: ["facts"], message: "Aporta al menos 20 caracteres de contexto." });
+    if (conversationScan && !value.targetUrl) return;
     try {
       validateAutomationTargetUrl(value.platform, value.targetUrl);
     } catch (error) {

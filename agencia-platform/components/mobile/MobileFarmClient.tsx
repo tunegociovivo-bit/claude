@@ -74,6 +74,8 @@ import {
   type MobileAutomationExecutableJob,
   type MobileAutomationExecutionResult
 } from "@/components/mobile/mobile-automation-executor";
+import { scanFacebookConversations, sendFacebookConversationReplies, type ConversationRunnerDependencies } from "@/components/mobile/facebook-conversation-runner";
+import { serializeConversationBatch, type FacebookConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-navigation";
 import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
@@ -1037,7 +1039,55 @@ function MobileDeviceCard({
     if (!awakeSessionRef.current) {
       throw new Error("La protección de pantalla de Android no está activa.");
     }
+    const conversationDependencies = (batch: FacebookConversationBatch): ConversationRunnerDependencies => ({
+      read: () => readAndroidUiHierarchy(adb),
+      tap: async (point) => { await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
+      scroll: async (xml, direction) => {
+        const nodes = parseAndroidUiNodes(xml);
+        const width = Math.max(...nodes.map((node) => node.bounds.right));
+        const height = Math.max(...nodes.map((node) => node.bounds.bottom));
+        if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error("No se conoce el tamaño de la pantalla.");
+        const x = String(Math.round(width * 0.5));
+        const start = String(Math.round(height * (direction === "down" ? 0.82 : 0.3)));
+        const end = String(Math.round(height * (direction === "down" ? 0.3 : 0.82)));
+        await runAdbCommand(adb, ["input", "swipe", x, start, x, end, "450"]);
+        await waitForAndroidUi(700);
+      },
+      back: async () => { await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_BACK"]); await waitForAndroidUi(500); },
+      openUrl: async (url) => {
+        const pkg = await resolveFacebookPackage(adb);
+        await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
+        await runAdbCommand(adb, ["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, "-p", pkg]);
+        await waitForAndroidUi(1200);
+      },
+      paste: async (content) => { await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content }); await waitForAndroidUi(400); },
+      wait: waitForAndroidUi,
+      checkpoint: async (updated) => {
+        if (!job.id || !job.executorSessionId) throw new Error("La ejecución no tiene sesión activa.");
+        await mobileApiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ executorSessionId: job.executorSessionId, text: serializeConversationBatch(updated) })
+        });
+      },
+      filterGroups: async (names, niche) => {
+        const result = await mobileApiJson("/api/v1/mobile/facebook/conversations/filter", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phoneKey: job.phoneKey, deviceSerial: job.deviceSerial, names, niche }) });
+        return result.names;
+      },
+      analyze: async (comments, groupName) => {
+        const result = await mobileApiJson("/api/v1/mobile/facebook/conversations/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phoneKey: job.phoneKey, deviceSerial: job.deviceSerial, config: batch.config, groupName, comments: comments.map(({ id, author, text: content }) => ({ id, author, text: content })) }) });
+        return result.replies;
+      }
+    });
     return executeMobileAutomationJob(job, {
+      discoverFacebookConversations: async (batch) => {
+        const result = await scanFacebookConversations(batch, conversationDependencies(batch));
+        return { outcome: "DISCOVERED", resultText: serializeConversationBatch(result), summary: result.progress };
+      },
+      replyFacebookConversations: async (batch) => {
+        const result = await sendFacebookConversationReplies(batch, conversationDependencies(batch));
+        const pending = result.candidates.some((item) => item.selected && item.outcome !== "sent");
+        return { outcome: pending ? "PARTIAL" : "COMPLETED", resultText: serializeConversationBatch(result), summary: result.progress };
+      },
       openUrl: (url) => runAdbCommand(adb, [
         "am",
         "start",
@@ -1480,24 +1530,24 @@ function MobileDeviceCard({
 
         {linkedPhone ? (
           <>
-            <ConversationRadarPanel
+            <MobileAutomationPanel
               deviceSerial={device.serial}
               phoneKey={linkedPhone.key}
-              storageScope={clientStorageScope}
               ready={status === "mirroring"}
-              onCaptureScreen={captureVisibleScreen}
-              onCopyText={copyApprovedConversation}
+              onEnsureReady={startMirroring}
+              onExecuteJob={executeApprovedAutomation}
               onPasteText={pasteApprovedAutomation}
             />
             <details className="rounded-xl border border-slate-200 bg-white">
-              <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-slate-700">Acciones individuales y borradores programados</summary>
+              <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-slate-700">Análisis manual de una pantalla</summary>
               <div className="px-2 pb-2">
-                <MobileAutomationPanel
+                <ConversationRadarPanel
                   deviceSerial={device.serial}
                   phoneKey={linkedPhone.key}
+                  storageScope={clientStorageScope}
                   ready={status === "mirroring"}
-                  onEnsureReady={startMirroring}
-                  onExecuteJob={executeApprovedAutomation}
+                  onCaptureScreen={captureVisibleScreen}
+                  onCopyText={copyApprovedConversation}
                   onPasteText={pasteApprovedAutomation}
                 />
               </div>

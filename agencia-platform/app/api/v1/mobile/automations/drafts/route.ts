@@ -1,3 +1,4 @@
+import { createConversationBatch, serializeConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/auth";
 import { withApi } from "@/lib/api/handler";
@@ -47,7 +48,8 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
     );
   }
   requireLinkedMobile(phones, parsed.data.phoneKey, parsed.data.deviceSerial);
-  const targetUrl = validateAutomationTargetUrl(parsed.data.platform, parsed.data.targetUrl);
+  const conversationScan = parsed.data.platform === "facebook" && parsed.data.sourceKind === "COMMENT_DISCOVERY";
+  const targetUrl = conversationScan && !parsed.data.targetUrl ? "https://www.facebook.com/groups/?category=membership" : validateAutomationTargetUrl(parsed.data.platform, parsed.data.targetUrl);
   const existing = await prisma.mobileAutomationJob.findUnique({
     where: {
       workspaceId_idempotencyKey: {
@@ -60,7 +62,11 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
     return NextResponse.json({ ok: true, job: existing, replayed: true });
   }
   const directGroupSearch = parsed.data.sourceKind === "GROUP_DISCOVERY";
-  const text = directGroupSearch
+  const text = conversationScan ? serializeConversationBatch(createConversationBatch({
+    targetUrl: parsed.data.targetUrl, niche: parsed.data.niche ?? "", criteria: parsed.data.facts,
+    replyGuidance: parsed.data.replyGuidance!, postsPerGroup: parsed.data.postsPerGroup ?? 5,
+    commentScreensPerPost: parsed.data.commentScreensPerPost ?? 5
+  })) : directGroupSearch
     ? serializeFacebookGroupBatch(createInitialFacebookGroupBatch({
       query: parsed.data.targetName!,
       criteria: parsed.data.facts,
@@ -93,7 +99,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         phoneKey: parsed.data.phoneKey,
         deviceSerial: parsed.data.deviceSerial,
         platform: parsed.data.platform,
-        action: directGroupSearch
+        action: conversationScan ? "DISCOVER_FACEBOOK_CONVERSATIONS" : directGroupSearch
           ? "DISCOVER_FACEBOOK_GROUPS"
           : navigationOnly
             ? "OPEN_URL"
@@ -103,7 +109,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         facts: parsed.data.facts,
         sourceKind: parsed.data.sourceKind,
         sourceRef: parsed.data.targetName || null,
-        status: directGroupSearch ? "QUEUED" : "PENDING_APPROVAL",
+        status: (directGroupSearch || conversationScan) ? "QUEUED" : "PENDING_APPROVAL",
         scheduledAt,
         expiresAt: new Date(scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
         idempotencyKey: parsed.data.idempotencyKey,

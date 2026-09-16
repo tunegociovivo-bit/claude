@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Bot,
+  ChevronDown,
   Check,
   Clipboard,
   Clock3,
@@ -35,6 +36,14 @@ import {
   updateFacebookGroupMembershipAnswers,
   type FacebookGroupBatch
 } from "@/lib/mobile/facebook-group-batch";
+
+import FacebookConversationBatchView from "@/components/mobile/FacebookConversationBatchView";
+import { parseConversationBatch, type FacebookConversationBatch } from "@/lib/mobile/facebook-conversations";
+
+function readConversations(action: string, text: string | null | undefined): FacebookConversationBatch | null {
+  if (!action.endsWith("FACEBOOK_CONVERSATIONS") || !text) return null;
+  try { return parseConversationBatch(text); } catch { return null; }
+}
 
 type AutomationJob = MobileAutomationExecutableJob & {
   id: string;
@@ -124,6 +133,12 @@ function selectedGroupCount(action: string, value: string | null | undefined): n
 }
 
 function statusLabel(job: AutomationJob): string {
+  if (job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" && job.status === "RUNNING") return "Buscando comentarios";
+  if (job.action === "REPLY_FACEBOOK_CONVERSATIONS") {
+    if (job.status === "PENDING_APPROVAL") return "Respuestas listas para revisar";
+    if (job.status === "RUNNING") return "Enviando respuestas seleccionadas";
+    if (job.status === "WAITING_USER") return "Envío parcial · revisar";
+  }
   if (job.action === "SEARCH_FACEBOOK_GROUPS") {
     if (job.status === "RUNNING") return "Buscando grupos en el móvil";
     if (job.status === "WAITING_USER") return "Resultados listos para revisar";
@@ -233,6 +248,13 @@ export default function MobileAutomationPanel({
   const [facts, setFacts] = useState("");
   const [membershipAnswers, setMembershipAnswers] = useState("");
   const [maxGroups, setMaxGroups] = useState(8);
+  const [niche, setNiche] = useState("");
+  const [replyGuidance, setReplyGuidance] = useState("");
+  const [postsPerGroup, setPostsPerGroup] = useState(5);
+  const [commentScreensPerPost, setCommentScreensPerPost] = useState(5);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const conversationScan = platform === "facebook" && sourceKind === "COMMENT_DISCOVERY";
   const [tone, setTone] = useState("natural y concreto");
   const [experienceConfirmed, setExperienceConfirmed] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
@@ -273,7 +295,7 @@ export default function MobileAutomationPanel({
       });
       const job = payload.job as AutomationJob | null;
       if (!job) return;
-      setWorkerMessage(job.action === "DISCOVER_FACEBOOK_GROUPS"
+      setWorkerMessage(job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
         ? `Analizando varios resultados sobre «${job.sourceRef}» en Facebook…`
         : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
           ? "Procesando en Facebook todos los grupos aprobados…"
@@ -281,7 +303,15 @@ export default function MobileAutomationPanel({
             ? `Buscando grupos sobre «${job.sourceRef}» en Facebook…`
             : "Preparando el trabajo aprobado en el móvil…");
       try {
-        const execution = await onExecuteJob(job);
+        const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS");
+        const heartbeat = isConversation ? window.setInterval(() => {
+          void apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executorSessionId })
+          }).catch(() => undefined);
+        }, 30_000) : undefined;
+        let execution: MobileAutomationExecutionResult;
+        try { execution = await onExecuteJob({ ...job, executorSessionId }); }
+        finally { if (heartbeat !== undefined) window.clearInterval(heartbeat); }
         await apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/result`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -296,7 +326,7 @@ export default function MobileAutomationPanel({
           })
         });
         setWorkerMessage(execution.outcome === "DISCOVERED"
-          ? "Análisis terminado. Revisa la selección y aprueba todo el lote con un solo clic."
+          ? job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Búsqueda terminada. Revisa, edita y selecciona las respuestas que quieres enviar." : "Análisis terminado. Revisa la selección y aprueba todo el lote con un solo clic."
           : execution.outcome === "COMPLETED"
             ? execution.summary ?? "Todos los grupos seleccionados han sido procesados."
             : execution.outcome === "PARTIAL"
@@ -311,6 +341,7 @@ export default function MobileAutomationPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ executorSessionId, outcome: "FAILED", errorCode: "mobile_prepare_failed", error: message })
         }).catch(() => undefined);
+        setWorkerMessage(null);
         setError(message);
       }
       await loadJobs();
@@ -353,9 +384,10 @@ export default function MobileAutomationPanel({
           idempotencyKey,
           phoneKey,
           deviceSerial,
-          targetName: targetName.trim() || undefined,
+          targetName: (conversationScan ? niche.trim() || "Grupos de mi cuenta" : targetName.trim()) || undefined,
           targetUrl: generatedTargetUrl ?? targetUrl.trim(),
           facts: facts.trim(),
+          ...(conversationScan ? { niche, replyGuidance, postsPerGroup, commentScreensPerPost } : {}),
           membershipAnswers: sourceKind === "GROUP_DISCOVERY" ? membershipAnswers.trim() : undefined,
           maxGroups: sourceKind === "GROUP_DISCOVERY" ? maxGroups : undefined,
           tone: tone.trim() || undefined,
@@ -364,13 +396,14 @@ export default function MobileAutomationPanel({
         })
       });
       draftRequestIdRef.current = null;
+      setQueueOpen(true);
       setFacts("");
       setMembershipAnswers("");
       setTargetName("");
       setTargetUrl("");
       setExperienceConfirmed(false);
       await loadJobs();
-      setWorkerMessage(sourceKind === "GROUP_DISCOVERY"
+      setWorkerMessage(conversationScan ? "Búsqueda en cola. Se prepararán respuestas para revisar antes de enviar." : sourceKind === "GROUP_DISCOVERY"
         ? ready
           ? "Análisis enviado. El móvil recorrerá varios resultados de Facebook."
           : "Análisis en cola. Abre la pantalla del móvil para ejecutarlo."
@@ -400,11 +433,12 @@ export default function MobileAutomationPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          ...((action === "APPROVE" || (action === "RETRY" && job.action === "JOIN_FACEBOOK_GROUP_BATCH"))
+          ...((action === "APPROVE" || (action === "RETRY" && ["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)))
             ? { text: decisionText }
             : {})
         })
       });
+      setEdits((current) => { const updated = { ...current }; delete updated[job.id]; return updated; });
       await loadJobs();
       if (action === "APPROVE" || action === "RETRY") {
         if (action === "RETRY") {
@@ -503,46 +537,62 @@ export default function MobileAutomationPanel({
           </label>
         </div>
         <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900">
-          <span className="font-semibold">{selectedWorkflow.label}.</span> {selectedWorkflow.description}
+          <span className="font-semibold">{selectedWorkflow.label}.</span> {conversationScan ? "Busca comentarios en los grupos de tu cuenta o en un destino concreto y prepara respuestas editables con tu texto base." : selectedWorkflow.description}
         </div>
-        <div className={`grid gap-2 ${selectedWorkflow.targetUrlLabel ? "sm:grid-cols-2" : ""}`}>
-          <label className="text-xs font-semibold text-slate-700">
-            {selectedWorkflow.targetNameLabel}
+        <div className={`grid gap-2 ${selectedWorkflow.targetUrlLabel && !conversationScan ? "sm:grid-cols-2" : ""}`}>
+          {!conversationScan && <label className="text-xs font-semibold text-slate-700">
+            {conversationScan ? "Qué comentarios te interesan (opcional)" : selectedWorkflow.targetNameLabel}
             <input
               value={targetName}
               onChange={(event) => setTargetName(event.target.value)}
-              placeholder={selectedWorkflow.targetNamePlaceholder}
+              placeholder={conversationScan ? "Ej. dudas sobre rentabilidad de supermercados" : selectedWorkflow.targetNamePlaceholder}
               required={sourceKind === "GROUP_DISCOVERY"}
               className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
             />
-          </label>
+          </label>}
           {selectedWorkflow.targetUrlLabel && (
             <label className="text-xs font-semibold text-slate-700">
-              {selectedWorkflow.targetUrlLabel}
+              {selectedWorkflow.targetUrlLabel}{conversationScan ? " (opcional)" : ""}
               <input
                 value={targetUrl}
                 onChange={(event) => setTargetUrl(event.target.value)}
                 placeholder={selectedWorkflow.targetUrlPlaceholder ?? "https://…"}
                 inputMode="url"
-                required
+                required={!conversationScan}
                 className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
               />
             </label>
           )}
         </div>
         <label className="block text-xs font-semibold text-slate-700">
-          {selectedWorkflow.factsLabel}
+          {conversationScan ? "Qué comentarios buscar (opcional)" : selectedWorkflow.factsLabel}
           <textarea
             value={facts}
             onChange={(event) => setFacts(event.target.value)}
-            minLength={20}
+            minLength={conversationScan ? undefined : 20}
             maxLength={4000}
-            required
+            required={!conversationScan}
             rows={3}
-            placeholder={selectedWorkflow.factsPlaceholder}
+            placeholder={conversationScan ? "Déjalo vacío para preparar respuestas a todos los comentarios leídos, o indica aquí qué preguntas o temas te interesan." : selectedWorkflow.factsPlaceholder}
             className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm font-normal"
           />
         </label>
+        {conversationScan && <div className="space-y-3 rounded-xl border border-indigo-100 bg-white p-3">
+          <p className="text-xs leading-5 text-slate-600">Deja el destino vacío para recorrer los grupos de esta cuenta. El nicho filtra los grupos por su temática. Si lo dejas vacío, se revisarán todos.</p>
+          <label className="block text-xs font-semibold text-slate-700">Nicho de los grupos (opcional)
+            <input value={niche} onChange={(event) => setNiche(event.target.value)} placeholder="Ej. franquicias" maxLength={200} className="mt-1 w-full rounded-lg border p-2 text-sm font-normal" />
+          </label>
+          <label className="block text-xs font-semibold text-slate-700">Texto base para las respuestas
+            <textarea value={replyGuidance} onChange={(event) => setReplyGuidance(event.target.value)} required minLength={3} maxLength={4000} rows={4} placeholder="Ej. Quiero transmitir que actualmente considero que las franquicias de supermercado serán las más rentables en el futuro. Adapta esa opinión a cada comentario." className="mt-1 w-full rounded-lg border p-2 text-sm font-normal" />
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">La IA adaptará esta idea a cada comentario. Podrás editar cada respuesta antes de enviarla.</span>
+          </label>
+          <details className="text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Profundidad de lectura</summary>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label>Publicaciones con comentarios por grupo<input type="number" min={1} max={20} value={postsPerGroup} onChange={(event) => setPostsPerGroup(Number(event.target.value))} className="mt-1 w-full rounded-lg border p-2" /></label>
+              <label>Pantallas de comentarios por publicación<input type="number" min={1} max={20} value={commentScreensPerPost} onChange={(event) => setCommentScreensPerPost(Number(event.target.value))} className="mt-1 w-full rounded-lg border p-2" /></label>
+            </div><p className="mt-2">Se mostrará la cobertura real de la búsqueda. Los comentarios ocultos, eliminados o fuera de esta profundidad no se incluyen.</p>
+          </details>
+        </div>}
         {sourceKind === "GROUP_DISCOVERY" && (
           <div className="grid gap-2 sm:grid-cols-[1fr_9rem]">
             <label className="block text-xs font-semibold text-slate-700">
@@ -588,7 +638,7 @@ export default function MobileAutomationPanel({
         )}
         <button type="submit" disabled={busy || !canManage} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {sourceKind === "GROUP_DISCOVERY" ? "Analizar y seleccionar grupos" : selectedWorkflow.submitLabel}
+          {sourceKind === "GROUP_DISCOVERY" ? "Analizar y seleccionar grupos" : conversationScan ? "Buscar comentarios y preparar respuestas" : selectedWorkflow.submitLabel}
         </button>
       </form>
 
@@ -597,27 +647,31 @@ export default function MobileAutomationPanel({
 
       <div className="mt-4 border-t border-violet-100 pt-3">
         <div className="flex items-center justify-between gap-2">
-          <h4 className="text-xs font-bold uppercase tracking-wide text-slate-600">Cola supervisada · {activeJobs.length}</h4>
+          <button type="button" onClick={() => setQueueOpen((open) => !open)} aria-expanded={queueOpen} aria-controls="mobile-supervised-queue" className="flex items-center gap-2 text-xs font-bold text-slate-700"><ChevronDown className={`h-4 w-4 transition-transform ${queueOpen ? "" : "-rotate-90"}`} /> Cola supervisada · {activeJobs.length} activos</button>
           <button type="button" onClick={() => void loadJobs()} disabled={loading} aria-label="Actualizar automatizaciones" className="rounded-lg p-1.5 text-slate-500 hover:bg-white hover:text-slate-900">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
+        {queueOpen && <div id="mobile-supervised-queue">
+        <div className="my-3 flex gap-2 text-xs"><button type="button" onClick={() => setShowHistory(false)} className={`rounded-full px-3 py-1.5 ${!showHistory ? "bg-indigo-100 font-bold text-indigo-900" : "bg-white text-slate-600"}`}>Activos · {activeJobs.length}</button><button type="button" onClick={() => setShowHistory(true)} className={`rounded-full px-3 py-1.5 ${showHistory ? "bg-indigo-100 font-bold text-indigo-900" : "bg-white text-slate-600"}`}>Historial</button></div>
         {loading ? (
           <p className="mt-3 text-xs text-slate-500">Cargando cola…</p>
         ) : jobs.length === 0 ? (
           <p className="mt-3 rounded-lg border border-dashed bg-white/70 px-3 py-4 text-center text-xs text-slate-500">Aún no hay borradores para este móvil.</p>
         ) : (
           <div className="mt-2 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
-            {jobs.slice(0, 20).map((job) => (
-              <article key={job.id} className="rounded-lg border bg-white p-3 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+            {(showHistory ? jobs.filter((job) => ["COMPLETED", "REJECTED", "CANCELLED"].includes(job.status)) : activeJobs).slice(0, 20).map((job, index) => (
+              <details key={job.id} open={index === 0} className="rounded-lg border bg-white p-3 shadow-sm">
+                <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-bold text-slate-800">{workflowLabel(job.platform, job.sourceKind)}</div>
                     {job.sourceRef && <div className="mt-0.5 text-[11px] text-slate-500">{job.sourceRef}</div>}
                   </div>
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClasses(job.status)}`}>{statusLabel(job)}</span>
-                </div>
+                </summary>
                 {(() => {
+                  const conversations = readConversations(job.action, edits[job.id] ?? job.text);
+                  if (conversations) return <FacebookConversationBatchView batch={conversations} editable={["PENDING_APPROVAL", "WAITING_USER"].includes(job.status)} disabled={busy} onChange={(updated) => setEdits((current) => ({ ...current, [job.id]: JSON.stringify(updated) }))} />;
                   const batch = readFacebookGroupBatch(job.action, edits[job.id] ?? job.text);
                   if (batch) {
                     return (
@@ -660,11 +714,11 @@ export default function MobileAutomationPanel({
                       <button
                         type="button"
                         onClick={() => void decide(job, "APPROVE")}
-                        disabled={busy || (job.action === "JOIN_FACEBOOK_GROUP_BATCH" && selectedGroupCount(job.action, edits[job.id] ?? job.text) === 0)}
+                        disabled={busy || (job.action === "REPLY_FACEBOOK_CONVERSATIONS" && !(readConversations(job.action, edits[job.id] ?? job.text)?.candidates.some((item) => item.selected && ["pending", "failed"].includes(item.outcome) && item.reply.trim()))) || (job.action === "JOIN_FACEBOOK_GROUP_BATCH" && selectedGroupCount(job.action, edits[job.id] ?? job.text) === 0)}
                         className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                       >
                         <ShieldCheck className="h-3.5 w-3.5" />
-                        {job.action === "JOIN_FACEBOOK_GROUP_BATCH"
+                        {job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? `Enviar ${readConversations(job.action, edits[job.id] ?? job.text)?.candidates.filter((item) => item.selected && ["pending", "failed"].includes(item.outcome)).length ?? 0} respuestas seleccionadas` : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
                           ? `Aprobar lote · ${selectedGroupCount(job.action, edits[job.id] ?? job.text)} grupos`
                           : "Aprobar"}
                       </button>
@@ -673,27 +727,28 @@ export default function MobileAutomationPanel({
                   )}
                   {job.status === "WAITING_USER" && (
                     <>
-                      {!isNavigationAction(job.action) && job.action !== "JOIN_FACEBOOK_GROUP_BATCH" && job.text && (
+                      {!isNavigationAction(job.action) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action) && job.text && (
                         <button type="button" onClick={() => void onPasteText(job.text!)} disabled={!ready || busy} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Clipboard className="h-3.5 w-3.5" /> Pegar en el campo enfocado</button>
                       )}
-                      {job.action === "JOIN_FACEBOOK_GROUP_BATCH" && (
+                      {["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action) && (
                         <button type="button" onClick={() => void decide(job, "RETRY")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" /> Reintentar pendientes</button>
                       )}
-                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {job.action === "JOIN_FACEBOOK_GROUP_BATCH" ? "Cerrar lote" : isNavigationAction(job.action) ? "Revisión terminada" : "Ya lo publiqué"}</button>
+                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action) ? "Cerrar lote" : isNavigationAction(job.action) ? "Revisión terminada" : "Ya lo publiqué"}</button>
                     </>
                   )}
                   {job.status === "FAILED" && <button type="button" onClick={() => void decide(job, "RETRY")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white"><RefreshCw className="h-3.5 w-3.5" /> Reintentar</button>}
-                  {["QUEUED", "WAITING_USER", "FAILED"].includes(job.status) && <button type="button" onClick={() => void decide(job, "CANCEL")} disabled={busy} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-600"><PauseCircle className="h-3.5 w-3.5" /> Cancelar</button>}
+                  {(["QUEUED", "WAITING_USER", "FAILED"].includes(job.status) || (job.status === "RUNNING" && job.action.endsWith("FACEBOOK_CONVERSATIONS"))) && <button type="button" onClick={() => void decide(job, "CANCEL")} disabled={busy} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-600"><PauseCircle className="h-3.5 w-3.5" /> Cancelar</button>}
                   {job.targetUrl && <a href={job.targetUrl} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold text-slate-600"><ExternalLink className="h-3.5 w-3.5" /> Ver destino</a>}
                 </div>
-              </article>
+              </details>
             ))}
           </div>
         )}
+        </div>}
       </div>
 
       <p className="mt-3 flex items-start gap-2 text-[11px] leading-4 text-slate-500">
-        <Send className="mt-0.5 h-3.5 w-3.5 shrink-0" /> En grupos, las capturas de resultados se analizan de forma efímera. Aprobar el lote autoriza al móvil a solicitar acceso a todos los seleccionados y responder solo con los datos reales aportados.
+        <Send className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Primero revisa el resultado. Solo se ejecutan las solicitudes o respuestas que selecciones y apruebes. Mantén el móvil conectado y esta pantalla abierta.
       </p>
     </section>
   );

@@ -1,3 +1,4 @@
+import { parseConversationBatch } from "@/lib/mobile/facebook-conversations";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
@@ -105,7 +106,9 @@ export async function claimNextMobileAutomationJob(input: {
       }
       const isFacebookGroupBatch = [
         "DISCOVER_FACEBOOK_GROUPS",
-        "JOIN_FACEBOOK_GROUP_BATCH"
+        "JOIN_FACEBOOK_GROUP_BATCH",
+        "DISCOVER_FACEBOOK_CONVERSATIONS",
+        "REPLY_FACEBOOK_CONVERSATIONS"
       ].includes(candidate.action);
       const leaseUntil = new Date(now.getTime() + (isFacebookGroupBatch ? 10 * 60_000 : 60_000));
       const claimed = await tx.mobileAutomationJob.updateMany({
@@ -164,19 +167,30 @@ export async function reportMobileAutomationResult(input: {
       throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
     }
 
-    if (input.outcome === "DISCOVERED" && job.action !== "DISCOVER_FACEBOOK_GROUPS") {
+    if (input.outcome === "DISCOVERED" && !["DISCOVER_FACEBOOK_GROUPS", "DISCOVER_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba resultados de grupos");
     }
-    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && job.action !== "JOIN_FACEBOOK_GROUP_BATCH") {
+    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba solicitudes de grupos");
     }
     if (["DISCOVERED", "COMPLETED", "PARTIAL"].includes(input.outcome) && !input.resultText) {
       throw new ApiError(400, "missing_result", "Falta el resultado del lote de grupos");
     }
 
+    if (input.resultText && job.action.endsWith("FACEBOOK_CONVERSATIONS")) {
+      const result = parseConversationBatch(input.resultText);
+      const original = parseConversationBatch(job.text ?? "");
+      if (JSON.stringify(result.config) !== JSON.stringify(original.config)) throw new ApiError(400, "invalid_result", "El alcance de la búsqueda ha cambiado.");
+      if (job.action === "REPLY_FACEBOOK_CONVERSATIONS") {
+        const identity = (items: typeof result.candidates) => items.map(({ outcome: _o, detail: _d, ...item }) => item);
+        if (JSON.stringify(identity(result.candidates)) !== JSON.stringify(identity(original.candidates))) throw new ApiError(400, "invalid_result", "El resultado no corresponde a las respuestas aprobadas.");
+      }
+    } else if (input.resultText && JSON.parse(input.resultText)?.kind === "facebook_conversations") {
+      throw new ApiError(400, "invalid_result", "Este trabajo no esperaba conversaciones.");
+    }
     if (input.outcome === "DISCOVERED") {
       const data = {
-        action: "JOIN_FACEBOOK_GROUP_BATCH",
+        action: job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "REPLY_FACEBOOK_CONVERSATIONS" : "JOIN_FACEBOOK_GROUP_BATCH",
         status: "PENDING_APPROVAL",
         text: input.resultText,
         leaseOwner: null,
@@ -200,7 +214,7 @@ export async function reportMobileAutomationResult(input: {
         data: {
           workspaceId: input.workspaceId,
           jobId: job.id,
-          event: "GROUPS_DISCOVERED",
+          event: job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "CONVERSATIONS_DISCOVERED" : "GROUPS_DISCOVERED",
           actorType: "BROWSER",
           actorId: input.executorSessionId
         }

@@ -1,3 +1,4 @@
+import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api/auth";
@@ -12,7 +13,7 @@ import {
 const resultSchema = z.object({
   executorSessionId: z.string().uuid(),
   outcome: z.enum(["PREPARED", "DISCOVERED", "COMPLETED", "PARTIAL", "FAILED"]),
-  resultText: z.string().trim().min(1).max(MAX_FACEBOOK_GROUP_BATCH_TEXT).optional(),
+  resultText: z.string().trim().min(1).max(MAX_CONVERSATION_BATCH_TEXT).optional(),
   errorCode: z.string().trim().max(120).optional(),
   error: z.string().trim().max(1000).optional()
 }).strict().superRefine((value, context) => {
@@ -22,7 +23,8 @@ const resultSchema = z.object({
     return;
   }
   try {
-    parseFacebookGroupBatch(value.resultText);
+    if (JSON.parse(value.resultText)?.kind === "facebook_conversations") parseConversationBatch(value.resultText);
+    else parseFacebookGroupBatch(value.resultText);
   } catch (error) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

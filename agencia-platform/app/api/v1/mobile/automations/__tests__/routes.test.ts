@@ -310,3 +310,25 @@ describe("mobile automation decision API", () => {
     }));
   });
 });
+
+
+describe("Facebook conversation discovery", () => {
+  it("queues an account-wide scan with a niche and reply guidance without generating a generic draft", async () => {
+    const response = await createDraft(request("https://hub.example/api/v1/mobile/automations/drafts", {
+      ...draftInput, platform: "facebook", sourceKind: "COMMENT_DISCOVERY", targetUrl: "", facts: "",
+      niche: "franquicias", replyGuidance: "Considero que las franquicias de supermercado serán rentables."
+    }), { params: {} });
+    expect(response.status).toBe(201);
+    expect(completeMock).not.toHaveBeenCalled();
+    const data = prisma.mobileAutomationJob.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ action: "DISCOVER_FACEBOOK_CONVERSATIONS", status: "QUEUED" });
+    expect(JSON.parse(data.text).config).toMatchObject({ targetUrl: "", niche: "franquicias", postsPerGroup: 5 });
+  });
+  it("requires the response guidance before queueing a scan", async () => {
+    const response = await createDraft(request("https://hub.example/api/v1/mobile/automations/drafts", {
+      ...draftInput, platform: "facebook", sourceKind: "COMMENT_DISCOVERY", targetUrl: "", facts: ""
+    }), { params: {} });
+    expect(response.status).toBe(400);
+    expect(prisma.mobileAutomationJob.create).not.toHaveBeenCalled();
+  });
+});

@@ -1,3 +1,4 @@
+import { parseConversationBatch, type FacebookConversationBatch } from "@/lib/mobile/facebook-conversations";
 import type { MobileAutomationAction } from "@/lib/mobile/automation-policy";
 import {
   parseFacebookGroupBatch,
@@ -11,6 +12,8 @@ export type MobileAutomationExecutionResult = {
 };
 
 export type MobileAutomationExecutableJob = {
+  id?: string;
+  executorSessionId?: string;
   action: MobileAutomationAction;
   targetUrl: string | null;
   text: string | null;
@@ -21,6 +24,8 @@ export type MobileAutomationExecutableJob = {
 };
 
 export type MobileAutomationExecutorDependencies = {
+  discoverFacebookConversations?: (batch: FacebookConversationBatch) => Promise<MobileAutomationExecutionResult>;
+  replyFacebookConversations?: (batch: FacebookConversationBatch) => Promise<MobileAutomationExecutionResult>;
   openUrl: (url: string) => Promise<unknown>;
   copyText: (text: string) => Promise<unknown>;
   searchFacebookGroups?: (query: string) => Promise<unknown>;
@@ -33,6 +38,12 @@ export async function executeMobileAutomationJob(
   dependencies: MobileAutomationExecutorDependencies
 ): Promise<MobileAutomationExecutionResult> {
   switch (job.action) {
+    case "DISCOVER_FACEBOOK_CONVERSATIONS":
+    case "REPLY_FACEBOOK_CONVERSATIONS": {
+      const runner = job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? dependencies.discoverFacebookConversations : dependencies.replyFacebookConversations;
+      if (!runner || !job.text) throw new Error("Este móvil no tiene disponible el lote de conversaciones.");
+      return runner(parseConversationBatch(job.text));
+    }
     case "OPEN_URL":
       if (!job.targetUrl) throw new Error("El trabajo aprobado no contiene una URL.");
       await dependencies.openUrl(job.targetUrl);

@@ -44,6 +44,7 @@ export async function readAndroidUiHierarchySafely(
 
 function decodeXmlAttribute(value: string): string {
   return value
+    .replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (entity, code: string) => { const point = code.toLowerCase().startsWith("x") ? parseInt(code.slice(1), 16) : Number(code); return point <= 0x10ffff ? String.fromCodePoint(point) : entity; })
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, "<")

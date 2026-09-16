@@ -1,3 +1,4 @@
+import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch, serializeConversationBatch, validateConversationApproval } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api/auth";
@@ -19,7 +20,7 @@ import {
 
 const decisionSchema = z.object({
   action: z.enum(["APPROVE", "REJECT", "COMPLETE", "RETRY", "CANCEL"]),
-  text: z.string().trim().min(1).max(MAX_FACEBOOK_GROUP_BATCH_TEXT).optional(),
+  text: z.string().trim().min(1).max(MAX_CONVERSATION_BATCH_TEXT).optional(),
   targetUrl: z.string().trim().min(1).max(2048).optional(),
   scheduledAt: z.string().datetime({ offset: true }).optional()
 }).strict();
@@ -53,7 +54,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       job.platform as MobileAutomationPlatform,
       parsed.data.targetUrl ?? job.targetUrl ?? ""
     );
-    const text = (parsed.data.text ?? job.text ?? "").trim();
+    let text = (parsed.data.text ?? job.text ?? "").trim();
     if (!text) throw new ApiError(400, "missing_text", "El borrador no contiene texto");
     if (["APPROVE", "RETRY"].includes(parsed.data.action) && job.action === "JOIN_FACEBOOK_GROUP_BATCH") {
       let batch;
@@ -65,6 +66,10 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       if (parsed.data.action === "APPROVE" && selectedFacebookGroupCount(batch) === 0) {
         throw new ApiError(400, "empty_group_batch", "Selecciona al menos un grupo antes de aprobar el lote");
       }
+    }
+    if (["APPROVE", "RETRY"].includes(parsed.data.action) && job.action === "REPLY_FACEBOOK_CONVERSATIONS") {
+      try { text = serializeConversationBatch(validateConversationApproval(parseConversationBatch(job.text ?? ""), parseConversationBatch(text))); }
+      catch (error) { throw new ApiError(400, "invalid_conversation_batch", error instanceof Error ? error.message : "Lote no válido"); }
     }
     const data: Record<string, unknown> = {
       status: statusByAction[parsed.data.action],
@@ -83,7 +88,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       data.scheduledAt = now;
       data.lastError = null;
       data.lastErrorCode = null;
-      if (job.action === "JOIN_FACEBOOK_GROUP_BATCH") data.text = text;
+      if (["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)) data.text = text;
     }
 
     const changed = await tx.mobileAutomationJob.updateMany({
