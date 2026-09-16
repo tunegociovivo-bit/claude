@@ -6,6 +6,7 @@ import { createConversationBatch, type ConversationReply } from "@/lib/mobile/fa
 const commentScreen = `<hierarchy>
 <node package="com.facebook.katana" class="android.widget.ImageView" content-desc="Foto de perfil de Ana" bounds="[33,843][143,953]" />
 <node package="com.facebook.katana" class="android.widget.Button" text="Ana" bounds="[154,838][394,899]" />
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="1 d" bounds="[400,840][450,880]" />
 <node package="com.facebook.katana" class="android.view.ViewGroup" text="¿Qué supermercado recomiendas?" bounds="[165,920][900,1030]" />
 <node package="com.facebook.katana" class="android.widget.Button" text="Responder al comentario de Ana, botón. Toca dos veces para responder al comentario." bounds="[143,1050][349,1133]" />
 </hierarchy>`;
@@ -17,6 +18,21 @@ const setup = (): ConversationRunnerDependencies => ({
   read: vi.fn(async () => commentScreen), tap: vi.fn(async () => {}), scroll: vi.fn(async () => {}), back: vi.fn(async () => {}), openUrl: vi.fn(async () => {}), paste: vi.fn(async () => {}), wait: vi.fn(async () => {}), checkpoint: vi.fn(async () => {}), filterGroups: vi.fn(async (names) => names), analyze: vi.fn(async (comments: NativeComment[]) => comments.map((comment) => ({ id: comment.id, reply: "Mi opinión", reason: "Relevante" })))
 });
 describe("Facebook conversation execution", () => {
+  it.each(["40 d", ""])("does not send old or undated comments to AI: %s", async (label) => {
+    const deps = setup();
+    vi.mocked(deps.read).mockResolvedValue(commentScreen.replace('text="1 d"', `text="${label}"`));
+    const result = await scanFacebookConversations(createConversationBatch(config), deps);
+    expect(result.candidates).toEqual([]);
+    expect(deps.analyze).not.toHaveBeenCalled();
+    if (!label) expect(result.warnings).toHaveLength(1);
+  });
+  it.each(["0 comentarios", "Comentar"])("skips posts without a positive counter: %s", async (label) => {
+    const deps = setup();
+    vi.mocked(deps.read).mockResolvedValue(`<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="${label}" bounds="[100,600][500,700]" />`);
+    await scanFacebookConversations(createConversationBatch(config), deps);
+    expect(deps.tap).not.toHaveBeenCalled();
+    expect(deps.analyze).not.toHaveBeenCalled();
+  });
   it("collects drafts without pressing reply or sending", async () => {
     const deps = setup();
     const result = await scanFacebookConversations(createConversationBatch(config), deps);
@@ -32,7 +48,7 @@ describe("Facebook conversation execution", () => {
   });
   it("opens the second comment control when Facebook first opens a reel", async () => {
     const deps = setup();
-    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="Comentar" bounds="[100,600][500,700]" />';
+    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="5 comentarios" bounds="[100,600][500,700]" />';
     const reel = '<node package="com.facebook.katana" class="android.widget.Button" content-desc="5 comentarios" bounds="[900,1400][1080,1500]" />';
     vi.mocked(deps.read).mockResolvedValueOnce(feed).mockResolvedValueOnce(reel).mockResolvedValueOnce(reel).mockResolvedValue(commentScreen);
     const result = await scanFacebookConversations(createConversationBatch(config), deps);
@@ -55,7 +71,7 @@ describe("Facebook conversation execution", () => {
   });
   it("does not leave the group when a normal post exposes a horizontal comment counter", async () => {
     const deps = setup();
-    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="Comentar" bounds="[100,600][500,700]" />';
+    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="5 comentarios" bounds="[100,600][500,700]" />';
     const post = '<node package="com.facebook.katana" class="android.widget.Button" content-desc="5 comentarios" bounds="[100,1400][1080,1500]" />';
     vi.mocked(deps.read).mockResolvedValueOnce(feed).mockResolvedValueOnce(post).mockResolvedValueOnce(post).mockResolvedValue(commentScreen);
     await scanFacebookConversations(createConversationBatch(config), deps);

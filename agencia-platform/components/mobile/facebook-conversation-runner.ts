@@ -1,6 +1,7 @@
 import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 import { facebookNodes, findExactComment, joinedGroupRows, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments, type NativeComment } from "@/components/mobile/facebook-conversation-ui";
 import { conversationFingerprint, normalizeFacebookText, type FacebookConversationBatch, type ConversationReply } from "@/lib/mobile/facebook-conversations";
+import { commentWithinPeriod } from "@/lib/mobile/facebook-comment-dates";
 
 export type ConversationRunnerDependencies = {
   read: () => Promise<string>;
@@ -142,6 +143,8 @@ async function readThread(deps: ConversationRunnerDependencies, screens: number,
 
 export async function scanFacebookConversations(initial: FacebookConversationBatch, deps: ConversationRunnerDependencies) {
   const batch = structuredClone(initial);
+  const reference = Date.parse(batch.config.referenceTime ?? new Date().toISOString());
+  const days = batch.config.lookbackDays ?? 30;
   const save = async (progress: string) => { batch.progress = progress; await deps.checkpoint(batch); };
   if (!batch.groups.length) {
     await save("Leyendo los grupos de esta cuenta…");
@@ -181,7 +184,12 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
           processed.add(anchor);
           if (post) await deps.tap(post.point);
           await readThread(deps, batch.config.commentScreensPerPost, async (comments) => {
-            const fresh = comments.filter((comment) => !seen.has(conversationFingerprint([group.name, group.details ?? "", anchor, comment.author, comment.text])));
+            if (comments.some((comment) => !comment.dateLabel)) {
+              const warning = "Se omitieron comentarios cuya fecha no era legible. Solo se preparan respuestas dentro del periodo elegido.";
+              if (!batch.warnings.includes(warning)) batch.warnings.push(warning);
+            }
+            const fresh = comments.filter((comment) => commentWithinPeriod(comment.dateLabel ?? "", days, reference)
+              && !seen.has(conversationFingerprint([group.name, group.details ?? "", anchor, comment.author, comment.text])));
             if (!fresh.length) return;
             const replies = await deps.analyze(fresh, group.name);
             for (const reply of replies) {
@@ -191,7 +199,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
               if (seen.has(id)) continue;
               seen.add(id);
               batch.candidates.push({ id, groupName: group.name, groupDetails: group.details, groupUrl: batch.config.targetUrl, postAnchor: anchor, author: comment.author,
-                sourceText: comment.text, sourceLabel: comment.sourceLabel, reply: reply.reply, reason: reply.reason,
+                sourceText: comment.text, sourceLabel: comment.sourceLabel, dateLabel: comment.dateLabel, reply: reply.reply, reason: reply.reason,
                 selected: true, outcome: "pending", detail: "" });
             }
             await save(`${group.name}: ${batch.candidates.length} comentarios con respuesta preparada.`);

@@ -1,5 +1,6 @@
 import { parseAndroidUiNodes, type AndroidUiNode, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 import { conversationFingerprint, normalizeFacebookText } from "@/lib/mobile/facebook-conversations";
+import { facebookCommentDate } from "@/lib/mobile/facebook-comment-dates";
 
 export const facebookNodes = (xml: string) => parseAndroidUiNodes(xml).filter((node) => /^com\.facebook\.(katana|lite)$/.test(node.packageName));
 export const nodeText = (node: AndroidUiNode) => (node.text || node.contentDescription).trim();
@@ -19,7 +20,7 @@ export function joinedGroupRows(xml: string) {
   });
 }
 
-export type NativeComment = { id: string; author: string; text: string; sourceLabel: string; point: AndroidUiPoint };
+export type NativeComment = { id: string; author: string; text: string; sourceLabel: string; point: AndroidUiPoint; dateLabel?: string };
 export function visibleComments(xml: string): NativeComment[] {
   const nodes = facebookNodes(xml);
   const replyButtons = nodes.filter((node) => /^(Responder al comentario de |Reply to .*comment)/i.test(nodeText(node)));
@@ -32,20 +33,25 @@ export function visibleComments(xml: string): NativeComment[] {
       && node.bounds.bottom < reply.bounds.top);
     if (!authorNode) return [];
     const author = nodeText(authorNode);
+    const dateNode = nodes.find((node) => node.bounds.left >= authorNode.bounds.right - 15
+      && Math.abs(node.bounds.top - authorNode.bounds.top) < 45 && node.bounds.bottom < reply.bounds.top
+      && facebookCommentDate(nodeText(node), Date.now()) !== null);
     const lines = [...new Set(nodes.filter((node) => node.bounds.top >= authorNode.bounds.bottom
       && node.bounds.bottom <= reply.bounds.top && node.bounds.left >= profile.bounds.right
       && !/ImageView|EditText|AutoCompleteTextView/.test(node.className))
       .map(nodeText).filter((text) => text && !/^(Autor|Author|GIPHY|El GIF |GIF |Ver traducción|See translation|\d+\s*(min|h|d|sem|s|m)|[·\s]+$)/i.test(text)))];
     const text = lines.join("\n").slice(0, 3000);
     if (!text) return [];
-    return [{ id: conversationFingerprint([author, text]), author, text, sourceLabel: nodeText(reply), point: reply.center }];
+    return [{ id: conversationFingerprint([author, text]), author, text, dateLabel: dateNode ? nodeText(dateNode) : "", sourceLabel: nodeText(reply), point: reply.center }];
   });
 }
 
 export type NativePost = { anchor: string; point: AndroidUiPoint };
 export function visiblePostComments(xml: string): NativePost[] {
   const nodes = facebookNodes(xml);
-  const buttons = nodes.filter((node) => /^(?:(?:Ver (?:los )?)?\d+[\d., mil]* comentarios?(?:[.,].*)?|Comentar|Comment)$/i.test(nodeText(node))
+  // The generic "Comentar" button is present even on empty posts. Only a
+  // positive explicit counter is evidence that a thread is worth opening.
+  const buttons = nodes.filter((node) => /^(?:Ver (?:los )?)?[1-9]\d*[\d., mil]* comentarios?(?:[.,].*)?$/i.test(nodeText(node))
     && (node.clickable || node.className === "android.widget.Button"));
   return buttons.flatMap((button) => {
     const previous = nodes.filter((node) => node.bounds.bottom <= button.bounds.top && node.bounds.top > 210

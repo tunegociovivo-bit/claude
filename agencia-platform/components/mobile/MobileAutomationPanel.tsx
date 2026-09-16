@@ -252,6 +252,7 @@ export default function MobileAutomationPanel({
   const [replyGuidance, setReplyGuidance] = useState("");
   const [postsPerGroup, setPostsPerGroup] = useState(5);
   const [commentScreensPerPost, setCommentScreensPerPost] = useState(5);
+  const [lookbackDays, setLookbackDays] = useState<7 | 30 | 90>(30);
   const [queueOpen, setQueueOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const conversationScan = platform === "facebook" && sourceKind === "COMMENT_DISCOVERY";
@@ -387,7 +388,7 @@ export default function MobileAutomationPanel({
           targetName: (conversationScan ? niche.trim() || "Grupos de mi cuenta" : targetName.trim()) || undefined,
           targetUrl: generatedTargetUrl ?? targetUrl.trim(),
           facts: facts.trim(),
-          ...(conversationScan ? { niche, replyGuidance, postsPerGroup, commentScreensPerPost } : {}),
+          ...(conversationScan ? { niche, replyGuidance, postsPerGroup, commentScreensPerPost, lookbackDays } : {}),
           membershipAnswers: sourceKind === "GROUP_DISCOVERY" ? membershipAnswers.trim() : undefined,
           maxGroups: sourceKind === "GROUP_DISCOVERY" ? maxGroups : undefined,
           tone: tone.trim() || undefined,
@@ -586,6 +587,12 @@ export default function MobileAutomationPanel({
             <textarea value={replyGuidance} onChange={(event) => setReplyGuidance(event.target.value)} required minLength={3} maxLength={4000} rows={4} placeholder="Ej. Quiero transmitir que actualmente considero que las franquicias de supermercado serán las más rentables en el futuro. Adapta esa opinión a cada comentario." className="mt-1 w-full rounded-lg border p-2 text-sm font-normal" />
             <span className="mt-1 block text-[11px] font-normal text-slate-500">La IA adaptará esta idea a cada comentario. Podrás editar cada respuesta antes de enviarla.</span>
           </label>
+          <label className="block text-xs font-semibold text-slate-700">Antigüedad de los comentarios
+            <select value={lookbackDays} onChange={(event) => setLookbackDays(Number(event.target.value) as 7 | 30 | 90)} className="mt-1 w-full rounded-lg border bg-white p-2 text-sm font-normal">
+              <option value={7}>Últimos 7 días</option><option value={30}>Último mes (30 días)</option><option value={90}>Últimos 3 meses (90 días)</option>
+            </select>
+          </label>
+          <p className="text-xs text-slate-500">Solo se abren publicaciones con un contador visible mayor que cero. Se omiten las que no muestran contador y los comentarios cuya fecha no se puede comprobar. El periodo se aplica al comentario, aunque la publicación sea anterior.</p>
           <details className="text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Profundidad de lectura</summary>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label>Publicaciones por grupo<input type="number" min={1} max={20} value={postsPerGroup} onChange={(event) => setPostsPerGroup(Number(event.target.value))} className="mt-1 w-full rounded-lg border p-2" /></label>

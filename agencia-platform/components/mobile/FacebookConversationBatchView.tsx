@@ -16,6 +16,7 @@ export default function FacebookConversationBatchView({ batch, editable, disable
     <details className="rounded-lg border p-2 text-xs text-slate-600">
       <summary className="cursor-pointer font-semibold">Alcance y grupos revisados</summary>
       <p className="my-2">{batch.config.targetUrl || "Grupos de esta cuenta"} · Nicho: {batch.config.niche || "Todos"}. Hasta {batch.config.postsPerGroup} publicaciones y {batch.config.commentScreensPerPost} pantallas por publicación.</p>
+      <p className="my-2">Comentarios de los últimos {batch.config.lookbackDays ?? 30} días{batch.config.referenceTime ? ` hasta ${new Date(batch.config.referenceTime).toLocaleString("es-ES")}` : ""}. Las fechas no legibles se excluyen.</p>
       {batch.groups.map((group, index) => <p key={`${group.name}-${index}`} className="my-1"><strong>{group.name}</strong> · {({ pending: "Pendiente", done: "Revisado", excluded: "Fuera del nicho", failed: "Necesita revisión" })[group.status]}{group.detail ? `: ${group.detail}` : ""}</p>)}
       {batch.warnings.map((warning, index) => <p key={index} className="mt-2 text-amber-800">{warning}</p>)}
     </details>
@@ -27,7 +28,7 @@ export default function FacebookConversationBatchView({ batch, editable, disable
     {batch.candidates.map((item) => <article key={item.id} className={`rounded-xl border p-3 ${item.selected ? "border-indigo-200 bg-indigo-50/30" : "bg-white"}`}>
       <div className="flex items-start gap-2">
         {editable && ["pending", "failed"].includes(item.outcome) && <input aria-label={`Seleccionar comentario de ${item.author} en ${item.groupName}`} type="checkbox" checked={item.selected} disabled={disabled} className="mt-1" onChange={(event) => onChange({ ...batch, candidates: batch.candidates.map((candidate) => candidate.id === item.id ? { ...candidate, selected: event.target.checked } : candidate) })} />}
-        <div><p className="text-xs font-bold text-indigo-900">{item.groupName}</p><p className="text-xs text-slate-600">{item.author}</p></div>
+        <div><p className="text-xs font-bold text-indigo-900">{item.groupName}</p><p className="text-xs text-slate-600">{item.author}{item.dateLabel ? ` · ${item.dateLabel}` : ""}</p></div>
         {item.outcome !== "pending" && <span className="ml-auto text-xs font-semibold">{({ sending: "Por comprobar", sent: "Enviada", review: "Revisar en Facebook", failed: "No enviada" })[item.outcome]}</span>}
       </div>
       <blockquote className="my-3 whitespace-pre-wrap border-l-2 border-slate-300 pl-3 text-sm text-slate-700">{item.sourceText}</blockquote>

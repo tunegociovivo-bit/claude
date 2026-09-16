@@ -65,7 +65,8 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
   const text = conversationScan ? serializeConversationBatch(createConversationBatch({
     targetUrl: parsed.data.targetUrl, niche: parsed.data.niche ?? "", criteria: parsed.data.facts,
     replyGuidance: parsed.data.replyGuidance!, postsPerGroup: parsed.data.postsPerGroup ?? 5,
-    commentScreensPerPost: parsed.data.commentScreensPerPost ?? 5
+    commentScreensPerPost: parsed.data.commentScreensPerPost ?? 5, lookbackDays: parsed.data.lookbackDays ?? 30,
+    referenceTime: parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt).toISOString() : new Date().toISOString()
   })) : directGroupSearch
     ? serializeFacebookGroupBatch(createInitialFacebookGroupBatch({
       query: parsed.data.targetName!,

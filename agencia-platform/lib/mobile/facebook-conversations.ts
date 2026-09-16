@@ -6,6 +6,8 @@ export const conversationScanConfigSchema = z.object({
   niche: z.string().trim().max(200).default(""),
   criteria: z.string().trim().max(4000).default(""),
   replyGuidance: z.string().trim().min(3).max(4000),
+  lookbackDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).optional(),
+  referenceTime: z.string().datetime().optional(),
   postsPerGroup: z.number().int().min(1).max(20).default(5),
   commentScreensPerPost: z.number().int().min(1).max(20).default(5)
 }).strict();
@@ -20,6 +22,7 @@ export const conversationReplySchema = z.object({
   author: z.string().max(200),
   sourceText: z.string().min(1).max(3000),
   sourceLabel: z.string().min(1).max(6000),
+  dateLabel: z.string().max(100).optional(),
   reply: z.string().max(2000),
   reason: z.string().max(500),
   selected: z.boolean(),
@@ -41,7 +44,7 @@ export const facebookConversationBatchSchema = z.object({
 export type FacebookConversationBatch = z.infer<typeof facebookConversationBatchSchema>;
 
 export function createConversationBatch(config: ConversationScanConfig): FacebookConversationBatch {
-  return { kind: "facebook_conversations", version: 1, config: conversationScanConfigSchema.parse(config), groups: [], candidates: [], inventoryComplete: false, progress: "Pendiente de búsqueda", warnings: [] };
+  return { kind: "facebook_conversations", version: 1, config: conversationScanConfigSchema.parse({ ...config, lookbackDays: config.lookbackDays ?? 30, referenceTime: config.referenceTime ?? new Date().toISOString() }), groups: [], candidates: [], inventoryComplete: false, progress: "Pendiente de búsqueda", warnings: [] };
 }
 export function parseConversationBatch(text: string): FacebookConversationBatch {
   if (text.length > MAX_CONVERSATION_BATCH_TEXT) throw new Error("El lote de conversaciones supera el tamaño permitido.");

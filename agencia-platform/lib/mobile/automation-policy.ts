@@ -106,6 +106,7 @@ export const mobileAutomationDraftSchema = z
     replyGuidance: z.string().trim().max(4000).optional(),
     postsPerGroup: z.number().int().min(1).max(20).optional(),
     commentScreensPerPost: z.number().int().min(1).max(20).optional(),
+    lookbackDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).optional(),
     experienceConfirmed: z.boolean().optional().default(false),
     targetName: z.string().trim().max(200).optional(),
     tone: z.string().trim().max(120).optional(),
