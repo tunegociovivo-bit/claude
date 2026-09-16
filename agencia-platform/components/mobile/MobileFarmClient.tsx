@@ -49,6 +49,8 @@ import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
+import MobileUnlockPinField, { mobileUnlockPinRequest } from "@/components/mobile/MobileUnlockPinField";
+import { unlockAndroidForAutomation } from "@/components/mobile/android-unlock";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
   createAndroidAwakeSession,
@@ -656,6 +658,7 @@ export default function MobileFarmClient() {
               key={device.serial}
               device={device}
               fleetOpen={fleetOpen}
+              canManage={canManagePhones}
               linkedPhone={sharedPhones.find((phone) => phone.deviceSerial === device.serial) ?? null}
               clientStorageScope={clientStorageScope}
             />
@@ -706,16 +709,42 @@ function EmptyState({ onConnect, disabled }: { onConnect: () => void; disabled: 
 }
 
 function MobileDeviceCard({
+  canManage,
   fleetOpen,
   device,
   linkedPhone,
   clientStorageScope
 }: {
+  canManage: boolean;
   fleetOpen: { id: string; serials: string[] } | null;
   device: UsbDevice;
   linkedPhone: SharedMobilePhone | null;
   clientStorageScope: string;
 }) {
+  const unlockPendingRef = useRef<Promise<void> | null>(null);
+  const unlockBlockedRef = useRef(false);
+  const unlockStorageKey = 'nv-mobile-unlock-blocked:' + clientStorageScope + ':' + device.serial;
+  const clearUnlockBlock = useCallback(() => {
+    unlockBlockedRef.current = false;
+    sessionStorage.removeItem(unlockStorageKey);
+  }, [unlockStorageKey]);
+  const unlockDevice = useCallback(async (adb: Adb) => {
+    if (unlockPendingRef.current) return unlockPendingRef.current;
+    const pending = unlockAndroidForAutomation({
+      run: command => runAdbCommand(adb, command),
+      read: () => readAndroidUiHierarchy(adb), wait: waitForAndroidUi,
+      getPin: async () => {
+        const result = await mobileUnlockPinRequest(device.serial, 'resolve');
+        if (!result.pin) throw new Error('No se pudo recuperar el PIN.');
+        return result.pin;
+      },
+      isBlocked: () => unlockBlockedRef.current || sessionStorage.getItem(unlockStorageKey) === '1',
+      block: () => { unlockBlockedRef.current = true; sessionStorage.setItem(unlockStorageKey, '1'); },
+      clear: clearUnlockBlock
+    });
+    unlockPendingRef.current = pending;
+    try { await pending; } finally { unlockPendingRef.current = null; }
+  }, [device.serial, unlockStorageKey, clearUnlockBlock]);
   const screenMountRef = useRef<HTMLDivElement>(null);
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const adbRef = useRef<Adb>();
@@ -981,6 +1010,10 @@ function MobileDeviceCard({
         setStatus("error");
       });
       assertCurrentSessionAttempt();
+      if (canManage && linkedPhone) {
+        try { await unlockDevice(adb); } catch (unlockError) { setError(unlockError instanceof Error ? unlockError.message : "No se pudo desbloquear el móvil."); }
+      }
+      assertCurrentSessionAttempt();
       setStatus("mirroring");
       return true;
     } catch (startError) {
@@ -1052,6 +1085,7 @@ function MobileDeviceCard({
     if (!awakeSessionRef.current) {
       throw new Error("La protección de pantalla de Android no está activa.");
     }
+    await unlockDevice(adb);
     const dismissConversationKeyboard = async () => {
       const inputState = String(await runAdbCommand(adb, ["dumpsys", "input_method"]));
       if (/\bmIsInputViewShown\s*=\s*true\b/.test(inputState)
@@ -1179,7 +1213,7 @@ function MobileDeviceCard({
         };
       }
     });
-  }, [status]);
+  }, [status, unlockDevice]);
 
   const pasteApprovedAutomation = useCallback(async (content: string) => {
     const controller = clientRef.current?.controller;
@@ -1559,6 +1593,7 @@ function MobileDeviceCard({
 
         {linkedPhone ? (
           <>
+            {canManage && <MobileUnlockPinField deviceSerial={device.serial} ready={status === "mirroring"} onSaved={clearUnlockBlock} onUnlock={async () => { const adb = adbRef.current; if (!adb) throw new Error("Abre la pantalla del móvil."); clearUnlockBlock(); await unlockDevice(adb); setError(null); }} />}
             <MobileAutomationPanel
               deviceSerial={device.serial}
               phoneKey={linkedPhone.key}
