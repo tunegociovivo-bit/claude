@@ -1,8 +1,12 @@
-# Control horario nativo de Windows 1.0.6
+# Control horario nativo de Windows 1.0.7
 
 Agente Windows Forms, .NET 8, Windows x64. La configuración procede del Hub.
 
 ## Correcciones
+
+- Botones Iniciar, Pausar/Reanudar y Finalizar por hoy en una zona inferior fija; ventana redimensionable y contenido desplazable.
+- Finalizar cierra la sesión en el Hub antes de marcar localmente el día como terminado. Muestra contador cero y total guardado; la marca persiste al reabrir y caduca al cambiar de día. Si el Hub vuelve a mostrar una sesión activa, se elimina la marca local.
+- 22 pruebas del agente, incluidos el estado finalizado y el tamaño de controles al 100/150/200 %.
 
 - Primera entrada local y contador diario HH:mm:ss; recupera el acumulado del Hub, excluye pausas y sincroniza tras cada cambio de jornada. Cambia de día según el calendario local, incluidos cambios de horario y sesiones que cruzan medianoche.
 
@@ -25,7 +29,7 @@ Desde `agencia-platform`:
 dotnet test windows-time-agent-tests -c Release
 dotnet publish windows-time-agent -c Release -o windows-time-agent/publish
 # Firmar el EXE con un certificado de firma de código autorizado antes de empaquetar.
-wix build windows-time-agent/installer/NegocioVivo.TimeAgent.wxs -arch x64 -o Negocio.Vivo.Control.Horario.Native.1.0.6.msi
+wix build windows-time-agent/installer/NegocioVivo.TimeAgent.wxs -arch x64 -o Negocio.Vivo.Control.Horario.Native.1.0.7.msi
 # Firmar el MSI y verificar ambas firmas.
 ```
 

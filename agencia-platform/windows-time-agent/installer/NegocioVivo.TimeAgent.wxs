@@ -1,5 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.6" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
+  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.7" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
     <Icon Id="AgentBrandIcon" SourceFile="windows-time-agent\assets\negocio-vivo.ico" />
     <Property Id="ARPPRODUCTICON" Value="AgentBrandIcon" />
     <MajorUpgrade DowngradeErrorMessage="Ya hay una versión más reciente instalada." />

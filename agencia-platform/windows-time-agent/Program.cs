@@ -26,13 +26,13 @@ internal static class Program
 
 internal sealed class AgentForm : Form
 {
-    private readonly AgentStore store = new();
+    private readonly AgentStore store;
     private readonly bool hideOnStart;
     private readonly HubClient hub;
     private readonly Label status = new() { AutoSize = true, Font = new Font("Segoe UI", 12, FontStyle.Bold), Margin = new Padding(0, 0, 0, 16) };
     private readonly Label detail = new() { AutoSize = true, MaximumSize = new Size(390, 0), ForeColor = Color.DimGray };
-    private readonly Button start = new() { Text = "▶ Iniciar jornada", Width = 185, Height = 44 };
-    private readonly Button pause = new() { Text = "⏸ Pausar", Width = 185, Height = 44 };
+    private readonly Button start = new() { Text = "Iniciar", Dock = DockStyle.Fill, Height = 46 };
+    private readonly Button pause = new() { Text = "Pausar", Dock = DockStyle.Fill, Height = 46 };
     private readonly TextBox enrollment = new() { Width = 385, PlaceholderText = "Código de vinculación" };
     private readonly Button connect = new() { Text = "Vincular este equipo", Width = 185, Height = 40 };
     private readonly System.Windows.Forms.Timer heartbeat = new() { Interval = 60_000 };
@@ -52,24 +52,31 @@ internal sealed class AgentForm : Form
     private DayProgress? dayProgress;
     private DateTimeOffset daySyncedAt;
     private DateTime dayRequested;
-    private readonly Button finish = new() { Text = "Terminar jornada", Width = 185, Height = 40 };
+    private readonly Button finish = new() { Text = "Finalizar por hoy", Dock = DockStyle.Fill, Height = 46 };
 
-    public AgentForm(bool hideOnStart)
+    private bool FinishedToday => store.IsFinished(DateTime.Today) && !active;
+
+    public AgentForm(bool hideOnStart, AgentStore? stateStore = null)
     {
         this.hideOnStart = hideOnStart;
+        store = stateStore ?? new AgentStore();
         hub = new HubClient(store);
         Text = "Negocio Vivo · Control horario";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = true;
+        FormBorderStyle = FormBorderStyle.Sizable; MaximizeBox = true; MinimizeBox = true; MinimumSize = new Size(460, 520);
         StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(460, 510);
-        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(26), FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(20), FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var actions = new TableLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(20, 8, 20, 16), ColumnCount = 1, RowCount = 3 };
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < 3; i++) actions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        actions.Controls.Add(start, 0, 0); actions.Controls.Add(pause, 0, 1); actions.Controls.Add(finish, 0, 2);
         panel.Controls.Add(new Label { Text = "Negocio Vivo · Control horario", AutoSize = true, Font = new Font("Segoe UI", 16, FontStyle.Bold), Margin = new Padding(0, 0, 0, 18) });
         panel.Controls.Add(status); panel.Controls.Add(detail); panel.Controls.Add(startedLabel); panel.Controls.Add(workedLabel);
         panel.Controls.Add(enrollment); panel.Controls.Add(connect);
-        var row = new FlowLayoutPanel { Width = 390, Height = 54, Margin = new Padding(0, 18, 0, 0) }; row.Controls.Add(start); row.Controls.Add(pause); panel.Controls.Add(row);
+
         panel.Controls.Add(new Label { Text = "La configuración de seguimiento se administra exclusivamente desde el Hub.", AutoSize = true, MaximumSize = new Size(390, 0), ForeColor = Color.Gray, Margin = new Padding(0, 12, 0, 0) });
         Controls.Add(panel);
-        panel.Controls.Add(finish);
+        Controls.Add(actions);
         enrollment.UseSystemPasswordChar = true;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Abrir control horario", null, (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); });
@@ -82,7 +89,7 @@ internal sealed class AgentForm : Form
         FormClosed += (_, _) => { SystemEvents.SessionSwitch -= OnSessionSwitch; heartbeat.Stop(); capture.Stop(); displayClock.Stop(); tray.Dispose(); };
         start.Click += async (_, _) => await SetShift("start");
         pause.Click += async (_, _) => await SetShift(paused ? "start" : "stop", true);
-        finish.Click += async (_, _) => await SetShift("stop");
+        finish.Click += async (_, _) => await SetShift("stop", finishToday: true);
         connect.Click += async (_, _) => await Enroll();
         heartbeat.Tick += async (_, _) => await Heartbeat();
         displayClock.Tick += async (_, _) => {
@@ -102,6 +109,8 @@ internal sealed class AgentForm : Form
         dayRequested = requestedDay;
         daySyncedAt = DateTimeOffset.UtcNow;
         active = progress.Active;
+        if (active && store.IsFinished(requestedDay)) store.ClearFinished();
+        paused = !active && progress.WorkedSec > 0 && !FinishedToday;
         RenderClock();
     }
 
@@ -117,7 +126,8 @@ internal sealed class AgentForm : Form
             ? $"Primera entrada: {began.ToLocalTime():dd/MM HH:mm:ss}"
             : "Hoy todavía no has iniciado la jornada";
         var seconds = dayProgress.SecondsAt(daySyncedAt, DateTimeOffset.UtcNow, online && active);
-        workedLabel.Text = $"Hoy: {seconds / 3600:00}:{seconds / 60 % 60:00}:{seconds % 60:00}";
+        workedLabel.Text = FinishedToday ? "Hoy: 00:00:00" : $"Hoy: {seconds / 3600:00}:{seconds / 60 % 60:00}:{seconds % 60:00}";
+        if (FinishedToday) startedLabel.Text = $"Total guardado hoy: {dayProgress.WorkedSec / 3600:00}:{dayProgress.WorkedSec / 60 % 60:00}:{dayProgress.WorkedSec % 60:00}";
         if (!online) startedLabel.Text += " · Último dato sincronizado";
     }
 
@@ -136,27 +146,28 @@ internal sealed class AgentForm : Form
         busy = true;
         try { policy = await hub.Policy(); await SyncDay(); online = true; if (active) paused = false; Render(true); ScheduleCapture(); }
         catch (Exception ex) { online = false; capture.Stop(); Render(true); status.Text = "Sin conexión con el Hub"; detail.Text = ex.Message + " Se reintentará automáticamente."; }
-        finally { busy = false; }
+        finally { busy = false; Render(store.IsEnrolled); }
     }
 
     private void Render(bool enrolled)
     {
         enrollment.Visible = connect.Visible = !enrolled;
-        start.Visible = pause.Visible = enrolled;
-        finish.Visible = enrolled; startedLabel.Visible = workedLabel.Visible = enrolled; RenderClock();
-        if (!enrolled) { status.Text = "Equipo pendiente de vincular"; detail.Text = "Introduce el código individual que te haya enviado el administrador."; return; }
-        status.Text = paused ? "Jornada en pausa" : active ? "Jornada activa" : "Jornada no iniciada";
-        detail.Text = active ? "El seguimiento se realiza automáticamente según la política definida por el administrador." : "Pulsa Iniciar jornada para comenzar.";
-        start.Enabled = online && policy.TrackingEnabled && !active; pause.Enabled = online && policy.TrackingEnabled && (active || paused); pause.Text = paused ? "▶ Reanudar" : "⏸ Pausar";
-        finish.Enabled = online && (active || paused);
+        start.Visible = pause.Visible = true;
+        finish.Visible = true; startedLabel.Visible = workedLabel.Visible = enrolled; RenderClock();
+        if (!enrolled) { start.Enabled = pause.Enabled = finish.Enabled = false; status.Text = "Equipo pendiente de vincular"; detail.Text = "Introduce el código individual que te haya enviado el administrador."; return; }
+        status.Text = FinishedToday ? "Jornada finalizada por hoy" : paused ? "Jornada en pausa" : active ? "Jornada activa" : "Jornada no iniciada";
+        detail.Text = FinishedToday ? "El total queda registrado en el Hub. Mañana podrás iniciar una nueva jornada." : active ? "El seguimiento se realiza automáticamente según la política definida por el administrador." : "Pulsa Iniciar jornada para comenzar.";
+        start.Enabled = online && !busy && policy.TrackingEnabled && !active && !FinishedToday; pause.Enabled = online && !busy && policy.TrackingEnabled && !FinishedToday && (active || paused); pause.Text = paused ? "Reanudar" : "Pausar";
+        finish.Enabled = online && !busy && !FinishedToday && (active || paused || dayProgress?.WorkedSec > 0);
+        if (!online) { status.Text = "Sin conexión con el Hub"; detail.Text = "Se reintentará automáticamente. Los datos guardados se conservan."; }
         if (!policy.TrackingEnabled) { status.Text = "Seguimiento desactivado"; detail.Text = "El administrador ha desactivado el seguimiento de este equipo."; }
     }
 
-    private async Task SetShift(string action, bool isPause = false)
+    private async Task SetShift(string action, bool isPause = false, bool finishToday = false)
     {
         if (busy) return;
         busy = true; capture.Stop(); start.Enabled = pause.Enabled = finish.Enabled = false;
-        try { if (action != "stop" || active) await hub.SetShift(action); active = action == "start"; paused = isPause && action == "stop"; online = true; lastActivity = DateTimeOffset.UtcNow; dayProgress = null; await SyncDay(); Render(true); if (active) ScheduleCapture(); }
+        try { if (action != "stop" || active) await hub.SetShift(action); active = action == "start"; paused = isPause && action == "stop"; online = true; lastActivity = DateTimeOffset.UtcNow; dayProgress = null; await SyncDay(); if (finishToday && !active) { store.FinishDay(DateTime.Today); paused = false; } Render(true); if (active) ScheduleCapture(); }
         catch (Exception ex) { ShowError(ex.Message); }
         finally { busy = false; Render(store.IsEnrolled); }
     }
@@ -180,7 +191,7 @@ internal sealed class AgentForm : Form
             else if (!capture.Enabled) ScheduleCapture();
         }
         catch (Exception ex) { online = false; lastActivity = DateTimeOffset.UtcNow; capture.Stop(); Render(true); detail.Text = "Sincronización pendiente: " + ex.Message; }
-        finally { busy = false; }
+        finally { busy = false; Render(store.IsEnrolled); }
     }
 
     private void ScheduleCapture()
@@ -233,10 +244,14 @@ internal interface IAgentStore
     void Save(string token);
 }
 
-internal sealed class AgentStore : IAgentStore
+internal sealed class AgentStore(string? directory = null) : IAgentStore
 {
-    private readonly string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NegocioVivo", "time-agent.json");
+    private readonly string path = Path.Combine(directory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NegocioVivo"), "time-agent.json");
     private readonly string machine = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Environment.MachineName + Environment.UserName)))[..24].ToLowerInvariant();
+    private readonly string finishedPath = Path.Combine(directory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NegocioVivo"), "finished-day.txt");
+    public bool IsFinished(DateTime day) { try { return File.ReadAllText(finishedPath) == day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture); } catch (IOException) { return false; } }
+    public void FinishDay(DateTime day) { Directory.CreateDirectory(Path.GetDirectoryName(finishedPath)!); File.WriteAllText(finishedPath, day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)); }
+    public void ClearFinished() { if (File.Exists(finishedPath)) File.Delete(finishedPath); }
     public string DeviceId => machine;
     public bool IsEnrolled => File.Exists(path) && !string.IsNullOrWhiteSpace(Token);
     public string? Token { get { try { using var json = JsonDocument.Parse(File.ReadAllText(path)); var value = json.RootElement.GetProperty("token").GetString(); return value is null ? null : Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(value), null, DataProtectionScope.CurrentUser)); } catch { return null; } } }
