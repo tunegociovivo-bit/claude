@@ -127,8 +127,11 @@ internal sealed class AgentForm : Form
         if (!store.IsEnrolled || busy) return;
         busy = true;
         try {
+            var wasActive = active;
             policy = await hub.Policy(); active = await hub.IsActive(); online = true;
             var now = DateTimeOffset.UtcNow;
+            if (!wasActive && active) lastActivity = now;
+            if (active) paused = false;
             var elapsed = (int)(now - lastActivity).TotalSeconds;
             // A sleep or network gap cannot be reported as observed work.
             if (active && !paused && policy.TrackingEnabled && elapsed is > 0 and <= 90) await hub.Activity(policy, elapsed);

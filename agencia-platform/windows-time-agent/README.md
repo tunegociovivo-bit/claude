@@ -1,4 +1,4 @@
-# Control horario nativo de Windows 1.0.3
+# Control horario nativo de Windows 1.0.4
 
 Agente Windows Forms, .NET 8, Windows x64. La configuración procede del Hub.
 
@@ -20,7 +20,7 @@ Desde `agencia-platform`:
 dotnet test windows-time-agent-tests -c Release
 dotnet publish windows-time-agent -c Release -o windows-time-agent/publish
 # Firmar el EXE con un certificado de firma de código autorizado antes de empaquetar.
-wix build windows-time-agent/installer/NegocioVivo.TimeAgent.wxs -arch x64 -o Negocio.Vivo.Control.Horario.Native.1.0.3.msi
+wix build windows-time-agent/installer/NegocioVivo.TimeAgent.wxs -arch x64 -o Negocio.Vivo.Control.Horario.Native.1.0.4.msi
 # Firmar el MSI y verificar ambas firmas.
 ```
 
