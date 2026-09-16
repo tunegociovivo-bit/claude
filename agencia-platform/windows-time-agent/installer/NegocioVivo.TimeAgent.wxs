@@ -1,5 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.1" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
+  <Package Name="Negocio Vivo Control Horario" Manufacturer="Negocio Vivo Marketing" Version="1.0.3" UpgradeCode="6E1E8E27-0B3C-4BF1-BDBD-C4E6F685EE84" Language="1033" Scope="perUser">
     <MajorUpgrade DowngradeErrorMessage="Ya hay una versión más reciente instalada." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="LocalAppDataFolder">
@@ -14,8 +14,19 @@
         <Component Id="AgentWpf" Guid="*"><File Source="windows-time-agent\publish\wpfgfx_cor3.dll" KeyPath="yes" /></Component>
       </Directory>
     </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AgentMenu" Name="Negocio Vivo">
+        <Component Id="AgentShortcuts" Guid="*">
+          <Shortcut Id="AgentStartMenu" Name="Control horario" Target="[#AgentExe]" WorkingDirectory="INSTALLFOLDER" />
+          <RegistryValue Root="HKCU" Key="Software\NegocioVivo\TimeAgent" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+          <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Negocio Vivo Control Horario" Type="string" Value="&quot;[#AgentExe]&quot; --background" />
+          <RemoveFolder Id="RemoveAgentMenu" On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
     <Feature Id="MainFeature" Title="Negocio Vivo Control Horario" Level="1">
       <ComponentRef Id="AgentExecutable" />
+      <ComponentRef Id="AgentShortcuts" />
       <ComponentRef Id="AgentD3D" />
       <ComponentRef Id="AgentPen" />
       <ComponentRef Id="AgentPresentation" />

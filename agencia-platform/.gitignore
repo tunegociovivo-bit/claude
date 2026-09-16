@@ -10,6 +10,8 @@ windows-time-agent/obj/
 windows-time-agent/publish/
 windows-time-agent/installer/*.msi
 windows-time-agent/installer/*.wixpdb
+windows-time-agent-tests/bin/
+windows-time-agent-tests/obj/
 
 # Playwright
 /test-results/
