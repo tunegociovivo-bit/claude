@@ -26,15 +26,20 @@ const ANDROID_UI_DUMP_PATH = "/sdcard/nv-mobile-window.xml";
 export async function readAndroidUiHierarchySafely(
   runCommand: AndroidUiCommandRunner
 ): Promise<string> {
-  const hierarchy = String(await runCommand([
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const hierarchy = String(await runCommand([
     "sh",
     "-c",
-    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout 4 uiautomator dump ${ANDROID_UI_DUMP_PATH} >/dev/null && cat ${ANDROID_UI_DUMP_PATH}`
+    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout 10 uiautomator dump ${ANDROID_UI_DUMP_PATH} >/dev/null && cat ${ANDROID_UI_DUMP_PATH}`
   ]));
-  if (!hierarchy.includes("<hierarchy") || !hierarchy.includes("</hierarchy>")) {
-    throw new Error("Android no ha devuelto la estructura accesible de Facebook.");
+      if (hierarchy.includes("<hierarchy") && hierarchy.includes("</hierarchy>")) return hierarchy;
+    } catch {
+      // MIUI may fail the first accessibility process during a screen transition.
+      // Each attempt removes the old dump and remains bounded on the device.
+    }
   }
-  return hierarchy;
+  throw new Error("Android no ha devuelto la estructura accesible de Facebook tras dos intentos. Espera a que termine de cargar la pantalla y reintenta.");
 }
 
 function decodeXmlAttribute(value: string): string {
