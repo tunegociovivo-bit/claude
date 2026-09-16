@@ -66,7 +66,6 @@ import {
   findFacebookGroupJoinTarget,
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
-  findFacebookSearchEntryTarget,
   findFacebookSearchSuggestionTarget,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
@@ -75,6 +74,7 @@ import {
   type MobileAutomationExecutableJob,
   type MobileAutomationExecutionResult
 } from "@/components/mobile/mobile-automation-executor";
+import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-navigation";
 import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
@@ -180,45 +180,6 @@ async function summarizeAndroidForeground(adb: Adb): Promise<string> {
   return details.length ? details.join(" · ") : "Android no ha devuelto detalle accesible de la pantalla actual.";
 }
 
-async function waitForFacebookSearchEntry(
-  adb: Adb,
-  knownQueries: readonly string[],
-  onRetryLaunch: () => Promise<void>
-): Promise<AndroidUiPoint> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    try {
-      const hierarchy = await readAndroidUiHierarchy(adb);
-      const target = findFacebookSearchEntryTarget(
-        hierarchy,
-        knownQueries
-      );
-      if (target) return target.point;
-      // Facebook hides its search header while the news feed is scrolled.
-      // Recover it only on a recognized feed, using the actual screen bounds.
-      const nodes = parseAndroidUiNodes(hierarchy).filter((node) => /^com\.facebook\.(katana|lite)$/.test(node.packageName));
-      const isFeed = nodes.some((node) => /^(¿Qué estás pensando\?|What's on your mind\?|Bandeja de historias)$/i.test(node.text || node.contentDescription));
-      if (isFeed && (attempt === 1 || attempt === 3)) {
-        const screen = nodes.reduce<typeof nodes[number] | undefined>((largest, node) =>
-          !largest || (node.bounds.right - node.bounds.left) * (node.bounds.bottom - node.bounds.top)
-            > (largest.bounds.right - largest.bounds.left) * (largest.bounds.bottom - largest.bounds.top) ? node : largest, undefined);
-        if (screen) {
-          const { left, right, top, bottom } = screen.bounds;
-          const x = String(Math.round((left + right) / 2));
-          await runAdbCommand(adb, ["input", "swipe", x, String(Math.round(top + (bottom - top) * 0.3)), x, String(Math.round(top + (bottom - top) * 0.8)), "400"]);
-        }
-      }
-    } catch (error) {
-      lastError = error;
-    }
-    if (attempt === 4) await onRetryLaunch();
-    await waitForAndroidUi(900);
-  }
-  if (lastError instanceof Error && /estructura accesible/i.test(lastError.message)) throw lastError;
-  throw new FacebookNavigationError(
-    `Facebook no muestra un buscador accesible. Pantalla detectada: ${await summarizeAndroidForeground(adb)}`
-  );
-}
 
 async function mobileApiJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { cache: "no-store", ...init });
@@ -295,7 +256,13 @@ async function navigateFacebookGroupSearch(
   });
   await relaunchFacebook();
 
-  const searchEntry = await waitForFacebookSearchEntry(adb, knownQueries, relaunchFacebook);
+  const searchEntry = await waitForFacebookSearchEntry(knownQueries, {
+    readHierarchy: () => readAndroidUiHierarchy(adb),
+    runCommand: (command) => runAdbCommand(adb, command),
+    relaunch: relaunchFacebook,
+    wait: waitForAndroidUi,
+    summarize: () => summarizeAndroidForeground(adb)
+  });
   await runAdbCommand(adb, ["input", "tap", String(searchEntry.x), String(searchEntry.y)]);
   await waitForAndroidUi(500);
   await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
