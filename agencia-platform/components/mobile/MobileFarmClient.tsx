@@ -51,6 +51,7 @@ import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
 import MobileUnlockPinField, { mobileUnlockPinRequest } from "@/components/mobile/MobileUnlockPinField";
 import { unlockAndroidForAutomation } from "@/components/mobile/android-unlock";
+import MobileFacebookAccountsPanel from "@/components/mobile/MobileFacebookAccountsPanel";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
   createAndroidAwakeSession,
@@ -1594,6 +1595,7 @@ function MobileDeviceCard({
         {linkedPhone ? (
           <>
             {canManage && <MobileUnlockPinField deviceSerial={device.serial} ready={status === "mirroring"} onSaved={clearUnlockBlock} onUnlock={async () => { const adb = adbRef.current; if (!adb) throw new Error("Abre la pantalla del móvil."); clearUnlockBlock(); await unlockDevice(adb); setError(null); }} />}
+            {canManage && <MobileFacebookAccountsPanel deviceSerial={device.serial} />}
             <MobileAutomationPanel
               deviceSerial={device.serial}
               phoneKey={linkedPhone.key}
