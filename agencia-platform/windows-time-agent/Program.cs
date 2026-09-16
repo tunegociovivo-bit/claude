@@ -46,6 +46,12 @@ internal sealed class AgentForm : Form
     private bool sessionLocked;
     private DateTimeOffset lastActivity = DateTimeOffset.UtcNow;
     private readonly NotifyIcon tray = new();
+    private readonly Label startedLabel = new() { AutoSize = true, Margin = new Padding(0, 12, 0, 4) };
+    private readonly Label workedLabel = new() { AutoSize = true, Font = new Font("Segoe UI", 24, FontStyle.Bold), Margin = new Padding(0, 0, 0, 4) };
+    private readonly System.Windows.Forms.Timer displayClock = new() { Interval = 1000 };
+    private DayProgress? dayProgress;
+    private DateTimeOffset daySyncedAt;
+    private DateTime dayRequested;
     private readonly Button finish = new() { Text = "Terminar jornada", Width = 185, Height = 40 };
 
     public AgentForm(bool hideOnStart)
@@ -55,10 +61,10 @@ internal sealed class AgentForm : Form
         Text = "Negocio Vivo · Control horario";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = true;
-        StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(460, 400);
+        StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(460, 510);
         var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(26), FlowDirection = FlowDirection.TopDown, WrapContents = false };
         panel.Controls.Add(new Label { Text = "Negocio Vivo · Control horario", AutoSize = true, Font = new Font("Segoe UI", 16, FontStyle.Bold), Margin = new Padding(0, 0, 0, 18) });
-        panel.Controls.Add(status); panel.Controls.Add(detail);
+        panel.Controls.Add(status); panel.Controls.Add(detail); panel.Controls.Add(startedLabel); panel.Controls.Add(workedLabel);
         panel.Controls.Add(enrollment); panel.Controls.Add(connect);
         var row = new FlowLayoutPanel { Width = 390, Height = 54, Margin = new Padding(0, 18, 0, 0) }; row.Controls.Add(start); row.Controls.Add(pause); panel.Controls.Add(row);
         panel.Controls.Add(new Label { Text = "La configuración de seguimiento se administra exclusivamente desde el Hub.", AutoSize = true, MaximumSize = new Size(390, 0), ForeColor = Color.Gray, Margin = new Padding(0, 12, 0, 0) });
@@ -73,14 +79,46 @@ internal sealed class AgentForm : Form
         tray.DoubleClick += (_, _) => { Show(); WindowState = FormWindowState.Normal; Activate(); };
         FormClosing += (_, e) => { if (!quitting && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
         SystemEvents.SessionSwitch += OnSessionSwitch;
-        FormClosed += (_, _) => { SystemEvents.SessionSwitch -= OnSessionSwitch; heartbeat.Stop(); capture.Stop(); tray.Dispose(); };
+        FormClosed += (_, _) => { SystemEvents.SessionSwitch -= OnSessionSwitch; heartbeat.Stop(); capture.Stop(); displayClock.Stop(); tray.Dispose(); };
         start.Click += async (_, _) => await SetShift("start");
         pause.Click += async (_, _) => await SetShift(paused ? "start" : "stop", true);
         finish.Click += async (_, _) => await SetShift("stop");
         connect.Click += async (_, _) => await Enroll();
         heartbeat.Tick += async (_, _) => await Heartbeat();
+        displayClock.Tick += async (_, _) => {
+            RenderClock();
+            if (dayProgress is not null && dayRequested != DateTime.Today && !busy) await RefreshState();
+        };
+        displayClock.Start();
         capture.Tick += async (_, _) => await CaptureCycle();
         Shown += async (_, _) => { Render(store.IsEnrolled); heartbeat.Start(); await RefreshState(); if (this.hideOnStart && store.IsEnrolled) BeginInvoke(Hide); };
+    }
+
+    private async Task SyncDay()
+    {
+        var requestedDay = DateTime.Today;
+        var progress = await hub.Today(requestedDay);
+        dayProgress = progress;
+        dayRequested = requestedDay;
+        daySyncedAt = DateTimeOffset.UtcNow;
+        active = progress.Active;
+        RenderClock();
+    }
+
+    private void RenderClock()
+    {
+        if (dayProgress is null || dayRequested != DateTime.Today)
+        {
+            startedLabel.Text = "Inicio de hoy: pendiente de sincronizar";
+            workedLabel.Text = "Hoy: —";
+            return;
+        }
+        startedLabel.Text = dayProgress.StartedAt is { } began
+            ? $"Primera entrada: {began.ToLocalTime():dd/MM HH:mm:ss}"
+            : "Hoy todavía no has iniciado la jornada";
+        var seconds = dayProgress.SecondsAt(daySyncedAt, DateTimeOffset.UtcNow, online && active);
+        workedLabel.Text = $"Hoy: {seconds / 3600:00}:{seconds / 60 % 60:00}:{seconds % 60:00}";
+        if (!online) startedLabel.Text += " · Último dato sincronizado";
     }
 
     private async Task Enroll()
@@ -96,7 +134,7 @@ internal sealed class AgentForm : Form
         if (!store.IsEnrolled) { Render(false); return; }
         if (busy) return;
         busy = true;
-        try { policy = await hub.Policy(); active = await hub.IsActive(); online = true; if (active) paused = false; Render(true); ScheduleCapture(); }
+        try { policy = await hub.Policy(); await SyncDay(); online = true; if (active) paused = false; Render(true); ScheduleCapture(); }
         catch (Exception ex) { online = false; capture.Stop(); Render(true); status.Text = "Sin conexión con el Hub"; detail.Text = ex.Message + " Se reintentará automáticamente."; }
         finally { busy = false; }
     }
@@ -105,7 +143,7 @@ internal sealed class AgentForm : Form
     {
         enrollment.Visible = connect.Visible = !enrolled;
         start.Visible = pause.Visible = enrolled;
-        finish.Visible = enrolled;
+        finish.Visible = enrolled; startedLabel.Visible = workedLabel.Visible = enrolled; RenderClock();
         if (!enrolled) { status.Text = "Equipo pendiente de vincular"; detail.Text = "Introduce el código individual que te haya enviado el administrador."; return; }
         status.Text = paused ? "Jornada en pausa" : active ? "Jornada activa" : "Jornada no iniciada";
         detail.Text = active ? "El seguimiento se realiza automáticamente según la política definida por el administrador." : "Pulsa Iniciar jornada para comenzar.";
@@ -118,7 +156,7 @@ internal sealed class AgentForm : Form
     {
         if (busy) return;
         busy = true; capture.Stop(); start.Enabled = pause.Enabled = finish.Enabled = false;
-        try { if (action != "stop" || active) await hub.SetShift(action); active = action == "start"; paused = isPause && action == "stop"; online = true; lastActivity = DateTimeOffset.UtcNow; Render(true); if (active) ScheduleCapture(); }
+        try { if (action != "stop" || active) await hub.SetShift(action); active = action == "start"; paused = isPause && action == "stop"; online = true; lastActivity = DateTimeOffset.UtcNow; dayProgress = null; await SyncDay(); Render(true); if (active) ScheduleCapture(); }
         catch (Exception ex) { ShowError(ex.Message); }
         finally { busy = false; Render(store.IsEnrolled); }
     }
@@ -129,7 +167,7 @@ internal sealed class AgentForm : Form
         busy = true;
         try {
             var wasActive = active;
-            policy = await hub.Policy(); active = await hub.IsActive(); online = true;
+            policy = await hub.Policy(); await SyncDay(); online = true;
             var now = DateTimeOffset.UtcNow;
             if (!wasActive && active) lastActivity = now;
             if (active) paused = false;
@@ -162,7 +200,7 @@ internal sealed class AgentForm : Form
         busy = true;
         try
         {
-            policy = await hub.Policy(); active = await hub.IsActive();
+            policy = await hub.Policy(); await SyncDay();
             if (!sessionLocked && active && !paused && policy.TrackingEnabled && policy.ScreenshotsEnabled && HubClient.CanCapture(policy))
                 await hub.Screenshot(policy.RetentionDays, policy.BlurScreenshots);
         }
@@ -180,6 +218,12 @@ internal sealed class AgentForm : Form
     }
 
     private void ShowError(string message) => MessageBox.Show(this, message, "Negocio Vivo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+}
+
+internal sealed record DayProgress(bool Active, DateTimeOffset? StartedAt, long WorkedSec)
+{
+    public long SecondsAt(DateTimeOffset syncedAt, DateTimeOffset now, bool running) =>
+        Math.Max(0, WorkedSec) + (Active && running ? Math.Max(0, (long)(now - syncedAt).TotalSeconds) : 0);
 }
 
 internal interface IAgentStore
@@ -244,7 +288,17 @@ internal sealed class HubClient(IAgentStore store, HttpMessageHandler? handler =
         if (policy is null || policy.ExcludedApps is null) throw new Exception("Política del Hub inválida.");
         return policy;
     }
-    public async Task<bool> IsActive() { using var r = Request(HttpMethod.Get, "/api/v1/time-tracking/me"); using var response = await http.SendAsync(r); if (!response.IsSuccessStatusCode) throw new Exception(await Error(response)); return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.TryGetProperty("active", out var active) && active.GetBoolean(); }
+    public async Task<bool> IsActive() => (await Today(DateTime.Today)).Active;
+    public async Task<DayProgress> Today(DateTime localDay)
+    {
+        var start = new DateTimeOffset(DateTime.SpecifyKind(localDay.Date, DateTimeKind.Local));
+        var end = new DateTimeOffset(DateTime.SpecifyKind(localDay.Date.AddDays(1), DateTimeKind.Local));
+        var path = "/api/v1/time-tracking/me?dayStart=" + Uri.EscapeDataString(start.ToString("O")) + "&dayEnd=" + Uri.EscapeDataString(end.ToString("O"));
+        using var r = Request(HttpMethod.Get, path);
+        using var response = await http.SendAsync(r);
+        if (!response.IsSuccessStatusCode) throw new Exception(await Error(response));
+        return await response.Content.ReadFromJsonAsync<DayProgress>() ?? throw new Exception("No se ha podido leer la jornada del Hub.");
+    }
     public async Task SetShift(string action)
     {
         using var r = Request(HttpMethod.Post, "/api/v1/time-tracking");

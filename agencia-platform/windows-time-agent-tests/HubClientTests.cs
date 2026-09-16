@@ -20,6 +20,21 @@ public class HubClientTests
     private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
 
     [Fact]
+    public async Task DailySummaryReadsStartAndAccumulatedWorkForLocalDay()
+    {
+        var client = new HubClient(new Store(), new Handler(request => {
+            Assert.Equal("/api/v1/time-tracking/me", request.RequestUri!.AbsolutePath);
+            Assert.Contains("dayStart=", request.RequestUri.Query);
+            Assert.Contains("dayEnd=", request.RequestUri.Query);
+            return Task.FromResult(Json("{\"active\":true,\"startedAt\":\"2026-09-16T07:30:00Z\",\"workedSec\":4500}"));
+        }));
+        var day = await client.Today(new DateTime(2026, 9, 16));
+        Assert.True(day.Active);
+        Assert.Equal(4500, day.WorkedSec);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-16T07:30:00Z"), day.StartedAt);
+    }
+
+    [Fact]
     public async Task EnrollmentValidatesTheActualBearerCredentialBeforeSaving()
     {
         var store = new Store();
