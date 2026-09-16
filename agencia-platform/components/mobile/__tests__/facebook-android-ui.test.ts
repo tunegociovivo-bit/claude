@@ -288,4 +288,9 @@ describe("Facebook Android UI", () => {
     expect(findFacebookGroupJoinTarget(result, "Franquicias")).toBeNull();
     expect(findFacebookGroupJoinTarget(result, "Otro grupo")).toEqual({ x: 865, y: 220 });
   });
+  it("recognizes the nonbreaking spaces emitted by the real Facebook app", () => {
+    const result = '<node text="franquicia IA\u00a0· Ir" content-desc="franquicia IA  \u00a0·  Ir" package="com.facebook.katana" bounds="[231,407][522,462]" /><node text="Ir" package="com.facebook.katana" bounds="[495,410][522,458]" />';
+    expect(findFacebookMembershipState(result, "franquicia IA")).toBe("joined");
+    expect(findFacebookMembershipState(result, "Otro grupo")).toBeNull();
+  });
 });
