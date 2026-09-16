@@ -603,7 +603,7 @@ export default function MobileFarmClient() {
             </div>
             <h2 className="mt-3 text-lg font-bold text-slate-900">El Hub no emula ni suplanta el teléfono</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              La app se ejecuta en el móvil real. El vídeo y los gestos viajan por USB y no se suben; el Radar solo envía una captura al proveedor de IA cuando tú pulsas analizar.
+              La app se ejecuta en el móvil real. El vídeo y los gestos viajan por USB. Al buscar conversaciones se envían a la IA los textos necesarios para preparar respuestas; el análisis manual envía una captura cuando pulsas analizar.
             </p>
           </div>
           <button

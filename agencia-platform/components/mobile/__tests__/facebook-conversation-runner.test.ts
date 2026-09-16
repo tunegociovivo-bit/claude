@@ -30,6 +30,19 @@ describe("Facebook conversation execution", () => {
     expect(deps.tap).not.toHaveBeenCalled();
     expect(deps.openUrl).not.toHaveBeenCalled();
   });
+  it("keeps comments from same-name groups distinct and avoids re-analyzing saved comments", async () => {
+    const deps = setup();
+    const initial = createConversationBatch(config);
+    initial.groups = [{ name: "Franquicias", details: "100 miembros", status: "pending", detail: "" }, { name: "Franquicias", details: "200 miembros", status: "pending", detail: "" }];
+    const first = await scanFacebookConversations(initial, deps);
+    expect(first.candidates).toHaveLength(2);
+    expect(new Set(first.candidates.map((candidate) => candidate.id)).size).toBe(2);
+    first.groups.forEach((group) => { group.status = "pending"; });
+    vi.mocked(deps.analyze).mockClear();
+    const resumed = await scanFacebookConversations(first, deps);
+    expect(resumed.candidates).toHaveLength(2);
+    expect(deps.analyze).not.toHaveBeenCalled();
+  });
   it("does not send when the original author or comment changed", async () => {
     const deps = setup();
     const result = await sendFacebookConversationReplies({ ...createConversationBatch(config), candidates: [{ ...item, author: "Otro autor" }] }, deps);

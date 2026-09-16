@@ -168,7 +168,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
             for (const reply of replies) {
               const comment = fresh.find((item) => item.id === reply.id);
               if (!comment || batch.candidates.length >= 150) continue;
-              const id = conversationFingerprint([group.name, anchor, comment.author, comment.text]);
+              const id = conversationFingerprint([group.name, group.details ?? "", anchor, comment.author, comment.text]);
               if (seen.has(id)) continue;
               seen.add(id);
               batch.candidates.push({ id, groupName: group.name, groupDetails: group.details, groupUrl: batch.config.targetUrl, postAnchor: anchor, author: comment.author,
