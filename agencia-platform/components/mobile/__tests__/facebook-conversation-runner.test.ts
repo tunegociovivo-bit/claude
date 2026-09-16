@@ -30,6 +30,16 @@ describe("Facebook conversation execution", () => {
     expect(deps.tap).not.toHaveBeenCalled();
     expect(deps.openUrl).not.toHaveBeenCalled();
   });
+  it("opens the second comment control when Facebook first opens a reel", async () => {
+    const deps = setup();
+    const feed = '<node package="com.facebook.katana" class="android.view.ViewGroup" text="Una publicación sobre supermercados" bounds="[100,300][900,500]" /><node package="com.facebook.katana" class="android.widget.Button" text="Comentar" bounds="[100,600][500,700]" />';
+    const reel = '<node package="com.facebook.katana" class="android.widget.Button" content-desc="5 comentarios" bounds="[900,1400][1080,1500]" />';
+    vi.mocked(deps.read).mockResolvedValueOnce(feed).mockResolvedValueOnce(reel).mockResolvedValueOnce(reel).mockResolvedValue(commentScreen);
+    const result = await scanFacebookConversations(createConversationBatch(config), deps);
+    expect(deps.tap).toHaveBeenCalledWith({ x: 990, y: 1450 });
+    expect(result.candidates).toHaveLength(1);
+    expect(deps.back).toHaveBeenCalledTimes(2);
+  });
   it("keeps comments from same-name groups distinct and avoids re-analyzing saved comments", async () => {
     const deps = setup();
     const initial = createConversationBatch(config);

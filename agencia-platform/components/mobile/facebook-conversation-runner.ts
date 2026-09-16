@@ -104,11 +104,20 @@ async function allCommentsFilter(deps: ConversationRunnerDependencies) {
   }
 }
 
-async function readThread(deps: ConversationRunnerDependencies, screens: number, consume: (comments: NativeComment[]) => Promise<void>) {
+async function openCommentThread(deps: ConversationRunnerDependencies) {
   await deps.wait(800);
   const initial = await deps.read();
   if (parseAndroidUiNodes(initial).some((node) => /inputmethod|keyboard/.test(node.packageName))) { await deps.back(); await deps.wait(400); }
+  const xml = await deps.read();
+  const counter = namedControl(xml, /^\d+[\d., mil]* comentarios?(?:[.,].*)?$/i);
+  const extraLevel = !visibleComments(xml).length && !!counter;
+  if (extraLevel && counter) { await deps.tap(counter.center); await deps.wait(600); }
   await allCommentsFilter(deps);
+  return extraLevel;
+}
+
+async function readThread(deps: ConversationRunnerDependencies, screens: number, consume: (comments: NativeComment[]) => Promise<void>) {
+  const extraLevel = await openCommentThread(deps);
   let previous = "";
   for (let page = 0; page < screens; page++) {
     const xml = await deps.read();
@@ -121,6 +130,7 @@ async function readThread(deps: ConversationRunnerDependencies, screens: number,
     else await deps.scroll(xml, "down");
   }
   await deps.back();
+  if (extraLevel) await deps.back();
   await deps.wait(500);
 }
 
@@ -213,7 +223,7 @@ async function locateReply(item: ConversationReply, batch: FacebookConversationB
     const post = visiblePostComments(xml).find((candidate) => candidate.anchor === item.postAnchor);
     if (post) {
       await deps.tap(post.point);
-      await allCommentsFilter(deps);
+      await openCommentThread(deps);
       for (let screen = 0; screen < batch.config.commentScreensPerPost + 2; screen++) {
         const commentsXml = await deps.read();
         const target = findExactComment(commentsXml, item.author, item.sourceText);

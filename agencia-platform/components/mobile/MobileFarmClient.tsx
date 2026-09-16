@@ -156,8 +156,14 @@ function waitForAndroidUi(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+const hierarchyReads = new WeakMap<Adb, Promise<unknown>>();
 async function readAndroidUiHierarchy(adb: Adb): Promise<string> {
-  return readAndroidUiHierarchySafely((command) => runAdbCommand(adb, command));
+  // A diagnostic read and an automation must not overwrite the same Android dump.
+  const read = (hierarchyReads.get(adb) ?? Promise.resolve()).catch(() => undefined)
+    .then(() => readAndroidUiHierarchySafely((command) => runAdbCommand(adb, command)));
+  hierarchyReads.set(adb, read);
+  try { return await read; }
+  finally { if (hierarchyReads.get(adb) === read) hierarchyReads.delete(adb); }
 }
 
 async function summarizeAndroidForeground(adb: Adb): Promise<string> {
