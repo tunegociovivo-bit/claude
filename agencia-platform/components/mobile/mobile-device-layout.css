@@ -1,0 +1,26 @@
+.mobile-device-card {
+  container: mobile-device / inline-size;
+}
+
+.mobile-device-card input,
+.mobile-device-card select,
+.mobile-device-card textarea,
+.mobile-device-card label {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Form layouts follow the width of the phone card, not the whole browser. */
+@container mobile-device (max-width: 420px) {
+  .mobile-device-card .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-device-card form.flex {
+    flex-wrap: wrap;
+  }
+
+  .mobile-device-card form.flex input {
+    flex-basis: 100%;
+  }
+}

@@ -52,6 +52,7 @@ import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomatio
 import MobileUnlockPinField, { mobileUnlockPinRequest } from "@/components/mobile/MobileUnlockPinField";
 import { unlockAndroidForAutomation } from "@/components/mobile/android-unlock";
 import MobileFacebookAccountsPanel from "@/components/mobile/MobileFacebookAccountsPanel";
+import "./mobile-device-layout.css";
 import SharedPhoneInventory from "@/components/mobile/SharedPhoneInventory";
 import {
   createAndroidAwakeSession,
@@ -505,9 +506,34 @@ function friendlyError(error: unknown): string {
   return message || "No se ha podido conectar con el móvil.";
 }
 
+const DEVICE_GRID_CLASSES = {
+  1: "grid-cols-1",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
+  5: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-5"
+} as const;
+type DeviceColumns = keyof typeof DEVICE_GRID_CLASSES;
+const DEVICE_COLUMNS_KEY = "nv-mobile-device-columns";
+
 export default function MobileFarmClient() {
   const managerRef = useRef<AdbDaemonWebUsbDeviceManager>();
   const [devices, setDevices] = useState<readonly UsbDevice[]>([]);
+  const [deviceColumns, setDeviceColumns] = useState<DeviceColumns>(2);
+  const [layoutMessage, setLayoutMessage] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const stored = Number(localStorage.getItem(DEVICE_COLUMNS_KEY));
+      if (Number.isInteger(stored) && stored >= 1 && stored <= 5) setDeviceColumns(stored as DeviceColumns);
+    } catch { /* The layout remains usable when browser storage is unavailable. */ }
+  }, []);
+  function changeDeviceColumns(value: string) {
+    const columns = Number(value);
+    if (!Number.isInteger(columns) || columns < 1 || columns > 5) return;
+    setDeviceColumns(columns as DeviceColumns);
+    try { localStorage.setItem(DEVICE_COLUMNS_KEY, String(columns)); setLayoutMessage(null); }
+    catch { setLayoutMessage("La disposición se aplica, pero este navegador no permite guardarla para la próxima visita."); }
+  }
   const [supported, setSupported] = useState<boolean | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
@@ -595,7 +621,7 @@ export default function MobileFarmClient() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 pb-12">
+    <div className={`mx-auto space-y-6 pb-12 ${deviceColumns >= 3 ? "max-w-[1920px]" : "max-w-7xl"}`}>
       <PageHeader
         title="F - Móviles"
         description="Pantallas Android reales dentro del Hub, conectadas directamente por USB a este ordenador."
@@ -650,10 +676,20 @@ export default function MobileFarmClient() {
         onReload={loadSharedPhones}
       />
 
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><h2 className="text-base font-bold text-slate-900">Móviles conectados · {devices.length}</h2><p id="mobile-layout-help" className="mt-1 text-xs text-slate-500">En pantallas pequeñas se muestran menos columnas para facilitar el control.</p></div>
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">Móviles por fila
+          <select value={deviceColumns} onChange={event => changeDeviceColumns(event.target.value)} aria-describedby="mobile-layout-help" className="rounded-lg border bg-white px-3 py-2">
+            {[1, 2, 3, 4, 5].map(columns => <option key={columns} value={columns}>{columns}</option>)}
+          </select>
+        </label>
+        {layoutMessage && <p role="status" className="w-full text-xs text-amber-800">{layoutMessage}</p>}
+      </div>
+
       {devices.length === 0 ? (
         <EmptyState onConnect={requestDevice} disabled={!supported || discovering} />
       ) : (
-        <section className="grid gap-5 xl:grid-cols-2" aria-label="Móviles conectados">
+        <section className={`grid gap-5 ${DEVICE_GRID_CLASSES[deviceColumns]}`} aria-label="Móviles conectados">
           {devices.map((device) => (
             <MobileDeviceCard
               key={device.serial}
@@ -1369,7 +1405,7 @@ function MobileDeviceCard({
   const proxySyncState = getAndroidProxySyncState(configuredProxy, appliedProxy);
 
   return (
-    <article id={`mobile-device-${encodeURIComponent(device.serial)}`} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+    <article id={`mobile-device-${encodeURIComponent(device.serial)}`} className="mobile-device-card min-w-0 overflow-hidden rounded-2xl border bg-white shadow-sm">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
