@@ -86,6 +86,40 @@ class ScriptedResponseChannel implements MobileSessionBroadcastChannel {
 }
 
 describe("mobile session coordinator", () => {
+  it("keeps an active screen connected when another tab requests it", async () => {
+    const release = vi.fn(async () => undefined);
+    let active = true;
+    const factory = (name: string) => new MemoryBroadcastChannel(name);
+    const existing = createMobileSessionCoordinator({
+      serial: "protected-phone", release, isActive: () => active,
+      channelFactory: factory, discoveryWindowMs: 5
+    });
+    const incoming = createMobileSessionCoordinator({
+      serial: "protected-phone", release: async () => undefined,
+      channelFactory: factory, discoveryWindowMs: 5
+    });
+    try {
+      await expect(incoming.requestRelease()).resolves.toBe("busy");
+      expect(release).not.toHaveBeenCalled();
+      active = false;
+      await expect(incoming.requestRelease()).resolves.toBe("released");
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally { existing.close(); incoming.close(); }
+  });
+
+  it("does not cancel either in-flight connection when tabs start simultaneously", async () => {
+    const releaseA = vi.fn(async () => undefined);
+    const releaseB = vi.fn(async () => undefined);
+    const factory = (name: string) => new MemoryBroadcastChannel(name);
+    const a = createMobileSessionCoordinator({ serial: "simultaneous-phone", release: releaseA, isActive: () => true, channelFactory: factory, discoveryWindowMs: 5 });
+    const b = createMobileSessionCoordinator({ serial: "simultaneous-phone", release: releaseB, isActive: () => true, channelFactory: factory, discoveryWindowMs: 5 });
+    try {
+      expect(await Promise.all([a.requestRelease(), b.requestRelease()])).toEqual(["busy", "busy"]);
+      expect(releaseA).not.toHaveBeenCalled();
+      expect(releaseB).not.toHaveBeenCalled();
+    } finally { a.close(); b.close(); }
+  });
+
   it("asks an existing tab to release the same Android before connecting", async () => {
     const release = vi.fn(async () => undefined);
     const factory = (name: string) => new MemoryBroadcastChannel(name);

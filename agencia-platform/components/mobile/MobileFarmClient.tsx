@@ -883,6 +883,7 @@ function MobileDeviceCard({
     }
     const coordinator = createMobileSessionCoordinator({
       serial: device.serial,
+      isActive: () => Boolean(startSessionPromiseRef.current || connectionRef.current || adbRef.current || closeSessionPromiseRef.current),
       release: async () => {
         const pendingStart = startSessionPromiseRef.current;
         closingRef.current = true;
@@ -907,6 +908,7 @@ function MobileDeviceCard({
   }, [closeSession, device.serial]);
 
   async function startMirroring(): Promise<boolean> {
+    if (startSessionPromiseRef.current || closeSessionPromiseRef.current) return false;
     if (status === "mirroring") return true;
     if (status !== "idle" && status !== "error") return false;
     let finishStartSession: () => void = () => {};
@@ -924,7 +926,10 @@ function MobileDeviceCard({
     setStatus("connecting");
 
     try {
-      await sessionCoordinatorRef.current?.requestRelease();
+      const releaseResult = await sessionCoordinatorRef.current?.requestRelease();
+      if (releaseResult === "busy" || releaseResult === "timed_out") {
+        throw new Error("Este móvil está abierto o conectándose en otra pestaña del Hub. Cierra su pantalla allí antes de abrirla aquí.");
+      }
       assertCurrentSessionAttempt();
       const connectionPromise = device.connect();
       connectionPromiseRef.current = connectionPromise;
@@ -1047,7 +1052,7 @@ function MobileDeviceCard({
         setResolution(`${width} × ${height}`);
       });
       video.stream.pipeTo(decoder.writable).catch(async (pipeError) => {
-        if (closingRef.current) return;
+        if (closingRef.current || clientRef.current !== client || !sessionAttempt.isCurrent()) return;
         await closeSession();
         closingRef.current = false;
         setError(friendlyError(pipeError));
@@ -1677,6 +1682,7 @@ function MobileDeviceCard({
       </div>
       </details>
       <div className="px-3 pb-3">
+        {error && status === "error" && <p role="status" className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{error}</p>}
         {status === "mirroring" ? (
           <button type="button" onClick={stopMirroring} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-100">
             <Unplug className="h-4 w-4" /> Cerrar pantalla

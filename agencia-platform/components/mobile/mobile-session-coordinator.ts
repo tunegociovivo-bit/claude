@@ -6,7 +6,7 @@ export type MobileSessionBroadcastChannel = {
 };
 
 type MobileSessionMessage = {
-  type: "release-requested" | "release-started" | "release-finished";
+  type: "release-requested" | "release-started" | "release-finished" | "release-denied";
   requestId: string;
   ownerId: string;
 };
@@ -14,13 +14,14 @@ type MobileSessionMessage = {
 type CoordinatorOptions = {
   serial: string;
   release: () => Promise<void>;
+  isActive?: () => boolean;
   ownerId?: string;
   channelFactory?: (name: string) => MobileSessionBroadcastChannel;
   discoveryWindowMs?: number;
   releaseTimeoutMs?: number;
 };
 
-export type MobileSessionReleaseResult = "none" | "released" | "timed_out";
+export type MobileSessionReleaseResult = "none" | "released" | "timed_out" | "busy";
 
 const DEFAULT_DISCOVERY_WINDOW_MS = 150;
 const DEFAULT_RELEASE_TIMEOUT_MS = 8_000;
@@ -55,7 +56,7 @@ function isMobileSessionMessage(value: unknown): value is MobileSessionMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<MobileSessionMessage>;
   return (
-    ["release-requested", "release-started", "release-finished"].includes(String(message.type))
+    ["release-requested", "release-started", "release-finished", "release-denied"].includes(String(message.type))
     && typeof message.requestId === "string"
     && typeof message.ownerId === "string"
   );
@@ -79,6 +80,10 @@ export function createMobileSessionCoordinator(options: CoordinatorOptions) {
     ) return;
 
     handledRequests.add(message.requestId);
+    if (options.isActive?.()) {
+      channel.postMessage({ type: "release-denied", requestId: message.requestId, ownerId } satisfies MobileSessionMessage);
+      return;
+    }
     channel.postMessage({
       type: "release-started",
       requestId: message.requestId,
@@ -108,6 +113,7 @@ export function createMobileSessionCoordinator(options: CoordinatorOptions) {
       const finishedOwners = new Set<string>();
       let expectedOwners = new Set<string>();
       let discoveryComplete = false;
+      let denied = false;
       let notifyFinished: (() => void) | undefined;
       const finishedSignal = new Promise<void>((resolve) => {
         notifyFinished = resolve;
@@ -123,6 +129,10 @@ export function createMobileSessionCoordinator(options: CoordinatorOptions) {
       const onResponse = (event: MessageEvent<unknown>) => {
         const message = event.data;
         if (!isMobileSessionMessage(message) || message.requestId !== requestId) return;
+        if (message.type === "release-denied") {
+          denied = true;
+          notifyFinished?.();
+        }
         if (message.type === "release-started") startedOwners.add(message.ownerId);
         if (message.type === "release-finished") {
           finishedOwners.add(message.ownerId);
@@ -134,6 +144,7 @@ export function createMobileSessionCoordinator(options: CoordinatorOptions) {
       try {
         channel.postMessage({ type: "release-requested", requestId, ownerId } satisfies MobileSessionMessage);
         await delay(discoveryWindowMs);
+        if (denied) return "busy";
         if (startedOwners.size === 0) return "none";
         expectedOwners = new Set(startedOwners);
         discoveryComplete = true;
@@ -142,7 +153,7 @@ export function createMobileSessionCoordinator(options: CoordinatorOptions) {
           finishedSignal.then(() => true),
           delay(releaseTimeoutMs).then(() => false)
         ]);
-        return completed ? "released" : "timed_out";
+        return denied ? "busy" : completed ? "released" : "timed_out";
       } finally {
         channel.removeEventListener("message", onResponse);
       }
