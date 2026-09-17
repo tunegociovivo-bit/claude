@@ -154,4 +154,15 @@ describe("joined group navigation recovery", () => {
     expect(deps.back).not.toHaveBeenCalled();
     expect(deps.read).toHaveBeenCalledTimes(17);
   });
+  it("opens See all instead of accepting group shortcuts or a hidden top tab", async () => {
+    const deps = setup();
+    const overview = node("Tus grupos, 2 de 3").replace('[100,300][600,400]', '[100,90][600,180]') + node("Grupos")
+      + node("Tus grupos").replace('[100,300][600,400]', '[100,500][600,600]')
+      + node("Ver todo").replace('[100,300][600,400]', '[700,500][1000,600]');
+    vi.mocked(deps.read).mockResolvedValueOnce(overview).mockResolvedValueOnce(overview).mockResolvedValueOnce(overview).mockResolvedValueOnce(overview).mockResolvedValue(node("Buscar tus grupos por nombre"));
+    await openJoinedList(deps);
+    expect(deps.tap).toHaveBeenCalledExactlyOnceWith({ x: 850, y: 550 });
+    expect(deps.back).not.toHaveBeenCalled();
+  });
+
 });

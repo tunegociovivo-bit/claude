@@ -38,15 +38,17 @@ export async function openJoinedList(deps: ConversationRunnerDependencies) {
       continue;
     }
     if (revealed < 2) { revealed++; await deps.scroll(xml, "up"); continue; }
+    const header = namedControl(xml, /^Grupos$|^Groups$/i);
+    // Facebook can leave hidden tab labels underneath the global navigation bar.
+    const yourGroups = nodes.find(node => /^Tus grupos(?:[, .]|$)|^Your groups(?:[, .]|$)/i.test(nodeText(node))
+      && (!header || node.bounds.top >= header.bounds.bottom));
     const controls = [
-      namedControl(xml, /^Tus grupos(?:[, .]|$)|^Your groups(?:[, .]|$)/i),
-      namedControl(xml, /^Ver todo$|^See all$/i),
+      yourGroups ? namedControl(xml, /^Ver todo$|^See all$/i) : undefined,
+      yourGroups,
       namedControl(xml, /^Grupos(?:[, .]|$)|^Groups(?:[, .]|$)/i),
       namedControl(xml, /^Menú(?:[, .]|$)|^Menu(?:[, .]|$)/i),
       namedControl(xml, /^Ver más$|^See more$/i)
     ];
-    // Only open "See all" beside the joined-groups heading, not suggestions.
-    if (!controls[0]) controls[1] = undefined;
     const control = controls.find(node => node && !tapped.has(nodeText(node)));
     if (control) {
       tapped.add(nodeText(control));
