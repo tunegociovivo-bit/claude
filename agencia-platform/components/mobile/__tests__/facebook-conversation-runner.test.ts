@@ -165,4 +165,23 @@ describe("joined group navigation recovery", () => {
     expect(deps.back).not.toHaveBeenCalled();
   });
 
+  it("returns from a confirmed group page to the joined list without a new deep link", async () => {
+    const deps = setup();
+    vi.mocked(deps.read).mockResolvedValueOnce(node("Buscar en Franquicias"))
+      .mockResolvedValue(node("Buscar tus grupos por nombre"));
+    await openJoinedList(deps);
+    expect(deps.back).toHaveBeenCalledTimes(1);
+    expect(deps.openUrl).not.toHaveBeenCalled();
+  });
+  it("stops on navigation failure rather than failing every remaining group", async () => {
+    const deps = setup(); vi.mocked(deps.read).mockResolvedValue(node("Cargando"));
+    const batch = createConversationBatch({ ...config, targetUrl: "" });
+    batch.groups = ["Uno", "Dos"].map(name => ({name, status: "pending" as const, detail: ""}));
+    await expect(scanFacebookConversations(batch, deps)).rejects.toThrow("No se pudo abrir Tus grupos");
+    const saved = vi.mocked(deps.checkpoint).mock.calls.at(-1)?.[0];
+    expect(saved?.groups[0].status).toBe("failed");
+    expect(saved?.groups[1].status).toBe("pending");
+    expect(saved?.progress).toContain("Búsqueda pausada");
+  });
+
 });

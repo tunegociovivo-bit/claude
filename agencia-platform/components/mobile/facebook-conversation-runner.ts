@@ -22,8 +22,15 @@ export type ConversationRunnerDependencies = {
 
 export async function openJoinedList(deps: ConversationRunnerDependencies) {
   const isList = (xml: string) => !!namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i);
-  const current = await deps.read();
+  let current = await deps.read();
   if (isList(current)) return current;
+  // Return through a confirmed group page, never Back blindly from the home feed.
+  for (let step = 0; step < 3 && namedControl(current, /^Buscar en .+|^Search in .+/i); step++) {
+    await deps.back();
+    await deps.wait(600);
+    current = await deps.read();
+    if (isList(current)) return current;
+  }
   await deps.openUrl("https://www.facebook.com/groups/?category=membership");
   const tapped = new Set<string>();
   let relaunched = false;
@@ -260,6 +267,10 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
     } catch (error) {
       group.status = "failed";
       group.detail = error instanceof Error ? error.message.slice(0, 500) : "No se pudo leer el grupo.";
+      if (error instanceof FacebookNavigationError) {
+        await save(`Búsqueda pausada al volver a Tus grupos: ${group.detail}`);
+        throw error;
+      }
     }
     await save(`${batch.groups.filter((item) => item.status === "done").length} grupos revisados · ${batch.candidates.length} comentarios encontrados.`);
   }
