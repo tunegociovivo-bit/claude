@@ -138,6 +138,8 @@ describe("joined group navigation recovery", () => {
     vi.mocked(deps.read).mockResolvedValueOnce(node("Pregunta a la IA", "com.mi.globalminusscreen"))
       .mockResolvedValueOnce(node("Pregunta a la IA", "com.mi.globalminusscreen"))
       .mockResolvedValueOnce(node("Menú, pestaña 6 de 6"))
+      .mockResolvedValueOnce(node("Menú, pestaña 6 de 6"))
+      .mockResolvedValueOnce(node("Menú, pestaña 6 de 6"))
       .mockResolvedValueOnce(node("Grupos"))
       .mockResolvedValueOnce(node("Tus grupos"))
       .mockResolvedValue(node("Buscar tus grupos por nombre"));

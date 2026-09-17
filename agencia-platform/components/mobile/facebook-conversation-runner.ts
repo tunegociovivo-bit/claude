@@ -21,12 +21,13 @@ export type ConversationRunnerDependencies = {
 };
 
 export async function openJoinedList(deps: ConversationRunnerDependencies) {
-  const isList = (xml: string) => !!namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i) || joinedGroupRows(xml).length > 0;
+  const isList = (xml: string) => !!namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i);
   const current = await deps.read();
   if (isList(current)) return current;
   await deps.openUrl("https://www.facebook.com/groups/?category=membership");
   const tapped = new Set<string>();
   let relaunched = false;
+  let revealed = 0;
   for (let attempt = 0; attempt < 16; attempt++) {
     await deps.wait(800);
     const xml = await deps.read();
@@ -36,6 +37,7 @@ export async function openJoinedList(deps: ConversationRunnerDependencies) {
       if (!relaunched && deps.relaunch) { await deps.relaunch(); relaunched = true; }
       continue;
     }
+    if (revealed < 2) { revealed++; await deps.scroll(xml, "up"); continue; }
     const controls = [
       namedControl(xml, /^Tus grupos(?:[, .]|$)|^Your groups(?:[, .]|$)/i),
       namedControl(xml, /^Ver todo$|^See all$/i),
@@ -45,9 +47,9 @@ export async function openJoinedList(deps: ConversationRunnerDependencies) {
     ];
     // Only open "See all" beside the joined-groups heading, not suggestions.
     if (!controls[0]) controls[1] = undefined;
-    const control = controls.find(node => node && !tapped.has(screenSignature(xml) + "|" + nodeText(node)));
+    const control = controls.find(node => node && !tapped.has(nodeText(node)));
     if (control) {
-      tapped.add(screenSignature(xml) + "|" + nodeText(control));
+      tapped.add(nodeText(control));
       await deps.tap(control.center);
     } else if (attempt === 5 || attempt === 10) {
       await deps.scroll(xml, "up");
@@ -56,9 +58,9 @@ export async function openJoinedList(deps: ConversationRunnerDependencies) {
   throw new FacebookNavigationError("No se pudo abrir Tus grupos. La búsqueda está pausada para revisión; no se enviaron respuestas. Reintenta cuando Facebook esté disponible.");
 }
 
-async function inventory(deps: ConversationRunnerDependencies) {
+async function inventory(deps: ConversationRunnerDependencies, progress: (message: string) => Promise<void>) {
   let xml = await openJoinedList(deps);
-  for (let page = 0; page < 200; page++) {
+  for (let page = 0; page < 10; page++) {
     const before = screenSignature(xml);
     await deps.scroll(xml, "up");
     xml = await deps.read();
@@ -68,6 +70,8 @@ async function inventory(deps: ConversationRunnerDependencies) {
   let previous = "";
   let stable = 0;
   for (let page = 0; page < 200; page++) {
+    if (!joinedGroupRows(xml).length && !namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i)) throw new FacebookNavigationError("Facebook salió de la lista Tus grupos. La búsqueda necesita revisión.");
+    await progress(`Leyendo la lista de grupos: ${groups.size} grupos encontrados…`);
     joinedGroupRows(xml).forEach((row) => groups.set(`${row.name}|${row.details}`, { name: row.name, details: row.details }));
     const signature = screenSignature(xml);
     stable = signature === previous ? stable + 1 : 0;
@@ -177,7 +181,7 @@ export async function scanFacebookConversations(initial: FacebookConversationBat
       batch.groups = [{ name: "Destino indicado", status: "pending", detail: "" }];
       batch.inventoryComplete = true;
     } else {
-      const found = await inventory(deps);
+      const found = await inventory(deps, save);
       batch.inventoryComplete = found.complete;
       if (!found.complete) batch.warnings.push("La lista de grupos no llegó al final; el alcance es parcial.");
       let selected = new Set(await deps.filterGroups(found.groups.map((group) => group.name), batch.config.niche));
