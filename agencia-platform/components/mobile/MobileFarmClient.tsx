@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Adb, AdbDaemonTransport } from "@yume-chan/adb";
 import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
+import { observeMobileAuthorization, waitForMobileAuthentication } from "./mobile-adb-authentication";
 import {
   AdbDaemonWebUsbDevice,
   AdbDaemonWebUsbDeviceManager,
@@ -795,6 +796,7 @@ function MobileDeviceCard({
   const connectionRef = useRef<AdbDaemonWebUsbConnection>();
   const connectionPromiseRef = useRef<Promise<AdbDaemonWebUsbConnection>>();
   const startSessionPromiseRef = useRef<Promise<void>>();
+  const authenticationAbortRef = useRef<AbortController>();
   const clientRef = useRef<AdbScrcpyClient<AdbScrcpyOptionsLatest<true>>>();
   const awakeSessionRef = useRef<AndroidAwakeSession>();
   const closeSessionPromiseRef = useRef<Promise<void>>();
@@ -842,6 +844,8 @@ function MobileDeviceCard({
 
   const closeSession = useCallback(() => {
     sessionAttemptTracker.invalidate();
+    authenticationAbortRef.current?.abort();
+    authenticationAbortRef.current = undefined;
     if (closeSessionPromiseRef.current) return closeSessionPromiseRef.current;
     closingRef.current = true;
     const closePromise = (async () => {
@@ -944,12 +948,20 @@ function MobileDeviceCard({
         ]);
         throw new MobileSessionAttemptCancelledError();
       }
-      setStatus("authorizing");
-      const transport = await AdbDaemonTransport.authenticate({
+      const authenticationAbort = new AbortController();
+      authenticationAbortRef.current = authenticationAbort;
+      let approvalRequested = false;
+      const transport = await waitForMobileAuthentication(AdbDaemonTransport.authenticate({
         serial: device.serial,
         connection,
-        credentialStore
-      });
+        credentialStore,
+        authenticators: observeMobileAuthorization(() => {
+          if (!sessionAttempt.isCurrent() || authenticationAbort.signal.aborted) return;
+          approvalRequested = true;
+          setStatus("authorizing");
+        })
+      }), { signal: authenticationAbort.signal, approvalRequested: () => approvalRequested });
+      if (authenticationAbortRef.current === authenticationAbort) authenticationAbortRef.current = undefined;
       const adb = new Adb(transport);
       adbRef.current = adb;
       assertCurrentSessionAttempt();
@@ -1066,7 +1078,7 @@ function MobileDeviceCard({
       setStatus("mirroring");
       return true;
     } catch (startError) {
-      const cancelled = startError instanceof MobileSessionAttemptCancelledError;
+      const cancelled = startError instanceof MobileSessionAttemptCancelledError || !sessionAttempt.isCurrent();
       await closeSession();
       closingRef.current = false;
       if (cancelled) {
@@ -1452,7 +1464,7 @@ function MobileDeviceCard({
             <div className="px-6 text-center text-slate-400">
               {busy ? <Loader2 className="mx-auto h-8 w-8 animate-spin text-emerald-400" /> : <Smartphone className="mx-auto h-10 w-10" />}
               <p className="mt-3 text-sm font-semibold text-slate-200">{statusLabel(status)}</p>
-              {status === "authorizing" && <p className="mt-1 text-xs">Acepta la huella RSA en el teléfono.</p>}
+              {status === "authorizing" && <p className="mt-1 text-xs">Android ha pedido verificar la clave. Si aparece el aviso, acepta y marca «Permitir siempre desde este ordenador». Si ya lo hiciste, puedes cancelar y reintentar.</p>}
             </div>
           )}
           <div
@@ -1682,6 +1694,7 @@ function MobileDeviceCard({
       </div>
       </details>
       <div className="px-3 pb-3">
+        {(status === "connecting" || status === "authorizing" || status === "preparing") && <button type="button" onClick={stopMirroring} className="mb-2 w-full rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700">Cancelar conexión</button>}
         {error && status === "error" && <p role="status" className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{error}</p>}
         {status === "mirroring" ? (
           <button type="button" onClick={stopMirroring} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-100">
