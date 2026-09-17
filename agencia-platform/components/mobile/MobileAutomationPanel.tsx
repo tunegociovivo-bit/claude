@@ -1,5 +1,6 @@
 "use client";
 
+import { FacebookNavigationError } from "@/components/mobile/facebook-android-launch";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Bot,
@@ -348,7 +349,7 @@ export default function MobileAutomationPanel({
         await apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/result`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ executorSessionId, outcome: "FAILED", errorCode: "mobile_prepare_failed", error: message })
+          body: JSON.stringify({ executorSessionId, outcome: "FAILED", errorCode: executionError instanceof FacebookNavigationError ? "facebook_navigation_failed" : "mobile_prepare_failed", error: message })
         }).catch(() => undefined);
         setWorkerMessage(null);
         setError(message);

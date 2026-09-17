@@ -1,3 +1,4 @@
+import { FacebookNavigationError } from "@/components/mobile/facebook-android-launch";
 import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 import { facebookNodes, findExactComment, joinedGroupRows, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments, type NativeComment } from "@/components/mobile/facebook-conversation-ui";
 import { conversationFingerprint, normalizeFacebookText, type FacebookConversationBatch, type ConversationReply } from "@/lib/mobile/facebook-conversations";
@@ -6,6 +7,7 @@ import { commentWithinDateRange, commentWithinPeriod } from "@/lib/mobile/facebo
 
 export type ConversationRunnerDependencies = {
   read: () => Promise<string>;
+  relaunch?: () => Promise<void>;
   tap: (point: AndroidUiPoint) => Promise<void>;
   scroll: (xml: string, direction: "up" | "down") => Promise<void>;
   back: () => Promise<void>;
@@ -18,25 +20,40 @@ export type ConversationRunnerDependencies = {
   analyze: (comments: NativeComment[], groupName: string) => Promise<Array<{ id: string; reply: string; reason: string }>>;
 };
 
-async function openJoinedList(deps: ConversationRunnerDependencies) {
+export async function openJoinedList(deps: ConversationRunnerDependencies) {
+  const isList = (xml: string) => !!namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i) || joinedGroupRows(xml).length > 0;
   const current = await deps.read();
-  if (namedControl(current, /^Buscar tus grupos por nombre$|^Search your groups$/i)) return current;
+  if (isList(current)) return current;
   await deps.openUrl("https://www.facebook.com/groups/?category=membership");
-  for (let attempt = 0; attempt < 12; attempt++) {
+  const tapped = new Set<string>();
+  let relaunched = false;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    await deps.wait(800);
     const xml = await deps.read();
-    if (namedControl(xml, /^Buscar tus grupos por nombre$|^Search your groups$/i) || joinedGroupRows(xml).length >= 4) return xml;
+    if (isList(xml)) return xml;
     const nodes = facebookNodes(xml);
-    const tab = nodes.find((node) => /^Tus grupos[, ]|^Your groups[, ]/i.test(nodeText(node)) && /Tab/.test(node.className));
-    const all = namedControl(xml, /^Ver todo$|^See all$/i);
-    const groups = nodes.find((node) => /^Grupos(?:,|$)|^Groups(?:,|$)/i.test(nodeText(node)) && (node.clickable || /Tab/.test(node.className)));
-    if (tab) await deps.tap(tab.center);
-    else if (all && namedControl(xml, /^Tus grupos$|^Your groups$/i)) await deps.tap(all.center);
-    else if (groups) await deps.tap(groups.center);
-    else if (attempt === 1 || attempt === 4) await deps.scroll(xml, "up");
-    else await deps.back();
-    await deps.wait(700);
+    if (!nodes.length) {
+      if (!relaunched && deps.relaunch) { await deps.relaunch(); relaunched = true; }
+      continue;
+    }
+    const controls = [
+      namedControl(xml, /^Tus grupos(?:[, .]|$)|^Your groups(?:[, .]|$)/i),
+      namedControl(xml, /^Ver todo$|^See all$/i),
+      namedControl(xml, /^Grupos(?:[, .]|$)|^Groups(?:[, .]|$)/i),
+      namedControl(xml, /^Menú(?:[, .]|$)|^Menu(?:[, .]|$)/i),
+      namedControl(xml, /^Ver más$|^See more$/i)
+    ];
+    // Only open "See all" beside the joined-groups heading, not suggestions.
+    if (!controls[0]) controls[1] = undefined;
+    const control = controls.find(node => node && !tapped.has(screenSignature(xml) + "|" + nodeText(node)));
+    if (control) {
+      tapped.add(screenSignature(xml) + "|" + nodeText(control));
+      await deps.tap(control.center);
+    } else if (attempt === 5 || attempt === 10) {
+      await deps.scroll(xml, "up");
+    }
   }
-  throw new Error("Facebook no ha mostrado la lista «Tus grupos». Abre esa lista en el móvil y reintenta.");
+  throw new FacebookNavigationError("No se pudo abrir Tus grupos. La búsqueda está pausada para revisión; no se enviaron respuestas. Reintenta cuando Facebook esté disponible.");
 }
 
 async function inventory(deps: ConversationRunnerDependencies) {

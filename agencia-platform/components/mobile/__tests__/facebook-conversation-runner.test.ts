@@ -1,6 +1,6 @@
 import type { NativeComment } from "@/components/mobile/facebook-conversation-ui";
 import { describe, expect, it, vi } from "vitest";
-import { scanFacebookConversations, sendFacebookConversationReplies, type ConversationRunnerDependencies } from "@/components/mobile/facebook-conversation-runner";
+import { openJoinedList, scanFacebookConversations, sendFacebookConversationReplies, type ConversationRunnerDependencies } from "@/components/mobile/facebook-conversation-runner";
 import { createConversationBatch, type ConversationReply } from "@/lib/mobile/facebook-conversations";
 
 const commentScreen = `<hierarchy>
@@ -128,5 +128,28 @@ describe("regresiones de búsqueda y fechas", () => {
     await scanFacebookConversations(createConversationBatch({ ...config, searchMode: "posts", searchTerm: "franquicias" }), deps);
     expect(deps.tap).not.toHaveBeenCalled();
     expect(deps.analyze).not.toHaveBeenCalled();
+  });
+});
+
+describe("joined group navigation recovery", () => {
+  const node = (text: string, pkg = "com.facebook.katana") => '<node package="' + pkg + '" class="android.widget.Button" text="' + text + '" bounds="[100,300][600,400]" />';
+  it("returns to Facebook from the Xiaomi launcher and uses the menu without Back", async () => {
+    const deps = setup(); deps.relaunch = vi.fn(async () => {});
+    vi.mocked(deps.read).mockResolvedValueOnce(node("Pregunta a la IA", "com.mi.globalminusscreen"))
+      .mockResolvedValueOnce(node("Pregunta a la IA", "com.mi.globalminusscreen"))
+      .mockResolvedValueOnce(node("Menú, pestaña 6 de 6"))
+      .mockResolvedValueOnce(node("Grupos"))
+      .mockResolvedValueOnce(node("Tus grupos"))
+      .mockResolvedValue(node("Buscar tus grupos por nombre"));
+    expect(await openJoinedList(deps)).toContain("Buscar tus grupos por nombre");
+    expect(deps.relaunch).toHaveBeenCalledTimes(1);
+    expect(deps.tap).toHaveBeenCalledTimes(3);
+    expect(deps.back).not.toHaveBeenCalled();
+  });
+  it("stops with a navigation error instead of backing out of Facebook repeatedly", async () => {
+    const deps = setup(); vi.mocked(deps.read).mockResolvedValue(node("Cargando"));
+    await expect(openJoinedList(deps)).rejects.toThrow("búsqueda está pausada");
+    expect(deps.back).not.toHaveBeenCalled();
+    expect(deps.read).toHaveBeenCalledTimes(17);
   });
 });

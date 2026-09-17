@@ -1133,6 +1133,9 @@ function MobileDeviceCard({
     };
     const conversationDependencies = (batch: FacebookConversationBatch): ConversationRunnerDependencies => ({
       read: () => readAndroidUiHierarchy(adb),
+      relaunch: async () => launchFacebookForAutomation(await resolveFacebookPackage(adb), {
+        runCommand: command => runAdbCommand(adb, command), readHierarchy: () => readAndroidUiHierarchy(adb), wait: waitForAndroidUi
+      }),
       dismissKeyboard: dismissConversationKeyboard,
       tap: async (point) => { await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
       scroll: async (xml, direction) => {

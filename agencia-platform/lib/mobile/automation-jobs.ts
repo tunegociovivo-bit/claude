@@ -291,7 +291,7 @@ export async function reportMobileAutomationResult(input: {
       return { ...job, ...data };
     }
 
-    const canRetry = job.attempts < job.maxAttempts;
+    const canRetry = input.errorCode !== "facebook_navigation_failed" && job.attempts < job.maxAttempts;
     const retryDelay = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
     const data = {
       status: canRetry ? "QUEUED" : "FAILED",

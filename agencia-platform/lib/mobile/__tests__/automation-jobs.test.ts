@@ -260,4 +260,10 @@ describe("mobile automation result reporting", () => {
 
     expect(result).toMatchObject({ status: "COMPLETED", completedAt: now });
   });
+  it("does not requeue a Facebook navigation failure", async () => {
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({ ...candidate, status: "RUNNING", leaseOwner: "browser-1", attempts: 1, maxAttempts: 3 });
+    const result = await reportMobileAutomationResult({ workspaceId: "w1", jobId: "job-1", executorSessionId: "browser-1", outcome: "FAILED", errorCode: "facebook_navigation_failed", error: "No se pudo abrir Tus grupos", now });
+    expect(result.status).toBe("FAILED");
+  });
+
 });
