@@ -665,8 +665,8 @@ export default function MobileFarmClient() {
         <Notice tone="danger" icon={AlertTriangle}>{discoveryError}</Notice>
       )}
 
-      <MobileFleetAutomationPanel devices={devices.map(d => ({ deviceSerial: d.serial, label: d.name || "Android", phoneKey: sharedPhones.find(p => p.deviceSerial === d.serial)?.key }))} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
-
+      <details className="rounded-2xl border bg-white shadow-sm">
+        <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-slate-800">Teléfonos compartidos</summary>
       <SharedPhoneInventory
         items={sharedPhones}
         connectedDevices={devices.map((device) => ({ serial: device.serial, name: device.name || "Android" }))}
@@ -675,9 +675,16 @@ export default function MobileFarmClient() {
         error={phonesError}
         onReload={loadSharedPhones}
       />
+      </details>
+
+      <details className="rounded-2xl border border-indigo-200 bg-white shadow-sm">
+        <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-indigo-900">Configurar encargo común <span className="ml-2 font-normal text-slate-500">· Automatización en varios móviles</span></summary>
+      <MobileFleetAutomationPanel devices={devices.map(d => ({ deviceSerial: d.serial, label: d.name || "Android", phoneKey: sharedPhones.find(p => p.deviceSerial === d.serial)?.key }))} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
+      </details>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h2 className="text-base font-bold text-slate-900">Móviles conectados · {devices.length}</h2><p id="mobile-layout-help" className="mt-1 text-xs text-slate-500">En pantallas pequeñas se muestran menos columnas para facilitar el control.</p></div>
+        <button type="button" disabled={!supported || !devices.length} onClick={() => setFleetOpen({ id: crypto.randomUUID(), serials: devices.map(device => device.serial) })} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"><Expand className="h-4 w-4" />Abrir y controlar todas las pantallas</button>
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">Móviles por fila
           <select value={deviceColumns} onChange={event => changeDeviceColumns(event.target.value)} aria-describedby="mobile-layout-help" className="rounded-lg border bg-white px-3 py-2">
             {[1, 2, 3, 4, 5].map(columns => <option key={columns} value={columns}>{columns}</option>)}
@@ -689,7 +696,7 @@ export default function MobileFarmClient() {
       {devices.length === 0 ? (
         <EmptyState onConnect={requestDevice} disabled={!supported || discovering} />
       ) : (
-        <section className={`grid gap-5 ${DEVICE_GRID_CLASSES[deviceColumns]}`} aria-label="Móviles conectados">
+        <section className={`grid items-start gap-5 ${DEVICE_GRID_CLASSES[deviceColumns]}`} aria-label="Móviles conectados">
           {devices.map((device) => (
             <MobileDeviceCard
               key={device.serial}
@@ -1454,7 +1461,8 @@ function MobileDeviceCard({
         </div>
 
         {status === "mirroring" && (
-          <>
+          <details className="mt-2 text-white">
+          <summary className="cursor-pointer px-2 py-2 text-sm font-semibold">Controles de pantalla</summary>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-white">
             <ControlButton label="Atrás" icon={ArrowLeft} onClick={() => sendKey(AndroidKeyCode.AndroidBack)} />
             <ControlButton label="Inicio" icon={Home} onClick={() => sendKey(AndroidKeyCode.AndroidHome)} />
@@ -1477,10 +1485,12 @@ function MobileDeviceCard({
             }}>Comprobar pantalla</button>
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap">{automationDiagnostics}</pre>
           </details>
-          </>
+          </details>
         )}
       </div>
 
+      <details className="border-t">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Ajustes y automatizaciones{error ? " · Revisar aviso" : ""}</summary>
       <div className="space-y-3 p-4">
         {error && (
           <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
@@ -1664,6 +1674,9 @@ function MobileDeviceCard({
           </div>
         )}
 
+      </div>
+      </details>
+      <div className="px-3 pb-3">
         {status === "mirroring" ? (
           <button type="button" onClick={stopMirroring} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-100">
             <Unplug className="h-4 w-4" /> Cerrar pantalla
