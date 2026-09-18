@@ -49,6 +49,8 @@ import AgentCore
             window.makeKeyAndOrderFront(nil)
             defer { window.orderOut(nil) }
             try await Task.sleep(nanoseconds: 1_000_000_000)
+            let sessionInfo = CGSessionCopyCurrentDictionary() as? [String: Any]
+            print("NV_PROOF consoleKey=\(kCGSessionOnConsoleKey) onConsole=\(sessionInfo?[kCGSessionOnConsoleKey] as? Bool ?? false)")
             let native = try await ScreenCapture.images(policy: policy)
             print("NV_PROOF screenPermission=\(ScreenCapture.permitted) unlocked=\(ScreenCapture.unlocked) idle=\(ScreenCapture.idle) nativeImages=\(native.count)")
             if let jpeg = native.first {
@@ -63,6 +65,7 @@ import AgentCore
                 try await client.upload(jpeg, deviceID: device, policy: policy, date: Date())
                 print("NV_PROOF syntheticTestWindowUploaded=true actualScreenCaptureUploaded=false")
             }
+            XCTAssertFalse(native.isEmpty, "Full capture validation requires a real native screen image")
             try await Task.sleep(nanoseconds: 3_000_000_000)
             await model.perform("finish")
             XCTAssertTrue(model.state.finished)

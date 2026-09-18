@@ -8,7 +8,7 @@ enum ScreenCapture {
     static var idle: Bool { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .null) > 300 }
     static var unlocked: Bool {
         guard let info = CGSessionCopyCurrentDictionary() as? [String: Any],
-              info["kCGSessionOnConsoleKey"] as? Bool == true else { return false }
+              info[kCGSessionOnConsoleKey] as? Bool == true else { return false }
         return info["CGSSessionScreenIsLocked"] as? Bool != true
     }
     static func requestPermission() { _ = CGRequestScreenCaptureAccess() }

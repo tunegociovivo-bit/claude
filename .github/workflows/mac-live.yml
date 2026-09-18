@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Run actual Mac client against the CRM
+      - name: Verify actual Mac client and native screen capture against the CRM
         working-directory: agencia-platform/macos-time-agent
         env:
           NV_LIVE_TOKEN: ${{ secrets.NV_MAC_LIVE_TEST_TOKEN }}

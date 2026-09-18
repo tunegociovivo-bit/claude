@@ -65,6 +65,26 @@ final class WorkerProtocol: URLProtocol {
         XCTAssertFalse(model.state.finished); XCTAssertFalse(model.state.online)
         XCTAssertTrue(WorkerProtocol.active)
     }
+    func testYesterdayFinishedMarkerAllowsNewDay() async throws {
+        _ = model()
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [WorkerProtocol.self]
+        let suite = "NV.NextDay." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date()))!, forKey: "finishedDay")
+        let nextDay = AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: config)), defaults: defaults)
+        await nextDay.refresh()
+        XCTAssertFalse(nextDay.state.finished)
+        XCTAssertEqual(nextDay.displayTime, "00:00:00")
+        XCTAssertTrue(nextDay.canStart)
+        await nextDay.perform("start")
+        XCTAssertTrue(nextDay.state.summary.active)
+    }
+    func testConsoleDetectionUsesPlatformKey() throws {
+        let info = try XCTUnwrap(CGSessionCopyCurrentDictionary() as? [String: Any])
+        let onConsole = info[kCGSessionOnConsoleKey] as? Bool == true
+        XCTAssertEqual(ScreenCapture.unlocked, onConsole && info["CGSSessionScreenIsLocked"] as? Bool != true)
+    }
     func testConflictReconcilesConfirmedServerState() async {
         let model = model(); await model.refresh()
         WorkerProtocol.conflict = true; await model.perform("start")
