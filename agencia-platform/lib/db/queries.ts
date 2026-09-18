@@ -92,6 +92,10 @@ export type UiTask = (typeof mockTasks)[number] & {
   // Necesario para que el drag&drop dentro de una columna persista
   // visualmente al reordenar.
   order?: number;
+  // Fecha original de creación. Se usa únicamente como desempate estable
+  // cuando tareas antiguas comparten la misma posición del kanban.
+  // Nunca cambia al editar una tarea.
+  createdAt?: string;
   // URL (firmada) de la última imagen adjunta a la tarea, para mostrarla
   // como portada en la tarjeta del Kanban (estilo Asana). undefined si no
   // tiene imágenes adjuntas.
@@ -340,6 +344,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         tags: r.tags.map((t) => t.tag.name),
         notifyDueRules: (r as any).notifyDueRules ?? null,
         order: (r as any).order ?? 0,
+        createdAt: r.createdAt.toISOString(),
         coverImage: coverByTask.get(r.id),
         flashTasks: Array.isArray((r as any).flashTasks) ? ((r as any).flashTasks as any[]) : [],
         recurrence: (r as any).recurrence ?? "none",

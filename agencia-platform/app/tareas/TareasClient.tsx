@@ -931,7 +931,17 @@ export default function TareasClient({
     // Ordena cada bucket por `order` ASC para que el drag&drop dentro
     // de una columna persista la posición elegida. Sin esto las cards
     // se renderizaban en orden de aparición y "volvían" a su sitio.
-    const byOrder = (a: UiTask, b: UiTask) => (a.order ?? 0) - (b.order ?? 0);
+    const byOrder = (a: UiTask, b: UiTask) => {
+      const orderDiff = (a.order ?? 0) - (b.order ?? 0);
+      if (orderDiff !== 0) return orderDiff;
+
+      // Muchas tareas importadas comparten order=0. No podemos usar
+      // updatedAt para resolver ese empate: guardar una edición cambia
+      // updatedAt y haría que la tarjeta saltase arriba de la columna.
+      // createdAt + id mantienen una posición determinista y estable.
+      const createdDiff = (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+      return createdDiff !== 0 ? createdDiff : a.id.localeCompare(b.id);
+    };
     // Concatenamos: primero las compartidas (entran arriba), luego
     // las propias del proyecto.
     const merged: Record<string, UiTask[]> = {};
