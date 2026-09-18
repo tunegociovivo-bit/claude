@@ -29,11 +29,20 @@ async function requireProjectColumnAccess(workspaceId: string, projectId: string
   if (!member) throw new ApiError(403, "forbidden", "No perteneces al workspace");
   if (member.role === "ADMIN") return;
 
-  const projectMember = await prisma.projectMember.findFirst({
-    where: { projectId, userId },
-    select: { userId: true }
-  });
-  if (!projectMember) {
+  const [projectMember, project] = await Promise.all([
+    prisma.projectMember.findFirst({
+      where: { projectId, userId },
+      select: { userId: true }
+    }),
+    prisma.project.findFirst({
+      where: { id: projectId, workspaceId, deletedAt: null },
+      select: { managerUserId: true }
+    })
+  ]);
+  // Algunos proyectos anteriores al sistema de miembros tienen al
+  // trabajador únicamente como responsable (managerUserId). Ese responsable
+  // debe poder gestionar las columnas de su propio tablero.
+  if (!projectMember && project?.managerUserId !== userId) {
     throw new ApiError(403, "forbidden", "Solo puedes configurar las columnas de tus proyectos");
   }
 }
