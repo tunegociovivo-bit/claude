@@ -1663,6 +1663,7 @@ function MobileDeviceCard({
             {canManage && <MobileUnlockPinField deviceSerial={device.serial} ready={status === "mirroring"} onSaved={clearUnlockBlock} onUnlock={async () => { const adb = adbRef.current; if (!adb) throw new Error("Abre la pantalla del móvil."); clearUnlockBlock(); await unlockDevice(adb); setError(null); }} />}
             {canManage && <MobileFacebookAccountsPanel deviceSerial={device.serial} />}
             <MobileAutomationPanel
+              reviewStorageScope={clientStorageScope}
               deviceSerial={device.serial}
               phoneKey={linkedPhone.key}
               ready={status === "mirroring"}

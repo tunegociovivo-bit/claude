@@ -1,6 +1,7 @@
 "use client";
 
 import { FacebookNavigationError } from "@/components/mobile/facebook-android-launch";
+import FacebookReviewQueue from "./FacebookReviewQueue";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Bot,
@@ -65,6 +66,7 @@ type AutomationJob = MobileAutomationExecutableJob & {
 };
 
 type Props = {
+  reviewStorageScope?: string;
   deviceSerial: string;
   phoneKey: string;
   ready: boolean;
@@ -230,6 +232,7 @@ async function apiJson(url: string, init?: RequestInit) {
 }
 
 export default function MobileAutomationPanel({
+  reviewStorageScope,
   deviceSerial,
   phoneKey,
   ready,
@@ -245,6 +248,7 @@ export default function MobileAutomationPanel({
   const [workerMessage, setWorkerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sourceKind, setSourceKind] = useState<SourceKind>("REAL_REVIEW");
+  const [reviewMode, setReviewMode] = useState(false);
   const [platform, setPlatform] = useState<Platform>("google_maps");
   const [targetName, setTargetName] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
@@ -493,6 +497,7 @@ export default function MobileAutomationPanel({
   }
 
   function changePlatform(next: Platform) {
+    setReviewMode(false);
     setPlatform(next);
     setSourceKind(next === "facebook" ? "COMMENT_DISCOVERY" : getAutomationWorkflows(next)[0]!.sourceKind);
     setTargetName("");
@@ -521,7 +526,7 @@ export default function MobileAutomationPanel({
             <Bot className="h-4 w-4 text-violet-700" /> {composer ? "Configurar encargo común" : "Centro de automatizaciones"}
           </h3>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            El Hub analiza resultados y procesa lotes completos. Una sola aprobación autoriza las solicitudes seleccionadas.
+            {reviewMode ? "Organiza tus enlaces y búsquedas para revisarlos desde la pantalla del móvil." : "El Hub analiza resultados y procesa lotes completos. Una sola aprobación autoriza las solicitudes seleccionadas."}
           </p>
         </div>
         {!composer && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
@@ -529,7 +534,7 @@ export default function MobileAutomationPanel({
         </span>}
       </div>
 
-      <form onSubmit={createDraft} className="mt-3 space-y-2">
+      <form onSubmit={event => { if (reviewMode) event.preventDefault(); else void createDraft(event); }} className="mt-3 space-y-2">
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs font-semibold text-slate-700">
             Plataforma
@@ -539,11 +544,18 @@ export default function MobileAutomationPanel({
           </label>
           <label className="text-xs font-semibold text-slate-700">
             Acción en {PLATFORM_OPTIONS.find((option) => option.value === platform)?.label}
-            <select value={sourceKind} onChange={(event) => changeWorkflow(event.target.value as SourceKind)} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
+            <select value={reviewMode ? "FACEBOOK_REVIEW_QUEUE" : sourceKind} onChange={(event) => { const review = event.target.value === "FACEBOOK_REVIEW_QUEUE"; setReviewMode(review); if (!review) changeWorkflow(event.target.value as SourceKind); }} className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm">
+              {platform === "facebook" && !composer && reviewStorageScope && <option value="FACEBOOK_REVIEW_QUEUE">Revisar publicaciones y anuncios</option>}
               {platformWorkflows.map((option) => <option key={option.sourceKind} value={option.sourceKind}>{option.label}</option>)}
             </select>
           </label>
         </div>
+        {reviewMode && reviewStorageScope ? <FacebookReviewQueue key={`${reviewStorageScope}:${deviceSerial}`} storageKey={`nv-facebook-review:${reviewStorageScope}:${deviceSerial}`} ready={ready && canManage && !jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))} onOpen={async url => {
+          if (!ready || !canManage || workerBusyRef.current || jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))) throw new Error("Espera a que terminen los encargos y abre la pantalla del móvil.");
+          workerBusyRef.current = true;
+          try { await onExecuteJob({ action: "OPEN_URL", targetUrl: url, text: null }); }
+          finally { workerBusyRef.current = false; }
+        }} /> : <>
         <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900">
           <span className="font-semibold">{selectedWorkflow.label}.</span> {conversationScan ? "Busca comentarios en los grupos de tu cuenta o en un destino concreto y prepara respuestas editables con tu texto base." : selectedWorkflow.description}
         </div>
@@ -670,6 +682,7 @@ export default function MobileAutomationPanel({
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
           {composer ? composer.submitLabel : sourceKind === "GROUP_DISCOVERY" ? "Analizar y seleccionar grupos" : conversationScan ? "Buscar comentarios y preparar respuestas" : selectedWorkflow.submitLabel}
         </button>
+        </>}
       </form>
 
       {workerMessage && <p role="status" className="mt-3 rounded-lg bg-indigo-100 px-3 py-2 text-xs text-indigo-800">{workerMessage}</p>}
