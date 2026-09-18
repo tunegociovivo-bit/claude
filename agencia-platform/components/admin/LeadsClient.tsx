@@ -5831,6 +5831,10 @@ function InboxChat({
   const [showArchived, setShowArchived] = useState(false);
   const [sortBy, setSortBy] = useState<"hot" | "priority" | "recent" | "unread">("hot");
   const [showBroadcast, setShowBroadcast] = useState(false);
+  // En móvil el contexto de un chat debe dejar espacio a la conversación y al
+  // cuadro de respuesta. Las acciones secundarias se despliegan bajo demanda;
+  // en escritorio continúan siempre visibles como antes.
+  const [mobileMetaOpen, setMobileMetaOpen] = useState(false);
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [threadMeta, setThreadMeta] = useState<{
     leadName: string | null;
@@ -6273,7 +6277,7 @@ function InboxChat({
   const activeFilters = (fPriority !== "all" ? 1 : 0) + (fStatus !== "all" ? 1 : 0) + (fClass !== "all" ? 1 : 0) + (fUnread ? 1 : 0) + (fDate !== "all" ? 1 : 0) + (isSearchable(search) ? 1 : 0) + (fAccount !== "all" ? 1 : 0) + (fExactDate ? 1 : 0) + (fBlocked !== "all" ? 1 : 0);
 
   return (
-    <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr]" style={{ height: "72vh" }}>
+    <div className="bg-white rounded-xl border overflow-hidden grid grid-cols-1 md:grid-cols-[320px_1fr] h-[72dvh] min-h-[500px] md:h-[72vh]">
       {ctOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !ctCreating && setCtOpen(false)}>
           <div className="w-full max-w-md rounded-xl bg-white shadow-xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -6678,6 +6682,16 @@ function InboxChat({
                   ))}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setMobileMetaOpen((open) => !open)}
+                className="md:hidden inline-flex min-h-11 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                aria-expanded={mobileMetaOpen}
+              >
+                <span>Acciones y seguimiento</span>
+                <span aria-hidden="true">{mobileMetaOpen ? "▲" : "▼"}</span>
+              </button>
+              <div className={`${mobileMetaOpen ? "block" : "hidden"} md:block space-y-1.5`}>
               {/* Estado + archivar */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 {(["pending", "followup", "resolved", "not_interested"] as const).map((st) => (
@@ -6856,6 +6870,7 @@ function InboxChat({
                 {threadMeta.autoFollowupStep > 0 && (
                   <span className="text-[10px] text-slate-400">· {threadMeta.autoFollowupStep}/3 toques enviados</span>
                 )}
+              </div>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-[#f6f4f0]">
