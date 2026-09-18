@@ -25,5 +25,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac-preview-${{ matrix.runner }}
-          path: agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.preview.zip
+          path: |
+            agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.preview.zip
+            agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.preview.pkg
+            agencia-platform/macos-time-agent/dist/mac-native-window.png
           retention-days: 7

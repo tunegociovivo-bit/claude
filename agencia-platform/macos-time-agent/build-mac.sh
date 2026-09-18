@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 [[ "$(uname -s)" == "Darwin" ]] || { echo "Este paquete se compila en macOS con Xcode."; exit 1; }
+export MAC_PREVIEW_DIR="$PWD/dist"
 swift test
 swift build -c release --arch arm64 --arch x86_64
 BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
@@ -20,4 +21,5 @@ codesign --force --options runtime --sign "${SIGNING_IDENTITY:--}" "$APP"
 codesign --verify --deep --strict "$APP"
 lipo -info "$APP/Contents/MacOS/NegocioVivoTimeAgent"
 ditto -c -k --keepParent "$APP" dist/Negocio.Vivo.Control.Horario.Mac.preview.zip
+pkgbuild --component "$APP" --install-location /Applications dist/Negocio.Vivo.Control.Horario.Mac.preview.pkg
 echo "Compilación de prueba creada. NO está publicada ni notarizada."

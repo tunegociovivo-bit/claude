@@ -8,6 +8,7 @@ let package = Package(
     targets: [
         .target(name: "AgentCore"),
         .executableTarget(name: "MacAgent", dependencies: ["AgentCore"]),
-        .testTarget(name: "AgentCoreTests", dependencies: ["AgentCore"])
+        .testTarget(name: "AgentCoreTests", dependencies: ["AgentCore"]),
+        .testTarget(name: "MacAgentTests", dependencies: ["MacAgent", "AgentCore"])
     ]
 )

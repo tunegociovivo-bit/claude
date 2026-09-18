@@ -13,7 +13,10 @@ import AgentCore
     @Published private(set) var displayTime = "00:00:00"
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     private var hub: HubClient?
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    init(client: HubClient? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults; self.hub = client; self.linked = client != nil
+    }
     private var timer: Timer?
     private var nextHeartbeat = Date.distantPast
     private var nextCapture = Date.distantFuture
