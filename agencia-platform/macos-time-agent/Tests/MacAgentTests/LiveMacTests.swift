@@ -155,7 +155,7 @@ final class LiveRequestObserver: URLProtocol {
             window.contentView?.addSubview(label)
             window.makeKeyAndOrderFront(nil)
             defer { window.orderOut(nil) }
-            try await Task.sleep(nanoseconds: 1_000_000_000)
+            try await waitWithTestMouseActivity(seconds: 3)
             let sessionInfo = CGSessionCopyCurrentDictionary() as? [String: Any]
             print("NV_PROOF consoleKey=\(kCGSessionOnConsoleKey) onConsole=\(sessionInfo?[kCGSessionOnConsoleKey] as? Bool ?? false)")
             let native = try await ScreenCapture.images(policy: policy)

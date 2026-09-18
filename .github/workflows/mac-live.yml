@@ -4,6 +4,12 @@ on:
     branches: [test/macos-time-agent-preview]
     paths: ['.github/workflows/mac-live.yml']
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Authorized live check to execute
+        type: choice
+        options: [full, direct, periodic]
+        default: full
 permissions:
   contents: read
 concurrency:
@@ -15,11 +21,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Check real requests, active-work captures and paused-work silence
+      - name: Run selected authorized live check
         working-directory: agencia-platform/macos-time-agent
         env:
           NV_LIVE_TOKEN: ${{ secrets.NV_MAC_LIVE_TEST_TOKEN }}
           NV_PERIODIC: 'true'
+          NV_TEST_MODE: ${{ inputs.mode || 'direct' }}
         run: |
           test -n "$NV_LIVE_TOKEN"
-          swift test --filter LiveMacTests
+          case "$NV_TEST_MODE" in
+            direct) swift test --filter testARealCRMDayAndScreenshot ;;
+            periodic) swift test --filter testZAutomaticHeartbeatAndScheduledCapture ;;
+            full) swift test --filter LiveMacTests ;;
+            *) exit 1 ;;
+          esac
