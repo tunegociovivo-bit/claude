@@ -189,6 +189,15 @@ export function findFacebookSearchImeTarget(hierarchy: string): AndroidUiPoint |
     .sort((left, right) => right.center.y - left.center.y)[0]?.center ?? null;
 }
 
+export function findFacebookPostsTab(hierarchy: string): AndroidUiPoint | null {
+  const nodes = parseAndroidUiNodes(hierarchy);
+  const tab = nodes.find(node => {
+    const labels = [node.text, node.contentDescription].map(label => label.trim().toLowerCase());
+    return /facebook/.test(node.packageName) && node.bounds.top < 400 && labels.some(label => /^(publicaciones|posts)(?:$|,\s*(?:\d+|pestaña|tab|seleccionad|selected))/.test(label));
+  });
+  return tab?.center ?? null;
+}
+
 export function findFacebookSearchSuggestionTarget(
   hierarchy: string,
   query: string

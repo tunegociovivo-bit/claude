@@ -73,6 +73,7 @@ import {
   findFacebookMembershipState,
   findFacebookMembershipSubmitTarget,
   findFacebookSearchSuggestionTarget,
+  findFacebookPostsTab,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
 import {
@@ -284,14 +285,18 @@ async function navigateFacebookGroupSearch(
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
   if (category === "posts") {
-    if (!await tapFacebookSearchSuggestionIfVisible(adb, query)) {
-      await submitFacebookSearchFromKeyboard(command => runAdbCommand(adb, command));
-    }
+    await submitFacebookSearchFromKeyboard(command => runAdbCommand(adb, command));
     await waitForAndroidUi(750);
-    if (!await tapFacebookGroupsTabIfVisible(adb, ["Publicaciones", "Posts"])) {
-      throw new FacebookNavigationError("Facebook no muestra la pestaña Publicaciones. Revisa la pantalla y vuelve a abrir la búsqueda.");
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const tab = findFacebookPostsTab(await readAndroidUiHierarchy(adb));
+      if (tab) {
+        await runAdbCommand(adb, ["input", "tap", String(tab.x), String(tab.y)]);
+        await waitForAndroidUi(750);
+        return;
+      }
+      await waitForAndroidUi(500);
     }
-    return;
+    throw new FacebookNavigationError("Facebook no muestra la pestaña Publicaciones. Revisa la pantalla y vuelve a abrir la búsqueda.");
   }
   await finishFacebookGroupSearch({
     selectSuggestion: () => tapFacebookSearchSuggestionIfVisible(adb, query),

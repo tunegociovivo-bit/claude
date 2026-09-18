@@ -7,6 +7,7 @@ import {
   findFacebookSearchEntryTarget,
   findFacebookSearchImeTarget,
   findFacebookSearchSuggestionTarget,
+  findFacebookPostsTab,
   hasVisibleFacebookUi,
   submitFacebookSearchFromKeyboard
 } from "@/components/mobile/facebook-android-ui";
@@ -22,6 +23,14 @@ const visibleFacebookSearchGboard = [
 ].join("\n");
 
 describe("Facebook Android UI", () => {
+  it("selects the exact posts tab instead of a result mentioning publications", () => {
+    const xml = `<hierarchy>
+      <node text="Publicaciones de Franquicias baratas" package="com.facebook.katana" bounds="[0,90][500,130]" />
+      <node content-desc="Publicaciones, 2 de 7" package="com.facebook.katana" bounds="[110,150][310,210]" />
+    </hierarchy>`;
+    expect(findFacebookPostsTab(xml)).toEqual({ x: 210, y: 180 });
+    expect(findFacebookPostsTab(`<node text="Publicaciones" package="com.facebook.katana" bounds="[0,800][300,850]" />`)).toBeNull();
+  });
   it("recognizes the empty native Facebook search field by its placeholder", () => {
     expect(findFacebookSearchEntryTarget(`<hierarchy>
       <node text="Buscar en Facebook" package="com.facebook.katana" class="android.widget.EditText" bounds="[90,45][960,145]" />
