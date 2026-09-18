@@ -77,12 +77,24 @@ final class WorkerProtocol: URLProtocol {
         logo.setName("AppIcon")
         let model = model(); await model.refresh(); await model.perform("start")
         WorkerProtocol.worked = 3720; await model.refresh()
-        let renderer = ImageRenderer(content: WorkerView(model: model).frame(width: 480, height: 760))
-        renderer.scale = 2
-        let image = try XCTUnwrap(renderer.nsImage)
-        let data = try XCTUnwrap(image.tiffRepresentation)
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+        let host = NSHostingView(rootView: WorkerView(model: model).frame(width: 480, height: 760).background(Color(nsColor: .windowBackgroundColor)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        var colors = Set<String>()
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 10) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 10) {
+                if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.5 { colors.insert(color.description) }
+            }
+        }
+        XCTAssertGreaterThan(colors.count, 20, "Native preview must contain visible content, not a blank image")
         if let directory = ProcessInfo.processInfo.environment["MAC_PREVIEW_DIR"] {
             try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
             try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("mac-native-window.png"))
