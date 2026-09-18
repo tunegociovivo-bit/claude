@@ -93,12 +93,17 @@ export const PUT = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = putSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  // Solo permitimos asignar proyectos que sean de ESTE workspace.
-  const valid = await prisma.project.findMany({
-    where: { id: { in: parsed.data.projectIds }, workspaceId: api.workspaceId },
-    select: { id: true }
+  // Leemos todos los proyectos para distinguir los que siguen "abiertos"
+  // (sin miembros) de los ya restringidos. Un proyecto abierto da acceso
+  // implícito a todo el workspace: no debemos crear una membresía solo por
+  // estar marcado en la UI, pues eso lo cerraría accidentalmente al resto.
+  const workspaceProjects = await prisma.project.findMany({
+    where: { workspaceId: api.workspaceId, archived: false, deletedAt: null } as any,
+    select: { id: true, members: { select: { userId: true } } }
   });
-  const validIds = new Set(valid.map((p) => p.id));
+  const workspaceProjectIds = new Set(workspaceProjects.map((p) => p.id));
+  const validIds = new Set(parsed.data.projectIds.filter((id) => workspaceProjectIds.has(id)));
+  const openProjectIds = new Set(workspaceProjects.filter((p) => p.members.length === 0).map((p) => p.id));
 
   const existing = await prisma.projectMember.findMany({
     where: { userId: params.id, project: { workspaceId: api.workspaceId } },
@@ -106,8 +111,31 @@ export const PUT = withApi({ scope: "*" }, async (req, { params, api }) => {
   });
   const existingIds = new Set(existing.map((m) => m.projectId));
 
-  const toAdd = [...validIds].filter((id) => !existingIds.has(id));
+  // Solo creamos ProjectMember para proyectos que YA eran restringidos.
+  // Los abiertos y marcados conservan su acceso implícito.
+  const toAdd = [...validIds].filter((id) => !openProjectIds.has(id) && !existingIds.has(id));
   const toRemove = [...existingIds].filter((id) => !validIds.has(id));
+
+  // Si el administrador desmarca un proyecto abierto, convertimos ese
+  // proyecto en restringido conservando acceso explícito para todos los
+  // demás miembros. Así se oculta solo al usuario editado y el cambio queda
+  // persistido tras refrescar, sin afectar al equipo restante.
+  const openProjectsDeniedToTarget = [...openProjectIds].filter((id) => !validIds.has(id));
+  const workspaceMembers = openProjectsDeniedToTarget.length
+    ? await prisma.membership.findMany({
+        where: { workspaceId: api.workspaceId, userId: { not: params.id } },
+        select: { userId: true, role: true }
+      })
+    : [];
+  const closeOpenProjectOperations = openProjectsDeniedToTarget.flatMap((projectId) =>
+    workspaceMembers.map((member) =>
+      prisma.projectMember.upsert({
+        where: { projectId_userId: { projectId, userId: member.userId } },
+        update: {},
+        create: { projectId, userId: member.userId, role: member.role }
+      })
+    )
+  );
 
   await prisma.$transaction([
     ...toAdd.map((projectId) =>
@@ -121,13 +149,15 @@ export const PUT = withApi({ scope: "*" }, async (req, { params, api }) => {
             where: { userId: params.id, projectId: { in: toRemove } }
           })
         ]
-      : [])
+      : []),
+    ...closeOpenProjectOperations
   ]);
 
   return NextResponse.json({
     ok: true,
     added: toAdd.length,
     removed: toRemove.length,
-    total: validIds.size
+    total: validIds.size,
+    closedForUser: openProjectsDeniedToTarget.length
   });
 });
