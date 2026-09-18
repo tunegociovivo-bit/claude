@@ -621,6 +621,10 @@ export default function TareasClient({
     filters.project !== "all"
       ? `/api/v1/projects/${filters.project}/kanban-columns`
       : "/api/v1/kanban-columns";
+  // Los miembros pueden gestionar columnas únicamente al trabajar dentro de
+  // un proyecto concreto. La API verifica que realmente pertenezcan a él;
+  // las columnas globales siguen reservadas a administradores.
+  const canEditColumns = isAdminUser || filters.project !== "all";
 
   // Compat con código previo
   const setColumns = setWorkspaceColumns;
@@ -1377,6 +1381,7 @@ export default function TareasClient({
                   aiStatusByTask={aiStatusByTask}
                   onMarkAiReviewed={markAiReviewed}
                   columnsEndpoint={columnsEndpoint}
+                  canEditColumns={canEditColumns}
                   aiUserId={aiUserId}
                 />
               ))}
@@ -1401,12 +1406,14 @@ export default function TareasClient({
                   aiStatusByTask={aiStatusByTask}
                   onMarkAiReviewed={markAiReviewed}
                   columnsEndpoint={columnsEndpoint}
+                  canEditColumns={canEditColumns}
                   aiUserId={aiUserId}
                 />
               )}
               <AddColumnButton
                 existingColumns={columns}
                 endpoint={columnsEndpoint}
+                canEdit={canEditColumns}
                 onCreated={async () => {
                   // Recargamos las columnas DEL CONTEXTO ACTUAL (proyecto
                   // o workspace). Y si era un proyecto, re-pedimos la lista
@@ -1746,13 +1753,15 @@ function KanbanGrid({
 function AddColumnButton({
   existingColumns,
   onCreated,
-  endpoint
+  endpoint,
+  canEdit
 }: {
   existingColumns: KanbanColumn[];
   onCreated: () => void | Promise<void>;
   /** Endpoint donde PUT la lista actualizada. Workspace global o
    *  proyecto-específico — el caller decide. */
   endpoint: string;
+  canEdit: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
@@ -1815,6 +1824,8 @@ function AddColumnButton({
     setEditing(false);
     await onCreated();
   }
+
+  if (!canEdit) return null;
 
   if (!editing) {
     return (
@@ -1910,6 +1921,7 @@ function KanbanColumnView({
   aiStatusByTask,
   onMarkAiReviewed,
   columnsEndpoint,
+  canEditColumns,
   aiUserId
 }: {
   column: KanbanColumn;
@@ -1927,6 +1939,7 @@ function KanbanColumnView({
   onMarkAiReviewed?: (taskId: string) => void;
   /** Endpoint donde se PUTean cambios de columnas (workspace o proyecto). */
   columnsEndpoint: string;
+  canEditColumns: boolean;
   aiUserId?: string | null;
 }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
@@ -1956,7 +1969,7 @@ function KanbanColumnView({
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <ColumnHeader column={column} allColumns={columns} endpoint={columnsEndpoint} />
+          <ColumnHeader column={column} allColumns={columns} endpoint={columnsEndpoint} canEdit={canEditColumns} />
           <span className="text-xs text-slate-500 font-medium">{tasks.length}</span>
         </div>
         <button
@@ -2739,15 +2752,15 @@ function computeAlarmLevel(task: UiTask, nowMs: number): "none" | "preaviso" | "
 function ColumnHeader({
   column,
   allColumns,
-  endpoint
+  endpoint,
+  canEdit
 }: {
   column: KanbanColumn;
   allColumns: KanbanColumn[];
   /** Endpoint donde PUT los cambios (workspace o proyecto). */
   endpoint: string;
+  canEdit: boolean;
 }) {
-  const { data: session } = useSession();
-  const isAdmin = ((session?.user as any)?.role ?? "") === "ADMIN";
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(column.label);
   const [showColors, setShowColors] = useState(false);
@@ -2827,7 +2840,7 @@ function ColumnHeader({
     persist({ ...column, color: value });
   }
 
-  if (editing && isAdmin) {
+  if (editing && canEdit) {
     return (
       <input
         ref={inputRef}
@@ -2848,13 +2861,13 @@ function ColumnHeader({
   return (
     <div className="relative inline-flex items-center gap-1 min-w-0">
       <span
-        onDoubleClick={() => isAdmin && setEditing(true)}
-        className={`text-sm font-bold uppercase tracking-wide px-2.5 py-1 rounded-md border truncate ${column.color} ${isAdmin ? "cursor-pointer" : ""}`}
-        title={isAdmin ? "Doble click para renombrar" : column.label}
+        onDoubleClick={() => canEdit && setEditing(true)}
+        className={`text-sm font-bold uppercase tracking-wide px-2.5 py-1 rounded-md border truncate ${column.color} ${canEdit ? "cursor-pointer" : ""}`}
+        title={canEdit ? "Doble click para renombrar" : column.label}
       >
         {column.label}
       </span>
-      {isAdmin && (
+      {canEdit && (
         <button
           type="button"
           onClick={() => setShowColors((v) => !v)}
@@ -2866,7 +2879,7 @@ function ColumnHeader({
           <span className={`block h-3 w-3 rounded-full border ${column.color}`} />
         </button>
       )}
-      {showColors && isAdmin && (
+      {showColors && canEdit && (
         <div className="absolute top-full left-0 mt-1 z-20 bg-white rounded-lg border shadow-lg p-2 grid grid-cols-4 gap-1 w-[200px]">
           {COLUMN_COLOR_PRESETS.map((p) => (
             <button

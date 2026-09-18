@@ -20,6 +20,24 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { readKanbanColumns } from "@/lib/kanban";
 
+async function requireProjectColumnAccess(workspaceId: string, projectId: string, userId: string | null | undefined) {
+  if (!userId) throw new ApiError(401, "no_user", "Sesión requerida");
+  const member = await prisma.membership.findFirst({
+    where: { workspaceId, userId },
+    select: { role: true }
+  });
+  if (!member) throw new ApiError(403, "forbidden", "No perteneces al workspace");
+  if (member.role === "ADMIN") return;
+
+  const projectMember = await prisma.projectMember.findFirst({
+    where: { projectId, userId },
+    select: { userId: true }
+  });
+  if (!projectMember) {
+    throw new ApiError(403, "forbidden", "Solo puedes configurar las columnas de tus proyectos");
+  }
+}
+
 const columnSchema = z.object({
   id: z.string().min(1).max(80),
   label: z.string().min(1).max(80),
@@ -45,6 +63,7 @@ const updateSchema = z.object({
 });
 
 export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
+  await requireProjectColumnAccess(api.workspaceId, params.id, api.userId);
   const proj = await prisma.project.findFirst({
     where: { id: params.id, workspaceId: api.workspaceId, deletedAt: null } as any,
     select: { kanbanColumns: true }
@@ -63,6 +82,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { params, api }) => {
 });
 
 export const PUT = withApi({ scope: "*" }, async (req, { params, api }) => {
+  await requireProjectColumnAccess(api.workspaceId, params.id, api.userId);
   if (!api.userId) throw new ApiError(401, "no_user", "Sesión requerida");
   // No exigimos ADMIN — cualquier user con acceso al proyecto puede
   // tunear su tablero. Si quieres restringir, el filtro de membership
