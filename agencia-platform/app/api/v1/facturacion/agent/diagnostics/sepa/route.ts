@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateAgent } from "@/lib/facturacion/sepa/agent";
-import { getRecentSepaDiagnostics, notifyPendingSignatureInvoices, recoverRecentSepaApprovals, syncRecentHoldedApprovals } from "@/lib/facturacion/sepa/diagnostics";
+import { getRecentSepaDiagnostics, notifyPendingSignatureInvoices, recoverRecentSepaApprovals, repairRecentInvoiceClient, syncRecentHoldedApprovals } from "@/lib/facturacion/sepa/diagnostics";
 import { probeHoldedInvoicePayload } from "@/lib/integrations/holded";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,16 @@ export async function POST(req: NextRequest) {
   if (body?.action === "sync") {
     const result = await syncRecentHoldedApprovals(agent.workspaceId);
     return NextResponse.json({ ok: true, ...result });
+  }
+  if (body?.action === "repair-client") {
+    const invoiceNumber = String(body?.invoiceNumber ?? "").trim();
+    const clientName = String(body?.clientName ?? "").trim();
+    if (!/^FAC-\d+$/i.test(invoiceNumber) || !clientName) {
+      return NextResponse.json({ error: { code: "repair_fields_required", message: "Indica factura y cliente exactos" } }, { status: 400 });
+    }
+    const repaired = await repairRecentInvoiceClient(agent.workspaceId, invoiceNumber, clientName);
+    const recovery = await recoverRecentSepaApprovals(agent.workspaceId, [invoiceNumber]);
+    return NextResponse.json({ ok: true, repaired, recovery });
   }
   const invoiceNumbers: string[] = Array.isArray(body?.invoiceNumbers)
     ? Array.from(new Set<string>(body.invoiceNumbers.map((value: unknown) => String(value).trim()).filter((value: string) => /^FAC-\d+$/i.test(value)))).slice(0, 50)

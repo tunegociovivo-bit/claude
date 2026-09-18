@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { holdedInvoicesAsInputs } from "@/lib/import/holded-sync";
 import { applyInvoiceImport, type InvoiceInput } from "@/lib/import/invoices";
 import { NEGOCIO_VIVO_ISSUER_NAME } from "./candidates";
+import { madridBusinessDayWindow } from "./recency";
 
 export function isApprovedNormalHoldedInvoice(input: InvoiceInput): boolean {
   const number = input.number?.trim() ?? "";
@@ -91,13 +92,19 @@ export async function syncApprovedHoldedInvoices(workspaceId: string, signal?: A
       || (invoiceSequence(input.number) ?? 0) > highestSequence
       || (rectifyingSequence(input.number) ?? 0) > highestRectifyingSequence;
   });
-  const startedAt = new Date();
   signal?.throwIfAborted();
   const result = await applyInvoiceImport(workspaceId, eligible, issuer.id);
   const numbers = eligible.map((item) => item.number!).filter(Boolean);
+  const today = madridBusinessDayWindow();
   const createdRows = numbers.length
     ? await prisma.invoice.findMany({
-        where: { workspaceId, issuerId: issuer.id, number: { in: numbers }, createdAt: { gte: startedAt } },
+        where: {
+          workspaceId,
+          issuerId: issuer.id,
+          number: { in: numbers },
+          issueDate: { gte: today.start, lt: today.end },
+          deletedAt: null
+        },
         select: { id: true, number: true, type: true }
       })
     : [];
