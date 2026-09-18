@@ -1,0 +1,29 @@
+# Copy to the repository root .github/workflows/mac-preview.yml only when remote testing is authorized.
+name: Mac time agent preview
+on:
+  push:
+    branches: [test/macos-time-agent-preview]
+    paths: ['agencia-platform/macos-time-agent/**', '.github/workflows/mac-preview.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mac-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: agencia-platform/macos-time-agent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test and build universal preview
+        run: bash build-mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-preview-${{ matrix.runner }}
+          path: agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.preview.zip
+          retention-days: 7
