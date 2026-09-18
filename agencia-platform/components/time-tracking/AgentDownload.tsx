@@ -1,5 +1,5 @@
 import { Download } from "lucide-react";
-import { TIME_AGENT_WINDOWS_URL } from "@/lib/time-agent-download";
+import { TIME_AGENT_MAC_URL, TIME_AGENT_WINDOWS_URL } from "@/lib/time-agent-download";
 
 export default function AgentDownload({ login = false }: { login?: boolean }) {
   return (
@@ -14,11 +14,18 @@ export default function AgentDownload({ login = false }: { login?: boolean }) {
             : "Descarga e instala Negocio Vivo en tu equipo para registrar tu jornada."}
         </p>
       </div>
-      <a href={TIME_AGENT_WINDOWS_URL} className={`inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${login ? "mt-3 w-full" : ""}`}>
-        <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
-        Descargar para Windows
-      </a>
-      {login && <p className="mt-2 text-xs text-slate-600">Windows de 64 bits. Tras instalarlo, abre el acceso del escritorio y vincula tu equipo con la credencial que te facilite el administrador.</p>}
+      <div className={`flex flex-wrap gap-3 ${login ? "mt-3" : ""}`}>
+        {[
+          { href: TIME_AGENT_WINDOWS_URL, label: "Descargar para Windows" },
+          { href: TIME_AGENT_MAC_URL, label: "Descargar para Mac" },
+        ].map(({ href, label }) => (
+          <a key={href} href={href} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600">
+            <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {label}
+          </a>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-slate-600">Windows de 64 bits o macOS 14 y posterior (Intel y Apple Silicon). En Mac, abre el DMG y arrastra el programa a Aplicaciones. Vincula tu equipo con la credencial que te facilite el administrador.</p>
     </aside>
   );
 }
