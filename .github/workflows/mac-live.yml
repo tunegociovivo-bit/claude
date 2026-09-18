@@ -1,0 +1,24 @@
+name: Authorized Mac CRM integration check
+on:
+  push:
+    branches: [test/macos-time-agent-preview]
+    paths: ['.github/workflows/mac-live.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mac-live-crm-check
+  cancel-in-progress: false
+jobs:
+  live:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actual Mac client against the CRM
+        working-directory: agencia-platform/macos-time-agent
+        env:
+          NV_LIVE_TOKEN: ${{ secrets.NV_MAC_LIVE_TEST_TOKEN }}
+        run: |
+          test -n "$NV_LIVE_TOKEN"
+          swift test --filter LiveMacTests
