@@ -3,7 +3,65 @@ import AppKit
 import AgentCore
 @testable import MacAgent
 
+final class LiveRequestObserver: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [String: Int] = [:]
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard error == nil, let response = task.response as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode), let path = task.originalRequest?.url?.path else { return }
+        lock.lock(); counts[path, default: 0] += 1; lock.unlock()
+    }
+    func count(_ path: String) -> Int { lock.lock(); defer { lock.unlock() }; return counts[path, default: 0] }
+}
+
 @MainActor final class LiveMacTests: XCTestCase {
+    func testAutomaticHeartbeatAndScheduledCapture() async throws {
+        guard ProcessInfo.processInfo.environment["NV_PERIODIC"] == "true",
+              let token = ProcessInfo.processInfo.environment["NV_LIVE_TOKEN"] else { throw XCTSkip("Authorized periodic test only") }
+        let observer = LiveRequestObserver()
+        let session = URLSession(configuration: .ephemeral, delegate: observer, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let client = HubClient(token: token, session: session)
+        let before = try await client.day()
+        guard !before.active else { throw XCTSkip("Existing active shift: no changes") }
+        let policy = try await client.policy()
+        guard policy.trackingEnabled, policy.screenshotsEnabled, policy.screenshotInterval == 2 else {
+            XCTFail("Periodic test requires authorized two-minute capture policy"); return
+        }
+        let suite = "NV.Periodic." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let device = "mac-ci-periodic-" + UUID().uuidString
+        defaults.set(device, forKey: "deviceID")
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AgentModel(client: client, defaults: defaults)
+        await model.refresh()
+        await model.perform(model.canStart ? "start" : "pause")
+        guard model.state.summary.active else { XCTFail("Start was not confirmed"); return }
+        model.boot()
+        do {
+            // Let the production one-second timer and 60-second refresh do the work.
+            try await Task.sleep(nanoseconds: 190_000_000_000)
+            XCTAssertTrue(model.state.online)
+            let captures = observer.count("/api/v1/time-tracking/screenshots")
+            let activity = observer.count("/api/v1/time-tracking/activity")
+            XCTAssertGreaterThanOrEqual(captures, 1, "Production scheduler must upload a real screen capture")
+            XCTAssertGreaterThanOrEqual(activity, 2, "Production timer must send repeated heartbeats")
+            await model.perform("pause")
+            XCTAssertFalse(model.state.summary.active)
+            let paused = try await client.day()
+            let capturesAtPause = observer.count("/api/v1/time-tracking/screenshots")
+            let activityAtPause = observer.count("/api/v1/time-tracking/activity")
+            try await Task.sleep(nanoseconds: 65_000_000_000)
+            XCTAssertEqual(observer.count("/api/v1/time-tracking/screenshots"), capturesAtPause)
+            XCTAssertEqual(observer.count("/api/v1/time-tracking/activity"), activityAtPause)
+            let stillPaused = try await client.day()
+            XCTAssertEqual(stillPaused.workedSec, paused.workedSec)
+            await model.perform("finish")
+            XCTAssertTrue(model.state.finished)
+            print("NV_PROOF automaticCaptures=\(captures) automaticHeartbeats=\(activity) pauseStopsBoth=true device=\(device)")
+        } catch { try? await client.action("stop", deviceID: device); throw error }
+        if try await client.day().active { try await client.action("stop", deviceID: device) }
+    }
     func testRealCRMDayAndScreenshot() async throws {
         guard let token = ProcessInfo.processInfo.environment["NV_LIVE_TOKEN"], !token.isEmpty else {
             throw XCTSkip("Live CRM credential is supplied only in the authorized manual workflow")

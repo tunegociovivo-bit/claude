@@ -19,6 +19,7 @@ jobs:
         working-directory: agencia-platform/macos-time-agent
         env:
           NV_LIVE_TOKEN: ${{ secrets.NV_MAC_LIVE_TEST_TOKEN }}
+          NV_PERIODIC: 'true'
         run: |
           test -n "$NV_LIVE_TOKEN"
           swift test --filter LiveMacTests
