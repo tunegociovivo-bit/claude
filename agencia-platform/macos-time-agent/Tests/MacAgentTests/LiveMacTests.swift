@@ -3,23 +3,55 @@ import AppKit
 import AgentCore
 @testable import MacAgent
 
-final class LiveRequestObserver: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var counts: [String: Int] = [:]
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard error == nil, let response = task.response as? HTTPURLResponse,
-              (200..<300).contains(response.statusCode), let path = task.originalRequest?.url?.path else { return }
-        lock.lock(); counts[path, default: 0] += 1; lock.unlock()
+// Transparent network recorder: forwards every request to the real CRM and only
+// counts successful responses. No mocked status, policy, image or body is used.
+final class LiveRequestObserver: URLProtocol {
+    private static let lock = NSLock()
+    private static var counts: [String: Int] = [:]
+    private var task: URLSessionDataTask?
+    private var forwarding: URLSession?
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "hub.negociovivo.app" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        var outgoing = request
+        if let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var data = Data(); var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let n = stream.read(&buffer, maxLength: buffer.count)
+                if n < 0 { client?.urlProtocol(self, didFailWithError: stream.streamError ?? HubError.invalidResponse); return }
+                if n == 0 { break }
+                data.append(contentsOf: buffer.prefix(n))
+            }
+            outgoing.httpBodyStream = nil; outgoing.httpBody = data
+        }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = []
+        let session = URLSession(configuration: config); forwarding = session
+        task = session.dataTask(with: outgoing) { [weak self] data, response, error in
+            guard let self else { return }
+            defer { session.finishTasksAndInvalidate() }
+            if let error { self.client?.urlProtocol(self, didFailWithError: error); return }
+            guard let response else { self.client?.urlProtocol(self, didFailWithError: HubError.invalidResponse); return }
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let path = self.request.url?.path {
+                Self.lock.lock(); Self.counts[path, default: 0] += 1; Self.lock.unlock()
+            }
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            if let data { self.client?.urlProtocol(self, didLoad: data) }
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+        task?.resume()
     }
-    func count(_ path: String) -> Int { lock.lock(); defer { lock.unlock() }; return counts[path, default: 0] }
+    override func stopLoading() { task?.cancel(); forwarding?.invalidateAndCancel() }
+    static func count(_ path: String) -> Int { lock.lock(); defer { lock.unlock() }; return counts[path, default: 0] }
 }
 
 @MainActor final class LiveMacTests: XCTestCase {
-    func testAutomaticHeartbeatAndScheduledCapture() async throws {
+    func testZAutomaticHeartbeatAndScheduledCapture() async throws {
         guard ProcessInfo.processInfo.environment["NV_PERIODIC"] == "true",
               let token = ProcessInfo.processInfo.environment["NV_LIVE_TOKEN"] else { throw XCTSkip("Authorized periodic test only") }
-        let observer = LiveRequestObserver()
-        let session = URLSession(configuration: .ephemeral, delegate: observer, delegateQueue: nil)
+        let observer = LiveRequestObserver.self
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [LiveRequestObserver.self]
+        let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
         let client = HubClient(token: token, session: session)
         let before = try await client.day()
@@ -62,7 +94,7 @@ final class LiveRequestObserver: NSObject, URLSessionTaskDelegate, @unchecked Se
         } catch { try? await client.action("stop", deviceID: device); throw error }
         if try await client.day().active { try await client.action("stop", deviceID: device) }
     }
-    func testRealCRMDayAndScreenshot() async throws {
+    func testARealCRMDayAndScreenshot() async throws {
         guard let token = ProcessInfo.processInfo.environment["NV_LIVE_TOKEN"], !token.isEmpty else {
             throw XCTSkip("Live CRM credential is supplied only in the authorized manual workflow")
         }
