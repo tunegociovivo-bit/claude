@@ -8,7 +8,7 @@ import AgentCore
 final class LiveRequestObserver: URLProtocol {
     private static let lock = NSLock()
     private static var counts: [String: Int] = [:]
-    private var task: URLSessionDataTask?
+    private var forwardingTask: URLSessionDataTask?
     private var forwarding: URLSession?
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "hub.negociovivo.app" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -27,7 +27,7 @@ final class LiveRequestObserver: URLProtocol {
         }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = []
         let session = URLSession(configuration: config); forwarding = session
-        task = session.dataTask(with: outgoing) { [weak self] data, response, error in
+        forwardingTask = session.dataTask(with: outgoing) { [weak self] data, response, error in
             guard let self else { return }
             defer { session.finishTasksAndInvalidate() }
             if let error { self.client?.urlProtocol(self, didFailWithError: error); return }
@@ -39,9 +39,9 @@ final class LiveRequestObserver: URLProtocol {
             if let data { self.client?.urlProtocol(self, didLoad: data) }
             self.client?.urlProtocolDidFinishLoading(self)
         }
-        task?.resume()
+        forwardingTask?.resume()
     }
-    override func stopLoading() { task?.cancel(); forwarding?.invalidateAndCancel() }
+    override func stopLoading() { forwardingTask?.cancel(); forwarding?.invalidateAndCancel() }
     static func count(_ path: String) -> Int { lock.lock(); defer { lock.unlock() }; return counts[path, default: 0] }
 }
 
