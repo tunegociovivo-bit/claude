@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Check real requests and the production capture timer
+      - name: Check real requests, active-work captures and paused-work silence
         working-directory: agencia-platform/macos-time-agent
         env:
           NV_LIVE_TOKEN: ${{ secrets.NV_MAC_LIVE_TEST_TOKEN }}

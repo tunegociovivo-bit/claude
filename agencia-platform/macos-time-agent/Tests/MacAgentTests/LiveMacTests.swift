@@ -46,6 +46,23 @@ final class LiveRequestObserver: URLProtocol {
 }
 
 @MainActor final class LiveMacTests: XCTestCase {
+    private func waitWithTestMouseActivity(seconds: Int) async throws {
+        // Simulate an active worker in the disposable Mac desktop. Keep the
+        // production idle protection enabled; never alter permissions or TCC.
+        for second in 0..<seconds {
+            if second % 10 == 0 {
+                let event = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                    mouseCursorPosition: CGPoint(x: 400 + second % 20, y: 350), mouseButton: .left))
+                event.post(tap: .cghidEventTap)
+            }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            if second == 1 {
+                let idleSeconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .null)
+                print("NV_PROOF simulatedInputIdleSeconds=\(Int(idleSeconds))")
+                guard idleSeconds < 30 else { throw XCTSkip("Runner did not accept simulated input; active-work capture test cannot be completed") }
+            }
+        }
+    }
     func testZAutomaticHeartbeatAndScheduledCapture() async throws {
         guard ProcessInfo.processInfo.environment["NV_PERIODIC"] == "true",
               let token = ProcessInfo.processInfo.environment["NV_LIVE_TOKEN"] else { throw XCTSkip("Authorized periodic test only") }
@@ -72,7 +89,7 @@ final class LiveRequestObserver: URLProtocol {
         model.boot()
         do {
             // Let the production one-second timer and 60-second refresh do the work.
-            try await Task.sleep(nanoseconds: 190_000_000_000)
+            try await waitWithTestMouseActivity(seconds: 190)
             XCTAssertTrue(model.state.online)
             let captures = observer.count("/api/v1/time-tracking/screenshots")
             let activity = observer.count("/api/v1/time-tracking/activity")
@@ -83,7 +100,7 @@ final class LiveRequestObserver: URLProtocol {
             let paused = try await client.day()
             let capturesAtPause = observer.count("/api/v1/time-tracking/screenshots")
             let activityAtPause = observer.count("/api/v1/time-tracking/activity")
-            try await Task.sleep(nanoseconds: 65_000_000_000)
+            try await waitWithTestMouseActivity(seconds: 190)
             XCTAssertEqual(observer.count("/api/v1/time-tracking/screenshots"), capturesAtPause)
             XCTAssertEqual(observer.count("/api/v1/time-tracking/activity"), activityAtPause)
             let stillPaused = try await client.day()
