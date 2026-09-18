@@ -72,6 +72,9 @@ final class WorkerProtocol: URLProtocol {
     }
     func testRenderNativeWindow() async throws {
         _ = NSApplication.shared
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let logo = try XCTUnwrap(NSImage(contentsOf: package.appendingPathComponent("assets/logo.png")))
+        logo.setName("AppIcon")
         let model = model(); await model.refresh(); await model.perform("start")
         WorkerProtocol.worked = 3720; await model.refresh()
         let renderer = ImageRenderer(content: WorkerView(model: model).frame(width: 480, height: 760))

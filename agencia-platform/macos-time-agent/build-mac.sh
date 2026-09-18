@@ -22,4 +22,9 @@ codesign --verify --deep --strict "$APP"
 lipo -info "$APP/Contents/MacOS/NegocioVivoTimeAgent"
 ditto -c -k --keepParent "$APP" dist/Negocio.Vivo.Control.Horario.Mac.preview.zip
 pkgbuild --component "$APP" --install-location /Applications dist/Negocio.Vivo.Control.Horario.Mac.preview.pkg
+if [[ "${CI:-}" == "true" ]]; then
+    sudo installer -pkg dist/Negocio.Vivo.Control.Horario.Mac.preview.pkg -target /
+    codesign --verify --deep --strict "/Applications/Negocio Vivo Control Horario.app"
+    cmp "$APP/Contents/MacOS/NegocioVivoTimeAgent" "/Applications/Negocio Vivo Control Horario.app/Contents/MacOS/NegocioVivoTimeAgent"
+fi
 echo "Compilación de prueba creada. NO está publicada ni notarizada."

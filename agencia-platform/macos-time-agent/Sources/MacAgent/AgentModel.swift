@@ -63,6 +63,9 @@ import AgentCore
     }
     func connect(_ raw: String) async {
         guard !busy else { return }
+        guard !linked || (state.online && !state.summary.active) else {
+            message = "Pausa la jornada y confirma la conexión antes de cambiar de credencial."; return
+        }
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty, !token.hasPrefix("NV-"), !token.hasPrefix("NVV-"), !token.contains("\n") else {
             message = "Usa la credencial individual de Control horario, no el antiguo código de vinculación."; return

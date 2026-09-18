@@ -78,7 +78,7 @@ struct WorkerView: View {
                     Toggle("Abrir al iniciar sesión en el Mac", isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
                     HStack {
                         Button("Actualizar estado") { Task { await model.refresh() } }.disabled(model.busy)
-                        Button("Cambiar credencial") { changingCredential.toggle() }.disabled(model.busy)
+                        Button("Cambiar credencial") { changingCredential.toggle() }.disabled(model.busy || model.state.summary.active || !model.state.online)
                     }
                 }
                 if !model.linked || changingCredential {
