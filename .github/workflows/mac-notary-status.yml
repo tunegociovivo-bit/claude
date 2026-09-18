@@ -1,0 +1,33 @@
+name: Check Mac notarization status
+on:
+  push:
+    branches: [test/macos-time-agent-preview]
+    paths: ['.github/workflows/mac-notary-status.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  status:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - name: Check only Negocio Vivo time-agent submissions
+        env:
+          ASC_KEY: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$ASC_KEY" > "$RUNNER_TEMP/nv-status-auth.p8"
+          xcrun notarytool history --key "$RUNNER_TEMP/nv-status-auth.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER" --output-format json > "$RUNNER_TEMP/nv-status-history.json"
+          python3 - <<'PY'
+          import json, os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'nv-status-history.json')) as stream:
+              history = json.load(stream)
+          ours = [entry for entry in history.get('history', []) if entry.get('name', '').startswith('Negocio.Vivo.Control.Horario.Mac.')]
+          print(json.dumps(ours[:4], indent=2))
+          PY
+      - name: Remove temporary key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/nv-status-auth.p8" "$RUNNER_TEMP/nv-status-history.json"
