@@ -31,6 +31,10 @@ struct MenuContent: View {
         Button(model.state.summary.active ? "Pausar" : "Reanudar") { Task { await model.perform("pause") } }.disabled(!model.canPause)
         Button("Finalizar por hoy") { Task { await model.perform("finish") } }.disabled(!model.canFinish)
         Divider()
+        if model.needsCapturePermission {
+            Text("Permiso de capturas necesario")
+            Button("Permitir capturas en este Mac") { model.permitCapture() }
+        }
         Button("Salir") { NSApp.terminate(nil) }
     }
 }
@@ -57,6 +61,16 @@ struct WorkerView: View {
                 Text(model.displayTime).font(.system(size: 46, weight: .medium, design: .monospaced))
                     .accessibilityLabel("Tiempo trabajado: " + model.displayTime)
                 Text("Tiempo trabajado hoy").foregroundStyle(.secondary)
+                if model.needsCapturePermission {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Permiso de capturas necesario", systemImage: "exclamationmark.triangle.fill").font(.headline)
+                        Text(model.capturePermissionMessage).font(.callout)
+                        Button("Permitir capturas en este Mac") { model.permitCapture() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding().frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.12)).cornerRadius(10)
+                }
                 VStack(spacing: 10) {
                     Button { Task { await model.perform("start") } } label: {
                         Label("Iniciar", systemImage: "play.fill").frame(maxWidth: .infinity)
@@ -72,9 +86,6 @@ struct WorkerView: View {
                 if model.linked {
                     Divider()
                     Text(model.captureStatus).font(.callout)
-                    if model.policy?.screenshotsEnabled == true && !ScreenCapture.permitted {
-                        Button("Permitir capturas en este Mac") { model.permitCapture() }
-                    }
                     Toggle("Abrir al iniciar sesión en el Mac", isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
                     HStack {
                         Button("Actualizar estado") { Task { await model.refresh() } }.disabled(model.busy)

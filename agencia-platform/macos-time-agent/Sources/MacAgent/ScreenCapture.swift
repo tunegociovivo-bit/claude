@@ -11,7 +11,14 @@ enum ScreenCapture {
               info[kCGSessionOnConsoleKey] as? Bool == true else { return false }
         return info["CGSSessionScreenIsLocked"] as? Bool != true
     }
-    static func requestPermission() { _ = CGRequestScreenCaptureAccess() }
+    static func requestPermission() {
+        guard !permitted else { return }
+        _ = CGRequestScreenCaptureAccess()
+        // After a denial, macOS may not display the system prompt again.
+        if !permitted, let settings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(settings)
+        }
+    }
 
     static func images(policy: AgentPolicy) async throws -> [Data] {
         guard permitted, unlocked, !idle else { return [] }

@@ -13,9 +13,14 @@ import AgentCore
     @Published private(set) var displayTime = "00:00:00"
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     private var hub: HubClient?
+    @Published private(set) var capturePermissionGranted = false
+    private let capturePermission: () -> Bool
+    var needsCapturePermission: Bool { linked && policy?.screenshotsEnabled == true && !capturePermissionGranted }
+    let capturePermissionMessage = "Para utilizar el control horario de Negocio Vivo con capturas, es necesario activar «Permitir capturas en este Mac». Sin este permiso no podrás iniciar ni reanudar desde este programa."
     private let defaults: UserDefaults
-    init(client: HubClient? = nil, defaults: UserDefaults = .standard) {
+    init(client: HubClient? = nil, defaults: UserDefaults = .standard, capturePermission: @escaping () -> Bool = { ScreenCapture.permitted }) {
         self.defaults = defaults; self.hub = client; self.linked = client != nil
+        self.capturePermission = capturePermission; self.capturePermissionGranted = capturePermission()
     }
     private var timer: Timer?
     private var nextHeartbeat = Date.distantPast
@@ -54,6 +59,12 @@ import AgentCore
         Task { await refresh() }
     }
     private func tick() {
+        let permission = capturePermission()
+        if permission != capturePermissionGranted {
+            capturePermissionGranted = permission
+            updateCaptureStatus()
+            nextHeartbeat = .distantPast
+        }
         let today = Calendar.current.startOfDay(for: Date())
         if today != currentDay {
             currentDay = today; state = DayState(); observedAt = Date(); nextHeartbeat = .distantPast
@@ -98,6 +109,11 @@ import AgentCore
             policy = try await hub.policy()
             let start = action == "start" || (action == "pause" && !state.summary.active)
             if start && policy?.trackingEnabled != true { throw HubError.status(403) }
+            updateCaptureStatus()
+            if start && needsCapturePermission {
+                message = capturePermissionMessage
+                return
+            }
             do { try await hub.action(start ? "start" : "stop", deviceID: deviceID) }
             catch HubError.status(409) { /* Verify the desired state below; another device may have changed it. */ }
             let day = try await hub.day()
@@ -120,7 +136,18 @@ import AgentCore
         do {
             let wasActive = state.summary.active && state.online
             let freshPolicy = try await hub.policy(); policy = freshPolicy
-            let day = try await hub.day(); accept(day)
+            var day = try await hub.day(); accept(day)
+            updateCaptureStatus()
+            if day.active && needsCapturePermission {
+                do { try await hub.action("stop", deviceID: deviceID) }
+                catch HubError.status(409) { /* Confirm the resulting server state below. */ }
+                day = try await hub.day(); accept(day)
+                guard !day.active else { throw HubError.status(409) }
+                observedAt = Date()
+                message = "Jornada pausada en el CRM porque falta el permiso de capturas. Actívalo y pulsa Reanudar."
+                updateCaptureStatus()
+                return
+            }
             let now = Date(); let seconds = Int(now.timeIntervalSince(observedAt))
             if wasActive && day.active && freshPolicy.trackingEnabled && seconds > 0 && seconds <= 90 && ScreenCapture.unlocked {
                 let app = NSWorkspace.shared.frontmostApplication
@@ -149,7 +176,7 @@ import AgentCore
                     try await hub.upload(jpeg, deviceID: deviceID, policy: uploadPolicy, date: now)
                 }
             }
-            if !state.finished { message = "Estado sincronizado con el CRM." }
+            if !state.finished { message = needsCapturePermission ? capturePermissionMessage : "Estado sincronizado con el CRM." }
         } catch {
             observedAt = Date(); state.disconnect()
             message = error.localizedDescription + " Se muestra el último tiempo confirmado."
@@ -157,11 +184,19 @@ import AgentCore
         }
     }
     func updateCaptureStatus() {
+        capturePermissionGranted = capturePermission()
         if policy?.screenshotsEnabled != true { captureStatus = "Capturas desactivadas por la empresa" }
-        else if !ScreenCapture.permitted { captureStatus = "Capturas: falta el permiso de grabación de pantalla" }
+        else if !capturePermissionGranted { captureStatus = "Capturas: falta el permiso de grabación de pantalla" }
         else { captureStatus = state.summary.active ? "Capturas activas durante la jornada" : "Capturas detenidas" }
     }
-    func permitCapture() { ScreenCapture.requestPermission(); updateCaptureStatus() }
+    func permitCapture() {
+        ScreenCapture.requestPermission()
+        updateCaptureStatus()
+        message = needsCapturePermission
+            ? "Activa Negocio Vivo Control Horario en Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla. Si macOS solicita reiniciar el programa, sigue sus indicaciones."
+            : "Permiso de capturas concedido. Ya puedes iniciar o reanudar."
+        nextHeartbeat = .distantPast
+    }
     func setLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }

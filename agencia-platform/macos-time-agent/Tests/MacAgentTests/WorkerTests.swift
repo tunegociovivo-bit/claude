@@ -10,13 +10,15 @@ final class WorkerProtocol: URLProtocol {
     static var worked = 0
     static var failStop = false
     static var conflict = false
+    static var screenshotsEnabled = false
+    static var starts = 0
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         var status = 200
         var json = "{}"
         let path = request.url!.path
-        if path.hasSuffix("agent-config") { json = "{\"trackingEnabled\":true,\"screenshotsEnabled\":false}" }
+        if path.hasSuffix("agent-config") { json = "{\"trackingEnabled\":true,\"screenshotsEnabled\":\(Self.screenshotsEnabled)}" }
         else if path.hasSuffix("/me") {
             json = "{\"active\":\(Self.active),\"workedSec\":\(Self.worked),\"startedAt\":\(Self.started ? "\"2026-09-18T07:00:00Z\"" : "null")}"
         } else if request.httpMethod == "POST" && path.hasSuffix("time-tracking") {
@@ -27,7 +29,7 @@ final class WorkerProtocol: URLProtocol {
                 while stream.hasBytesAvailable { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; data.append(contentsOf: buffer.prefix(count)) }
             }
             let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
-            if body?["action"] == "start" { Self.active = true; Self.started = true }
+            if body?["action"] == "start" { Self.active = true; Self.started = true; Self.starts += 1 }
             else if Self.failStop { status = 503 }
             else { Self.active = false; Self.worked = 3600 }
             if Self.conflict { status = 409 }
@@ -39,12 +41,74 @@ final class WorkerProtocol: URLProtocol {
 }
 
 @MainActor final class WorkerTests: XCTestCase {
-    private func model() -> AgentModel {
+    private func model(permission: @escaping () -> Bool = { true }) -> AgentModel {
         WorkerProtocol.active = false; WorkerProtocol.started = false; WorkerProtocol.worked = 0
         WorkerProtocol.failStop = false; WorkerProtocol.conflict = false
+        WorkerProtocol.screenshotsEnabled = false; WorkerProtocol.starts = 0
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [WorkerProtocol.self]
         let defaults = UserDefaults(suiteName: "NV.Tests." + UUID().uuidString)!
-        return AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: configuration)), defaults: defaults)
+        return AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: configuration)), defaults: defaults, capturePermission: permission)
+    }
+    func testDeniedPermissionBlocksStartAndResumeUntilGranted() async {
+        var permitted = false
+        let model = model(permission: { permitted })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh()
+        XCTAssertTrue(model.needsCapturePermission)
+        await model.perform("start")
+        XCTAssertEqual(WorkerProtocol.starts, 0)
+        XCTAssertFalse(WorkerProtocol.active)
+        XCTAssertTrue(model.state.online)
+        permitted = true
+        await model.perform("start")
+        XCTAssertTrue(WorkerProtocol.active)
+        XCTAssertFalse(model.needsCapturePermission)
+        await model.perform("pause")
+        permitted = false
+        await model.perform("pause")
+        XCTAssertEqual(WorkerProtocol.starts, 1)
+        XCTAssertFalse(WorkerProtocol.active)
+        await model.perform("finish")
+        XCTAssertTrue(model.state.finished)
+    }
+    func testRevokingPermissionPausesConfirmedSessionWithoutErasingTime() async {
+        var permitted = true
+        let model = model(permission: { permitted })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh(); await model.perform("start")
+        permitted = false
+        await model.refresh()
+        XCTAssertTrue(model.needsCapturePermission)
+        XCTAssertFalse(WorkerProtocol.active)
+        XCTAssertFalse(model.state.summary.active)
+        XCTAssertTrue(model.state.online)
+        XCTAssertEqual(model.state.summary.workedSec, 3600)
+        permitted = true
+        await model.refresh()
+        XCTAssertFalse(WorkerProtocol.active, "Permission grant must not resume automatically")
+        await model.perform("pause")
+        XCTAssertTrue(WorkerProtocol.active)
+    }
+    func testFailedPermissionPauseIsNotReportedAsConfirmed() async {
+        var permitted = true
+        let model = model(permission: { permitted })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh(); await model.perform("start")
+        permitted = false; WorkerProtocol.failStop = true
+        await model.refresh()
+        XCTAssertTrue(WorkerProtocol.active)
+        XCTAssertFalse(model.state.online)
+        XCTAssertFalse(model.message.contains("Jornada pausada en el CRM"))
+        WorkerProtocol.failStop = false
+        await model.refresh()
+        XCTAssertFalse(WorkerProtocol.active)
+        XCTAssertTrue(model.state.online)
+    }
+    func testCompanyCanDisableCaptureRequirement() async {
+        let model = model(permission: { false })
+        await model.refresh(); await model.perform("start")
+        XCTAssertFalse(model.needsCapturePermission)
+        XCTAssertTrue(WorkerProtocol.active)
     }
     func testWholeDay() async {
         let model = model(); await model.refresh()
@@ -95,8 +159,10 @@ final class WorkerProtocol: URLProtocol {
         let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let logo = try XCTUnwrap(NSImage(contentsOf: package.appendingPathComponent("assets/logo.png")))
         logo.setName("AppIcon")
-        let model = model(); await model.refresh(); await model.perform("start")
-        WorkerProtocol.worked = 3720; await model.refresh()
+        let model = model(permission: { false })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh()
+        XCTAssertTrue(model.needsCapturePermission)
         let host = NSHostingView(rootView: WorkerView(model: model).frame(width: 480, height: 760).background(Color(nsColor: .windowBackgroundColor)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 760), styleMask: [.titled], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .aqua)
