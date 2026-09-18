@@ -617,14 +617,18 @@ export default function TareasClient({
   // editamos el global del workspace. FIX del bug de "cambio columna
   // en proyecto X y se cambia en proyecto Y" — antes todo iba al
   // global del workspace independientemente del filtro.
+  // `filters.project` se sincroniza con la URL tras hidratar el cliente.
+  // Para que un miembro vea los controles desde el primer render usamos
+  // directamente el proyecto de la URL cuando existe.
+  const activeProjectId = urlProject ?? (filters.project !== "all" ? filters.project : null);
   const columnsEndpoint =
-    filters.project !== "all"
-      ? `/api/v1/projects/${filters.project}/kanban-columns`
+    activeProjectId
+      ? `/api/v1/projects/${activeProjectId}/kanban-columns`
       : "/api/v1/kanban-columns";
   // Los miembros pueden gestionar columnas únicamente al trabajar dentro de
   // un proyecto concreto. La API verifica que realmente pertenezcan a él;
   // las columnas globales siguen reservadas a administradores.
-  const canEditColumns = isAdminUser || filters.project !== "all";
+  const canEditColumns = isAdminUser || Boolean(activeProjectId);
 
   // Compat con código previo
   const setColumns = setWorkspaceColumns;
@@ -2867,6 +2871,17 @@ function ColumnHeader({
       >
         {column.label}
       </span>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-slate-400 hover:text-slate-700 shrink-0"
+          aria-label="Renombrar columna"
+          title="Renombrar columna"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
       {canEdit && (
         <button
           type="button"
