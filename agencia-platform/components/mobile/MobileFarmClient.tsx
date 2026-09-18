@@ -211,10 +211,10 @@ async function resolveFacebookPackage(adb: Adb): Promise<string> {
   });
 }
 
-async function tapFacebookGroupsTabIfVisible(adb: Adb): Promise<boolean> {
+async function tapFacebookGroupsTabIfVisible(adb: Adb, labels = ["Grupos", "Groups"]): Promise<boolean> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const point = findAndroidUiNodeCenter(await readAndroidUiHierarchy(adb), {
-      labels: ["Grupos", "Groups"]
+      labels
     });
     if (point) {
       await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]);
@@ -258,7 +258,8 @@ async function navigateFacebookGroupSearch(
   adb: Adb,
   controller: AndroidClipboardController,
   query: string,
-  knownQueries: readonly string[] = [query]
+  knownQueries: readonly string[] = [query],
+  category: "groups" | "posts" = "groups"
 ): Promise<void> {
   await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(500);
@@ -282,6 +283,16 @@ async function navigateFacebookGroupSearch(
   await clearFocusedFacebookSearchInput((command) => runAdbCommand(adb, command));
   await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: query });
   await waitForAndroidUi(250);
+  if (category === "posts") {
+    if (!await tapFacebookSearchSuggestionIfVisible(adb, query)) {
+      await submitFacebookSearchFromKeyboard(command => runAdbCommand(adb, command));
+    }
+    await waitForAndroidUi(750);
+    if (!await tapFacebookGroupsTabIfVisible(adb, ["Publicaciones", "Posts"])) {
+      throw new FacebookNavigationError("Facebook no muestra la pestaña Publicaciones. Revisa la pantalla y vuelve a abrir la búsqueda.");
+    }
+    return;
+  }
   await finishFacebookGroupSearch({
     selectSuggestion: () => tapFacebookSearchSuggestionIfVisible(adb, query),
     submitKeyboard: () => submitFacebookSearchFromKeyboard((command) => runAdbCommand(adb, command)),
@@ -1209,7 +1220,15 @@ function MobileDeviceCard({
         const pending = result.candidates.some((item) => item.selected && item.outcome !== "sent");
         return { outcome: pending ? "PARTIAL" : "COMPLETED", resultText: serializeConversationBatch(result), summary: result.progress };
       },
-      openUrl: (url) => runAdbCommand(adb, [
+      openUrl: async (url) => {
+        const destination = new URL(url);
+        const query = destination.searchParams.get("q")?.trim();
+        if (["facebook.com", "www.facebook.com", "m.facebook.com"].includes(destination.hostname)
+          && /^\/search\/posts\/?$/.test(destination.pathname) && query) {
+          await navigateFacebookGroupSearch(adb, controller, query, [query], "posts");
+          return;
+        }
+        return runAdbCommand(adb, [
         "am",
         "start",
         "-W",
@@ -1217,7 +1236,8 @@ function MobileDeviceCard({
         "android.intent.action.VIEW",
         "-d",
         url
-      ]),
+      ]);
+      },
       copyText: (content) => controller.setClipboard({
         sequence: BigInt(Date.now()),
         paste: false,
