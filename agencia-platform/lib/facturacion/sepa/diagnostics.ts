@@ -59,6 +59,48 @@ export async function recoverRecentSepaApprovals(workspaceId: string, invoiceNum
   return { examined: invoices.length, eligible, created, skipped, invalidated: 0, requestIds, errors };
 }
 
+/** Reparación acotada para una factura reciente que Holded importó sin cliente. */
+export async function repairRecentInvoiceClient(
+  workspaceId: string,
+  invoiceNumber: string,
+  clientName: string
+) {
+  const importedAfter = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [invoice, clients] = await Promise.all([
+    prisma.invoice.findFirst({
+      where: {
+        workspaceId,
+        number: { equals: invoiceNumber, mode: "insensitive" },
+        issuer: { name: NEGOCIO_VIVO_ISSUER_NAME, deletedAt: null },
+        createdAt: { gte: importedAfter },
+        deletedAt: null
+      },
+      select: { id: true, clientId: true, updatedAt: true }
+    }),
+    prisma.client.findMany({
+      where: {
+        workspaceId,
+        name: { equals: clientName, mode: "insensitive" },
+        deletedAt: null,
+        sepaEnabled: true,
+        sepaMandateActive: true,
+        sepaSantanderTemplate: { not: null }
+      },
+      select: { id: true, name: true },
+      take: 2
+    })
+  ]);
+  if (!invoice) throw new Error("Factura reciente no encontrada");
+  if (invoice.clientId) throw new Error("La factura ya tiene un cliente vinculado");
+  if (clients.length !== 1) throw new Error("El cliente SEPA no es una coincidencia exacta y única");
+  const changed = await prisma.invoice.updateMany({
+    where: { id: invoice.id, workspaceId, clientId: null, updatedAt: invoice.updatedAt },
+    data: { clientId: clients[0].id }
+  });
+  if (changed.count !== 1) throw new Error("La factura cambió durante la reparación; vuelve a diagnosticarla");
+  return { invoiceId: invoice.id, clientId: clients[0].id, clientName: clients[0].name };
+}
+
 export async function getRecentSepaDiagnostics(workspaceId: string, take = 50) {
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
   const excluded = new Set<string>(

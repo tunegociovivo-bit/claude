@@ -249,6 +249,17 @@ export async function holdedGetInvoice(opts: {
   invoiceId: string;
   signal?: AbortSignal;
 }): Promise<HoldedInvoice & { items?: any[] }> {
+  const key = await getApiKey(opts.workspaceId);
+  if (key.startsWith("pat_")) {
+    const resp = await fetch(`https://api.holded.com/api/v2/invoices/${encodeURIComponent(opts.invoiceId)}`, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      cache: "no-store"
+    });
+    if (!resp.ok) throw new Error(`Holded ${resp.status} /api/v2/invoices/${opts.invoiceId}: ${(await resp.text()).slice(0, 200)}`);
+    const payload = await resp.json();
+    return (normalizeHoldedV2Invoices({ items: [payload?.data ?? payload] })[0] ?? payload) as HoldedInvoice & { items?: any[] };
+  }
   return holdedFetch(opts.workspaceId, `/invoicing/v1/documents/invoice/${opts.invoiceId}`, { signal: opts.signal });
 }
 
