@@ -1,0 +1,59 @@
+name: Sign and notarize Mac time agent
+on:
+  push:
+    branches: [test/macos-time-agent-preview]
+    paths: ['.github/workflows/mac-sign.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sign:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: agencia-platform/macos-time-agent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import signing identities into an ephemeral keychain
+        env:
+          APP_P12: ${{ secrets.NV_MAC_APP_P12 }}
+          CERT_PASSWORD: ${{ secrets.NV_MAC_CERT_PASSWORD }}
+          ASC_KEY: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYCHAIN="$RUNNER_TEMP/nv-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          printf '%s' "$APP_P12" | base64 --decode > "$RUNNER_TEMP/nv-app.p12"
+          printf '%s' "$ASC_KEY" > "$RUNNER_TEMP/nv-auth.p8"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          security default-keychain -d user -s "$KEYCHAIN"
+          curl --fail --silent --show-error https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/nv-intermediate.cer"
+          security import "$RUNNER_TEMP/nv-intermediate.cer" -k "$KEYCHAIN"
+          security import "$RUNNER_TEMP/nv-app.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          xcrun notarytool store-credentials nv-notary --key "$RUNNER_TEMP/nv-auth.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER" --keychain "$KEYCHAIN"
+      - name: Build, test, sign and notarize
+        env:
+          SIGNING_IDENTITY: 'Developer ID Application: David Diaz Rios (9J97GC5NCG)'
+          NOTARY_PROFILE: nv-notary
+        run: bash release-dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-signed-notarized
+          path: |
+            agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.1.0.0.dmg
+            agencia-platform/macos-time-agent/dist/mac-native-window.png
+          retention-days: 7
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/nv-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/nv-app.p12" "$RUNNER_TEMP/nv-installer.p12" "$RUNNER_TEMP/nv-auth.p8"

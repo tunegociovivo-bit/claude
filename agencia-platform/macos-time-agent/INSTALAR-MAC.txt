@@ -1,0 +1,18 @@
+NEGOCIO VIVO - CONTROL HORARIO PARA MAC
+
+Compatible con macOS 14 o posterior, tanto Intel como Apple Silicon.
+
+1. Abre el archivo DMG descargado.
+2. Arrastra Negocio Vivo Control Horario a la carpeta Applications (Aplicaciones).
+3. Abre Aplicaciones y haz doble clic en Negocio Vivo Control Horario.
+4. Pega la credencial individual facilitada por el administrador del CRM.
+5. Si la empresa tiene activadas las capturas, pulsa Permitir capturas en este Mac y completa la autorización de macOS. El sistema puede pedir cerrar y volver a abrir la aplicación.
+6. Pulsa Iniciar cuando empieces a trabajar. Pausar detiene el registro; Reanudar lo continúa. Finalizar por hoy guarda el total y pone a cero el contador para la próxima jornada.
+
+La aplicación se encuentra en el Dock y en la barra superior del Mac. Cerrar la ventana no cierra el programa. Para detener el registro usa Pausar o Finalizar por hoy y espera la confirmación del CRM.
+
+Opcionalmente activa Abrir al iniciar sesión en el Mac. macOS puede pedir confirmarlo en Ajustes del Sistema > General > Ítems de inicio.
+
+Si no hay conexión, el programa muestra el último tiempo confirmado. No des por finalizada la jornada hasta ver la confirmación del CRM.
+
+No es necesario desactivar Gatekeeper ni las protecciones de macOS.
