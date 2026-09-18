@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { addFacebookReviewLinks, facebookKeywordReviewItem, MAX_FACEBOOK_REVIEW_ITEMS, parseFacebookReviewQueue, type FacebookReviewItem } from "@/lib/mobile/facebook-review-queue";
 
 export default function FacebookReviewQueue({ storageKey, ready, onOpen }: {
-  storageKey: string; ready: boolean; onOpen: (url: string) => Promise<void>;
+  storageKey: string; ready: boolean; onOpen: (url: string) => Promise<string | void>;
 }) {
   const [items, setItems] = useState<FacebookReviewItem[]>([]);
   const [links, setLinks] = useState("");
@@ -44,7 +44,7 @@ export default function FacebookReviewQueue({ storageKey, ready, onOpen }: {
   async function open(item: FacebookReviewItem) {
     if (busyRef.current || !ready) return;
     busyRef.current = true; setBusy(true); setMessage("");
-    try { await onOpen(item.url); setActive(item.url); }
+    try { const notice = await onOpen(item.url); setActive(item.url); if (notice) setMessage(notice); }
     catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo abrir el destino."); }
     finally { busyRef.current = false; setBusy(false); }
   }

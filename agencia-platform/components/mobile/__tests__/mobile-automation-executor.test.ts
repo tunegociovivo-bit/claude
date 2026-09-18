@@ -3,6 +3,14 @@ import { executeMobileAutomationJob } from "@/components/mobile/mobile-automatio
 import { createInitialFacebookGroupBatch, serializeFacebookGroupBatch } from "@/lib/mobile/facebook-group-batch";
 
 describe("mobile automation executor", () => {
+  it("returns a navigation notice without posting or copying text", async () => {
+    const copyText = vi.fn(async () => undefined);
+    const result = await executeMobileAutomationJob({ action: "OPEN_URL", targetUrl: "https://www.facebook.com/search/posts/?q=franquicias", text: null }, {
+      openUrl: async () => ({ summary: "Búsqueda general abierta" }), copyText
+    });
+    expect(result).toEqual({ outcome: "PREPARED", summary: "Búsqueda general abierta" });
+    expect(copyText).not.toHaveBeenCalled();
+  });
   it("opens and copies an approved job in order", async () => {
     const calls: string[] = [];
     const openUrl = vi.fn(async (url: string) => calls.push(`open:${url}`));

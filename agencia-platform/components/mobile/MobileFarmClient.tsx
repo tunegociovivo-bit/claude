@@ -261,7 +261,7 @@ async function navigateFacebookGroupSearch(
   query: string,
   knownQueries: readonly string[] = [query],
   category: "groups" | "posts" = "groups"
-): Promise<void> {
+): Promise<string | void> {
   await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
   await waitForAndroidUi(500);
   const facebookPackage = await resolveFacebookPackage(adb);
@@ -287,8 +287,10 @@ async function navigateFacebookGroupSearch(
   if (category === "posts") {
     await submitFacebookSearchFromKeyboard(command => runAdbCommand(adb, command));
     await waitForAndroidUi(750);
+    let searchHierarchy = "";
     for (let attempt = 0; attempt < 5; attempt++) {
-      const tab = findFacebookPostsTab(await readAndroidUiHierarchy(adb));
+      searchHierarchy = await readAndroidUiHierarchy(adb);
+      const tab = findFacebookPostsTab(searchHierarchy);
       if (tab) {
         await runAdbCommand(adb, ["input", "tap", String(tab.x), String(tab.y)]);
         await waitForAndroidUi(750);
@@ -296,7 +298,12 @@ async function navigateFacebookGroupSearch(
       }
       await waitForAndroidUi(500);
     }
-    throw new FacebookNavigationError("Facebook no muestra la pestaña Publicaciones. Revisa la pantalla y vuelve a abrir la búsqueda.");
+    const searchNodes = parseAndroidUiNodes(searchHierarchy);
+    if (!searchNodes.some(node => node.text.trim().toLowerCase() === query.toLowerCase())
+      || !searchNodes.some(node => /^(todo|all|personas|people|grupos|groups)$/i.test(node.text.trim()))) {
+      throw new FacebookNavigationError("No se ha podido confirmar la búsqueda en Facebook. Revisa la pantalla y reintenta.");
+    }
+    return "Facebook no muestra el filtro Publicaciones en esta cuenta. Se ha abierto la búsqueda general para que revises los resultados disponibles.";
   }
   await finishFacebookGroupSearch({
     selectSuggestion: () => tapFacebookSearchSuggestionIfVisible(adb, query),
@@ -1230,8 +1237,8 @@ function MobileDeviceCard({
         const query = destination.searchParams.get("q")?.trim();
         if (["facebook.com", "www.facebook.com", "m.facebook.com"].includes(destination.hostname)
           && /^\/search\/posts\/?$/.test(destination.pathname) && query) {
-          await navigateFacebookGroupSearch(adb, controller, query, [query], "posts");
-          return;
+          const notice = await navigateFacebookGroupSearch(adb, controller, query, [query], "posts");
+          return { summary: notice || "Búsqueda de publicaciones abierta en Facebook." };
         }
         return runAdbCommand(adb, [
         "am",

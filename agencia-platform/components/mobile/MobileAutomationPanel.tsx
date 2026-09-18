@@ -553,7 +553,7 @@ export default function MobileAutomationPanel({
         {reviewMode && reviewStorageScope ? <FacebookReviewQueue key={`${reviewStorageScope}:${deviceSerial}`} storageKey={`nv-facebook-review:${reviewStorageScope}:${deviceSerial}`} ready={ready && canManage && !jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))} onOpen={async url => {
           if (!ready || !canManage || workerBusyRef.current || jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))) throw new Error("Espera a que terminen los encargos y abre la pantalla del móvil.");
           workerBusyRef.current = true;
-          try { await onExecuteJob({ action: "OPEN_URL", targetUrl: url, text: null }); }
+          try { const result = await onExecuteJob({ action: "OPEN_URL", targetUrl: url, text: null }); return result.summary; }
           finally { workerBusyRef.current = false; }
         }} /> : <>
         <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900">

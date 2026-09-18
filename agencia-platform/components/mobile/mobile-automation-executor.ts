@@ -44,10 +44,12 @@ export async function executeMobileAutomationJob(
       if (!runner || !job.text) throw new Error("Este móvil no tiene disponible el lote de conversaciones.");
       return runner(parseConversationBatch(job.text));
     }
-    case "OPEN_URL":
+    case "OPEN_URL": {
       if (!job.targetUrl) throw new Error("El trabajo aprobado no contiene una URL.");
-      await dependencies.openUrl(job.targetUrl);
-      return { outcome: "PREPARED" };
+      const navigation = await dependencies.openUrl(job.targetUrl);
+      const summary = navigation && typeof navigation === "object" && "summary" in navigation && typeof navigation.summary === "string" ? navigation.summary : undefined;
+      return { outcome: "PREPARED", ...(summary ? { summary } : {}) };
+    }
     case "COPY_TEXT":
       if (!job.text) throw new Error("El trabajo aprobado no contiene texto.");
       await dependencies.copyText(job.text);
