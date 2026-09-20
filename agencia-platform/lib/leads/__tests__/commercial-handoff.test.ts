@@ -49,4 +49,15 @@ describe("commercial lead handoff", () => {
     expect(route).toContain("tx.$executeRaw`SELECT pg_advisory_xact_lock");
     expect(route).not.toContain("tx.$queryRaw`SELECT pg_advisory_xact_lock");
   });
+
+  it("inserts approved commercial leads at the top of the target column", () => {
+    const route = readFileSync(
+      resolve(process.cwd(), "app/api/v1/leads/[id]/send-to-commercial/route.ts"),
+      "utf8",
+    );
+
+    expect(route).toContain("data: { order: { increment: 1 } }");
+    expect(route).toContain("order: 0");
+    expect(route).not.toContain("_max: { order: true }");
+  });
 });

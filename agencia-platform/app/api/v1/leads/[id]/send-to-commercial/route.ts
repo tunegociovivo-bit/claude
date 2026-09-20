@@ -88,9 +88,9 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
         if (existingTask) return existingTask;
       }
 
-      const last = await tx.task.aggregate({
+      await tx.task.updateMany({
         where: { workspaceId: api.workspaceId, projectId: project.id, status, deletedAt: null },
-        _max: { order: true }
+        data: { order: { increment: 1 } }
       });
       const task = await tx.task.create({
         data: {
@@ -100,7 +100,7 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
           description: commercialLeadDescription(lead),
           status,
           priority: "HIGH",
-          order: (last._max.order ?? -1) + 1,
+          order: 0,
           customData: {
             source: "lead-commercial-handoff",
             leadId: lead.id,
