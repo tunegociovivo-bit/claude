@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { commercialLeadDescription, findCommercialColumnId } from "../commercial-handoff";
+import {
+  commercialLeadDescription,
+  findCommercialColumnId,
+  isCommercialLeadColumn,
+  isCommercialProjectName
+} from "../commercial-handoff";
 
 describe("commercial lead handoff", () => {
   it("resolves LEADS GMB by stable id even when its visual order changes", () => {
@@ -13,6 +18,14 @@ describe("commercial lead handoff", () => {
 
     expect(findCommercialColumnId(before)).toBe("GMB_LEADS");
     expect(findCommercialColumnId(after)).toBe("GMB_LEADS");
+  });
+
+  it("recognizes all commercial lead inbox names used by Meta and Make", () => {
+    expect(isCommercialProjectName("aitor (comercial)")).toBe(true);
+    expect(isCommercialLeadColumn("LEADS GMB")).toBe(true);
+    expect(isCommercialLeadColumn("Nuevos clientes")).toBe(true);
+    expect(isCommercialLeadColumn("NUEVOS CLIENTES 2022")).toBe(true);
+    expect(isCommercialLeadColumn("Seguimiento")).toBe(false);
   });
 
   it("returns null instead of silently using the first column", () => {

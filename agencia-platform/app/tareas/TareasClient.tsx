@@ -946,8 +946,9 @@ export default function TareasClient({
       // Muchas tareas importadas comparten order=0. No podemos usar
       // updatedAt para resolver ese empate: guardar una edición cambia
       // updatedAt y haría que la tarjeta saltase arriba de la columna.
-      // createdAt + id mantienen una posición determinista y estable.
-      const createdDiff = (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+      // createdAt desc + id mantienen una posición determinista y estable,
+      // y hacen que las tareas nuevas sin order explícito aparezcan arriba.
+      const createdDiff = (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
       return createdDiff !== 0 ? createdDiff : a.id.localeCompare(b.id);
     };
     // Concatenamos: primero las compartidas (entran arriba), luego

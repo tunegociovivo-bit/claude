@@ -10,6 +10,7 @@ import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity } from "@/lib/search/embeddings";
 import { textForTask } from "@/lib/search/indexers";
 import { claimTaskMedia, validateTaskMedia } from "@/lib/files/task-media-server";
+import { isCommercialLeadColumn, isCommercialProjectName } from "@/lib/leads/commercial-handoff";
 
 export const GET = withApi({ scope: "tasks:read" }, async (req, { api }) => {
   const url = new URL(req.url);
@@ -72,10 +73,31 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
       workspaceId: api.workspaceId,
       userId: api.userId
     });
+    const project = await tx.project.findFirst({
+      where: { id: primaryProject, workspaceId: api.workspaceId, deletedAt: null },
+      select: { id: true, name: true, kanbanColumns: true }
+    });
+    const column = Array.isArray(project?.kanbanColumns)
+      ? (project!.kanbanColumns as any[]).find(
+          (col) =>
+            String(col?.id ?? "") === data.status ||
+            String(col?.label ?? "") === data.status
+        )
+      : null;
+    const isCommercialInboxTask =
+      isCommercialProjectName(project?.name) &&
+      (isCommercialLeadColumn(data.status) || isCommercialLeadColumn(column?.label ?? column?.id));
+    if (isCommercialInboxTask) {
+      await tx.task.updateMany({
+        where: { workspaceId: api.workspaceId, projectId: primaryProject, status: data.status, deletedAt: null },
+        data: { order: { increment: 1 } }
+      });
+    }
     const created = await tx.task.create({ data: {
       ...data,
       projectId: primaryProject,
       workspaceId: api.workspaceId,
+      ...(isCommercialInboxTask ? { order: 0 } : {}),
       dueDate: data.dueDate ? new Date(data.dueDate) : null,
       ...(typeof dueAllDay === "boolean" ? { dueAllDay } : {}),
       ...(notifyDueRules !== undefined ? { notifyDueRules: notifyDueRules as any } : {}),

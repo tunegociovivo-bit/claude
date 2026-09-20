@@ -3,16 +3,30 @@ export const COMMERCIAL_COLUMN = "LEADS GMB";
 export const COMMERCIAL_PHONE = "+34 623 91 95 32";
 
 type ProjectColumn = { id?: unknown; label?: unknown };
+const COMMERCIAL_INBOX_COLUMNS = new Set([
+  COMMERCIAL_COLUMN,
+  "NUEVOS CLIENTES",
+  "NUEVOS CLIENTES 2022"
+]);
 
 function normalizeLabel(value: unknown): string {
   return String(value ?? "").trim().toLocaleUpperCase("es-ES");
 }
 
+export function isCommercialProjectName(value: unknown): boolean {
+  return normalizeLabel(value) === COMMERCIAL_PROJECT;
+}
+
+export function isCommercialLeadColumn(value: unknown): boolean {
+  return COMMERCIAL_INBOX_COLUMNS.has(normalizeLabel(value));
+}
+
 export function findCommercialColumnId(columns: unknown): string | null {
   if (!Array.isArray(columns)) return null;
-  const match = (columns as ProjectColumn[]).find(
-    (column) => normalizeLabel(column.label ?? column.id) === COMMERCIAL_COLUMN
-  );
+  const projectColumns = columns as ProjectColumn[];
+  const match =
+    projectColumns.find((column) => normalizeLabel(column.label ?? column.id) === COMMERCIAL_COLUMN) ??
+    projectColumns.find((column) => isCommercialLeadColumn(column.label ?? column.id));
   return match?.id ? String(match.id) : null;
 }
 
