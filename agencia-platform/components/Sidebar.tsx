@@ -324,6 +324,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
             // Mientras /me no haya respondido aún (me === null), mostramos
             // todo para no parpadear. Cuando llegue, filtramos por features.
             if (!me) return true;
+            // El acceso global a /tareas muestra el tablero general. Los
+            // trabajadores deben entrar por sus proyectos concretos del
+            // bloque "Proyectos", no por la vista global de tareas.
+            if (item.href === "/tareas" && me.role !== "ADMIN") return false;
             return me.features.includes(item.feature);
           })
           // Preferencia personal: pestañas ocultadas en /admin/personalizar.

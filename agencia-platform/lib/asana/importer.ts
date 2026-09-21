@@ -717,15 +717,60 @@ async function runImport(jobId: string, opts: ImportOptions) {
       });
       const projName = localProj?.name ?? projectGid;
       await heartbeat(jobId, `Importando tareas — proyecto ${projectIdx}/${totalProjects}: ${projName}`);
-      // Asana devuelve las tareas en el orden que tienen en el
-      // proyecto (top-to-bottom como las ve el user). Asignamos
-      // `order` incremental por columna para preservar ese orden,
-      // si no todas quedan con order=0 y el tie-break por createdAt
-      // las invierte. El order es POR COLUMNA: cada sección tiene su
-      // propia secuencia.
+      // Para preservar el orden visual de Asana NO basta con leer
+      // /projects/{gid}/tasks: ese endpoint puede devolver una lista
+      // global cuya paginación no coincide siempre con el orden que el
+      // usuario ve dentro de cada sección. Recorremos primero sección a
+      // sección con /sections/{gid}/tasks, que mantiene el orden real de
+      // la columna. Después hacemos una pasada de seguridad por el
+      // proyecto para tareas sin sección o secciones añadidas durante la
+      // importación.
       const orderPerColumn = new Map<string, number>();
+      const importedTaskGids = new Set<string>();
       let tasksThisProject = 0;
-      for await (const t of client.projectTasks(projectGid)) {
+
+      const ensureSection = async (sectionGid: string | null, sectionName: string | null) => {
+        // Si la sección de la task NO está en el map del proyecto
+        // (porque se añadió en Asana DESPUÉS de la lectura inicial
+        // de secciones, o porque el API devolvió la lista incompleta
+        // por alguna razón), la añadimos AHORA al proyecto. Sin esto,
+        // tasks con sección desconocida caían al genérico TODO —
+        // amontonadas en "primera columna" en vez de su sección real.
+        if (sectionGid && sectionName && !info.sections.has(sectionGid)) {
+          const existingIds = new Set(Array.from(info.sections.values()).map((s) => s.columnId));
+          let colId = slugifyColumnId(sectionName);
+          if (!colId) colId = `COL_EXTRA_${existingIds.size + 1}`;
+          let base = colId;
+          let n = 2;
+          while (existingIds.has(colId)) {
+            colId = `${base}_${n}`;
+            n++;
+          }
+          info.sections.set(sectionGid, { name: sectionName, columnId: colId });
+
+          // Persistir la nueva columna en el proyecto. Leemos las
+          // actuales y añadimos al final.
+          const proj = await prisma.project.findUnique({
+            where: { id: info.localId },
+            select: { kanbanColumns: true }
+          });
+          const currentCols = Array.isArray(proj?.kanbanColumns) ? (proj!.kanbanColumns as any[]) : [];
+          const isDone = /(hecho|done|complete|publicad|finalizad)/i.test(sectionName);
+          const newCol: any = {
+            id: colId,
+            label: sectionName,
+            color: COLUMN_PALETTE[currentCols.length % COLUMN_PALETTE.length],
+            order: currentCols.length
+          };
+          if (isDone) newCol.isDone = true;
+          await prisma.project.update({
+            where: { id: info.localId },
+            data: { kanbanColumns: [...currentCols, newCol] as any }
+          });
+        }
+      };
+
+      const importTaskInProject = async (t: AsanaTask, forcedSectionGid?: string | null) => {
         // CRÍTICO: cada tarea se importa en su propio try/catch. Si
         // upsertTask falla por una tarea concreta (atributo raro,
         // race condition, conflict en unique), antes mataba el import
@@ -734,47 +779,11 @@ async function runImport(jobId: string, opts: ImportOptions) {
         // sin duplicar por idempotencia con asanaId.
         try {
           const membership = t.memberships?.find((m) => m.project.gid === projectGid);
-          const sectionGid = membership?.section?.gid ?? null;
-          const sectionName = membership?.section?.name ?? null;
+          const sectionGid = forcedSectionGid ?? membership?.section?.gid ?? null;
+          const sectionName =
+            (sectionGid ? info.sections.get(sectionGid)?.name : null) ?? membership?.section?.name ?? null;
 
-          // Si la sección de la task NO está en el map del proyecto
-          // (porque se añadió en Asana DESPUÉS de la lectura inicial
-          // de secciones, o porque el API devolvió la lista incompleta
-          // por alguna razón), la añadimos AHORA al proyecto. Sin esto,
-          // tasks con sección desconocida caían al genérico TODO —
-          // amontonadas en "primera columna" en vez de su sección real.
-          if (sectionGid && sectionName && !info.sections.has(sectionGid)) {
-            const existingIds = new Set(Array.from(info.sections.values()).map((s) => s.columnId));
-            let colId = slugifyColumnId(sectionName);
-            if (!colId) colId = `COL_EXTRA_${existingIds.size + 1}`;
-            let base = colId;
-            let n = 2;
-            while (existingIds.has(colId)) {
-              colId = `${base}_${n}`;
-              n++;
-            }
-            info.sections.set(sectionGid, { name: sectionName, columnId: colId });
-
-            // Persistir la nueva columna en el proyecto. Leemos las
-            // actuales y añadimos al final.
-            const proj = await prisma.project.findUnique({
-              where: { id: info.localId },
-              select: { kanbanColumns: true }
-            });
-            const currentCols = Array.isArray(proj?.kanbanColumns) ? (proj!.kanbanColumns as any[]) : [];
-            const isDone = /(hecho|done|complete|publicad|finalizad)/i.test(sectionName);
-            const newCol: any = {
-              id: colId,
-              label: sectionName,
-              color: COLUMN_PALETTE[currentCols.length % COLUMN_PALETTE.length],
-              order: currentCols.length
-            };
-            if (isDone) newCol.isDone = true;
-            await prisma.project.update({
-              where: { id: info.localId },
-              data: { kanbanColumns: [...currentCols, newCol] as any }
-            });
-          }
+          await ensureSection(sectionGid, sectionName);
 
           const sectionInfo = sectionGid ? info.sections.get(sectionGid) : null;
           const colKey = sectionInfo?.columnId ?? "__nocol__";
@@ -782,6 +791,7 @@ async function runImport(jobId: string, opts: ImportOptions) {
           orderPerColumn.set(colKey, nextOrder + 1);
           await upsertTask(t, info.localId, projectGid, sectionGid, undefined, nextOrder);
           stats.tasks++;
+          importedTaskGids.add(t.gid);
 
           // Subtareas — heredan el proyecto principal del padre y su
           // sección (las subtareas en Asana no tienen sección propia).
@@ -808,6 +818,22 @@ async function runImport(jobId: string, opts: ImportOptions) {
             `Importando tareas — proyecto ${projectIdx}/${totalProjects}: ${projName} (${tasksThisProject} en este proyecto)`
           );
         }
+      };
+
+      for (const [sectionGid, sectionInfo] of info.sections) {
+        await heartbeat(
+          jobId,
+          `Importando tareas — proyecto ${projectIdx}/${totalProjects}: ${projName} · ${sectionInfo.name}`
+        );
+        for await (const t of client.sectionTasks(sectionGid)) {
+          if (importedTaskGids.has(t.gid)) continue;
+          await importTaskInProject(t, sectionGid);
+        }
+      }
+
+      for await (const t of client.projectTasks(projectGid)) {
+        if (importedTaskGids.has(t.gid)) continue;
+        await importTaskInProject(t);
       }
       await persistStats(jobId, stats);
     }
