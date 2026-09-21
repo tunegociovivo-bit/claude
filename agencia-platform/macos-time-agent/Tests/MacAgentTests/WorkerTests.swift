@@ -9,6 +9,8 @@ final class WorkerProtocol: URLProtocol {
     static var started = false
     static var worked = 0
     static var failStop = false
+    static var failStart = false
+    static var workedOnStop = 3600
     static var conflict = false
     static var screenshotsEnabled = false
     static var starts = 0
@@ -29,9 +31,12 @@ final class WorkerProtocol: URLProtocol {
                 while stream.hasBytesAvailable { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; data.append(contentsOf: buffer.prefix(count)) }
             }
             let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
-            if body?["action"] == "start" { Self.active = true; Self.started = true; Self.starts += 1 }
+            if body?["action"] == "start" {
+                if Self.failStart { status = 503 }
+                else { Self.active = true; Self.started = true; Self.starts += 1 }
+            }
             else if Self.failStop { status = 503 }
-            else { Self.active = false; Self.worked = 3600 }
+            else { Self.active = false; Self.worked = Self.workedOnStop }
             if Self.conflict { status = 409 }
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
@@ -44,6 +49,7 @@ final class WorkerProtocol: URLProtocol {
     private func model(permission: @escaping () -> Bool = { true }) -> AgentModel {
         WorkerProtocol.active = false; WorkerProtocol.started = false; WorkerProtocol.worked = 0
         WorkerProtocol.failStop = false; WorkerProtocol.conflict = false
+        WorkerProtocol.failStart = false; WorkerProtocol.workedOnStop = 3600
         WorkerProtocol.screenshotsEnabled = false; WorkerProtocol.starts = 0
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [WorkerProtocol.self]
         let defaults = UserDefaults(suiteName: "NV.Tests." + UUID().uuidString)!
@@ -119,7 +125,7 @@ final class WorkerProtocol: URLProtocol {
         await model.perform("pause"); XCTAssertTrue(model.state.summary.active)
         await model.perform("finish"); XCTAssertTrue(model.state.finished)
         XCTAssertEqual(model.displayTime, "00:00:00"); XCTAssertEqual(model.state.summary.workedSec, 3600)
-        XCTAssertFalse(model.canStart); XCTAssertFalse(model.canPause)
+        XCTAssertTrue(model.canStart); XCTAssertFalse(model.canPause)
         await model.refresh(); XCTAssertTrue(model.state.finished)
         WorkerProtocol.active = true; await model.refresh(); XCTAssertFalse(model.state.finished)
     }
@@ -128,6 +134,61 @@ final class WorkerProtocol: URLProtocol {
         WorkerProtocol.failStop = true; await model.perform("finish")
         XCTAssertFalse(model.state.finished); XCTAssertFalse(model.state.online)
         XCTAssertTrue(WorkerProtocol.active)
+    }
+    func testReopenFinishedDayPreservesTotalAndAddsNewTime() async {
+        let model = model(); await model.refresh(); await model.perform("start")
+        await model.perform("finish")
+        XCTAssertEqual(model.startLabel, "Reabrir jornada")
+        XCTAssertEqual(model.state.summary.workedSec, 3600)
+        await model.perform("start")
+        XCTAssertTrue(model.state.summary.active)
+        XCTAssertFalse(model.state.finished)
+        XCTAssertEqual(model.displayTime, "01:00:00")
+        WorkerProtocol.workedOnStop = 5400
+        await model.perform("finish")
+        XCTAssertEqual(model.state.summary.workedSec, 5400)
+        await model.perform("start")
+        XCTAssertEqual(model.displayTime, "01:30:00")
+        XCTAssertEqual(WorkerProtocol.starts, 3)
+    }
+    func testReopenStillRequiresCapturePermissionAndServerConfirmation() async {
+        var permitted = true
+        let model = model(permission: { permitted })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh(); await model.perform("start"); await model.perform("finish")
+        permitted = false
+        await model.perform("start")
+        XCTAssertTrue(model.state.finished)
+        XCTAssertFalse(WorkerProtocol.active)
+        XCTAssertEqual(WorkerProtocol.starts, 1)
+        permitted = true; WorkerProtocol.failStart = true
+        await model.perform("start")
+        XCTAssertTrue(model.state.finished)
+        XCTAssertFalse(model.state.online)
+        WorkerProtocol.failStart = false
+        await model.refresh()
+        XCTAssertTrue(model.state.finished)
+        await model.perform("start")
+        XCTAssertFalse(model.state.finished)
+        XCTAssertTrue(model.state.summary.active)
+        XCTAssertEqual(model.state.summary.workedSec, 3600)
+    }
+    func testPersistedFinishedDayCanBeReopenedAfterAppRestart() async throws {
+        _ = model()
+        WorkerProtocol.started = true; WorkerProtocol.worked = 7200
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [WorkerProtocol.self]
+        let suite = "NV.Reopen." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Calendar.current.startOfDay(for: Date()), forKey: "finishedDay")
+        let restarted = AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: config)), defaults: defaults)
+        await restarted.refresh()
+        XCTAssertTrue(restarted.state.finished)
+        XCTAssertTrue(restarted.canStart)
+        await restarted.perform("start")
+        XCTAssertTrue(restarted.state.summary.active)
+        XCTAssertEqual(restarted.displayTime, "02:00:00")
+        XCTAssertNil(defaults.object(forKey: "finishedDay"))
     }
     func testYesterdayFinishedMarkerAllowsNewDay() async throws {
         _ = model()

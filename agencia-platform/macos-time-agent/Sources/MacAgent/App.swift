@@ -27,7 +27,7 @@ struct MenuContent: View {
         Text(model.status + " · " + model.displayTime)
         Button("Abrir Control horario") { openWindow(id: "worker"); NSApp.activate(ignoringOtherApps: true) }
         Divider()
-        Button("Iniciar") { Task { await model.perform("start") } }.disabled(!model.canStart)
+        Button(model.startLabel) { Task { await model.perform("start") } }.disabled(!model.canStart)
         Button(model.state.summary.active ? "Pausar" : "Reanudar") { Task { await model.perform("pause") } }.disabled(!model.canPause)
         Button("Finalizar por hoy") { Task { await model.perform("finish") } }.disabled(!model.canFinish)
         Divider()
@@ -73,7 +73,7 @@ struct WorkerView: View {
                 }
                 VStack(spacing: 10) {
                     Button { Task { await model.perform("start") } } label: {
-                        Label("Iniciar", systemImage: "play.fill").frame(maxWidth: .infinity)
+                        Label(model.startLabel, systemImage: "play.fill").frame(maxWidth: .infinity)
                     }.disabled(!model.canStart).buttonStyle(.borderedProminent)
                     Button { Task { await model.perform("pause") } } label: {
                         Label(model.state.summary.active ? "Pausar" : "Reanudar", systemImage: model.state.summary.active ? "pause.fill" : "play.fill").frame(maxWidth: .infinity)
@@ -107,7 +107,7 @@ struct WorkerView: View {
         .alert("¿Finalizar la jornada de hoy?", isPresented: $confirmFinish) {
             Button("Cancelar", role: .cancel) {}
             Button("Finalizar por hoy") { Task { await model.perform("finish") } }
-        } message: { Text("Se guardará el tiempo trabajado y el contador quedará a cero para la próxima jornada.") }
+        } message: { Text("Se guardará el tiempo trabajado. Si necesitas trabajar más hoy, podrás pulsar Reabrir jornada para continuar sumando.") }
     }
 }
 

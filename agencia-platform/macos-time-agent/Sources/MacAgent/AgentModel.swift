@@ -32,7 +32,8 @@ import AgentCore
         let id = UUID().uuidString; defaults.set(id, forKey: "deviceID"); return id
     }
     private var finishedToday: Bool { defaults.object(forKey: "finishedDay") as? Date == currentDay }
-    var canStart: Bool { linked && !busy && state.online && policy?.trackingEnabled == true && !state.summary.active && !state.finished && state.summary.startedAt == nil }
+    var canStart: Bool { linked && !busy && state.online && policy?.trackingEnabled == true && !state.summary.active && (state.finished || state.summary.startedAt == nil) }
+    var startLabel: String { state.finished ? "Reabrir jornada" : "Iniciar" }
     var canPause: Bool { linked && !busy && state.online && !state.finished && (state.summary.active || state.summary.startedAt != nil) }
     var canFinish: Bool { canPause }
     var status: String {
@@ -97,7 +98,7 @@ import AgentCore
         if day.active { defaults.removeObject(forKey: "finishedDay") }
         state.apply(day, uptime: ProcessInfo.processInfo.systemUptime, finishedToday: finishedToday)
         displayTime = DayState.format(state.seconds(at: ProcessInfo.processInfo.systemUptime))
-        if state.finished { message = "Jornada guardada: \(DayState.format(day.workedSec)). El próximo día empezarás desde cero." }
+        if state.finished { message = "Jornada guardada: \(DayState.format(day.workedSec)). Puedes reabrir la jornada para seguir sumando horas hoy." }
     }
     func perform(_ action: String) async {
         guard !busy, let hub else { return }
@@ -120,7 +121,7 @@ import AgentCore
             guard day.active == start else { throw HubError.status(409) }
             if action == "finish" {
                 defaults.set(currentDay, forKey: "finishedDay")
-                message = "Jornada guardada: \(DayState.format(day.workedSec)). El próximo día empezarás desde cero."
+                message = "Jornada guardada: \(DayState.format(day.workedSec)). Puedes reabrir la jornada para seguir sumando horas hoy."
             } else { message = start ? "Jornada iniciada y confirmada en el CRM." : "Pausa confirmada. La actividad y las capturas están detenidas." }
             accept(day); observedAt = Date()
             if start { nextCapture = Date().addingTimeInterval(policy?.captureDelay ?? 600) }

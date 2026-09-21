@@ -9,6 +9,6 @@ COMPONENTS="$STAGING.plist"
 pkgbuild --analyze --root "$STAGING" "$COMPONENTS"
 # Always install in /Applications, even when another copy exists in Downloads or the build folder.
 /usr/libexec/PlistBuddy -c 'Set :0:BundleIsRelocatable false' "$COMPONENTS"
-ARGS=(--root "$STAGING" --component-plist "$COMPONENTS" --identifier app.negociovivo.time-agent.mac --version 1.0.3 --install-location /)
+ARGS=(--root "$STAGING" --component-plist "$COMPONENTS" --identifier app.negociovivo.time-agent.mac --version 1.0.4 --install-location /)
 if [[ -n "${INSTALLER_IDENTITY:-}" ]]; then ARGS+=(--sign "$INSTALLER_IDENTITY"); fi
 pkgbuild "${ARGS[@]}" "$OUTPUT"

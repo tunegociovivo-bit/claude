@@ -11,7 +11,7 @@ APP="dist/Negocio Vivo Control Horario.app"
 xcrun notarytool submit dist/Negocio.Vivo.Control.Horario.Mac.preview.zip --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$APP"
 spctl --assess --type execute --verbose "$APP"
-PACKAGE="dist/Negocio.Vivo.Control.Horario.Mac.1.0.3.pkg"
+PACKAGE="dist/Negocio.Vivo.Control.Horario.Mac.1.0.4.pkg"
 bash package-mac.sh "$PACKAGE"
 xcrun notarytool submit "$PACKAGE" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$PACKAGE"
