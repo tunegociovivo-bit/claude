@@ -187,7 +187,10 @@ import AgentCore
         capturePermissionGranted = capturePermission()
         if policy?.screenshotsEnabled != true { captureStatus = "Capturas desactivadas por la empresa" }
         else if !capturePermissionGranted { captureStatus = "Capturas: falta el permiso de grabación de pantalla" }
-        else { captureStatus = state.summary.active ? "Capturas activas durante la jornada" : "Capturas detenidas" }
+        else if !state.summary.active { captureStatus = "Capturas detenidas" }
+        else if !ScreenCapture.unlocked { captureStatus = "Capturas en espera: pantalla bloqueada" }
+        else if ScreenCapture.idle { captureStatus = "Capturas en espera: más de 5 minutos sin usar teclado o ratón" }
+        else { captureStatus = "Capturas activas durante la jornada" }
     }
     func permitCapture() {
         ScreenCapture.requestPermission()

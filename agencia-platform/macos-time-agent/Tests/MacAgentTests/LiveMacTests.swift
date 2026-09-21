@@ -57,7 +57,7 @@ final class LiveRequestObserver: URLProtocol {
             }
             try await Task.sleep(nanoseconds: 1_000_000_000)
             if second == 1 {
-                let idleSeconds = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .null)
+                let idleSeconds = ScreenCapture.idleSeconds()
                 print("NV_PROOF simulatedInputIdleSeconds=\(Int(idleSeconds))")
                 guard idleSeconds < 30 else { throw XCTSkip("Runner did not accept simulated input; active-work capture test cannot be completed") }
             }

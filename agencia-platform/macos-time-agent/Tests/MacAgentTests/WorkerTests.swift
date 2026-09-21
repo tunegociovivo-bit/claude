@@ -149,6 +149,29 @@ final class WorkerProtocol: URLProtocol {
         let onConsole = info[kCGSessionOnConsoleKey] as? Bool == true
         XCTAssertEqual(ScreenCapture.unlocked, onConsole && info["CGSSessionScreenIsLocked"] as? Bool != true)
     }
+    func testIdleMeasurementIncludesAllUserInputInsteadOfNullEvents() {
+        let recent = ScreenCapture.idleSeconds { source, event in
+            XCTAssertEqual(source, .combinedSessionState)
+            XCTAssertEqual(event.rawValue, UInt32.max)
+            // Reproduce the incident: null events are old while real input is recent.
+            return event == .null ? 3600 : 2
+        }
+        XCTAssertEqual(recent, 2)
+        XCTAssertFalse(recent > 300)
+        XCTAssertTrue(ScreenCapture.idleSeconds { _, _ in 301 } > 300)
+    }
+    func testNativeMouseActivityResetsIdleMeasurement() async throws {
+        // Only the disposable CI Mac synthesizes input; no CRM data is sent.
+        guard ProcessInfo.processInfo.environment["CI"] == "true" else {
+            throw XCTSkip("Native input test runs on the disposable Mac runner")
+        }
+        let event = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+            mouseCursorPosition: CGPoint(x: 180, y: 180), mouseButton: .left))
+        event.post(tap: .cghidEventTap)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertLessThan(ScreenCapture.idleSeconds(), 5)
+        XCTAssertFalse(ScreenCapture.idle)
+    }
     func testConflictReconcilesConfirmedServerState() async {
         let model = model(); await model.refresh()
         WorkerProtocol.conflict = true; await model.perform("start")

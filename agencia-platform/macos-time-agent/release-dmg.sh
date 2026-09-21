@@ -13,7 +13,7 @@ STAGING="$(mktemp -d "$PWD/dist/dmg-content.XXXXXX")"
 ditto "$APP" "$STAGING/Negocio Vivo Control Horario.app"
 ln -s /Applications "$STAGING/Applications"
 cp INSTALAR-MAC.txt "$STAGING/LEEME - Instalacion.txt"
-DMG="dist/Negocio.Vivo.Control.Horario.Mac.1.0.2.dmg"
+DMG="dist/Negocio.Vivo.Control.Horario.Mac.1.0.3.dmg"
 hdiutil create -volname "Negocio Vivo Control Horario" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG"
 xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait

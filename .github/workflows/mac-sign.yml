@@ -49,7 +49,7 @@ jobs:
         with:
           name: mac-signed-notarized
           path: |
-            agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.1.0.2.dmg
+            agencia-platform/macos-time-agent/dist/Negocio.Vivo.Control.Horario.Mac.1.0.3.dmg
             agencia-platform/macos-time-agent/dist/mac-native-window.png
           retention-days: 7
       - name: Remove temporary signing material

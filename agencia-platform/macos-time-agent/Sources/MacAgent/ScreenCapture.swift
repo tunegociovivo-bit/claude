@@ -5,7 +5,14 @@ import AgentCore
 
 enum ScreenCapture {
     static var permitted: Bool { CGPreflightScreenCaptureAccess() }
-    static var idle: Bool { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .null) > 300 }
+    // kCGAnyInputEventType is UINT32_MAX. `.null` measures null events,
+    // not keyboard/mouse/tablet activity, and can report a false idle session.
+    static func idleSeconds(query: (CGEventSourceStateID, CGEventType) -> Double = {
+        CGEventSource.secondsSinceLastEventType($0, eventType: $1)
+    }) -> Double {
+        query(.combinedSessionState, CGEventType(rawValue: UInt32.max)!)
+    }
+    static var idle: Bool { idleSeconds() > 300 }
     static var unlocked: Bool {
         guard let info = CGSessionCopyCurrentDictionary() as? [String: Any],
               info[kCGSessionOnConsoleKey] as? Bool == true else { return false }
