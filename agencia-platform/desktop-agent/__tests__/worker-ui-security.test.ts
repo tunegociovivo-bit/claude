@@ -52,17 +52,17 @@ describe("interfaz del agente de control horario", () => {
     expect(main).not.toContain('click: () => { store.set("paused", !paused)');
   });
 
-  it("permite solicitar al administrador el código indicando nombre y email", () => {
+  it("vincula el equipo solo con el código generado por el administrador", () => {
     const html = readFileSync(resolve(root, "src/settings.html"), "utf8");
     const preload = readFileSync(resolve(root, "src/preload.js"), "utf8");
     const main = readFileSync(resolve(root, "src/main.js"), "utf8");
 
-    expect(html).toContain('id="requestName"');
-    expect(html).toContain('id="requestEmail"');
-    expect(html).toContain('id="requestCode"');
-    expect(preload).toContain("requestEnrollment");
-    expect(main).toContain('ipcMain.handle("enrollment:request"');
-    expect(main).toContain("/api/public/time-tracking/enrollment-request");
+    expect(html).toContain('id="enrollmentCode"');
+    expect(html).toContain('id="link"');
+    expect(html).toContain("Pide al administrador un codigo individual");
+    expect(preload).toContain("enroll");
+    expect(main).toContain('ipcMain.handle("enrollment:set"');
+    expect(main).not.toContain('ipcMain.handle("enrollment:request"');
   });
 
   it("protege en servidor los límites de la jornada del agente", () => {
@@ -84,23 +84,18 @@ describe("interfaz del agente de control horario", () => {
 
     expect(dashboard).toContain("Negocio-Vivo-Editor-Confiable.cer");
     expect(dashboard).toContain('label="Certificado"');
-    expect(dashboard).toContain('label="Descargar para Windows"');
-    expect(dashboard).toContain("Solo para equipos internos de Negocio Vivo");
-    expect(dashboard).toContain("660043706FBF95556DFDC81B09D3F89271C3037C674CBEEEB3EA4376C18E6FD9");
+    expect(dashboard).toContain('label="Descargar instalador MSI"');
+    expect(dashboard).toContain("Windows · instalador MSI nativo");
+    expect(dashboard).toContain("8929964F66C44D5CDB1E35426E737EFE2A845B6F86962C38728F290EA7019576");
     expect(dashboard).toContain("7BD7D8745253F281D6A47A61CC396437257D2C7C");
-    expect(dashboard).toContain("Opciones para administración");
   });
 
-  it("ofrece una instalación interna que verifica firma y hash antes de quitar la marca de Internet", () => {
+  it("no publica comandos técnicos para instalar Windows desde el navegador", () => {
     const dashboard = readFileSync(resolve(root, "../components/time-tracking/TimeTrackingClient.tsx"), "utf8");
 
-    expect(dashboard).toContain("Copiar comando técnico");
-    expect(dashboard).toContain("Get-AuthenticodeSignature");
-    expect(dashboard).toContain("Get-FileHash");
-    expect(dashboard).toContain("TrustedPublisher");
-    expect(dashboard).toContain("Unblock-File -LiteralPath $installerPath");
-    expect(dashboard).toContain("036EE3AAE6C8E30D96CC6C3AD4976A9F0E4A2930F5B918AF3A9F6F09CA19B751");
-    expect(dashboard.indexOf("Get-AuthenticodeSignature")).toBeLessThan(dashboard.indexOf("Unblock-File -LiteralPath $installerPath"));
+    expect(dashboard).not.toContain("Copiar comando técnico");
+    expect(dashboard).not.toContain("Get-AuthenticodeSignature");
+    expect(dashboard).not.toContain("Unblock-File -LiteralPath $installerPath");
   });
 
   it("no ofrece un bootstrap descargable sin autenticar y explica el único aviso manual", () => {
@@ -108,7 +103,7 @@ describe("interfaz del agente de control horario", () => {
 
     expect(existsSync(resolve(root, "../public/downloads/Instalar-Control-Horario-Negocio-Vivo.cmd"))).toBe(false);
     expect(dashboard).not.toContain("WIN_EASY_INSTALL_URL");
-    expect(dashboard).toContain("Más información");
-    expect(dashboard).toContain("Ejecutar de todas formas");
+    expect(dashboard).toContain("Tras instalar, abre Control horario");
+    expect(dashboard).toContain("pega la credencial individual");
   });
 });

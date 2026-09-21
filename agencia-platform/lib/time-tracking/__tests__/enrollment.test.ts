@@ -38,7 +38,7 @@ describe("solicitudes de vinculación del control horario", () => {
     const worker = buildWorkerCodeEmail({ name: "<b>Ana</b>", code: "NV-1234567890-ABCDEFGHIJKLMN" });
     expect(admin.html).not.toContain("<b>Ana</b>");
     expect(admin.html).toContain("&lt;b&gt;Ana&lt;/b&gt;");
-    expect(admin.html).toContain("Revisar y generar código");
+    expect(admin.html).toContain("Revisar y generar codigo");
     expect(worker.html).toContain("NV-1234567890-ABCDEFGHIJKLMN");
     expect(worker.html).not.toContain("<b>Ana</b>");
   });
