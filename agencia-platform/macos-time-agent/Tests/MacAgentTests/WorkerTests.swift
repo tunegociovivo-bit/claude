@@ -171,6 +171,13 @@ final class WorkerProtocol: URLProtocol {
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertLessThan(ScreenCapture.idleSeconds(), 5)
         XCTAssertFalse(ScreenCapture.idle)
+        XCTAssertTrue(ScreenCapture.permitted, "The CI desktop must already allow capture; do not bypass macOS permission")
+        let policy = try JSONDecoder().decode(AgentPolicy.self,
+            from: Data("{\"trackingEnabled\":true,\"screenshotsEnabled\":true}".utf8))
+        let images = try await ScreenCapture.images(policy: policy)
+        XCTAssertFalse(images.isEmpty, "Recent native input must allow a real screen image")
+        XCTAssertTrue(images.allSatisfy { $0.count > 1000 })
+        print("NV_IDLE_FIX nativeImages=\(images.count) idleSeconds=\(ScreenCapture.idleSeconds())")
     }
     func testConflictReconcilesConfirmedServerState() async {
         let model = model(); await model.refresh()
