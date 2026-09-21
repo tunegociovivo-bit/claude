@@ -15,6 +15,8 @@ final class WorkerProtocol: URLProtocol {
     static var screenshotsEnabled = false
     static var starts = 0
     static var screenshotTimes: [Date] = []
+    static var failUpload = false
+    static var failActivity = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -22,7 +24,10 @@ final class WorkerProtocol: URLProtocol {
         var json = "{}"
         let path = request.url!.path
         if path.hasSuffix("agent-config") { json = "{\"trackingEnabled\":true,\"screenshotsEnabled\":\(Self.screenshotsEnabled),\"screenshotInterval\":2,\"screenshotJitter\":0}" }
-        else if request.httpMethod == "POST" && path.hasSuffix("/screenshots") { Self.screenshotTimes.append(Date()) }
+        else if request.httpMethod == "POST" && path.hasSuffix("/screenshots") {
+            if Self.failUpload { status = 503 } else { Self.screenshotTimes.append(Date()) }
+        }
+        else if request.httpMethod == "POST" && path.hasSuffix("/activity") && Self.failActivity { status = 503 }
         else if path.hasSuffix("/me") {
             json = "{\"active\":\(Self.active),\"workedSec\":\(Self.worked),\"startedAt\":\(Self.started ? "\"2026-09-18T07:00:00Z\"" : "null")}"
         } else if request.httpMethod == "POST" && path.hasSuffix("time-tracking") {
@@ -48,15 +53,54 @@ final class WorkerProtocol: URLProtocol {
 }
 
 @MainActor final class WorkerTests: XCTestCase {
-    private func model(permission: @escaping () -> Bool = { true }) -> AgentModel {
+    private func model(permission: @escaping () -> Bool = { true }, images: @escaping (AgentPolicy) async throws -> [Data] = { try await ScreenCapture.images(policy: $0) }, ready: @escaping () -> Bool = { ScreenCapture.unlocked && !ScreenCapture.idle }) -> AgentModel {
         WorkerProtocol.active = false; WorkerProtocol.started = false; WorkerProtocol.worked = 0
         WorkerProtocol.failStop = false; WorkerProtocol.conflict = false
         WorkerProtocol.failStart = false; WorkerProtocol.workedOnStop = 3600
         WorkerProtocol.screenshotsEnabled = false; WorkerProtocol.starts = 0
         WorkerProtocol.screenshotTimes = []
+        WorkerProtocol.failUpload = false; WorkerProtocol.failActivity = false
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [WorkerProtocol.self]
         let defaults = UserDefaults(suiteName: "NV.Tests." + UUID().uuidString)!
-        return AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: configuration)), defaults: defaults, capturePermission: permission)
+        return AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: configuration)), defaults: defaults, capturePermission: permission, captureImages: images, captureReady: ready)
+    }
+    func testCaptureFailureSurvivesRefreshAndClearsOnlyAfterConfirmedUpload() async {
+        let model = model(images: { _ in [Data([1, 2, 3])] }, ready: { true })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh(); await model.perform("start")
+        WorkerProtocol.failUpload = true
+        await model.testCapture()
+        XCTAssertNotNil(model.captureError)
+        XCTAssertNil(model.lastCaptureReceived)
+        XCTAssertTrue(model.state.online, "Screenshot failure must not disconnect confirmed time tracking")
+        await model.refresh()
+        XCTAssertNotNil(model.captureError, "Routine sync must not erase screenshot failures")
+        WorkerProtocol.failUpload = false
+        await model.testCapture()
+        XCTAssertNil(model.captureError)
+        XCTAssertNotNil(model.lastCaptureReceived)
+        XCTAssertEqual(WorkerProtocol.screenshotTimes.count, 1)
+    }
+    func testEmptyCaptureIsVisibleAndPausedSessionCannotSend() async {
+        let model = model(images: { _ in [] }, ready: { true })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh(); await model.perform("start"); await model.testCapture()
+        XCTAssertTrue(model.captureError?.contains("ninguna imagen") == true)
+        XCTAssertNil(model.lastCaptureReceived)
+        await model.perform("pause"); await model.testCapture()
+        XCTAssertFalse(model.canTestCapture)
+        XCTAssertEqual(WorkerProtocol.screenshotTimes.count, 0)
+    }
+    func testActivityFailureDoesNotPreventScreenshotUpload() async throws {
+        let model = model(images: { _ in [Data([1, 2, 3])] }, ready: { true })
+        WorkerProtocol.screenshotsEnabled = true
+        await model.refresh(); await model.perform("start")
+        WorkerProtocol.failActivity = true
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        await model.testCapture()
+        XCTAssertNotNil(model.activityError)
+        XCTAssertNotNil(model.lastCaptureReceived)
+        XCTAssertTrue(model.state.online)
     }
     func testDeniedPermissionBlocksStartAndResumeUntilGranted() async {
         var permitted = false
@@ -148,8 +192,15 @@ final class WorkerProtocol: URLProtocol {
         }
         await model.perform("start")
         XCTAssertTrue(model.state.summary.active)
+        WorkerProtocol.failUpload = true
+        var recoveredUpload = false
         let start = Date()
         for second in 0..<310 {
+            if model.captureError != nil && !recoveredUpload {
+                XCTAssertNil(model.lastCaptureReceived)
+                WorkerProtocol.failUpload = false
+                recoveredUpload = true
+            }
             if second % 10 == 0 {
                 let event = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
                     mouseCursorPosition: CGPoint(x: 180 + second % 40, y: 180), mouseButton: .left))
@@ -165,6 +216,8 @@ final class WorkerProtocol: URLProtocol {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         await model.perform("finish")
+        XCTAssertTrue(recoveredUpload, "An initial upload failure must be retried automatically")
+        XCTAssertNil(model.captureError)
         XCTAssertGreaterThanOrEqual(times.count, 2, "Native periodic capture must repeat; one image is insufficient")
         if times.count >= 2 {
             XCTAssertGreaterThan(times[1].timeIntervalSince(times[0]), 110)

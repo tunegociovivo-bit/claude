@@ -51,7 +51,7 @@ struct WorkerView: View {
                     Image(nsImage: NSImage(named: "AppIcon") ?? NSImage()).resizable().scaledToFit().frame(width: 58, height: 58)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Negocio Vivo").font(.title2.weight(.semibold))
-                        Text("Control horario · Mac").foregroundStyle(.secondary)
+                        Text("Control horario · Mac · \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "desarrollo")").foregroundStyle(.secondary)
                     }
                 }
                 Divider()
@@ -86,6 +86,19 @@ struct WorkerView: View {
                 if model.linked {
                     Divider()
                     Text(model.captureStatus).font(.callout)
+                    if let received = model.lastCaptureReceived {
+                        Text("Última captura recibida por el CRM: " + received.formatted(date: .abbreviated, time: .standard))
+                            .font(.callout).textSelection(.enabled)
+                    } else {
+                        Text("Todavía no hay un envío de captura confirmado desde que se abrió el programa.").font(.callout)
+                    }
+                    if let error = model.captureError {
+                        Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    if let error = model.activityError {
+                        Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    Button("Probar captura ahora") { Task { await model.testCapture() } }.disabled(!model.canTestCapture)
                     Toggle("Abrir al iniciar sesión en el Mac", isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) }))
                     HStack {
                         Button("Actualizar estado") { Task { await model.refresh() } }.disabled(model.busy)

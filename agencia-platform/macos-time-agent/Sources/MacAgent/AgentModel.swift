@@ -9,6 +9,11 @@ import AgentCore
     @Published private(set) var linked = false
     @Published private(set) var message = "Vincula tu Mac con la credencial de Control horario del CRM."
     @Published private(set) var captureStatus = "Capturas: pendientes de configuración"
+    @Published private(set) var captureError: String?
+    @Published private(set) var lastCaptureReceived: Date?
+    @Published private(set) var activityError: String?
+    private let captureImages: (AgentPolicy) async throws -> [Data]
+    private let captureReady: () -> Bool
     @Published private(set) var policy: AgentPolicy?
     @Published private(set) var displayTime = "00:00:00"
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
@@ -18,8 +23,9 @@ import AgentCore
     var needsCapturePermission: Bool { linked && policy?.screenshotsEnabled == true && !capturePermissionGranted }
     let capturePermissionMessage = "Para utilizar el control horario de Negocio Vivo con capturas, es necesario activar «Permitir capturas en este Mac». Sin este permiso no podrás iniciar ni reanudar desde este programa."
     private let defaults: UserDefaults
-    init(client: HubClient? = nil, defaults: UserDefaults = .standard, capturePermission: @escaping () -> Bool = { ScreenCapture.permitted }) {
+    init(client: HubClient? = nil, defaults: UserDefaults = .standard, capturePermission: @escaping () -> Bool = { ScreenCapture.permitted }, captureImages: @escaping (AgentPolicy) async throws -> [Data] = { try await ScreenCapture.images(policy: $0) }, captureReady: @escaping () -> Bool = { ScreenCapture.unlocked && !ScreenCapture.idle }) {
         self.defaults = defaults; self.hub = client; self.linked = client != nil
+        self.captureImages = captureImages; self.captureReady = captureReady
         self.capturePermission = capturePermission; self.capturePermissionGranted = capturePermission()
     }
     private var timer: Timer?
@@ -71,7 +77,8 @@ import AgentCore
             currentDay = today; state = DayState(); observedAt = Date(); nextHeartbeat = .distantPast
         }
         displayTime = DayState.format(state.seconds(at: ProcessInfo.processInfo.systemUptime))
-        if Date() >= nextHeartbeat && !busy { Task { await refresh() } }
+        let captureDue = state.summary.active && policy?.screenshotsEnabled == true && Date() >= nextCapture
+        if (Date() >= nextHeartbeat || captureDue) && !busy { Task { await refresh() } }
     }
     func connect(_ raw: String) async {
         guard !busy else { return }
@@ -89,6 +96,7 @@ import AgentCore
             let day = try await candidate.day()
             try CredentialStore.write(token)
             hub = candidate; linked = true; self.policy = policy
+            captureError = nil; lastCaptureReceived = nil; activityError = nil
             accept(day); message = "Mac vinculado. Pulsa Iniciar para comenzar."
             observedAt = Date(); nextCapture = Date().addingTimeInterval(policy.captureDelay)
             updateCaptureStatus()
@@ -133,7 +141,11 @@ import AgentCore
     }
     func refresh() async {
         guard !busy, let hub else { return }
-        busy = true; defer { busy = false; nextHeartbeat = Date().addingTimeInterval(60) }
+        busy = true; defer {
+            busy = false; nextHeartbeat = Date().addingTimeInterval(60)
+            // Back off after a failed refresh instead of retrying every timer tick.
+            if nextCapture <= Date() { nextCapture = Date().addingTimeInterval(30) }
+        }
         do {
             let wasActive = state.summary.active && state.online
             let freshPolicy = try await hub.policy(); policy = freshPolicy
@@ -155,27 +167,21 @@ import AgentCore
                 let name = app?.localizedName ?? ""
                 let title = ScreenCapture.windowTitle(policy: freshPolicy)
                 let excluded = freshPolicy.excludes(name) || freshPolicy.excludes(app?.bundleIdentifier ?? "") || freshPolicy.excludes(title ?? "")
-                try await hub.activity(deviceID: deviceID, since: observedAt, seconds: seconds,
+                do {
+                    try await hub.activity(deviceID: deviceID, since: observedAt, seconds: seconds,
                     app: !excluded && freshPolicy.collectApps != false ? name : nil,
                     title: excluded ? nil : title,
                     idle: freshPolicy.collectIdle != false && ScreenCapture.idle)
+                    activityError = nil
+                } catch {
+                    activityError = "No se ha enviado la actividad: " + error.localizedDescription
+                }
             }
             observedAt = now
             if nextCapture == .distantFuture { nextCapture = now.addingTimeInterval(freshPolicy.captureDelay) }
             updateCaptureStatus()
             if day.active && freshPolicy.trackingEnabled && freshPolicy.screenshotsEnabled && now >= nextCapture {
-                nextCapture = now.addingTimeInterval(freshPolicy.captureDelay)
-                let images = try await ScreenCapture.images(policy: freshPolicy)
-                for jpeg in images {
-                    guard ScreenCapture.unlocked, !ScreenCapture.idle else { break }
-                    // Recheck server state immediately before uploading each display.
-                    let uploadPolicy = try await hub.policy()
-                    let uploadDay = try await hub.day(); accept(uploadDay)
-                    guard uploadDay.active, uploadPolicy.trackingEnabled, uploadPolicy.screenshotsEnabled,
-                          uploadPolicy.blurScreenshots == freshPolicy.blurScreenshots,
-                          uploadPolicy.excludedApps == freshPolicy.excludedApps else { break }
-                    try await hub.upload(jpeg, deviceID: deviceID, policy: uploadPolicy, date: now)
-                }
+                await sendCapture(hub: hub, policy: freshPolicy)
             }
             if !state.finished { message = needsCapturePermission ? capturePermissionMessage : "Estado sincronizado con el CRM." }
         } catch {
@@ -184,6 +190,44 @@ import AgentCore
             captureStatus = "Capturas detenidas hasta recuperar la conexión"
         }
     }
+    var canTestCapture: Bool {
+        linked && !busy && state.online && state.summary.active && policy?.trackingEnabled == true && policy?.screenshotsEnabled == true && capturePermissionGranted
+    }
+    func testCapture() async {
+        guard canTestCapture else { return }
+        nextCapture = .distantPast
+        await refresh()
+    }
+    private func sendCapture(hub: HubClient, policy: AgentPolicy) async {
+        nextCapture = Date().addingTimeInterval(30)
+        guard capturePermission(), captureReady() else { updateCaptureStatus(); return }
+        var phase = "obtener la imagen del Mac"
+        do {
+            let capturedAt = Date()
+            let images = try await captureImages(policy)
+            guard !images.isEmpty else {
+                captureError = "El Mac no ha entregado ninguna imagen. Comprueba el permiso de pantalla y las aplicaciones excluidas. Se reintentará automáticamente."
+                return
+            }
+            for jpeg in images {
+                guard capturePermission(), captureReady() else { updateCaptureStatus(); return }
+                phase = "comprobar la jornada antes del envío"
+                let uploadPolicy = try await hub.policy()
+                let uploadDay = try await hub.day(); accept(uploadDay)
+                guard uploadDay.active, uploadPolicy.trackingEnabled, uploadPolicy.screenshotsEnabled,
+                      uploadPolicy.blurScreenshots == policy.blurScreenshots,
+                      uploadPolicy.excludedApps == policy.excludedApps else { return }
+                phase = "enviar la imagen al CRM"
+                try await hub.upload(jpeg, deviceID: deviceID, policy: uploadPolicy, date: capturedAt)
+                lastCaptureReceived = Date()
+            }
+            captureError = nil
+            nextCapture = capturedAt.addingTimeInterval(policy.captureDelay)
+        } catch {
+            captureError = "Error al \(phase): \(error.localizedDescription) Se reintentará automáticamente."
+        }
+        updateCaptureStatus()
+    }
     func updateCaptureStatus() {
         capturePermissionGranted = capturePermission()
         if policy?.screenshotsEnabled != true { captureStatus = "Capturas desactivadas por la empresa" }
@@ -191,7 +235,8 @@ import AgentCore
         else if !state.summary.active { captureStatus = "Capturas detenidas" }
         else if !ScreenCapture.unlocked { captureStatus = "Capturas en espera: pantalla bloqueada" }
         else if ScreenCapture.idle { captureStatus = "Capturas en espera: más de 5 minutos sin usar teclado o ratón" }
-        else { captureStatus = "Capturas activas durante la jornada" }
+        else if captureError != nil { captureStatus = "Capturas: hay un envío pendiente de resolver" }
+        else { captureStatus = "Capturas programadas durante la jornada" }
     }
     func permitCapture() {
         ScreenCapture.requestPermission()
