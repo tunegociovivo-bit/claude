@@ -1,0 +1,19 @@
+name: Mac periodic capture diagnostic
+on:
+  push:
+    branches: [test/macos-time-agent-preview]
+    paths: ['.github/workflows/mac-capture-cadence.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cadence:
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Two scheduled native screenshots with simulated CRM responses
+        working-directory: agencia-platform/macos-time-agent
+        env:
+          NV_CAPTURE_CADENCE_TEST: 'true'
+        run: swift test --filter WorkerTests.testPeriodicNativeCaptureRepeatsWhileWorking

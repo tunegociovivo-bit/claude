@@ -14,13 +14,15 @@ final class WorkerProtocol: URLProtocol {
     static var conflict = false
     static var screenshotsEnabled = false
     static var starts = 0
+    static var screenshotTimes: [Date] = []
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         var status = 200
         var json = "{}"
         let path = request.url!.path
-        if path.hasSuffix("agent-config") { json = "{\"trackingEnabled\":true,\"screenshotsEnabled\":\(Self.screenshotsEnabled)}" }
+        if path.hasSuffix("agent-config") { json = "{\"trackingEnabled\":true,\"screenshotsEnabled\":\(Self.screenshotsEnabled),\"screenshotInterval\":2,\"screenshotJitter\":0}" }
+        else if request.httpMethod == "POST" && path.hasSuffix("/screenshots") { Self.screenshotTimes.append(Date()) }
         else if path.hasSuffix("/me") {
             json = "{\"active\":\(Self.active),\"workedSec\":\(Self.worked),\"startedAt\":\(Self.started ? "\"2026-09-18T07:00:00Z\"" : "null")}"
         } else if request.httpMethod == "POST" && path.hasSuffix("time-tracking") {
@@ -51,6 +53,7 @@ final class WorkerProtocol: URLProtocol {
         WorkerProtocol.failStop = false; WorkerProtocol.conflict = false
         WorkerProtocol.failStart = false; WorkerProtocol.workedOnStop = 3600
         WorkerProtocol.screenshotsEnabled = false; WorkerProtocol.starts = 0
+        WorkerProtocol.screenshotTimes = []
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [WorkerProtocol.self]
         let defaults = UserDefaults(suiteName: "NV.Tests." + UUID().uuidString)!
         return AgentModel(client: HubClient(token: "test-only", session: URLSession(configuration: configuration)), defaults: defaults, capturePermission: permission)
@@ -128,6 +131,45 @@ final class WorkerProtocol: URLProtocol {
         XCTAssertTrue(model.canStart); XCTAssertFalse(model.canPause)
         await model.refresh(); XCTAssertTrue(model.state.finished)
         WorkerProtocol.active = true; await model.refresh(); XCTAssertFalse(model.state.finished)
+    }
+    func testPeriodicNativeCaptureRepeatsWhileWorking() async throws {
+        guard ProcessInfo.processInfo.environment["NV_CAPTURE_CADENCE_TEST"] == "true" else {
+            throw XCTSkip("Opt-in extended native cadence diagnostic")
+        }
+        XCTAssertNil(try CredentialStore.read(), "Diagnostic must not load a real CRM credential")
+        guard try CredentialStore.read() == nil else { return }
+        _ = NSApplication.shared
+        let model = model()
+        WorkerProtocol.screenshotsEnabled = true
+        model.boot()
+        for _ in 0..<30 {
+            if model.state.online && !model.busy { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        await model.perform("start")
+        XCTAssertTrue(model.state.summary.active)
+        let start = Date()
+        for second in 0..<310 {
+            if second % 10 == 0 {
+                let event = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                    mouseCursorPosition: CGPoint(x: 180 + second % 40, y: 180), mouseButton: .left))
+                event.post(tap: .cghidEventTap)
+            }
+            if WorkerProtocol.screenshotTimes.count >= 2 { break }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        let times = WorkerProtocol.screenshotTimes
+        print("NV_CADENCE captures=\(times.count) offsets=\(times.map { $0.timeIntervalSince(start) }) message=\(model.message) captureStatus=\(model.captureStatus)")
+        for _ in 0..<50 {
+            if !model.busy { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        await model.perform("finish")
+        XCTAssertGreaterThanOrEqual(times.count, 2, "Native periodic capture must repeat; one image is insufficient")
+        if times.count >= 2 {
+            XCTAssertGreaterThan(times[1].timeIntervalSince(times[0]), 110)
+            XCTAssertLessThan(times[1].timeIntervalSince(times[0]), 150)
+        }
     }
     func testFailedFinishDoesNotEraseTimeOrMarkComplete() async {
         let model = model(); await model.refresh(); await model.perform("start")
