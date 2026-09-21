@@ -55,10 +55,16 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     });
     return NextResponse.json({ items });
   }
-  const items = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true, campaignName: true } } }, orderBy: { commentCreatedAt: "desc" }, take: 300 });
+  const before = url.searchParams.get("before");
+  const beforeId = url.searchParams.get("beforeId");
+  if (before && (!beforeId || !Number.isFinite(Date.parse(before)))) throw new ApiError(400, "invalid_cursor", "Paginación no válida");
+  const rows = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null, ...(before && beforeId ? { OR: [{ commentCreatedAt: { lt: new Date(before) } }, { commentCreatedAt: new Date(before), id: { lt: beforeId } }] } : {}) }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true, campaignName: true } } }, orderBy: [{ commentCreatedAt: "desc" }, { id: "desc" }], take: 301 });
+  const items = rows.slice(0, 300);
+  const last = items[items.length - 1];
+  const nextCursor = rows.length > 300 && last ? { before: last.commentCreatedAt.toISOString(), beforeId: last.id } : null;
   const feeds = await prisma.metaCommentFeed.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" } });
   const alertRecipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, email: true, active: true, negativeComments: true, allComments: true, syncFailures: true, publishedReplies: true }, orderBy: { email: "asc" } });
-  return NextResponse.json({ items, feeds, alertRecipients });
+  return NextResponse.json({ items, feeds, alertRecipients, nextCursor });
 });
 
 export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { api }) => {

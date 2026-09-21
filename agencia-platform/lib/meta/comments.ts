@@ -46,8 +46,10 @@ async function graph(workspaceId: string, path: string, init?: RequestInit, expl
 async function graphAll(workspaceId: string, path: string, explicitToken?: string, maxItems = 5000): Promise<any[]> {
   const found: any[] = [];
   let nextPath: string | null = path;
-  let pages = 0;
-  while (nextPath && found.length < maxItems && pages < 100) {
+  const visited = new Set<string>();
+  while (nextPath) {
+    if (visited.has(nextPath)) throw new Error("Meta repitió una página. La importación no está completa.");
+    visited.add(nextPath);
     const result = await graph(workspaceId, nextPath, undefined, explicitToken);
     found.push(...(result.data ?? []));
     const next = result.paging?.next;
@@ -56,9 +58,8 @@ async function graphAll(workspaceId: string, path: string, explicitToken?: strin
     if (url.hostname !== "graph.facebook.com") throw new Error("Meta devolvió una paginación no válida");
     url.searchParams.delete("access_token");
     nextPath = `${url.pathname.replace(/^\/v\d+\.\d+\//, "")}${url.search}`;
-    pages++;
   }
-  return found.slice(0, maxItems);
+  return found;
 }
 
 function isCampaignAccessError(error: unknown): boolean {
@@ -389,7 +390,6 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     }
     const authorizedPages = await pageTokens(workspaceId, resolvedConnectionId);
     const instagramMediaByPermalink: InstagramMediaLookup = new Map();
-    const instagramMediaByOwner = new Map<string, InstagramMediaCandidate[]>();
     const loadedInstagramOwners = new Set<string>();
     const loadInstagramMediaLookup = async (ownerHint?: string | null) => {
       const hintedToken = ownerHint ? authorizedPages.instagram.get(ownerHint) : undefined;
@@ -398,7 +398,6 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         if (loadedInstagramOwners.has(ownerId)) continue;
         loadedInstagramOwners.add(ownerId);
         const media = await graphAll(workspaceId, `${ownerId}/media?fields=id,permalink,caption,timestamp&limit=100`, token, 5000).catch(() => []);
-        instagramMediaByOwner.set(ownerId, media.map((item: any) => ({ ...item, ownerId, token })));
         for (const item of media) {
           const permalink = normalizedInstagramPermalink(item.permalink);
           if (item.id && permalink) instagramMediaByPermalink.set(permalink, { id: String(item.id), ownerId, token });
@@ -425,13 +424,16 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const repliesByCommentId = new Map<string, MetaReply>();
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0; let unsupportedTargets = 0;
-    const fallbackInstagramOwnersUsed = new Set<string>();
+    const coverageIssues: string[] = [];
     const hydratedAds: any[] = [];
     for (let offset = 0; offset < ads.length; offset += 10) {
       hydratedAds.push(...await Promise.all(ads.slice(offset, offset + 10).map(async (ad: any) => {
         const creative = ad?.creative ?? {};
         if (!shouldHydrateMetaCreative(creative)) return ad;
-        const hydratedCreative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => creative);
+        const hydratedCreative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => {
+          coverageIssues.push(`No se pudo consultar el anuncio ${ad.id}.`);
+          return creative;
+        });
         return { ...ad, creative: hydratedCreative };
       })));
     }
@@ -444,23 +446,11 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       if (!instagramTarget) {
         await loadInstagramMediaLookup(ownerHint);
         instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
-        if (!instagramTarget) {
-          const candidates = ownerHint ? (instagramMediaByOwner.get(ownerHint) ?? []) : [...instagramMediaByOwner.values()].flat();
-          const matched = matchInstagramMediaForCreative(creative, candidates);
-          if (matched?.id && matched.ownerId) instagramTarget = { id: matched.id, ownerId: matched.ownerId, platform: "instagram", token: matched.token };
-        }
       }
       if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
-      let instagramTargetsForAd = instagramTarget ? [instagramTarget] : [];
-      if (!instagramTarget && ownerHint && !fallbackInstagramOwnersUsed.has(ownerHint)) {
-        fallbackInstagramOwnersUsed.add(ownerHint);
-        const fallbackFrom = range?.from ?? feed.lastSyncAt ?? new Date(Date.now() - 7 * 86400000);
-        const fallbackTo = range?.to ?? new Date();
-        const recentMedia = (instagramMediaByOwner.get(ownerHint) ?? []).filter((item: any) => {
-          const timestamp = new Date(item.timestamp);
-          return Number.isFinite(timestamp.getTime()) && timestamp >= fallbackFrom && timestamp <= fallbackTo;
-        });
-        instagramTargetsForAd = fallbackInstagramMediaTargets(recentMedia);
+      const instagramTargetsForAd = instagramTarget ? [instagramTarget] : [];
+      if (!instagramTarget && ownerHint) {
+        coverageIssues.push(`Anuncio ${ad.id}: publicación de Instagram sin vínculo verificable.`);
       }
       const targets = [
         (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), ownerId: String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0], platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
@@ -475,10 +465,21 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         const filter = target.platform === "facebook" ? "&filter=stream" : "";
         let comments: any[];
         try {
-          comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${rangeQuery}`, target.token, 5000);
+          comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${target.platform === "instagram" ? "" : rangeQuery}`, target.token, 5000);
+          if (target.platform === "instagram") {
+            // Replies have their own pagination and may be newer than the parent.
+            const replies: any[] = [];
+            for (const parent of comments) {
+              if (!parent.replies?.data?.length && !parent.replies?.paging?.next) continue;
+              const children = await graphAll(workspaceId, `${parent.id}/replies?fields=id,text,username,timestamp&limit=100`, target.token);
+              replies.push(...children.map((reply) => ({ ...reply, parent: { id: parent.id } })));
+            }
+            comments.push(...replies);
+          }
         } catch (error: any) {
           if (!isSkippableMetaCommentTargetError(error)) throw error;
           unsupportedTargets++;
+          coverageIssues.push(`Publicación inaccesible: ${target.platform}:${target.id}.`);
           console.warn(`[meta-comments] Meta no permite consultar comentarios del objetivo ${target.platform}:${target.id}; se omite y continúa la campaña.`);
           continue;
         }
@@ -519,11 +520,13 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const existing = unique.length ? await prisma.metaAdComment.findMany({ where: { workspaceId, externalCommentId: { in: unique.map((item) => String(item.id)) } }, select: { externalCommentId: true } }) : [];
     const existingIds = new Set(existing.map((item) => item.externalCommentId));
     const pending = unique.filter((item) => !existingIds.has(String(item.id)));
-    const processing = pending.slice(0, 50);
-    const analyses = await analyzeComments(workspaceId, clientName, processing, feed.aiContext);
+    const processing = pending;
     let created = 0;
     const notificationJobs: Promise<void>[] = [];
-    for (const item of processing) {
+    for (let offset = 0; offset < processing.length; offset += 15) {
+    const batch = processing.slice(offset, offset + 15);
+    const analyses = await analyzeComments(workspaceId, clientName, batch, feed.aiContext);
+    for (const item of batch) {
       const analysis = analyses.get(String(item.id)) ?? { id: String(item.id), sentiment: "neutral", reason: "Pendiente de revisión", draft: "Gracias por tu comentario. ¿Podemos ayudarte con alguna duda?" };
       const row = await prisma.metaAdComment.create({ data: {
         workspaceId, feedId: feed.id, externalCommentId: String(item.id), postId: item.postId, platform: item.platform ?? "facebook",
@@ -539,9 +542,12 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       created++;
       notificationJobs.push(notifyNewComment(workspaceId, row.id, feed.displayName || clientName, feed.campaignName, row.authorName, row.message, row.sentiment === "negative"));
     }
+    }
     await Promise.allSettled(notificationJobs);
-    await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: null } });
-    return { discovered: unique.length, created, remaining: Math.max(0, pending.length - processing.length), diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
+    if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
+    const complete = coverageIssues.length === 0;
+    await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {
@@ -551,7 +557,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       });
       return { discovered: 0, created: 0, remaining: 0, deferred: true, diagnostics: { ads: 0, facebookTargets: 0, instagramTargets: 0, adsWithoutPost: 0, unsupportedTargets: 0 } };
     }
-    await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastSyncAt: new Date(), lastError: errorMessage } });
+    await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { lastError: errorMessage } });
     if (shouldNotifyMetaSyncFailure(feed, errorMessage)) {
       const claimed = await acquireCronLease(metaSyncAlertLeaseName(feed.id, errorMessage), randomUUID(), 6 * 60 * 60_000).catch(() => false);
       if (claimed) await notifyMetaOperational(workspaceId, "syncFailures", `⚠️ Fallo al sincronizar · ${feed.displayName || clientName}`, `${feed.campaignName || feed.campaignId}: ${errorMessage.slice(0, 800)}`).catch(() => {});

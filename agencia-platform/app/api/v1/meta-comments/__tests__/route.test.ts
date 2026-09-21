@@ -7,6 +7,8 @@ const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, MetaDe
   deleteCommentMock: vi.fn(),
   MetaDeletionErrorMock: class MetaDeletionError extends Error {},
   prisma: {
+    metaCommentFeed: { findMany: vi.fn().mockResolvedValue([]) },
+    metaCommentAlertRecipient: { findMany: vi.fn().mockResolvedValue([]) },
     metaAdComment: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() }
   }
 }));
@@ -35,7 +37,7 @@ vi.mock("@/lib/meta/connection", () => ({
   readMetaTokenByConnection: vi.fn()
 }));
 
-import { POST } from "../route";
+import { GET, POST } from "../route";
 
 const call = (body: unknown) => POST(new NextRequest("https://hub.example/api/v1/meta-comments", {
   method: "POST",
@@ -44,6 +46,18 @@ const call = (body: unknown) => POST(new NextRequest("https://hub.example/api/v1
 }), { params: {} });
 
 describe("POST /api/v1/meta-comments regenerate_draft", () => {
+  it("paginates beyond 300 with a stable workspace-scoped cursor", async () => {
+    authenticateMock.mockResolvedValue({ workspaceId: "workspace-1", userId: "user-1", scopes: new Set(["*"]) });
+    const timestamp = new Date("2026-09-21T10:00:00Z");
+    prisma.metaAdComment.findMany.mockResolvedValue(Array.from({ length: 301 }, (_, i) => ({ id: `c-${i}`, commentCreatedAt: timestamp })));
+    const response = await GET(new NextRequest("https://hub.example/api/v1/meta-comments"), { params: {} });
+    const data = await response.json();
+    expect(data.items).toHaveLength(300);
+    expect(data.nextCursor).toEqual({ before: timestamp.toISOString(), beforeId: "c-299" });
+    prisma.metaAdComment.findMany.mockResolvedValue([]);
+    await GET(new NextRequest(`https://hub.example/api/v1/meta-comments?${new URLSearchParams(data.nextCursor)}`), { params: {} });
+    expect(prisma.metaAdComment.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ workspaceId: "workspace-1", OR: [{ commentCreatedAt: { lt: timestamp } }, { commentCreatedAt: timestamp, id: { lt: "c-299" } }] }) }));
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     authenticateMock.mockResolvedValue({ workspaceId: "workspace-1", userId: "user-1", scopes: new Set(["*"]) });

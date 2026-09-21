@@ -63,6 +63,16 @@ export default function MetaCommentsClient() {
     const response = await fetch("/api/v1/meta-comments", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron cargar los comentarios");
+    const allItems: Comment[] = [...(data.items ?? [])];
+    let cursor = data.nextCursor;
+    while (cursor) {
+      const page = await fetch(`/api/v1/meta-comments?${new URLSearchParams(cursor)}`, { cache: "no-store" });
+      const result = await page.json();
+      if (!page.ok) throw new Error(result?.error?.message ?? "No se pudieron cargar todos los comentarios");
+      allItems.push(...(result.items ?? []));
+      cursor = result.nextCursor;
+    }
+    data.items = [...new Map(allItems.map((item) => [item.id, item])).values()];
     setItems(data.items ?? []); setFeeds(data.feeds ?? []); setAlertRecipients(data.alertRecipients ?? []);
     setClientContexts((current) => ({ ...Object.fromEntries((data.feeds ?? []).map((feed: Feed) => [clientKeyOf(feed), feed.aiContext ?? ""])), ...current }));
     setDrafts((old) => Object.fromEntries((data.items ?? []).map((item: Comment) => [item.id, old[item.id] ?? item.aiDraft ?? ""])));
@@ -220,8 +230,8 @@ export default function MetaCommentsClient() {
     if (!fromDate || !toDate) return;
     setBusy("import"); setError(null); setImportResult(null);
     try {
-      const from = new Date(`${fromDate}T00:00:00.000Z`).toISOString();
-      const to = new Date(`${toDate}T23:59:59.999Z`).toISOString();
+      const from = new Date(`${fromDate}T00:00:00.000`).toISOString();
+      const to = new Date(`${toDate}T23:59:59.999`).toISOString();
       let imported = 0; let discovered = 0; let remaining = 0; let rounds = 0; let diagnostics: any = null;
       const selectedFeed = feeds.find((feed) => feed.campaignId === selectedCampaignId);
       if (!selectedFeed) throw new Error("Selecciona primero una campaña monitorizada");
@@ -229,6 +239,11 @@ export default function MetaCommentsClient() {
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync", campaignId: selectedFeed.campaignId, clientName: selectedFeed.clientName, from, to }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo importar el periodo");
+        if (data.deferred) throw new Error("Meta ha aplazado la consulta. El periodo todavía no está completamente importado; reinténtalo más tarde.");
+        if (data.complete === false) {
+          await load();
+          throw new Error(`Importación incompleta. Se han conservado los comentarios accesibles. ${(data.coverageIssues ?? []).join(" ")}`);
+        }
         imported += data.created ?? 0; discovered = data.discovered ?? discovered; remaining = data.remaining ?? 0; diagnostics = data.diagnostics ?? diagnostics; rounds++;
       } while (remaining > 0 && rounds < 20);
       const detail = diagnostics ? ` Meta revisó ${diagnostics.ads} anuncios, ${diagnostics.facebookTargets} publicaciones de Facebook y ${diagnostics.instagramTargets} de Instagram; ${diagnostics.adsWithoutPost} anuncios no tenían publicación accesible.` : "";
