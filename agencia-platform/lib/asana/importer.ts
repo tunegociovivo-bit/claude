@@ -1014,6 +1014,7 @@ export async function reimportAsanaSection(opts: {
 
   for await (const t of client.sectionTasks(opts.sectionGid)) {
     result.tasksProcessed++;
+    const orderInSection = result.tasksProcessed - 1;
     try {
       const due = t.due_at || t.due_on ? new Date(t.due_at ?? t.due_on!) : null;
       const priority = detectPriorityFromCustomFields(t.custom_fields);
@@ -1038,6 +1039,7 @@ export async function reimportAsanaSection(opts: {
             title: t.name,
             description: t.notes ?? "",
             status: status as any,
+            order: orderInSection,
             priority,
             dueDate: due,
             completedAt: t.completed_at ? new Date(t.completed_at) : null,
@@ -1060,6 +1062,7 @@ export async function reimportAsanaSection(opts: {
               title: t.name,
               description: t.notes ?? "",
               status: status as any,
+              order: orderInSection,
               priority,
               dueDate: due,
               completedAt: t.completed_at ? new Date(t.completed_at) : null,
@@ -1080,6 +1083,7 @@ export async function reimportAsanaSection(opts: {
               title: t.name,
               description: t.notes ?? "",
               status: status as any,
+              order: orderInSection,
               priority,
               dueDate: due,
               projectId: opts.projectId,

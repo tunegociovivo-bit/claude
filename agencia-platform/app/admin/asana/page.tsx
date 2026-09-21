@@ -564,9 +564,10 @@ function ReimportSectionPanel() {
   const [projects, setProjects] = useState<LocalProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [sections, setSections] = useState<SectionInfo[]>([]);
+  const [selectedSectionGids, setSelectedSectionGids] = useState<Set<string>>(new Set());
   const [kanbanCols, setKanbanCols] = useState<KanbanCol[]>([]);
   const [loadingSections, setLoadingSections] = useState(false);
-  const [reimportingGid, setReimportingGid] = useState<string | null>(null);
+  const [reimporting, setReimporting] = useState(false);
   const [lastResult, setLastResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -586,6 +587,7 @@ function ReimportSectionPanel() {
     setLoadingSections(true);
     setError(null);
     setSections([]);
+    setSelectedSectionGids(new Set());
     setKanbanCols([]);
     try {
       const r = await fetch(
@@ -594,6 +596,7 @@ function ReimportSectionPanel() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error?.message || d.error || `HTTP ${r.status}`);
       setSections(d.sections ?? []);
+      setSelectedSectionGids(new Set());
       setKanbanCols((d.kanbanColumns ?? []).map((c: any) => ({ id: c.id, label: c.label })));
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -617,7 +620,7 @@ function ReimportSectionPanel() {
     if (!confirm(
       `Re-importar la columna "${sectionName}"?\n\nVa a sincronizar todas sus tareas desde Asana, actualizando títulos, descripciones, comentarios y adjuntos. Idempotente: lo que ya existe se refresca + re-enlaza.`
     )) return;
-    setReimportingGid(sectionGid);
+    setReimporting(true);
     setError(null);
     setLastResult(null);
     try {
@@ -635,7 +638,41 @@ function ReimportSectionPanel() {
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally {
-      setReimportingGid(null);
+      setReimporting(false);
+    }
+  }
+
+  async function reimportSelected() {
+    if (!selectedProjectId) return;
+    const selected = sections.filter((s) => selectedSectionGids.has(s.gid));
+    if (selected.length === 0) {
+      setError("Selecciona al menos una columna para re-importar.");
+      return;
+    }
+    const names = selected.slice(0, 8).map((s) => `• ${s.name}`).join("\n");
+    const suffix = selected.length > 8 ? `\n…y ${selected.length - 8} más` : "";
+    if (!confirm(
+      `Re-importar ${selected.length} columna(s) desde Asana?\n\n${names}${suffix}\n\nSe añadirán/actualizarán tareas de Asana, comentarios y adjuntos. Las tareas que ya existen solo en el Hub NO se eliminarán.`
+    )) return;
+    setReimporting(true);
+    setError(null);
+    setLastResult(null);
+    try {
+      const r = await fetch("/api/v1/admin/asana/reimport-section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          sectionGids: selected.map((s) => s.gid)
+        })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error?.message || d.error || `HTTP ${r.status}`);
+      setLastResult(d);
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setReimporting(false);
     }
   }
 
@@ -643,11 +680,11 @@ function ReimportSectionPanel() {
     return (
       <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4 flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-sm text-sky-900">🔄 Re-importar una columna concreta</h3>
+          <h3 className="font-semibold text-sm text-sky-900">🔄 Re-importar columnas concretas</h3>
           <p className="text-xs text-sky-700 mt-0.5">
-            Útil si una columna de un proyecto importado arrastra fallos
+            Útil si una o varias columnas de un proyecto importado arrastran fallos
             (tasks corruptas, comentarios huérfanos). Re-sincroniza solo esa
-            columna sin tocar el resto del proyecto.
+            parte sin borrar tareas propias del Hub.
           </p>
         </div>
         <button
@@ -664,7 +701,7 @@ function ReimportSectionPanel() {
     <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-sm text-sky-900">
-          🔄 Re-importar una columna concreta
+          🔄 Re-importar columnas concretas
         </h3>
         <button
           onClick={() => setOpen(false)}
@@ -702,37 +739,88 @@ function ReimportSectionPanel() {
 
       {sections.length > 0 && (
         <div className="space-y-1">
-          <div className="text-xs text-sky-800 mb-1">
-            Selecciona la columna a re-importar:
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="text-xs text-sky-800">
+              Selecciona una o varias columnas a re-importar:
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedSectionGids(new Set(sections.map((s) => s.gid)))}
+                disabled={reimporting}
+                className="text-xs rounded-lg border border-sky-300 bg-white px-2 py-1 text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+              >
+                Seleccionar todas
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedSectionGids(new Set())}
+                disabled={reimporting}
+                className="text-xs rounded-lg border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Ninguna
+              </button>
+              <button
+                type="button"
+                onClick={reimportSelected}
+                disabled={reimporting || selectedSectionGids.size === 0}
+                className="text-xs bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white px-3 py-1 rounded-lg whitespace-nowrap"
+              >
+                {reimporting ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Importando…
+                  </span>
+                ) : (
+                  `Re-importar seleccionadas (${selectedSectionGids.size})`
+                )}
+              </button>
+            </div>
           </div>
           {sections.map((s) => {
             const matchedCol = kanbanCols.find(
               (c) => c.label?.toLowerCase().trim() === s.name.toLowerCase().trim()
             );
+            const checked = selectedSectionGids.has(s.gid);
             return (
               <div
                 key={s.gid}
-                className="flex items-center justify-between bg-white border border-sky-200 rounded-lg p-2"
+                className="flex items-center justify-between gap-3 bg-white border border-sky-200 rounded-lg p-2"
               >
-                <div className="min-w-0">
-                  <div className="font-medium text-sm truncate">{s.name}</div>
-                  <div className="text-[10px] text-slate-500">
-                    Asana gid: <code>{s.gid}</code>
-                    {matchedCol && (
-                      <>
-                        {" "}
-                        · mapea a{" "}
-                        <code className="bg-slate-100 px-1 rounded">{matchedCol.id}</code>
-                      </>
-                    )}
+                <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={reimporting}
+                    onChange={(e) => {
+                      setSelectedSectionGids((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(s.gid);
+                        else next.delete(s.gid);
+                        return next;
+                      });
+                    }}
+                    className="h-4 w-4 rounded border-slate-300 text-sky-600"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{s.name}</div>
+                    <div className="text-[10px] text-slate-500">
+                      Asana gid: <code>{s.gid}</code>
+                      {matchedCol && (
+                        <>
+                          {" "}
+                          · mapea a{" "}
+                          <code className="bg-slate-100 px-1 rounded">{matchedCol.id}</code>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
+                </label>
                 <button
                   onClick={() => reimport(s.gid, s.name)}
-                  disabled={!!reimportingGid}
+                  disabled={reimporting}
                   className="text-xs bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white px-3 py-1 rounded-lg whitespace-nowrap"
                 >
-                  {reimportingGid === s.gid ? (
+                  {reimporting ? (
                     <span className="inline-flex items-center gap-1">
                       <Loader2 className="h-3 w-3 animate-spin" /> Importando…
                     </span>
@@ -751,6 +839,11 @@ function ReimportSectionPanel() {
           <div className="font-semibold text-emerald-800 mb-1">
             ✅ {lastResult.sectionName} re-importado
           </div>
+          {Array.isArray(lastResult.sections) && (
+            <div className="text-emerald-700 mb-2">
+              Columnas completadas: {lastResult.sections.map((r: any) => r.sectionName).join(", ")}
+            </div>
+          )}
           <div className="text-emerald-700 grid grid-cols-2 gap-x-4 gap-y-0.5">
             <div>Tareas procesadas: {lastResult.tasksProcessed}</div>
             <div>Creadas: {lastResult.tasksCreated}</div>

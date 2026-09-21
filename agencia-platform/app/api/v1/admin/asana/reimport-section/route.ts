@@ -1,11 +1,12 @@
 /**
  * POST /api/v1/admin/asana/reimport-section
  *
- * Re-importa UNA columna/sección concreta de un proyecto YA importado.
+ * Re-importa una o varias columnas/secciones concretas de un proyecto YA importado.
  *
  * Body:
  *   - projectId: id local del proyecto en el Hub
- *   - sectionGid: gid de la sección en Asana
+ *   - sectionGid: gid de la sección en Asana (compatibilidad)
+ *   - sectionGids: array de gids de secciones en Asana
  *   - targetColumnId (opcional): id de columna del Kanban donde colocar
  *     las tasks. Si no se pasa, se intenta derivar del nombre de sección.
  *
@@ -63,22 +64,50 @@ export const GET = withApi({ scope: "admin" }, async (req, { api }) => {
 export const POST = withApi({ scope: "admin" }, async (req, { api }) => {
   const body = await req.json().catch(() => ({}));
   const projectId = String(body?.projectId ?? "");
-  const sectionGid = String(body?.sectionGid ?? "");
+  const sectionGids = Array.isArray(body?.sectionGids)
+    ? body.sectionGids.map((v: unknown) => String(v)).filter(Boolean)
+    : String(body?.sectionGid ?? "")
+      ? [String(body.sectionGid)]
+      : [];
   const targetColumnId = body?.targetColumnId ? String(body.targetColumnId) : undefined;
-  if (!projectId || !sectionGid) {
-    throw new ApiError(400, "missing", "projectId y sectionGid requeridos");
+  if (!projectId || sectionGids.length === 0) {
+    throw new ApiError(400, "missing", "projectId y sectionGid/sectionGids requeridos");
+  }
+  if (sectionGids.length > 50) {
+    throw new ApiError(400, "too_many", "Selecciona como máximo 50 columnas por tanda");
   }
 
   const token = await getToken(api);
 
-  const result = await reimportAsanaSection({
-    workspaceId: api.workspaceId,
-    projectId,
-    sectionGid,
-    targetColumnId,
-    token,
-    // Por defecto NO resucita tareas borradas (respeta tus eliminaciones).
-    restoreDeleted: body?.restoreDeleted === true
+  const results = [];
+  for (const sectionGid of sectionGids) {
+    const result = await reimportAsanaSection({
+      workspaceId: api.workspaceId,
+      projectId,
+      sectionGid,
+      // targetColumnId solo tiene sentido cuando se reimporta una única columna.
+      targetColumnId: sectionGids.length === 1 ? targetColumnId : undefined,
+      token,
+      // Por defecto NO resucita tareas borradas (respeta tus eliminaciones).
+      restoreDeleted: body?.restoreDeleted === true
+    });
+    results.push(result);
+  }
+
+  if (results.length === 1) return NextResponse.json(results[0]);
+
+  return NextResponse.json({
+    ok: true,
+    projectName: results[0]?.projectName ?? "",
+    sectionName: `${results.length} columnas`,
+    sections: results,
+    tasksProcessed: results.reduce((sum, r) => sum + r.tasksProcessed, 0),
+    tasksCreated: results.reduce((sum, r) => sum + r.tasksCreated, 0),
+    tasksUpdated: results.reduce((sum, r) => sum + r.tasksUpdated, 0),
+    commentsImported: results.reduce((sum, r) => sum + r.commentsImported, 0),
+    commentsUpdated: results.reduce((sum, r) => sum + r.commentsUpdated, 0),
+    attachmentsImported: results.reduce((sum, r) => sum + r.attachmentsImported, 0),
+    attachmentsSkipped: results.reduce((sum, r) => sum + r.attachmentsSkipped, 0),
+    warnings: results.flatMap((r) => r.warnings.map((w) => `${r.sectionName}: ${w}`))
   });
-  return NextResponse.json(result);
 });
