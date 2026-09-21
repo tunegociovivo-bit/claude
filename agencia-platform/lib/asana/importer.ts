@@ -770,7 +770,21 @@ async function runImport(jobId: string, opts: ImportOptions) {
         }
       };
 
-      const importTaskInProject = async (t: AsanaTask, forcedSectionGid?: string | null) => {
+      const importedTreeGids = new Set<string>();
+
+      const importTaskTreeInProject = async (
+        t: AsanaTask,
+        forcedSectionGid: string | null | undefined,
+        parentGid: string | undefined,
+        orderInColumn?: number,
+        depth = 0
+      ) => {
+        if (importedTreeGids.has(t.gid)) return;
+        importedTreeGids.add(t.gid);
+        if (depth > 20) {
+          stats.warnings.push(`Subtareas demasiado profundas en ${t.gid}; se detuvo para evitar bucle.`);
+          return;
+        }
         // CRÍTICO: cada tarea se importa en su propio try/catch. Si
         // upsertTask falla por una tarea concreta (atributo raro,
         // race condition, conflict en unique), antes mataba el import
@@ -787,20 +801,21 @@ async function runImport(jobId: string, opts: ImportOptions) {
 
           const sectionInfo = sectionGid ? info.sections.get(sectionGid) : null;
           const colKey = sectionInfo?.columnId ?? "__nocol__";
-          const nextOrder = orderPerColumn.get(colKey) ?? 0;
-          orderPerColumn.set(colKey, nextOrder + 1);
-          await upsertTask(t, info.localId, projectGid, sectionGid, undefined, nextOrder);
-          stats.tasks++;
+          const nextOrder = typeof orderInColumn === "number" ? orderInColumn : orderPerColumn.get(colKey) ?? 0;
+          if (typeof orderInColumn !== "number") orderPerColumn.set(colKey, nextOrder + 1);
+          await upsertTask(t, info.localId, projectGid, sectionGid, parentGid, nextOrder);
+          if (parentGid) stats.subtasks++;
+          else stats.tasks++;
           importedTaskGids.add(t.gid);
 
-          // Subtareas — heredan el proyecto principal del padre y su
-          // sección (las subtareas en Asana no tienen sección propia).
+          // Subtareas y subsubtareas — recursivo. Heredan el proyecto
+          // principal del padre y su sección; cada nivel importa también
+          // comentarios y adjuntos porque upsertTask lo hace para cada task.
           let subOrder = 0;
           for await (const sub of client.taskSubtasks(t.gid)) {
             try {
-              await upsertTask(sub, info.localId, projectGid, sectionGid, t.gid, subOrder);
+              await importTaskTreeInProject(sub, sectionGid, t.gid, subOrder, depth + 1);
               subOrder++;
-              stats.subtasks++;
             } catch (e: any) {
               stats.warnings.push(`subtarea ${sub.gid} de ${t.gid}: ${String(e?.message ?? e).slice(0, 200)}`);
             }
@@ -827,13 +842,13 @@ async function runImport(jobId: string, opts: ImportOptions) {
         );
         for await (const t of client.sectionTasks(sectionGid)) {
           if (importedTaskGids.has(t.gid)) continue;
-          await importTaskInProject(t, sectionGid);
+          await importTaskTreeInProject(t, sectionGid, undefined);
         }
       }
 
       for await (const t of client.projectTasks(projectGid)) {
         if (importedTaskGids.has(t.gid)) continue;
-        await importTaskInProject(t);
+        await importTaskTreeInProject(t, undefined, undefined);
       }
       await persistStats(jobId, stats);
     }
@@ -1011,6 +1026,207 @@ export async function reimportAsanaSection(opts: {
   };
 
   const userCache = new Map<string, string>();
+  const reimportedDescendantGids = new Set<string>();
+
+  async function importCommentsAndAttachmentsForReimportTask(t: AsanaTask, localTaskId: string) {
+    try {
+      for await (const story of client.taskStories(t.gid)) {
+        if (story.resource_subtype !== "comment_added") continue;
+        if (!story.text && !story.html_text) continue;
+
+        const authorGid =
+          story.created_by?.gid ?? `synthetic-${(story.created_by?.name ?? "anon").replace(/\s/g, "_")}`;
+        const authorId = await ensureUserStandalone({
+          workspaceId: opts.workspaceId,
+          cache: userCache,
+          gid: authorGid,
+          name: story.created_by?.name,
+          email: story.created_by?.email ?? null
+        });
+        if (!authorId) continue;
+
+        const parsed = await parseAsanaCommentToTipTap({
+          client,
+          workspaceId: opts.workspaceId,
+          taskLocalId: localTaskId,
+          story: { gid: story.gid, text: story.text, html_text: story.html_text },
+          extraAttachmentGids: []
+        });
+
+        const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
+        if (exists) {
+          await prisma.comment.update({
+            where: { id: exists.id },
+            data: {
+              body: story.text ?? "",
+              bodyJson: parsed.doc as any,
+              targetId: localTaskId,
+              targetType: "TASK",
+              workspaceId: opts.workspaceId,
+              authorId
+            }
+          });
+          result.commentsUpdated++;
+        } else {
+          try {
+            await prisma.comment.create({
+              data: {
+                workspaceId: opts.workspaceId,
+                authorId,
+                targetType: "TASK",
+                targetId: localTaskId,
+                body: story.text ?? "",
+                bodyJson: parsed.doc as any,
+                asanaId: story.gid,
+                createdAt: new Date(story.created_at)
+              }
+            });
+            result.commentsImported++;
+          } catch (e: any) {
+            if (e?.code === "P2002") {
+              await prisma.comment.updateMany({
+                where: { asanaId: story.gid },
+                data: {
+                  body: story.text ?? "",
+                  bodyJson: parsed.doc as any,
+                  targetId: localTaskId,
+                  targetType: "TASK",
+                  workspaceId: opts.workspaceId,
+                  authorId
+                }
+              });
+              result.commentsUpdated++;
+            } else throw e;
+          }
+        }
+      }
+    } catch (e: any) {
+      result.warnings.push(
+        `Comentarios de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 200)}`
+      );
+    }
+
+    try {
+      const r = await importAttachmentsForTask({
+        client,
+        workspaceId: opts.workspaceId,
+        taskLocalId: localTaskId,
+        taskAsanaGid: t.gid
+      });
+      result.attachmentsImported += r.imported + r.externalLinked;
+      result.attachmentsSkipped += r.skipped;
+      if (r.failed > 0) {
+        result.warnings.push(
+          `Adjuntos en "${t.name}": ${r.failed} fallidos (${r.errors.slice(0, 2).join(", ")})`
+        );
+      }
+    } catch (e: any) {
+      result.warnings.push(
+        `Adjuntos de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 200)}`
+      );
+    }
+  }
+
+  async function importReimportDescendants(parentAsanaGid: string, parentLocalId: string, depth = 1) {
+    if (depth > 20) {
+      result.warnings.push(`Subtareas demasiado profundas en ${parentAsanaGid}; se detuvo para evitar bucle.`);
+      return;
+    }
+    let subOrder = 0;
+    for await (const sub of client.taskSubtasks(parentAsanaGid)) {
+      if (reimportedDescendantGids.has(sub.gid)) continue;
+      reimportedDescendantGids.add(sub.gid);
+      result.tasksProcessed++;
+      try {
+        const due = sub.due_at || sub.due_on ? new Date(sub.due_at ?? sub.due_on!) : null;
+        const priority = detectPriorityFromCustomFields(sub.custom_fields);
+        const status = columnId ?? "TODO";
+
+        let local = await prisma.task.findUnique({ where: { asanaId: sub.gid } });
+        if (local) {
+          if (opts.restoreDeleted && (local as any).deletedAt) {
+            await recordAudit({
+              workspaceId: opts.workspaceId,
+              action: "task.restored_by_asana_import",
+              targetType: "task",
+              targetId: local.id,
+              meta: { title: sub.name, parentAsanaGid }
+            }).catch(() => {});
+          }
+          local = await prisma.task.update({
+            where: { id: local.id },
+            data: {
+              title: sub.name,
+              description: sub.notes ?? "",
+              status: status as any,
+              order: subOrder,
+              priority,
+              dueDate: due,
+              completedAt: sub.completed_at ? new Date(sub.completed_at) : null,
+              projectId: opts.projectId,
+              parentId: parentLocalId,
+              asanaPermalink: sub.permalink_url ?? null,
+              asanaCustomFields: (sub.custom_fields ?? null) as any,
+              ...(opts.restoreDeleted ? { deletedAt: null, deletedById: null } : {})
+            } as any
+          });
+          result.tasksUpdated++;
+        } else {
+          try {
+            local = await prisma.task.create({
+              data: {
+                workspaceId: opts.workspaceId,
+                projectId: opts.projectId,
+                parentId: parentLocalId,
+                title: sub.name,
+                description: sub.notes ?? "",
+                status: status as any,
+                order: subOrder,
+                priority,
+                dueDate: due,
+                completedAt: sub.completed_at ? new Date(sub.completed_at) : null,
+                asanaId: sub.gid,
+                asanaPermalink: sub.permalink_url ?? null,
+                asanaCustomFields: (sub.custom_fields ?? null) as any
+              } as any
+            });
+            result.tasksCreated++;
+          } catch (e: any) {
+            if (e?.code !== "P2002") throw e;
+            const ex = await prisma.task.findUnique({ where: { asanaId: sub.gid } });
+            if (!ex) throw e;
+            local = await prisma.task.update({
+              where: { id: ex.id },
+              data: {
+                title: sub.name,
+                description: sub.notes ?? "",
+                status: status as any,
+                order: subOrder,
+                priority,
+                dueDate: due,
+                projectId: opts.projectId,
+                parentId: parentLocalId,
+                completedAt: sub.completed_at ? new Date(sub.completed_at) : null,
+                asanaPermalink: sub.permalink_url ?? null,
+                asanaCustomFields: (sub.custom_fields ?? null) as any,
+                ...(opts.restoreDeleted ? { deletedAt: null, deletedById: null } : {})
+              } as any
+            });
+            result.tasksUpdated++;
+          }
+        }
+
+        await importCommentsAndAttachmentsForReimportTask(sub, local.id);
+        await importReimportDescendants(sub.gid, local.id, depth + 1);
+      } catch (e: any) {
+        result.warnings.push(
+          `Subtarea "${sub.name}" (${sub.gid}) falló: ${String(e?.message ?? e).slice(0, 200)}`
+        );
+      } finally {
+        subOrder++;
+      }
+    }
+  }
 
   for await (const t of client.sectionTasks(opts.sectionGid)) {
     result.tasksProcessed++;
@@ -1098,104 +1314,8 @@ export async function reimportAsanaSection(opts: {
         }
       }
 
-      // Comentarios
-      try {
-        for await (const story of client.taskStories(t.gid)) {
-          if (story.resource_subtype !== "comment_added") continue;
-          if (!story.text && !story.html_text) continue;
-
-          const authorGid =
-            story.created_by?.gid ?? `synthetic-${(story.created_by?.name ?? "anon").replace(/\s/g, "_")}`;
-          const authorId = await ensureUserStandalone({
-            workspaceId: opts.workspaceId,
-            cache: userCache,
-            gid: authorGid,
-            name: story.created_by?.name,
-            email: story.created_by?.email ?? null
-          });
-          if (!authorId) continue;
-
-          const parsed = await parseAsanaCommentToTipTap({
-            client,
-            workspaceId: opts.workspaceId,
-            taskLocalId: local.id,
-            story: { gid: story.gid, text: story.text, html_text: story.html_text },
-            extraAttachmentGids: []
-          });
-
-          const exists = await prisma.comment.findUnique({ where: { asanaId: story.gid } });
-          if (exists) {
-            await prisma.comment.update({
-              where: { id: exists.id },
-              data: {
-                body: story.text ?? "",
-                bodyJson: parsed.doc as any,
-                targetId: local.id,
-                targetType: "TASK",
-                workspaceId: opts.workspaceId,
-                authorId
-              }
-            });
-            result.commentsUpdated++;
-          } else {
-            try {
-              await prisma.comment.create({
-                data: {
-                  workspaceId: opts.workspaceId,
-                  authorId,
-                  targetType: "TASK",
-                  targetId: local.id,
-                  body: story.text ?? "",
-                  bodyJson: parsed.doc as any,
-                  asanaId: story.gid,
-                  createdAt: new Date(story.created_at)
-                }
-              });
-              result.commentsImported++;
-            } catch (e: any) {
-              if (e?.code === "P2002") {
-                await prisma.comment.updateMany({
-                  where: { asanaId: story.gid },
-                  data: {
-                    body: story.text ?? "",
-                    bodyJson: parsed.doc as any,
-                    targetId: local.id,
-                    targetType: "TASK",
-                    workspaceId: opts.workspaceId,
-                    authorId
-                  }
-                });
-                result.commentsUpdated++;
-              } else throw e;
-            }
-          }
-        }
-      } catch (e: any) {
-        result.warnings.push(
-          `Comentarios de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 200)}`
-        );
-      }
-
-      // Adjuntos (la función ya tiene P2002-safe + relink)
-      try {
-        const r = await importAttachmentsForTask({
-          client,
-          workspaceId: opts.workspaceId,
-          taskLocalId: local.id,
-          taskAsanaGid: t.gid
-        });
-        result.attachmentsImported += r.imported + r.externalLinked;
-        result.attachmentsSkipped += r.skipped;
-        if (r.failed > 0) {
-          result.warnings.push(
-            `Adjuntos en "${t.name}": ${r.failed} fallidos (${r.errors.slice(0, 2).join(", ")})`
-          );
-        }
-      } catch (e: any) {
-        result.warnings.push(
-          `Adjuntos de "${t.name}" fallaron: ${String(e?.message ?? e).slice(0, 200)}`
-        );
-      }
+      await importCommentsAndAttachmentsForReimportTask(t, local.id);
+      await importReimportDescendants(t.gid, local.id);
     } catch (e: any) {
       result.warnings.push(
         `Task "${t.name}" (${t.gid}) falló: ${String(e?.message ?? e).slice(0, 200)}`
