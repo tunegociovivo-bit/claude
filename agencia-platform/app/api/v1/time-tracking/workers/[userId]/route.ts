@@ -35,12 +35,12 @@ export const GET = withApi({ scope: "*" }, async (_req, { api, params }) => {
   const userId = params.userId;
   const member = await prisma.membership.findFirst({ where: { workspaceId: api.workspaceId, userId }, include: { user: { select: { name: true, email: true, image: true } } } });
   if (!member) throw new ApiError(404, "not_found", "Trabajador no encontrado");
-  const since = new Date(); since.setDate(since.getDate() - 30); since.setHours(0,0,0,0);
+  const since = new Date(); since.setDate(since.getDate() - 90); since.setHours(0,0,0,0);
   const [policy, sessions, activities, screenshots] = await Promise.all([
     prisma.timeTrackerPolicy.findUnique({ where: { userId } }),
     prisma.timeTrackerSession.findMany({ where: { workspaceId: api.workspaceId, userId, startedAt: { gte: since } }, orderBy: { startedAt: "desc" } }),
-    prisma.timeTrackerActivity.findMany({ where: { workspaceId: api.workspaceId, userId, bucketStart: { gte: since }, privateMode: false }, orderBy: { bucketStart: "desc" }, take: 5000 }),
-    prisma.timeTrackerScreenshot.findMany({ where: { workspaceId: api.workspaceId, userId, expiresAt: { gt: new Date() } }, orderBy: { capturedAt: "desc" }, take: 50 })
+    prisma.timeTrackerActivity.findMany({ where: { workspaceId: api.workspaceId, userId, bucketStart: { gte: since }, privateMode: false }, orderBy: { bucketStart: "desc" }, take: 10000 }),
+    prisma.timeTrackerScreenshot.findMany({ where: { workspaceId: api.workspaceId, userId, capturedAt: { gte: since }, expiresAt: { gt: new Date() } }, orderBy: { capturedAt: "desc" }, take: 500 })
   ]);
   const usage = new Map<string, number>();
   for (const a of activities) { const key = a.domain || a.appName || "Sin clasificar"; usage.set(key, (usage.get(key) ?? 0) + a.durationSec); }
@@ -49,7 +49,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api, params }) => {
       trackingEnabled:true, collectApps:true, collectDomains:true, collectWindowTitles:false, collectIdle:true,
       screenshotsEnabled:true, screenshotInterval:10, screenshotJitter:20, blurScreenshots:false,
       retentionDays:30, allowPrivateMode:true, excludedApps:[]
-    }, sessions, activities: activities.slice(0, 500),
+    }, sessions, activities,
     topUsage: [...usage.entries()].sort((a,b)=>b[1]-a[1]).slice(0,25).map(([name,seconds])=>({name,seconds})),
     screenshots: await Promise.all(screenshots.map(async s => ({ id:s.id,capturedAt:s.capturedAt,appName:s.appName,blurred:s.blurred,url:await signedDownloadUrl(s.s3Key,900) })))
   });
