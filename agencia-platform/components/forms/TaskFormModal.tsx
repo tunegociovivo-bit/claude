@@ -112,6 +112,9 @@ export default function TaskFormModal({
   // Form fields
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState<any>(null);
+  const [loadedDetailId, setLoadedDetailId] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailRetry, setDetailRetry] = useState(0);
   const [status, setStatus] = useState<string>("TODO");
   const [priority, setPriority] = useState<Priority>(""); // default = normal (sin prioridad)
   // Multi-proyecto: la tarea puede estar en N proyectos. El primero del
@@ -337,6 +340,10 @@ export default function TaskFormModal({
   // Cuando cambia la tarea activa (apertura o navegación a subtarea), recarga datos.
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+    setLoadedDetailId(null);
+    setDetailError(null);
+    setDescription(null);
     setError(null);
     setEditorKey((k) => k + 1);
     if (currentTask) {
@@ -395,9 +402,15 @@ export default function TaskFormModal({
       // no-store: el estado de recurrencia (pausada/activa) debe venir
       // siempre fresco del servidor, nunca de caché del navegador.
       fetch(`/api/v1/tasks/${currentTask.id}`, { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
+        .then(async (r) => {
+          const data = await r.json();
+          if (!r.ok) throw new Error(data?.error?.message ?? data?.message ?? `No se pudo cargar la tarea (${r.status}).`);
+          return data;
+        })
         .then((data) => {
-          if (!data) return;
+          if (cancelled) return;
+          if (!data || data.id !== currentTask.id) throw new Error("No se ha recibido el detalle completo de esta tarea.");
+          setLoadedDetailId(currentTask.id);
           try {
             setDescription(data.description ? JSON.parse(data.description) : null);
           } catch {
@@ -426,10 +439,13 @@ export default function TaskFormModal({
             setSavedRecurrence(data.recurrence);
           }
           if ("recurrenceNextAt" in data) setRecurrenceNextAt(data.recurrenceNextAt ?? null);
+        }).catch((cause) => {
+          if (!cancelled) setDetailError(String(cause?.message ?? "No se pudo cargar la información de la tarea."));
         });
       fetch(`/api/v1/tasks/${currentTask.id}/comments`)
         .then((r) => (r.ok ? r.json() : { items: [] }))
-        .then((d) => setComments(d.items ?? []));
+        .then((d) => { if (!cancelled) setComments(d.items ?? []); })
+        .catch(() => {});
     } else {
       setTitle("");
       setDescription(null);
@@ -447,7 +463,8 @@ export default function TaskFormModal({
       setComments([]);
       setSubtasks([]);
     }
-  }, [open, currentTask?.id, defaultStatus, defaultProjectId, projects, columns]);
+    return () => { cancelled = true; };
+  }, [open, currentTask?.id, defaultStatus, defaultProjectId, projects, columns, detailRetry]);
 
   // Carga candidatos a @mención (miembros del workspace) al abrir el
   // modal. Se pasan por prop al CommentEditor; el editor se queda con
@@ -465,6 +482,7 @@ export default function TaskFormModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (currentTask && loadedDetailId !== currentTask.id) return;
     setError(null);
     if (!title.trim()) return setError("El título es obligatorio");
     if (!projectId) return setError("Selecciona un proyecto");
@@ -844,7 +862,7 @@ export default function TaskFormModal({
           <button
             type="submit"
             form="task-form"
-            disabled={saving || descriptionUploading}
+            disabled={saving || descriptionUploading || Boolean(currentTask && loadedDetailId !== currentTask.id)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
           >
             {(saving || descriptionUploading) && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -946,6 +964,9 @@ export default function TaskFormModal({
 
           <div>
             <div className="text-xs font-medium text-slate-700 mb-1">Descripción</div>
+            {currentTask && loadedDetailId !== currentTask.id ? <div role="status" className="rounded-lg border p-4 text-sm">
+              {detailError ? <><p className="text-rose-700">No se pudo cargar el contenido: {detailError}</p><button type="button" className="mt-2 rounded border px-3 py-2" onClick={() => setDetailRetry((value) => value + 1)}>Reintentar carga</button></> : "Cargando información de la tarea…"}
+            </div> :
             <div className="border rounded-lg p-3 bg-white">
               <RichTextEditor
                 key={editorKey}
@@ -957,7 +978,7 @@ export default function TaskFormModal({
                 media={{ enabled: true, taskId: currentTask?.id }}
                 onUploadingChange={setDescriptionUploading}
               />
-            </div>
+            </div>}
           </div>
 
           {/* Campos personalizados de la plantilla. Render dinámico
