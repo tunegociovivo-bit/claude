@@ -58,10 +58,33 @@ export function resolveMentions<T extends { id: string; email: string; name: str
   for (const token of tokens) {
     const lower = token.toLowerCase();
     const hasDomain = lower.includes("@");
-    const match = workspaceUsers.find((u) =>
-      hasDomain ? u.email.toLowerCase() === lower : u.email.toLowerCase().split("@")[0] === lower
-    );
+    const normalizedToken = normalizeMentionKey(token);
+    const match = workspaceUsers.find((u) => {
+      if (hasDomain) return u.email.toLowerCase() === lower;
+      const emailLocal = u.email.toLowerCase().split("@")[0];
+      const nameKey = normalizeMentionKey(u.name ?? "");
+      const compactToken = normalizedToken.replace(/\./g, "");
+      const compactName = nameKey.replace(/\./g, "");
+      const compactEmail = normalizeMentionKey(emailLocal).replace(/\./g, "");
+      return (
+        emailLocal === lower ||
+        normalizeMentionKey(emailLocal) === normalizedToken ||
+        compactEmail === compactToken ||
+        (!!nameKey && nameKey === normalizedToken) ||
+        (!!compactName && compactName === compactToken) ||
+        (!!compactName && compactName.startsWith(compactToken)) ||
+        (!!nameKey && nameKey.split(".").includes(normalizedToken))
+      );
+    });
     if (match && !result.some((r) => r.id === match.id)) result.push(match);
   }
   return result;
+}
+
+function normalizeMentionKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".");
 }

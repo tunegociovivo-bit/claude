@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { extractMentionTokens, extractMentionUserIds, resolveMentions } from "@/lib/mentions";
-import { sendPushToUser } from "@/lib/push/web-push";
+import { extractMentionTokens, extractMentionUserIds } from "@/lib/mentions";
+import { notifyNewMentions } from "@/lib/notifications/mentions-in-doc";
 import { toTipTapDoc, serializeForString } from "@/lib/comments/body";
 import { indexEntity } from "@/lib/search/embeddings";
 import { extractText } from "@/lib/comments/body";
@@ -162,49 +162,23 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
     console.warn("[nv-ia] mention hook failed:", (e as Error).message);
   }
 
-  if (directIds.length > 0 || tokens.length > 0) {
-    const workspaceUsers = await prisma.user.findMany({
-      where: { memberships: { some: { workspaceId: api.workspaceId } } },
-      select: { id: true, email: true, name: true }
-    });
-    const byToken = resolveMentions(tokens, workspaceUsers);
-    const byId = workspaceUsers.filter((u) => directIds.includes(u.id));
-    const seen = new Set<string>();
-    const mentioned = [...byId, ...byToken]
-      .filter((u) => {
-        if (u.id === api.userId) return false;
-        if (seen.has(u.id)) return false;
-        seen.add(u.id);
-        return true;
-      });
-    if (mentioned.length > 0) {
-      const taskInfo = await prisma.task.findUnique({
-        where: { id: params.id },
-        select: { title: true }
-      });
-      const notifBody = `${comment.author.name ?? "Alguien"} te mencionó en "${taskInfo?.title ?? "una tarea"}"`;
-      const link = `/tareas?task=${params.id}`;
-      await prisma.notification.createMany({
-        data: mentioned.map((u) => ({
-          userId: u.id,
-          type: "mention",
-          body: notifBody,
-          link
-        }))
-      });
-      // Web push paralelo — best-effort, no bloqueante
-      await Promise.all(
-        mentioned.map((u) =>
-          sendPushToUser(u.id, {
-            title: "Te han mencionado",
-            body: notifBody,
-            link,
-            tag: `mention-${params.id}`
-          }).catch((e) => console.warn("[push] mention fallo:", e?.message ?? e))
-        )
-      );
-    }
-  }
+  const taskInfo = await prisma.task.findUnique({
+    where: { id: params.id },
+    select: { title: true }
+  });
+  notifyNewMentions({
+    source: {
+      kind: "comment",
+      id: comment.id,
+      title: taskInfo?.title ?? "una tarea",
+      workspaceId: api.workspaceId,
+      link: `/tareas?task=${params.id}`,
+      text: bodyString
+    },
+    previousBody: null,
+    nextBody: parsed.data.body,
+    actorId: api.userId
+  }).catch((e) => console.warn("[notif] mention comment:", e?.message ?? e));
 
   return NextResponse.json(comment, { status: 201 });
 });

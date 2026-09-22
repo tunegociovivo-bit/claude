@@ -6,6 +6,7 @@ import { taskCreateSchema } from "@/lib/api/schemas";
 import { taskVisibilityWhere } from "@/lib/api/task-access";
 import { computeRecurrenceNext } from "@/lib/tasks/recurrence";
 import { notifyAssignment } from "@/lib/notifications/assignment";
+import { notifyNewMentions } from "@/lib/notifications/mentions-in-doc";
 import { dispatchWebhook } from "@/lib/webhooks/dispatch";
 import { indexEntity } from "@/lib/search/embeddings";
 import { textForTask } from "@/lib/search/indexers";
@@ -131,6 +132,12 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     newAssigneeIds: assigneeIds,
     actorId: api.userId
   }).catch((e) => console.warn("[notif] assignment create:", e?.message ?? e));
+  notifyNewMentions({
+    source: { kind: "task", id: task.id, title: task.title, workspaceId: api.workspaceId },
+    previousBody: null,
+    nextBody: `${task.title}\n${task.description ?? ""}`,
+    actorId: api.userId
+  }).catch((e) => console.warn("[notif] mention task create:", e?.message ?? e));
   // Indexa para búsqueda semántica — fire-and-forget.
   void indexEntity({
     workspaceId: api.workspaceId,

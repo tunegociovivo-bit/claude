@@ -30,9 +30,9 @@ export const PATCH = withApi({ scope: "docs:write" }, async (req, { params, api 
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  // Snapshot del contenido anterior para detectar menciones nuevas.
+  // Snapshot del texto anterior para detectar menciones nuevas.
   const previous =
-    parsed.data.content !== undefined
+    parsed.data.content !== undefined || parsed.data.title !== undefined
       ? await prisma.document.findFirst({
           where: { id: params.id, workspaceId: api.workspaceId },
           select: { content: true, title: true }
@@ -46,11 +46,11 @@ export const PATCH = withApi({ scope: "docs:write" }, async (req, { params, api 
   if (updated.count === 0) throw new ApiError(404, "not_found", "Documento no encontrado");
   const fresh = await prisma.document.findUnique({ where: { id: params.id } });
 
-  if (parsed.data.content !== undefined && fresh) {
+  if ((parsed.data.content !== undefined || parsed.data.title !== undefined) && fresh) {
     notifyNewMentions({
       source: { kind: "document", id: params.id, title: fresh.title, workspaceId: api.workspaceId },
-      previousBody: previous?.content,
-      nextBody: parsed.data.content,
+      previousBody: JSON.stringify({ title: previous?.title ?? "", content: previous?.content ?? null }),
+      nextBody: JSON.stringify({ title: fresh.title, content: fresh.content ?? null }),
       actorId: api.userId
     }).catch((e) => console.warn("[notif] mention doc:", e?.message ?? e));
   }

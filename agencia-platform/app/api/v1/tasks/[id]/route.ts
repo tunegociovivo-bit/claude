@@ -86,13 +86,13 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
         ).map((r: any) => r.projectId as string)
       : undefined;
 
-  // Si llega `description` nueva, también capturamos la anterior para
-  // calcular las menciones nuevas (diff de @user mentions).
-  const prevDescription =
-    data.description !== undefined
+  // Si llega texto nuevo, capturamos el anterior para calcular menciones
+  // nuevas sin repetir avisos por menciones ya existentes.
+  const prevMentionText =
+    data.description !== undefined || data.title !== undefined
       ? await prisma.task.findUnique({
           where: { id: params.id },
-          select: { description: true }
+          select: { title: true, description: true }
         })
       : null;
 
@@ -143,7 +143,7 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
     if (upd.count === 0) return null;
     if (data.description !== undefined) {
       await claimTaskMedia(tx, mediaFiles, params.id);
-      await detachRemovedTaskMedia(tx, prevDescription?.description, data.description, params.id);
+      await detachRemovedTaskMedia(tx, prevMentionText?.description, data.description, params.id);
     }
     if (assigneeIds) {
       await tx.taskAssignee.deleteMany({ where: { taskId: params.id } });
@@ -252,12 +252,12 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       }).catch((e) => console.warn("[notif] assignment patch:", e?.message ?? e));
     }
   }
-  // Notif por @menciones nuevas en la descripción rich.
-  if (data.description !== undefined) {
+  // Notif por @menciones nuevas en título o descripción.
+  if (data.description !== undefined || data.title !== undefined) {
     notifyNewMentions({
       source: { kind: "task", id: params.id, title: result.title, workspaceId: api.workspaceId },
-      previousBody: prevDescription?.description,
-      nextBody: data.description,
+      previousBody: `${prevMentionText?.title ?? ""}\n${prevMentionText?.description ?? ""}`,
+      nextBody: `${data.title ?? result.title}\n${data.description ?? (result as any).description ?? ""}`,
       actorId: api.userId
     }).catch((e) => console.warn("[notif] mention task desc:", e?.message ?? e));
   }
