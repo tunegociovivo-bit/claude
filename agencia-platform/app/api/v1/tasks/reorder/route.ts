@@ -5,6 +5,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 
 const reorderSchema = z.object({
+  projectId: z.string().optional(),
   items: z
     .array(
       z.object({
@@ -32,7 +33,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
   // obsoletos del cliente.
   const liveTasks = await prisma.task.findMany({
     where: { id: { in: ids }, workspaceId: api.workspaceId, deletedAt: null },
-    select: { id: true }
+    select: { id: true, projectId: true }
   });
   const liveIds = new Set(liveTasks.map((t) => t.id));
   const liveItems = items.filter((it) => liveIds.has(it.id));
@@ -42,6 +43,11 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
 
   await prisma.$transaction(
     liveItems.map((it) =>
+      parsed.data.projectId && liveTasks.find((t) => t.id === it.id)?.projectId !== parsed.data.projectId
+      ? prisma.taskProject.updateMany({
+          where: { taskId: it.id, projectId: parsed.data.projectId },
+          data: { order: it.order, ...(it.status ? { status: it.status } : {}) }
+        }) :
       // updateMany (no update) para poder exigir deletedAt: null en el WHERE.
       prisma.task.updateMany({
         where: { id: it.id, workspaceId: api.workspaceId, deletedAt: null },

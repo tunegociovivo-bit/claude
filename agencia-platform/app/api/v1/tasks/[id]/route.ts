@@ -152,14 +152,12 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
       });
     }
     if (extraProjectIds !== undefined) {
-      await (tx as any).taskProject.deleteMany({ where: { taskId: params.id } });
-      if (extraProjectIds.length > 0) {
-        await (tx as any).taskProject.createMany({
-          data: extraProjectIds.map((projectId) => ({
-            taskId: params.id,
-            projectId,
-            status: epsMap[projectId] ?? null
-          }))
+      await (tx as any).taskProject.deleteMany({ where: { taskId: params.id, projectId: { notIn: extraProjectIds } } });
+      for (const projectId of extraProjectIds) {
+        await (tx as any).taskProject.upsert({
+          where: { taskId_projectId: { taskId: params.id, projectId } },
+          create: { taskId: params.id, projectId, status: epsMap[projectId] ?? null },
+          update: { ...(Object.prototype.hasOwnProperty.call(epsMap, projectId) ? { status: epsMap[projectId] } : {}) }
         });
       }
     } else if (Object.keys(epsMap).length > 0) {

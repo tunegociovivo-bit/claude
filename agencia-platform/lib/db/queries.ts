@@ -87,6 +87,7 @@ export type UiTask = (typeof mockTasks)[number] & {
   // la tarea aparece DENTRO de ese proyecto. La columna principal
   // sigue siendo `status`.
   extraProjectStatuses?: Record<string, string | null>;
+  extraProjectPositions?: Record<string, { order: number; sharedAt: string }>;
   notifyDueRules?: string[] | null;
   // Posición dentro de su columna kanban (order ASC = más arriba).
   // Necesario para que el drag&drop dentro de una columna persista
@@ -315,7 +316,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         allDay = explicitAllDay ?? true;
         timeStr = undefined;
       }
-      const extra = ((r as any).extraProjects ?? []) as Array<{ projectId: string; status: string | null }>;
+      const extra = ((r as any).extraProjects ?? []) as Array<{ projectId: string; status: string | null; order: number; sharedAt: Date }>;
       const projectIds = [r.projectId, ...extra.map((e) => e.projectId).filter((id) => id !== r.projectId)];
       // Mapa projectId → status para los extras. La tarea cae en esa
       // columna cuando estás filtrando por ese proyecto secundario.
@@ -332,6 +333,7 @@ export async function getTasksForUi(): Promise<UiTask[]> {
         projectId: r.projectId,
         projectIds,
         extraProjectStatuses,
+        extraProjectPositions: Object.fromEntries(extra.map((e) => [e.projectId, { order: e.order ?? -1, sharedAt: e.sharedAt?.toISOString() ?? r.createdAt.toISOString() }])),
         clientId: r.clientId ?? undefined,
         // Si la tarea no tiene fecha, NO inventamos una (antes ponía
         // "hoy" como fallback, lo que hacía que TODAS las tareas

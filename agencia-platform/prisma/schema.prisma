@@ -2559,6 +2559,8 @@ model Task {
 model TaskProject {
   taskId    String
   projectId String
+  order     Int @default(-1)
+  sharedAt  DateTime @default(now())
   // Estado/columna en ESTE proyecto extra. Una tarea con
   // proyecto principal A (status="EN_CURSO") puede aparecer en
   // proyecto B en cualquier columna distinta (p.ej. "REVISION").

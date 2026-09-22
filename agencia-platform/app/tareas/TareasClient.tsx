@@ -940,7 +940,9 @@ export default function TareasClient({
     // de una columna persista la posición elegida. Sin esto las cards
     // se renderizaban en orden de aparición y "volvían" a su sitio.
     const byOrder = (a: UiTask, b: UiTask) => {
-      const orderDiff = (a.order ?? 0) - (b.order ?? 0);
+      const ap = a.extraProjectPositions?.[filters.project];
+      const bp = b.extraProjectPositions?.[filters.project];
+      const orderDiff = (ap?.order ?? a.order ?? 0) - (bp?.order ?? b.order ?? 0);
       if (orderDiff !== 0) return orderDiff;
 
       // Muchas tareas importadas comparten order=0. No podemos usar
@@ -948,7 +950,7 @@ export default function TareasClient({
       // updatedAt y haría que la tarjeta saltase arriba de la columna.
       // createdAt desc + id mantienen una posición determinista y estable,
       // y hacen que las tareas nuevas sin order explícito aparezcan arriba.
-      const createdDiff = (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+      const createdDiff = (bp?.sharedAt ?? b.createdAt ?? "").localeCompare(ap?.sharedAt ?? a.createdAt ?? "");
       return createdDiff !== 0 ? createdDiff : a.id.localeCompare(b.id);
     };
     // Concatenamos: primero las compartidas (entran arriba), luego
@@ -973,7 +975,7 @@ export default function TareasClient({
       await fetch("/api/v1/tasks/reorder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items })
+        body: JSON.stringify({ items, projectId: filters.project === "all" ? undefined : filters.project })
       });
     } catch (e) {
       console.warn("Reorder API falló:", e);
@@ -1097,6 +1099,13 @@ export default function TareasClient({
       const activeTaskId = String(active.id);
       const activeTask = tasks.find((t) => t.id === activeTaskId);
       if (!activeTask) return;
+      const isShared = (t: UiTask) => filters.project !== "all" && t.projectId !== filters.project;
+      const boardStatus = (t: UiTask) => String(isShared(t) ? t.extraProjectStatuses?.[filters.project] ?? t.status : t.status);
+      const boardOrder = (t: UiTask) => isShared(t) ? t.extraProjectPositions?.[filters.project]?.order ?? -1 : t.order ?? 0;
+      const setBoardOrder = (t: UiTask, order: number) => {
+        if (isShared(t)) t.extraProjectPositions = { ...t.extraProjectPositions, [filters.project]: { order, sharedAt: t.extraProjectPositions?.[filters.project]?.sharedAt ?? t.createdAt ?? "" } };
+        else t.order = order;
+      };
 
       let destColumn: string;
       if (overType === "column") {
@@ -1104,24 +1113,24 @@ export default function TareasClient({
       } else if (overType === "task") {
         const overTask = tasks.find((t) => t.id === String(over.id));
         if (!overTask) return;
-        destColumn = String(overTask.status);
+        destColumn = boardStatus(overTask);
       } else return;
 
-      const sourceColumn = String(activeTask.status);
+      const sourceColumn = boardStatus(activeTask);
 
       setTasks((prev) => {
         // Trabajamos sobre una copia con el status del task arrastrado
         // ya actualizado a la columna destino.
         const next = prev.map((t) =>
-          t.id === activeTaskId ? { ...t, status: destColumn } : { ...t }
+          t.id === activeTaskId ? isShared(t) ? { ...t, extraProjectStatuses: { ...t.extraProjectStatuses, [filters.project]: destColumn } } : { ...t, status: destColumn } : { ...t }
         );
         const movedTask = next.find((t) => t.id === activeTaskId)!;
 
         // Lista actual de la columna destino, ordenada por `order` para
         // calcular la posición de inserción correcta.
         const destTasks = next
-          .filter((t) => String(t.status) === destColumn)
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          .filter((t) => (filters.project === "all" || t.projectIds?.includes(filters.project) || t.projectId === filters.project) && boardStatus(t) === destColumn && isShared(t) === isShared(activeTask))
+          .sort((a, b) => boardOrder(a) - boardOrder(b));
 
         let newIndex: number;
         if (overType === "task") {
@@ -1148,7 +1157,7 @@ export default function TareasClient({
         const updates: { id: string; order: number; status?: string }[] = [];
         reordered.forEach((t, idx) => {
           const ref = next.find((x) => x.id === t.id);
-          if (ref) ref.order = idx;
+          if (ref) setBoardOrder(ref, idx);
           updates.push({
             id: t.id,
             order: idx,
@@ -1159,11 +1168,11 @@ export default function TareasClient({
         // Si cambió de columna, recompactar el `order` de la columna origen.
         if (sourceColumn !== destColumn) {
           const sourceAfter = next
-            .filter((t) => String(t.status) === sourceColumn && t.id !== activeTaskId)
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            .filter((t) => (filters.project === "all" || t.projectIds?.includes(filters.project) || t.projectId === filters.project) && boardStatus(t) === sourceColumn && t.id !== activeTaskId && isShared(t) === isShared(activeTask))
+            .sort((a, b) => boardOrder(a) - boardOrder(b));
           sourceAfter.forEach((t, idx) => {
             const ref = next.find((x) => x.id === t.id);
-            if (ref) ref.order = idx;
+            if (ref) setBoardOrder(ref, idx);
             updates.push({ id: t.id, order: idx });
           });
         }
