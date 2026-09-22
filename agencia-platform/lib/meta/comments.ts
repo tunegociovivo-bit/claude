@@ -210,12 +210,12 @@ function normalizedInstagramPermalink(value?: string | null) {
 }
 
 export function shouldHydrateMetaCreative(creative: { id?: string | null; effective_instagram_story_id?: unknown; source_instagram_media_id?: unknown; instagram_permalink_url?: unknown; [key: string]: unknown }) {
-  return Boolean(creative.id && !creative.effective_instagram_story_id && !creative.source_instagram_media_id && !creative.instagram_permalink_url);
+  return Boolean(creative.id && !creative.effective_instagram_media_id && !creative.effective_instagram_story_id && !creative.source_instagram_media_id && !creative.instagram_permalink_url);
 }
 
 export function resolveInstagramMediaTarget(creative: any, mediaByPermalink: InstagramMediaLookup) {
-  const directId = creative.effective_instagram_story_id ?? creative.source_instagram_media_id;
-  const ownerId = String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "");
+  const directId = creative.effective_instagram_media_id || creative.source_instagram_media_id || creative.effective_instagram_story_id;
+  const ownerId = String(creative.instagram_user_id ?? creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? "");
   if (directId) return { id: String(directId), ownerId, platform: "instagram" as const, token: undefined as string | undefined };
   const permalink = normalizedInstagramPermalink(creative.instagram_permalink_url);
   const resolved = permalink ? mediaByPermalink.get(permalink) : undefined;
@@ -380,7 +380,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
   });
   try {
-    const creativeFields = "id,effective_object_story_id,effective_instagram_story_id,source_instagram_media_id,instagram_actor_id,instagram_permalink_url,object_story_id,object_story_spec,asset_feed_spec";
+    const creativeFields = "id,effective_object_story_id,effective_instagram_media_id,source_instagram_media_id,instagram_user_id,instagram_permalink_url,object_story_id,object_story_spec,asset_feed_spec";
     const resolved = await campaignAdsWithAvailableConnection(workspaceId, campaignId, creativeFields, feed.metaConnectionId);
     const connectionToken = resolved.token;
     const ads = resolved.ads;
@@ -442,11 +442,12 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       const facebookPageId = String(creative.object_story_spec?.page_id ?? (creative.effective_object_story_id ?? creative.object_story_id ?? "")).split("_")[0];
-      const ownerHint = String(creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? authorizedPages.instagramByFacebookPage.get(facebookPageId) ?? "") || null;
+      const ownerHint = String(creative.instagram_user_id ?? creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? authorizedPages.instagramByFacebookPage.get(facebookPageId) ?? "") || null;
       if (!instagramTarget) {
         await loadInstagramMediaLookup(ownerHint);
         instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       }
+      if (instagramTarget && !instagramTarget.ownerId && ownerHint) instagramTarget.ownerId = ownerHint;
       if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
       const instagramTargetsForAd = instagramTarget ? [instagramTarget] : [];
       if (!instagramTarget && ownerHint) {

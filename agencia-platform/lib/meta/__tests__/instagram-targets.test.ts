@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { fallbackInstagramMediaTargets, matchInstagramMediaForCreative, resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
 
 describe("Instagram comment target discovery", () => {
+  it("uses the effective media id returned by current Meta creatives", () => {
+    const creative = { id: "creative", effective_instagram_media_id: "media-current", effective_instagram_story_id: "legacy", instagram_user_id: "ig-owner" };
+    expect(shouldHydrateMetaCreative(creative)).toBe(false);
+    expect(resolveInstagramMediaTarget(creative, new Map())).toMatchObject({ id: "media-current", ownerId: "ig-owner", platform: "instagram" });
+  });
+  it("falls back to source media when an effective id is empty", () => {
+    expect(resolveInstagramMediaTarget({ effective_instagram_media_id: "", source_instagram_media_id: "source" }, new Map())).toMatchObject({ id: "source" });
+  });
   it("rehidrata la creatividad aunque Facebook ya haya devuelto su publicación", () => {
     expect(shouldHydrateMetaCreative({ id: "creative-1", effective_object_story_id: "page_post" })).toBe(true);
   });
