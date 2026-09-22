@@ -9,6 +9,7 @@ import { campaignOptionsForClient, filterMetaCommentInbox } from "@/lib/meta/com
 import { formatBulkModerationStatus, runWithConcurrency } from "@/lib/meta/bulk-moderation";
 import { bulkDeleteTransition, type BulkDeleteFlow } from "@/lib/meta/bulk-delete-flow";
 import { generateDraftBatches } from "@/lib/meta/draft-batches";
+import { requestDraftBatch } from "@/lib/meta/draft-request";
 
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; aiContext: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
@@ -293,10 +294,7 @@ export default function MetaCommentsClient() {
       setBulkStatus({ message: `Generando respuestas IA: 0/${targets.length} comentarios procesados…` });
       try {
         const { failedIds, lastError } = await generateDraftBatches(targets.map((item) => item.id), async (commentIds) => {
-          const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "regenerate_drafts", commentIds }), signal: AbortSignal.timeout(120000) });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data?.error?.message ?? "La IA no pudo generar las respuestas");
-          return data;
+          return requestDraftBatch(commentIds, (seconds) => setBulkStatus({ message: `Límite temporal del Hub. La generación continuará automáticamente en ${seconds} segundos; los borradores anteriores están conservados.` }));
         }, (generated, completed, total) => {
           setDrafts((current) => ({ ...current, ...generated }));
           setBulkStatus({ message: `Generando respuestas IA: ${completed}/${total} comentarios procesados…` });
