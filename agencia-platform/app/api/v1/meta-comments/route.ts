@@ -58,7 +58,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const before = url.searchParams.get("before");
   const beforeId = url.searchParams.get("beforeId");
   if (before && (!beforeId || !Number.isFinite(Date.parse(before)))) throw new ApiError(400, "invalid_cursor", "Paginación no válida");
-  const rows = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, deletedAt: null, ...(before && beforeId ? { OR: [{ commentCreatedAt: { lt: new Date(before) } }, { commentCreatedAt: new Date(before), id: { lt: beforeId } }] } : {}) }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true, campaignName: true } } }, orderBy: [{ commentCreatedAt: "desc" }, { id: "desc" }], take: 301 });
+  const rows = await prisma.metaAdComment.findMany({ where: { workspaceId: api.workspaceId, ...(url.searchParams.get("includeHistory") === "1" ? { AND: [{ OR: [{ deletedAt: null }, { status: { in: ["deleted", "hidden"] } }] }] } : { deletedAt: null }), ...(before && beforeId ? { OR: [{ commentCreatedAt: { lt: new Date(before) } }, { commentCreatedAt: new Date(before), id: { lt: beforeId } }] } : {}) }, include: { feed: { select: { clientName: true, displayName: true, adAccountName: true, campaignId: true, campaignName: true } } }, orderBy: [{ commentCreatedAt: "desc" }, { id: "desc" }], take: 301 });
   const items = rows.slice(0, 300);
   const last = items[items.length - 1];
   const nextCursor = rows.length > 300 && last ? { before: last.commentCreatedAt.toISOString(), beforeId: last.id } : null;
