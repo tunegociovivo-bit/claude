@@ -110,25 +110,28 @@ function buildRoster(client: any): RosterPerson[] {
   return Array.from(map.values());
 }
 
-function buildSystemPrompt(client: any, networks: string[], perNetworkCopy: boolean) {
+function buildSystemPrompt(client: any, networks: string[], perNetworkCopy: boolean, forcedRosterPersons?: string[]) {
   const brief = client.brandBrief?.trim() || "(sin brief — usa tono profesional neutro)";
   const guide = client.styleGuideCached?.trim();
   const competitors = client.competitors?.trim();
   const colors = `${client.brandColorPrimary} / ${client.brandColorAccent} / ${client.brandColorText}`;
-  const roster = buildRoster(client);
+  const forcedLower = (forcedRosterPersons ?? []).map((n) => n.toLowerCase().trim()).filter(Boolean);
+  const roster = forcedLower.length > 0
+    ? buildRoster(client).filter((p) => forcedLower.includes(p.name.toLowerCase()))
+    : [];
   const namesCsv = roster.map((p) => p.name).join(", ");
   const rosterBlock =
     roster.length > 0
       ? `## Roster del cliente (personas con fotos de referencia)
 ${roster.map((p) => `- ${p.name} (${p.type}, ${p.photoCount} fotos adjuntas en este mensaje)`).join("\n")}
 
-CRÍTICO sobre el roster — te HE ADJUNTADO al inicio de este mensaje las fotos reales de estas personas. ANTES de empezar a escribir publicaciones, MIRA las fotos atentamente y construye una descripción física PRECISA de cada persona (edad aproximada, color y forma de pelo, presencia/forma de barba, complexión, tono de piel, vestimenta típica). Usa esa descripción cuando el copy mencione alguno de estos nombres (${namesCsv}).
+CRÍTICO sobre el roster — el usuario ha marcado explícitamente estas personas para que salgan. Te HE ADJUNTADO al inicio de este mensaje las fotos reales de estas personas. ANTES de empezar a escribir publicaciones, MIRA las fotos atentamente y construye una descripción física PRECISA de cada persona (edad aproximada, color y forma de pelo, presencia/forma de barba, complexión, tono de piel, vestimenta típica). Usa esa descripción para que aparezcan en las imágenes (${namesCsv}).
 
 Reglas:
 - El image_prompt DEBE describir físicamente a TODAS las personas del copy en escena, enumeradas, SIN nombres (gpt-image-1 no entiende nombres). Ej: en vez de "Rochar smiling", pon "a man in his late 40s with short salt-and-pepper hair and a well-groomed grey beard, wearing a white doctor coat over a dark shirt, warm calm expression, looking directly at camera".
 - Cada miembro del roster es una persona ÚNICA — nunca dupliques (no pongas "two men with beard" si Rochar es la única persona mencionada).
 - Si el copy es genérico sobre "el equipo" sin nombres, describe la escena con ${roster.length} persona(s) consistentes con las fotos del roster.
-- NUNCA generes una persona genérica si el copy menciona un nombre del roster.`
+- NUNCA añadas otras personas del roster que el usuario no haya marcado.`
       : "";
 
   return [
@@ -409,7 +412,7 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   const copyLength = opts.copyLength ?? 50;
   const perNetwork = opts.perNetworkCopy ?? opts.networks.length > 1;
 
-  const system = buildSystemPrompt(client, opts.networks, perNetwork);
+  const system = buildSystemPrompt(client, opts.networks, perNetwork, opts.useRosterPersons);
   const user = buildUserPrompt({
     month: opts.month,
     count: effectiveCount,
@@ -431,12 +434,13 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
     networks: opts.networks,
     perNetworkCopy: perNetwork
   });
-  // Pasamos a Claude las fotos del roster (CEO, equipo) para que las
-  // VEA y describa físicamente con detalle en cada image_prompt. Sin
-  // esto el modelo de imagen genera "un señor genérico con barba" en
-  // vez del CEO real. Tomamos hasta 3 fotos por persona, máx 12 fotos
-  // totales (12000 input tokens aprox).
-  const roster = buildRoster(client);
+  // Pasamos a Claude solo las fotos de personas que el usuario marcó en el
+  // modal. Si no marca a nadie, no adjuntamos el roster: así "ninguno
+  // seleccionado" significa generar la pieza sin Rochar/Dra Angie/Ana.
+  const forcedRosterLower = (opts.useRosterPersons ?? []).map((n) => n.toLowerCase().trim()).filter(Boolean);
+  const roster = forcedRosterLower.length > 0
+    ? buildRoster(client).filter((p) => forcedRosterLower.includes(p.name.toLowerCase()))
+    : [];
   const rosterPhotos: string[] = [];
   for (const p of roster) {
     for (const u of p.photoUrls.slice(0, 3)) {

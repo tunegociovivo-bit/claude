@@ -1928,7 +1928,7 @@ function GenerateMonthModal({
               })}
             </div>
             <p className="mt-1 text-[11px] text-slate-500">
-              Si no marcas nadie, Claude detecta personas auto-mágicamente por mención en el copy (incluye "equipo" → todo el roster type=equipo).
+              Si no marcas nadie, la IA no usará fotos del roster ni meterá a esas personas en las imágenes.
             </p>
           </div>
         )}
@@ -2876,7 +2876,7 @@ function PostFormModal({
                   })}
                 </div>
                 <p className="mt-1 text-[10px] text-slate-500">
-                  Si no marcas nadie, Claude detecta a quién meter por mención en el copy (incluye "equipo" → todo el roster).
+                  Si no marcas nadie, la IA generará la imagen sin usar a esas personas como referencia.
                 </p>
               </div>
             )}
