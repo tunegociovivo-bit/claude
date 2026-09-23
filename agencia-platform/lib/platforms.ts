@@ -13,7 +13,7 @@
  */
 
 import { LucideIcon } from "lucide-react";
-import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store, Landmark, Smartphone } from "lucide-react";
+import { Star, Mic, FileText, Download, MessageSquare, Sparkles, Megaphone, Puzzle, Store, Landmark, Smartphone, PenLine } from "lucide-react";
 
 export type PlatformKey =
   | "reviews"
@@ -26,7 +26,8 @@ export type PlatformKey =
   | "chrome_extension"
   | "bubui_directorio"
   | "subvenciones"
-  | "mobile_farm";
+  | "mobile_farm"
+  | "seo_publicador";
 
 export type PlatformDef = {
   key: PlatformKey;
@@ -132,6 +133,15 @@ export const PLATFORMS: PlatformDef[] = [
     description: "Detecta convocatorias públicas abiertas (BDNS) y las cruza con cada cliente: qué le encaja, por qué califica y qué necesita para solicitarla.",
     href: "/admin/subvenciones",
     icon: Landmark,
+    available: true,
+    defaultEnabled: true
+  },
+  {
+    key: "seo_publicador",
+    label: "Publicador SEO",
+    description: "Blog SEO automático para las webs WordPress de los clientes: keywords, propuestas IA, calendario, redacción humanizada, imágenes IA con el estilo de cada cliente y publicación programada.",
+    href: "/publicador-seo",
+    icon: PenLine,
     available: true,
     defaultEnabled: true
   }

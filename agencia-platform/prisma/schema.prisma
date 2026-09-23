@@ -966,6 +966,7 @@ model Client {
   events         CalendarEvent[]
   editorialPosts EditorialPost[]
   editorialMetaProfiles EditorialMetaProfile[]
+  seoBlogSites   SeoBlogSite[]
   deliverables   Deliverable[]
   aiMemory       AiClientMemory?
   aiOwnership    AiOwnership?
@@ -6420,4 +6421,154 @@ model BubuiSubvencionProposal {
 
   @@index([businessId])
   @@index([status])
+}
+
+
+// ====================================================================
+// PUBLICADOR SEO (blog WordPress de clientes)
+// Plataforma "Publicador SEO" (/publicador-seo). Por cliente: web WP
+// conectada por Application Password, palabras clave, referencias de estilo
+// visual, propuestas IA, calendario y pipeline de redacción/imágenes/publicación.
+// ====================================================================
+
+model SeoBlogSite {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  clientId         String
+  siteUrl          String    @default("")
+  wpUser           String    @default("")
+  wpAppPasswordEnc String?   @db.Text // encryptSecret()
+  language         String    @default("es-ES")
+  location         String    @default("")
+  sector           String    @default("")
+  businessInfo     String?   @db.Text
+  audience         String?   @db.Text
+  tone             String    @default("")
+  brandVoice       String?   @db.Text
+  compliance       String?   @db.Text
+  forbidden        String?   @db.Text
+  ctaText          String    @default("")
+  ctaUrl           String    @default("")
+  competitors      String?   @db.Text
+  wpAuthorId       Int       @default(0)
+  defaultCategory  String    @default("")
+  autoPublish      Boolean   @default(false)
+  leadDays         Int       @default(3)
+  publishTime      String    @default("09:00")
+  wordsMin         Int       @default(1400)
+  wordsMax         Int       @default(2200)
+  imagesPerPost    Int       @default(3)
+  imageAspect      String    @default("widescreen_16_9")
+  visualStyle      String?   @db.Text
+  visualNotes      String?   @db.Text
+  color            String    @default("#C9962E")
+  bridgeDetected   Boolean   @default(false)
+  siteCache        Json?
+  siteCacheAt      DateTime?
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  client   Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  keywords SeoBlogKeyword[]
+  refs     SeoBlogRef[]
+  posts    SeoBlogPost[]
+
+  @@unique([workspaceId, clientId])
+  @@index([workspaceId, active])
+}
+
+model SeoBlogKeyword {
+  id          String    @id @default(cuid())
+  workspaceId String
+  siteId      String
+  keyword     String
+  kwType      String    @default("principal") // principal|secundaria|longtail
+  intent      String    @default("")
+  priority    Int       @default(2) // 1 alta · 2 media · 3 baja
+  volume      Int?
+  notes       String?   @db.Text
+  serp        Json?
+  serpAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  site SeoBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, siteId])
+}
+
+model SeoBlogRef {
+  id          String   @id @default(cuid())
+  workspaceId String
+  siteId      String
+  s3Key       String
+  width       Int?
+  height      Int?
+  label       String   @default("")
+  createdAt   DateTime @default(now())
+
+  site SeoBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, siteId])
+}
+
+model SeoBlogPost {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  siteId            String
+  keywordId         String?
+  keyword           String    @default("")
+  title             String
+  angle             String?   @db.Text
+  intent            String    @default("")
+  funnel            String    @default("")
+  secondaryKeywords Json?
+  rationale         String?   @db.Text
+  notes             String?   @db.Text
+  // propuesta|planificada|en_cola|generando|revision|aprobada|programada|publicada|error|descartada
+  status            String    @default("propuesta")
+  step              String    @default("")
+  publishAt         DateTime?
+  research          Json?
+  brief             Json?
+  content           String?   @db.Text
+  metaTitle         String    @default("")
+  metaDescription   String    @default("")
+  slug              String    @default("")
+  excerpt           String?   @db.Text
+  faq               Json?
+  schemaJson        Json?
+  images            Json?
+  category          String    @default("")
+  tags              Json?
+  seoScore          Int       @default(0)
+  seoReport         Json?
+  fixPasses         Int       @default(0)
+  remoteId          Int       @default(0)
+  remoteUrl         String    @default("")
+  error             String?   @db.Text
+  attempts          Int       @default(0)
+  lockedUntil       DateTime?
+  createdById       String?
+  generatedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  site SeoBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, siteId, status])
+  @@index([status, publishAt])
+}
+
+model SeoBlogLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  siteId      String?
+  postId      String?
+  level       String   @default("info")
+  message     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([postId, createdAt])
+  @@index([workspaceId, createdAt])
 }

@@ -21,6 +21,23 @@ hub.negociovivo.com legacy en WordPress.
 
 ## Cronología de hitos (más reciente arriba)
 
+### Publicador SEO (blog WordPress de clientes) — 2026-09-23
+- Plataforma nueva `seo_publicador` → `/publicador-seo` (sidebar Plataformas, permisos por trabajador en /admin/plataformas).
+- Modelos aditivos: `SeoBlogSite` (1:1 con Client: web WP + Application Password cifrada, voz de marca, cumplimiento,
+  estilo visual), `SeoBlogKeyword`, `SeoBlogRef` (referencias de estilo en R2, ≤1800 px JPEG q82), `SeoBlogPost`, `SeoBlogLog`.
+- Flujo: keywords → propuestas IA (Serper: top 10 + PAA + relacionadas; anti-canibalización con los posts ya publicados)
+  → el trabajador elige fechas (tarjeta, reparto masivo o arrastrar al calendario) → N días antes el pipeline
+  `lib/seo-blog/pipeline.ts` hace research → brief (JSON estructurado) → redacción → edición humanizada →
+  auditoría SEO (19 checks, corrige si < 85) → imágenes Seedream 4.5 Edit con las referencias del cliente → montaje
+  (índice, FAQ, schema) → revisión o auto-aprobación → se crea en el WP del cliente como `future` → publicada.
+- Un paso por llamada con lock atómico por post (`lockedUntil`); tick en el planificador interno cada 2 min con lease
+  `in-app/seo-blog`; endpoint externo opcional `GET /api/cron/seo-blog-tick`.
+- Reutiliza: API key Anthropic del workspace, key Freepik del editorial, R2, `completeJson`/`complete` (+ registro de consumo).
+  Ajustes propios en `workspace.settings.seoBlog` (Serper cifrada, modelos, umbrales).
+- Plugin puente para las webs cliente descargable en `/api/v1/seo-blog/bridge` (Yoast/Rank Math + JSON-LD).
+- Tests: `lib/seo-blog/__tests__/seo.test.ts`.
+
+
 ### NV Dashboard + NV Leads Pro migrados (MVP)
 - Schemas: `EditorialPost`, `EditorialRevision` (calendario editorial)
   y 9 modelos NV Leads (`LeadSearch`, `Lead`, `LeadCompetitor`,

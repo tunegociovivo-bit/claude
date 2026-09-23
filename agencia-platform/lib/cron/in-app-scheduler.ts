@@ -198,6 +198,31 @@ export function startInAppScheduler(): void {
   // anti-baneo de la cola (delay min–max, ventana horaria, tope diario y
   // cadencia mínima): aunque el tick corra cada minuto, processQueueTick
   // solo envía si toca, así que no hay riesgo de ráfaga.
+  // Publicador SEO: avanza la redacción/imágenes/envíos de posts de blog (cada 2 min).
+  // Lease distribuido para que solo una réplica procese la cola a la vez.
+  const SEO_BLOG_TICK_MS = 2 * 60 * 1000;
+  let seoBlogBusy = false;
+  const seoBlogOwner = randomUUID();
+  async function seoBlogTick() {
+    if (seoBlogBusy) return;
+    seoBlogBusy = true;
+    let acquired = false;
+    try {
+      acquired = await acquireCronLease("in-app/seo-blog", seoBlogOwner, 5 * 60 * 1000);
+      if (!acquired) return;
+      const { runSeoBlogTick } = await import("@/lib/seo-blog/pipeline");
+      const r = await runSeoBlogTick(170_000);
+      if (r.processed > 0) console.log(`[in-app-cron] publicador SEO: ${r.processed} paso(s) ejecutados`);
+    } catch (e) {
+      console.warn("[in-app-cron] publicador SEO:", (e as Error).message);
+    } finally {
+      if (acquired) await releaseCronLease("in-app/seo-blog", seoBlogOwner).catch(() => undefined);
+      seoBlogBusy = false;
+    }
+  }
+  setTimeout(seoBlogTick, 45_000);
+  setInterval(seoBlogTick, SEO_BLOG_TICK_MS);
+
   const LEADS_TICK_MS = 60 * 1000;
   async function leadsTick() {
     try {

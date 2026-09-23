@@ -37,7 +37,8 @@ import {
   AlertTriangle,
   Target,
   Clock3,
-  Smartphone
+  Smartphone,
+  PenLine
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -71,7 +72,8 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
   gmb_hub: Star,
   time_tracking: Clock3,
   nv_prospecting: Target,
-  mobile_farm: Smartphone
+  mobile_farm: Smartphone,
+  seo_publicador: PenLine
 };
 
 // Degradado de la insignia de cada plataforma: iconos vivos y con color en el
@@ -91,6 +93,7 @@ const PLATFORM_GRAD: Record<string, string> = {
   time_tracking: "linear-gradient(135deg,#6366F1,#14B8A6)",   // índigo-teal
   nv_prospecting: "linear-gradient(135deg,#6366F1,#7C3AED)",   // índigo-violeta
   meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)",
+  seo_publicador: "linear-gradient(135deg,#D2A039,#16160F)",      // oro NV
   mobile_farm: "linear-gradient(135deg,#22C55E,#0F766E)"
 };
 const PLATFORM_GRAD_DEFAULT = "linear-gradient(135deg,#94A3B8,#475569)";
