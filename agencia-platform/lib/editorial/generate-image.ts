@@ -400,17 +400,10 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     "If you need empty room for text, leave a continuous clean stretch of the actual environment, not an artificial gradient."
   ].join("\n");
 
-  // Detectar personas del roster que deben aparecer en la imagen.
-  // Reglas (en orden de prioridad):
-  //   1) Si el usuario fuerza una lista explícita (forceRosterPersons,
-  //      desde el modal), se usa esa lista tal cual.
-  //   2) Si el copy menciona un nombre concreto del roster → esa persona.
-  //   3) Si el copy menciona "equipo", "team", "nuestro equipo", etc.
-  //      → incluimos a TODAS las personas del roster cuyo type = "equipo".
-  //      Esto cubre el caso "Rochar y su equipo" donde sólo Rochar
-  //      matchea por nombre pero queremos también a Ana, Dra Angie, etc.
-  //   4) Si el copy menciona persona destacada + colectivo → añadimos
-  //      la persona destacada Y todo el equipo.
+  // Personas del roster que deben aparecer en la imagen.
+  // Solo se usan cuando el usuario las marca explícitamente en el modal.
+  // Si no marca nadie, NO autodetectamos por nombres ni por "equipo": el
+  // calendario debe poder generar imágenes sin Rochar/Dra Angie/Ana.
   const refs: any[] = Array.isArray(client?.referenceImages) ? client.referenceImages : [];
   // Indexamos por nombre con metadata de type (necesario para el matching
   // por colectivos).
@@ -432,24 +425,8 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
   // Conjunto final de personas a incluir.
   const includedNames = new Set<string>();
   const forced = (opts.forceRosterPersons ?? []).map((n) => n.toLowerCase().trim()).filter(Boolean);
-  if (forced.length > 0) {
-    // Modo "lista forzada" desde el modal: sólo estas personas.
-    for (const p of peopleByName.values()) {
-      if (forced.includes(p.name.toLowerCase())) includedNames.add(p.name);
-    }
-  } else {
-    // Modo auto-detect.
-    for (const p of peopleByName.values()) {
-      if (haystack.includes(p.name.toLowerCase())) {
-        includedNames.add(p.name);
-      }
-    }
-    // Si el copy habla del "equipo", añadimos a TODOS los de type=equipo.
-    if (mentionsCollective) {
-      for (const p of peopleByName.values()) {
-        if (p.type === "equipo") includedNames.add(p.name);
-      }
-    }
+  for (const p of peopleByName.values()) {
+    if (forced.includes(p.name.toLowerCase())) includedNames.add(p.name);
   }
 
   // Construir referenceUrls. Cap total = 5 (compromiso entre fidelidad
