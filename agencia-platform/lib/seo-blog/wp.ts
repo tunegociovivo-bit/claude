@@ -106,7 +106,8 @@ function diagnoseNonJson(r: Response, text: string): string {
     ct ? `tipo ${ct.split(";")[0]}` : "",
     server ? `servidor ${server}` : "",
     cfRay ? "Cloudflare" : "",
-    title ? `título «${title}»` : ""
+    title ? `título «${title}»` : "",
+    finalUrl ? `URL final ${finalUrl}` : ""
   ].filter(Boolean).join(" · ");
   return `Respuesta no JSON de la web cliente (${meta}). ${why}`;
 }
