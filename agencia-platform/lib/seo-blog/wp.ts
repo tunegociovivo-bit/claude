@@ -73,8 +73,42 @@ export async function wpRequest<T = any>(
     const msg = data?.message ?? plainText(text).slice(0, 300);
     throw new WpError(r.status, `Web cliente (${r.status}): ${msg}`);
   }
-  if (data === null) throw new WpError(502, "Respuesta no JSON de la web cliente (¿firewall/Cloudflare bloqueando la API REST?).");
+  if (data === null) throw new WpError(502, diagnoseNonJson(r, text));
   return data as T;
+}
+
+/** Explica por qué la web devolvió algo que no es JSON (para que el equipo sepa qué tocar en la web del cliente). */
+function diagnoseNonJson(r: Response, text: string): string {
+  const ct = r.headers.get("content-type") ?? "";
+  const server = r.headers.get("server") ?? "";
+  const cfRay = r.headers.get("cf-ray");
+  const title = /<title[^>]*>([^<]{0,120})<\/title>/i.exec(text)?.[1]?.trim();
+  const low = text.toLowerCase();
+  const finalUrl = r.url || "";
+  let why = "";
+  if (cfRay && (low.includes("cf-chl") || low.includes("just a moment") || low.includes("challenge-platform") || low.includes("attention required"))) {
+    why = "Cloudflare está mostrando un reto/bloqueo (Bot Fight Mode o una regla WAF). En Cloudflare del cliente: Security → WAF → crear regla «Skip» para la ruta /wp-json/* (o desactivar Bot Fight Mode).";
+  } else if (low.includes("wordfence")) {
+    why = "Wordfence bloquea la petición. En Wordfence → Firewall → Allowlist, añade la IP del Hub o la URL /wp-json/*.";
+  } else if (low.includes("sucuri") || low.includes("access denied") || low.includes("mod_security") || low.includes("modsecurity")) {
+    why = "Un firewall (Sucuri/ModSecurity/hosting) está devolviendo una página de bloqueo. Hay que permitir /wp-json/* desde el Hub.";
+  } else if (finalUrl.includes("wp-login.php") || low.includes("wp-login") || low.includes("name=\"log\"")) {
+    why = "La web redirige a la pantalla de login: un plugin de seguridad o de «sitio privado» está protegiendo la API REST. Desactiva esa protección para /wp-json/*.";
+  } else if (low.includes("coming soon") || low.includes("maintenance") || low.includes("próximamente") || low.includes("mantenimiento") || low.includes("seedprod")) {
+    why = "La web está en modo «próximamente/mantenimiento» y ese plugin responde en lugar de la API REST. Excluye /wp-json/* o desactívalo.";
+  } else if (ct.includes("text/html") && low.includes("<!doctype html") && !low.includes("wp-json")) {
+    why = "La URL responde con una página HTML normal en lugar de la API REST. Comprueba que la URL es la raíz del WordPress (p. ej. https://dominio.com, sin /blog ni /wp-admin) y que los enlaces permanentes no están en «Simple».";
+  } else {
+    why = "La API REST no devuelve JSON. Suele ser un firewall/CDN, un plugin de seguridad que desactiva la REST API o una URL incorrecta.";
+  }
+  const meta = [
+    `HTTP ${r.status}`,
+    ct ? `tipo ${ct.split(";")[0]}` : "",
+    server ? `servidor ${server}` : "",
+    cfRay ? "Cloudflare" : "",
+    title ? `título «${title}»` : ""
+  ].filter(Boolean).join(" · ");
+  return `Respuesta no JSON de la web cliente (${meta}). ${why}`;
 }
 
 export async function wpTest(site: WpSite) {
