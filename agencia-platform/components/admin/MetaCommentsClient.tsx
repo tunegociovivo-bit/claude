@@ -11,7 +11,7 @@ import { bulkDeleteTransition, type BulkDeleteFlow } from "@/lib/meta/bulk-delet
 import { generateDraftBatches } from "@/lib/meta/draft-batches";
 import { requestDraftBatch } from "@/lib/meta/draft-request";
 import { parseMetaImportReferences } from "@/lib/meta/facebook-comment-targets";
-import { isIrrelevantMetaComment } from "@/lib/meta/comment-relevance";
+import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "@/lib/meta/comment-relevance";
 
 const CAMPAIGN_ID = "120247270045340145";
 type Feed = { campaignId: string; campaignName: string | null; adAccountId: string | null; adAccountName: string | null; clientName: string; displayName: string | null; aiContext: string | null; active: boolean; lastSyncAt: string | null; lastError: string | null };
@@ -80,7 +80,7 @@ export default function MetaCommentsClient() {
     data.items = [...new Map(allItems.map((item) => [item.id, item])).values()];
     setItems(data.items ?? []); setFeeds(data.feeds ?? []); setAlertRecipients(data.alertRecipients ?? []);
     setClientContexts((current) => ({ ...Object.fromEntries((data.feeds ?? []).map((feed: Feed) => [clientKeyOf(feed), feed.aiContext ?? ""])), ...current }));
-    setDrafts((old) => Object.fromEntries((data.items ?? []).map((item: Comment) => [item.id, old[item.id] ?? item.aiDraft ?? ""])));
+    setDrafts((old) => Object.fromEntries((data.items ?? []).map((item: Comment) => [item.id, sanitizeMetaCommentDraft(old[item.id] ?? item.aiDraft)])));
     return data;
   }, []);
 
@@ -194,7 +194,7 @@ export default function MetaCommentsClient() {
   }
 
   async function reply(item: Comment) {
-    const message = drafts[item.id]?.trim();
+    const message = sanitizeMetaCommentDraft(drafts[item.id]);
     if (!message || !confirm(`¿Publicar esta respuesta en Meta como respuesta a ${item.authorName ?? "este usuario"}?`)) return;
     setBusy(item.id); setError(null);
     try {
@@ -293,9 +293,9 @@ export default function MetaCommentsClient() {
 
   async function bulkAction(action: "regenerate_draft" | "reply" | "delete_comment", confirmedTargets?: Comment[]) {
     if (!selectedVisible.length) return;
-    if (action === "reply" && !confirm(`¿Publicar ${selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()).length} respuestas en Meta?`)) return;
+    if (action === "reply" && !confirm(`¿Publicar ${selectedVisible.filter((item) => item.status !== "replied" && sanitizeMetaCommentDraft(drafts[item.id])).length} respuestas en Meta?`)) return;
     if (action === "delete_comment" && !confirmedTargets) return;
-    const targets = action === "delete_comment" ? confirmedTargets! : action === "reply" ? selectedVisible.filter((item) => item.status !== "replied" && drafts[item.id]?.trim()) : selectedVisible;
+    const targets = action === "delete_comment" ? confirmedTargets! : action === "reply" ? selectedVisible.filter((item) => item.status !== "replied" && sanitizeMetaCommentDraft(drafts[item.id])) : selectedVisible;
     if (!targets.length) { setError("Los comentarios seleccionados no tienen borradores pendientes para publicar."); return; }
     setBusy(`bulk:${action}`); setError(null); setModerationResult(null); setBulkStatus(null);
     if (action === "regenerate_draft") {
@@ -318,7 +318,7 @@ export default function MetaCommentsClient() {
     setBulkStatus({ message: formatBulkModerationStatus({ action, completed: 0, total: targets.length }) });
     const results = await runWithConcurrency(targets, 3, async (item) => {
       try {
-        const payload = action === "reply" ? { action, commentId: item.id, message: drafts[item.id].trim() } : { action, commentId: item.id };
+        const payload = action === "reply" ? { action, commentId: item.id, message: sanitizeMetaCommentDraft(drafts[item.id]) } : { action, commentId: item.id };
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? data?.message ?? "Operación rechazada");
@@ -397,7 +397,7 @@ export default function MetaCommentsClient() {
       <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{item.message}</div>
       {item.sentimentReason && <div className="mb-3 text-xs text-slate-500">Análisis IA: {item.sentimentReason}</div>}
       {filter === "history" ? <div className={`rounded-lg p-3 text-sm ${item.status === "replied" ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>{item.status === "replied" ? "Respondido en Meta" : item.status === "hidden" ? "Ocultado en Meta (no eliminado)" : "Eliminado de Meta"} · {item.status === "replied" ? item.repliedAt ? new Date(item.repliedAt).toLocaleString("es-ES") : "Respuesta conservada" : item.deletedAt ? new Date(item.deletedAt).toLocaleString("es-ES") : "Fecha no disponible"} · {item.platform === "instagram" ? "Instagram" : "Facebook"}<p className="mt-1">{item.status === "replied" ? "Se conserva el comentario y la respuesta publicada para revisar el histórico de atención." : "Conservado en el Hub para revisar las quejas. Este historial no vuelve a publicar el comentario."}</p>{item.status === "replied" && item.aiDraft && <div className="mt-2 rounded-md border border-emerald-200 bg-white p-2 text-slate-700"><strong>Respuesta:</strong><div className="mt-1 whitespace-pre-wrap">{item.aiDraft}</div></div>}</div> : <><div className="flex items-center justify-between gap-2"><label className="text-xs font-medium text-slate-700">Borrador de respuesta (editable)</label>{item.status !== "replied" && <button onClick={() => void regenerateDraft(item)} disabled={Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50">{busy === `regenerate:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Generar otra respuesta con IA</button>}</div><textarea value={drafts[item.id] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={item.status === "replied"} rows={3} className="mt-1 w-full rounded-lg border p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-slate-50" />
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><div className="flex gap-2"><button onClick={() => void moderate(item, "delete_comment")} disabled={busy === `delete_comment:${item.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busy === `delete_comment:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} {busy === `delete_comment:${item.id}` ? "Eliminando…" : "Eliminar de Meta"}</button><button onClick={() => void moderate(item, "block_author")} disabled={!item.authorId || item.platform !== "facebook" || Boolean(item.authorBlockedAt) || busy === `block_author:${item.id}`} title={!item.authorId ? "Meta no ha proporcionado la identidad del autor" : item.platform !== "facebook" ? "El bloqueo no está disponible para Instagram mediante esta conexión" : undefined} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><UserX className="h-3.5 w-3.5" /> {item.authorBlockedAt ? "Usuario bloqueado" : "Bloquear usuario"}</button></div>{item.status === "replied" ? <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Respondido en Meta</span> : <button onClick={() => reply(item)} disabled={busy === item.id || !drafts[item.id]?.trim()} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Publicar respuesta</button>}</div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><div className="flex gap-2"><button onClick={() => void moderate(item, "delete_comment")} disabled={busy === `delete_comment:${item.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busy === `delete_comment:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} {busy === `delete_comment:${item.id}` ? "Eliminando…" : "Eliminar de Meta"}</button><button onClick={() => void moderate(item, "block_author")} disabled={!item.authorId || item.platform !== "facebook" || Boolean(item.authorBlockedAt) || busy === `block_author:${item.id}`} title={!item.authorId ? "Meta no ha proporcionado la identidad del autor" : item.platform !== "facebook" ? "El bloqueo no está disponible para Instagram mediante esta conexión" : undefined} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><UserX className="h-3.5 w-3.5" /> {item.authorBlockedAt ? "Usuario bloqueado" : "Bloquear usuario"}</button></div>{item.status === "replied" ? <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Respondido en Meta</span> : <button onClick={() => reply(item)} disabled={busy === item.id || !sanitizeMetaCommentDraft(drafts[item.id])} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Publicar respuesta</button>}</div>
     </>}
     </article>)}</div>}
     <MetaConnectionModal open={connectionOpen} onClose={() => setConnectionOpen(false)} onSaved={() => { setError(null); void loadAccounts(); }} />

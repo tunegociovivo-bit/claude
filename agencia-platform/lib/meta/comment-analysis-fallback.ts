@@ -1,4 +1,4 @@
-import { isIrrelevantMetaComment } from "@/lib/meta/comment-relevance";
+import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "@/lib/meta/comment-relevance";
 
 export type MetaCommentForAnalysis = { id: string; message?: string | null };
 export type MetaCommentAnalysis = { id: string; sentiment: "positive" | "neutral" | "negative"; reason: string; draft: string };
@@ -32,13 +32,11 @@ export function fallbackMetaCommentAnalysis(comment: MetaCommentForAnalysis): Me
 function completeAndValid(comments: MetaCommentForAnalysis[], analyses: MetaCommentAnalysis[] | null | undefined) {
   if (!Array.isArray(analyses)) return null;
   const byId = new Map(analyses.map((analysis) => [String(analysis?.id ?? ""), analysis]));
-  const normalized = comments.map((comment) => byId.get(comment.id)).filter((analysis): analysis is MetaCommentAnalysis =>
-    !!analysis
-    && typeof analysis.id === "string"
-    && ["positive", "neutral", "negative"].includes(analysis.sentiment)
-    && typeof analysis.reason === "string"
-    && typeof analysis.draft === "string"
-  );
+  const normalized = comments.map((comment) => {
+    const analysis = byId.get(comment.id);
+    if (!analysis || typeof analysis.id !== "string" || !["positive", "neutral", "negative"].includes(analysis.sentiment) || typeof analysis.reason !== "string" || typeof analysis.draft !== "string") return null;
+    return { ...analysis, draft: sanitizeMetaCommentDraft(analysis.draft) };
+  }).filter((analysis): analysis is MetaCommentAnalysis => !!analysis);
   return normalized.length === comments.length ? normalized : null;
 }
 

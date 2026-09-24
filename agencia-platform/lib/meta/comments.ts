@@ -4,7 +4,7 @@ import { listWorkspaceMetaTokens, readMetaTokenByConnection, readWorkspaceMetaTo
 import { createHash, randomUUID } from "node:crypto";
 import { acquireCronLease } from "@/lib/cron/distributed-lease";
 import { parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
-import { isIrrelevantMetaComment } from "@/lib/meta/comment-relevance";
+import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "@/lib/meta/comment-relevance";
 import { facebookCommentTargets } from "@/lib/meta/facebook-comment-targets";
 import { readFacebookCommentThread } from "@/lib/meta/facebook-comment-thread";
 
@@ -444,7 +444,7 @@ export async function regenerateMetaCommentDraft(workspaceId: string, comment: {
     schema: { type: "object", properties: { draft: { type: "string" } }, required: ["draft"] },
     maxTokens: 500
   });
-  const draft = String(result.draft ?? "").trim();
+  const draft = sanitizeMetaCommentDraft(result.draft);
   return draft.slice(0, 2000);
 }
 
@@ -635,7 +635,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         workspaceId, feedId: feed.id, externalCommentId: String(item.id), postId: item.postId, platform: item.platform ?? "facebook",
         adId: item.adId, adName: item.adName, authorName: item.from?.name ?? null, authorId: item.from?.id ?? null,
         message: item.message ?? "", sentiment: analysis.sentiment, sentimentReason: analysis.reason?.slice(0, 300),
-        aiDraft: analysis.draft?.slice(0, 2000), commentCreatedAt: new Date(item.created_time),
+        aiDraft: sanitizeMetaCommentDraft(analysis.draft).slice(0, 2000), commentCreatedAt: new Date(item.created_time),
         ...(repliesByCommentId.get(String(item.id)) ? {
           status: "replied",
           repliedAt: repliesByCommentId.get(String(item.id))!.createdAt,

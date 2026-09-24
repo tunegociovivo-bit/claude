@@ -35,3 +35,24 @@ export function isIrrelevantMetaComment(message: string | null | undefined) {
 
   return false;
 }
+
+export function sanitizeMetaCommentDraft(draft: string | null | undefined) {
+  const text = String(draft ?? "").trim();
+  if (!text) return "";
+  const normalized = text
+    .toLocaleLowerCase("es-ES")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
+  if (
+    /no se respondera (?:a )?este comentario/.test(normalized)
+    || /no hay comentario que responder/.test(normalized)
+    || /carece de sentido coherente/.test(normalized)
+    || /no se relaciona con el anuncio/.test(normalized)
+    || /comentario (?:irrelevante|sin contenido especifico|sin contexto claro).*(?:no|sin) respuesta/.test(normalized)
+  ) {
+    return "";
+  }
+
+  return text;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isIrrelevantMetaComment } from "../comment-relevance";
+import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "../comment-relevance";
 
 describe("Meta comment relevance", () => {
   it("marks pure mentions and isolated filler words as irrelevant", () => {
@@ -15,5 +15,11 @@ describe("Meta comment relevance", () => {
   it("keeps business questions and complaints as relevant", () => {
     expect(isIrrelevantMetaComment("Cuánto cuesta abrir una franquicia?")).toBe(false);
     expect(isIrrelevantMetaComment("Sigo esperando respuesta de los correos")).toBe(false);
+  });
+
+  it("removes internal no-reply explanations from drafts", () => {
+    expect(sanitizeMetaCommentDraft("No se responderá a este comentario ya que carece de sentido coherente y no se relaciona con el anuncio de franquicia Eroski.")).toBe("");
+    expect(sanitizeMetaCommentDraft("No hay comentario que responder.")).toBe("");
+    expect(sanitizeMetaCommentDraft("Hola, gracias por tu interés.")).toBe("Hola, gracias por tu interés.");
   });
 });

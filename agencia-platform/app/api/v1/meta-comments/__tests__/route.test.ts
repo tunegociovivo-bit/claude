@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, syncCommentsMock, MetaDeletionErrorMock } = vi.hoisted(() => ({
+const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, syncCommentsMock, replyCommentMock, MetaDeletionErrorMock } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
   regenerateDraftMock: vi.fn(),
   deleteCommentMock: vi.fn(),
   syncCommentsMock: vi.fn(),
+  replyCommentMock: vi.fn(),
   MetaDeletionErrorMock: class MetaDeletionError extends Error {},
   prisma: {
     metaCommentFeed: { findMany: vi.fn().mockResolvedValue([]) },
@@ -28,7 +29,7 @@ vi.mock("@/lib/meta/comments", () => ({
   MetaDeletionError: MetaDeletionErrorMock,
   notifyMetaOperational: vi.fn(),
   regenerateMetaCommentDraft: regenerateDraftMock,
-  replyToMetaComment: vi.fn(),
+  replyToMetaComment: replyCommentMock,
   syncMetaCampaignComments: syncCommentsMock
 }));
 vi.mock("@/lib/audit/log", () => ({ auditFromReq: vi.fn() }));
@@ -168,5 +169,13 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
       where: { id: { in: comments.map((comment) => comment.id) }, workspaceId: "workspace-1", deletedAt: null }
     }));
     expect(regenerateDraftMock).toHaveBeenCalledTimes(22);
+  });
+
+  it("bloquea publicar explicaciones internas de no respuesta", async () => {
+    prisma.metaAdComment.findFirst.mockResolvedValue({ id: "comment-1", externalCommentId: "meta-1", postId: "page_post", platform: "facebook", feed: { metaConnectionId: "connection-1" } });
+    const response = await call({ action: "reply", commentId: "comment-1", message: "No se responderá a este comentario ya que carece de sentido coherente y no se relaciona con el anuncio de franquicia Eroski." });
+
+    expect(response.status).toBe(400);
+    expect(replyCommentMock).not.toHaveBeenCalled();
   });
 });
