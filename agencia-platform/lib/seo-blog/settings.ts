@@ -80,6 +80,10 @@ export async function saveSeoBlogSettings(workspaceId: string, input: Record<str
     if (v === null || v === "") delete cur.serperApiKey;
     else if (typeof v === "string" && !v.startsWith("••")) cur.serperApiKey = encryptSecret(v.trim());
   }
+  // La key de Freepik/Magnific se guarda en el mismo sitio que usa el calendario editorial (settings.editorial.freepikApiKey)
+  if (typeof input.freepikApiKey === "string" && input.freepikApiKey.trim() && !input.freepikApiKey.startsWith("••")) {
+    settings.editorial = { ...(settings.editorial ?? {}), freepikApiKey: encryptSecret(input.freepikApiKey.trim()) };
+  }
   settings.seoBlog = cur;
   await prisma.workspace.update({ where: { id: workspaceId }, data: { settings } });
   return publicSeoBlogSettings(workspaceId);
