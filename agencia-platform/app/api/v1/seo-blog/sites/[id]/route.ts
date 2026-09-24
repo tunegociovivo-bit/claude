@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { requireSeoBlogAccess } from "@/lib/seo-blog/access";
 import { siteOut } from "@/lib/seo-blog/access";
 import { encryptSecret } from "@/lib/ai/crypto";
+import { normalizeSiteUrl } from "@/lib/seo-blog/wp";
 import { deleteObject } from "@/lib/storage/r2";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   for (const k of LONG) if (k in b) data[k] = b[k] == null ? null : String(b[k]).slice(0, 20000);
   for (const [k, [min, max]] of Object.entries(INTS)) if (k in b && b[k] !== "") data[k] = Math.max(min, Math.min(max, Math.round(Number(b[k]) || 0)));
   for (const k of BOOLS) if (k in b) data[k] = !!b[k] && b[k] !== "0";
-  if (typeof data.siteUrl === "string") data.siteUrl = data.siteUrl.replace(/\/+$/, "");
+  if (typeof data.siteUrl === "string") data.siteUrl = normalizeSiteUrl(data.siteUrl);
   if (typeof b.wpAppPassword === "string" && b.wpAppPassword.trim()) data.wpAppPasswordEnc = encryptSecret(b.wpAppPassword.trim());
   if (data.publishTime && !/^\d{2}:\d{2}$/.test(data.publishTime)) delete data.publishTime;
   if ("siteUrl" in data || "wpUser" in data || "wpAppPasswordEnc" in data) data.siteCacheAt = null;

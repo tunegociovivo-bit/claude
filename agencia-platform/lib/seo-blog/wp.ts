@@ -112,6 +112,55 @@ function diagnoseNonJson(r: Response, text: string): string {
   return `Respuesta no JSON de la web cliente (${meta}). ${why}`;
 }
 
+/** Normaliza la URL escrita a mano: añade https://, quita /wp-admin, /wp-login.php, ?query, #hash y barras finales. */
+export function normalizeSiteUrl(input: string): string {
+  let s = String(input ?? "").trim();
+  if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) s = "https://" + s.replace(/^\/+/, "");
+  try {
+    const u = new URL(s);
+    let path = u.pathname.replace(/\/+$/, "");
+    path = path.replace(/\/(wp-admin|wp-login\.php|wp-json|xmlrpc\.php|index\.php)(\/.*)?$/i, "");
+    return `${u.protocol}//${u.host}${path}`;
+  } catch {
+    return s.replace(/\/+$/, "");
+  }
+}
+
+/**
+ * Descubre la raíz real del WordPress a partir de cualquier URL de la web
+ * (cabecera Link rel="https://api.w.org/" o <link> en el HTML). Devuelve "" si no la encuentra.
+ */
+export async function discoverWpRoot(anyUrl: string): Promise<string> {
+  const start = normalizeSiteUrl(anyUrl);
+  if (!start) return "";
+  const candidates = [start];
+  try {
+    const u = new URL(start);
+    if (u.pathname && u.pathname !== "/") candidates.push(`${u.protocol}//${u.host}`);
+  } catch {}
+  for (const c of candidates) {
+    try {
+      const r = await fetch(c + "/", {
+        headers: { "User-Agent": "NV-Hub-Publicador/1.0", Accept: "text/html,application/json" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(20_000)
+      });
+      const link = r.headers.get("link") ?? "";
+      let m = /<([^>]+\/wp-json\/?)>;\s*rel="https:\/\/api\.w\.org\/"/i.exec(link);
+      if (!m) {
+        const html = (await r.text()).slice(0, 200_000);
+        m = /<link[^>]+rel=["']https:\/\/api\.w\.org\/["'][^>]+href=["']([^"']+)["']/i.exec(html) ?? /href=["']([^"']+)["'][^>]+rel=["']https:\/\/api\.w\.org\/["']/i.exec(html);
+      }
+      if (m) {
+        const root = m[1].replace(/\\\//g, "/").replace(/\/wp-json\/?$/i, "").replace(/\/+$/, "");
+        if (/^https?:\/\//i.test(root)) return root;
+      }
+    } catch {}
+  }
+  return "";
+}
+
 export async function wpTest(site: WpSite) {
   const me = await wpRequest<any>(site, "GET", "/wp/v2/users/me?context=edit");
   let root: any = {};

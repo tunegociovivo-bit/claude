@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeSiteUrl } from "@/lib/seo-blog/wp";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
@@ -46,7 +47,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     data: {
       workspaceId: api.workspaceId,
       clientId,
-      siteUrl: (client.website ?? "").replace(/\/+$/, ""),
+      siteUrl: normalizeSiteUrl(client.website ?? ""),
       sector: client.industry ?? "",
       businessInfo: client.brandBrief ?? null,
       competitors: client.competitors ?? null,
