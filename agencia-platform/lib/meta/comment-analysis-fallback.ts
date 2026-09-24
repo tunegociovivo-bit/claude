@@ -1,7 +1,12 @@
+import { isIrrelevantMetaComment } from "@/lib/meta/comment-relevance";
+
 export type MetaCommentForAnalysis = { id: string; message?: string | null };
 export type MetaCommentAnalysis = { id: string; sentiment: "positive" | "neutral" | "negative"; reason: string; draft: string };
 
 export function fallbackMetaCommentAnalysis(comment: MetaCommentForAnalysis): MetaCommentAnalysis {
+  if (isIrrelevantMetaComment(comment.message)) {
+    return { id: comment.id, sentiment: "neutral", reason: "Comentario irrelevante; sin respuesta", draft: "" };
+  }
   const message = String(comment.message ?? "").toLowerCase();
   const negative = /(estafa|fraude|enga[ñn]o|no funciona|p[eé]simo|horrible|fatal|verg[uü]enza|denuncia|queja|mala experiencia|mal servicio|no (?:lo |la |os |las )?recomiendo|decepcionad[oa]|no (?:me )?contest(?:a|an|[áa]is)|devoluci[oó]n|(?:me )?cobrar(?:on)? de m[aá]s)/.test(message);
   const positive = !negative && /(gracias|genial|excelente|fant[aá]stic|enhorabuena|me encanta|muy bien)/.test(message);
@@ -33,7 +38,6 @@ function completeAndValid(comments: MetaCommentForAnalysis[], analyses: MetaComm
     && ["positive", "neutral", "negative"].includes(analysis.sentiment)
     && typeof analysis.reason === "string"
     && typeof analysis.draft === "string"
-    && analysis.draft.trim().length > 0
   );
   return normalized.length === comments.length ? normalized : null;
 }

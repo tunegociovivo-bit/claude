@@ -27,4 +27,14 @@ describe("draft batch generation", () => {
     expect(generated["10"]).toBe("draft");
     expect(Object.keys(generated)).toHaveLength(6);
   });
+
+  it("accepts empty drafts as successful no-reply decisions", async () => {
+    const generated: Record<string, string> = {};
+    const result = await generateDraftBatches(["irrelevant", "useful"], async () => ({
+      drafts: { irrelevant: "", useful: "Gracias por escribirnos." },
+    }), (drafts) => Object.assign(generated, drafts));
+
+    expect(result.failedIds).toEqual([]);
+    expect(generated).toEqual({ irrelevant: "", useful: "Gracias por escribirnos." });
+  });
 });

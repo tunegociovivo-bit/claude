@@ -11,7 +11,7 @@ export async function generateDraftBatches(
     let drafts: Record<string, string> = {};
     try {
       const result = await request(batch);
-      drafts = Object.fromEntries(batch.filter((id) => typeof result.drafts?.[id] === "string" && result.drafts[id].trim()).map((id) => [id, result.drafts[id]]));
+      drafts = Object.fromEntries(batch.filter((id) => typeof result.drafts?.[id] === "string").map((id) => [id, result.drafts[id]]));
     } catch (cause) {
       lastError = cause instanceof Error ? cause.message : String(cause);
     }
