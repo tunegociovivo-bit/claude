@@ -3,7 +3,7 @@ import { completeJson } from "@/lib/ai/anthropic";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection, readWorkspaceMetaToken } from "@/lib/meta/connection";
 import { createHash, randomUUID } from "node:crypto";
 import { acquireCronLease } from "@/lib/cron/distributed-lease";
-import { parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
+import { fallbackMetaCommentAnalysis, parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
 import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "@/lib/meta/comment-relevance";
 import { facebookCommentTargets } from "@/lib/meta/facebook-comment-targets";
 import { readFacebookCommentThread } from "@/lib/meta/facebook-comment-thread";
@@ -444,7 +444,7 @@ export async function regenerateMetaCommentDraft(workspaceId: string, comment: {
     schema: { type: "object", properties: { draft: { type: "string" } }, required: ["draft"] },
     maxTokens: 500
   });
-  const draft = sanitizeMetaCommentDraft(result.draft);
+  const draft = sanitizeMetaCommentDraft(result.draft) || fallbackMetaCommentAnalysis({ id: "manual-regenerate", message: comment.message }).draft;
   return draft.slice(0, 2000);
 }
 

@@ -9,7 +9,7 @@ export function fallbackMetaCommentAnalysis(comment: MetaCommentForAnalysis): Me
   }
   const message = String(comment.message ?? "").toLowerCase();
   const negative = /(estafa|fraude|enga[ñn]o|no funciona|p[eé]simo|horrible|fatal|verg[uü]enza|denuncia|queja|mala experiencia|mal servicio|no (?:lo |la |os |las )?recomiendo|decepcionad[oa]|no (?:me )?contest(?:a|an|[áa]is)|devoluci[oó]n|(?:me )?cobrar(?:on)? de m[aá]s)/.test(message);
-  const positive = !negative && /(gracias|genial|excelente|fant[aá]stic|enhorabuena|me encanta|muy bien)/.test(message);
+  const positive = !negative && /(gracias|genial|excelente|fant[aá]stic|enhorabuena|me encanta|muy bien|mejores|sois los mejores|son los mejores|buen trabajo)/.test(message);
   if (negative) {
     return {
       id: comment.id,

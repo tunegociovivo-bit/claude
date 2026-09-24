@@ -33,6 +33,14 @@ describe("Meta comment analysis fallback", () => {
     });
   });
 
+  it("creates a thank-you draft for simple positive comments", () => {
+    expect(fallbackMetaCommentAnalysis({ id: "c3", message: "Sois los mejores !!!" })).toMatchObject({
+      id: "c3",
+      sentiment: "positive",
+      draft: "¡Muchas gracias por tu comentario!"
+    });
+  });
+
   it("rejects malformed AI fields instead of letting persistence crash", async () => {
     const result = await runMetaCommentAnalysisPipeline(
       comments,
