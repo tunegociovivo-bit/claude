@@ -22,7 +22,7 @@ export async function requireWorkspaceAdmin(api: ApiContext): Promise<void> {
 }
 
 export function siteOut(s: SeoBlogSite & { client?: { name: string } | null; _count?: any }) {
-  const { wpAppPasswordEnc, siteCache, ...rest } = s as any;
+  const { wpAppPasswordEnc, siteCache, pairTokenHash, ...rest } = s as any;
   return { ...rest, clientName: s.client?.name ?? "", hasPassword: !!wpAppPasswordEnc, pagesIndexed: asArray(siteCache).length };
 }
 

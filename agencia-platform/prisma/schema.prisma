@@ -6463,6 +6463,9 @@ model SeoBlogSite {
   visualNotes      String?   @db.Text
   color            String    @default("#C9962E")
   bridgeDetected   Boolean   @default(false)
+  pairTokenHash    String?   // sha256 del código de conexión (emparejamiento con el plugin puente)
+  pairTokenAt      DateTime?
+  pairedAt         DateTime?
   siteCache        Json?
   siteCacheAt      DateTime?
   active           Boolean   @default(true)
