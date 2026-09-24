@@ -74,6 +74,7 @@ export default function IdeasView({ nav }: { nav: Nav }) {
                 <label className="flex items-center gap-1.5 text-xs flex-1">Publicar el
                   <input type="date" min={todayISO()} className="px-2 py-1 rounded border text-xs" onChange={(e) => e.target.value && action(p.id, { action: "schedule", publishAt: e.target.value })} />
                 </label>
+                <Btn size="sm" onClick={async () => { await api(`/posts/${p.id}/action`, { method: "POST", body: { action: "generate" } }); nav.openPost(p.id); }}><Sparkles className="h-3.5 w-3.5" /> Generar post</Btn>
                 <Btn size="sm" variant="ghost" onClick={() => setEdit(p)}>Editar</Btn>
                 <button title="Descartar" className="text-slate-400 hover:text-rose-600" onClick={() => action(p.id, { action: "discard" })}><Trash2 className="h-4 w-4" /></button>
               </div>
