@@ -175,8 +175,48 @@ export async function discoverWpRoot(anyUrl: string): Promise<string> {
   return "";
 }
 
+/** Con el plugin puente ≥1.2, pregunta a la web por qué no entra la Application Password. */
+async function wpAuthDiagnosis(site: WpSite): Promise<string> {
+  try {
+    const basic = auth(site);
+    const r = await fetch(url(site, "/nvseo/v1/auth-check"), {
+      headers: { Authorization: basic, "X-NV-Auth": basic, Accept: "application/json", "User-Agent": "NV-Hub-Publicador/1.0" },
+      signal: AbortSignal.timeout(20_000)
+    });
+    const d: any = await r.json().catch(() => null);
+    if (!d || typeof d.result !== "string") return "";
+    const seen: string[] = Array.isArray(d.headers_seen) ? d.headers_seen : [];
+    switch (d.result) {
+      case "no_credentials":
+        return `Diagnóstico del plugin puente: la web no recibe ninguna credencial (cabeceras vistas: ${seen.join(", ") || "ninguna"}). Un proxy/CDN o el hosting elimina las cabeceras Authorization y X-NV-Auth; añade la regla del .htaccess o pregunta al hosting.`;
+      case "invalid_username":
+        return `Diagnóstico del plugin puente: no existe ningún usuario con el nombre «${site.wpUser}» en esa web. Usa el nombre de usuario exacto (o su email) de WordPress → Usuarios.`;
+      case "app_passwords_disabled_for_user":
+        return `Diagnóstico del plugin puente: las Application Passwords están desactivadas para el usuario «${site.wpUser}» (plugin de seguridad o filtro wp_is_application_passwords_available_for_user).`;
+      case "incorrect_password":
+      case "invalid_password":
+        return `Diagnóstico del plugin puente: el usuario «${site.wpUser}» existe${typeof d.app_passwords_count === "number" ? ` y tiene ${d.app_passwords_count} contraseña(s) de aplicación` : ""}, pero la contraseña enviada no coincide con ninguna. Genera una nueva en su perfil (Usuarios → Perfil → Contraseñas de aplicación) y pégala en el Hub tal cual, con o sin espacios.`;
+      case "ok":
+        return "Diagnóstico del plugin puente: las credenciales son válidas; el fallo anterior fue puntual. Vuelve a probar.";
+      default:
+        return `Diagnóstico del plugin puente: ${d.result}.`;
+    }
+  } catch {
+    return "";
+  }
+}
+
 export async function wpTest(site: WpSite) {
-  const me = await wpRequest<any>(site, "GET", "/wp/v2/users/me?context=edit");
+  let me: any;
+  try {
+    me = await wpRequest<any>(site, "GET", "/wp/v2/users/me?context=edit");
+  } catch (e) {
+    if (e instanceof WpError && e.status === 401) {
+      const why = await wpAuthDiagnosis(site);
+      if (why) throw new WpError(401, why);
+    }
+    throw e;
+  }
   let root: any = {};
   try {
     root = await wpRequest<any>(site, "GET", "/");
