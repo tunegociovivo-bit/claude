@@ -67,7 +67,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   return NextResponse.json({ items, feeds, alertRecipients, nextCursor });
 });
 
-export const POST = withApi({ scope: "*", rate: "destructive" }, async (req, { api }) => {
+export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   if (parsed.data.action === "sync") {

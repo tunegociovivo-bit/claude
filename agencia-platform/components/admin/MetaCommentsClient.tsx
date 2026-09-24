@@ -294,7 +294,7 @@ export default function MetaCommentsClient() {
       setBulkStatus({ message: `Generando respuestas IA: 0/${targets.length} comentarios procesados…` });
       try {
         const { failedIds, lastError } = await generateDraftBatches(targets.map((item) => item.id), async (commentIds) => {
-          return requestDraftBatch(commentIds, (seconds) => setBulkStatus({ message: `Límite temporal del Hub. La generación continuará automáticamente en ${seconds} segundos; los borradores anteriores están conservados.` }));
+          return requestDraftBatch(commentIds, (seconds) => setBulkStatus({ message: `Generando respuestas IA. El Hub continúa automáticamente en ${seconds} segundos; los borradores anteriores están conservados.` }));
         }, (generated, completed, total) => {
           setDrafts((current) => ({ ...current, ...generated }));
           setBulkStatus({ message: `Generando respuestas IA: ${completed}/${total} comentarios procesados…` });
