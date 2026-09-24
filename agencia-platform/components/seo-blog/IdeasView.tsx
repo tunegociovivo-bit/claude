@@ -37,7 +37,8 @@ export default function IdeasView({ nav }: { nav: Nav }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2 justify-end">
+      <div className="flex flex-wrap gap-2 items-center">
+        <p className="text-xs text-slate-500 flex-1 min-w-[260px]">Las propuestas son solo título, keyword y enfoque. El texto y las imágenes se crean al generar el post (elige propuestas → «Repartir en calendario», o abre una y pulsa «Generar ahora»).</p>
         <Btn variant="ghost" onClick={() => setManual(true)}><Plus className="h-4 w-4" /> Post manual</Btn>
         <Btn onClick={() => setGen(true)} disabled={!nav.sites.length}><Sparkles className="h-4 w-4" /> Generar propuestas con IA</Btn>
       </div>

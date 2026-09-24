@@ -7,6 +7,64 @@
 import { getFreepikKeyForWorkspace } from "@/lib/ai/freepik";
 import type { SeoBlogSettings } from "./settings";
 
+/** Freepik y Magnific son la misma API con dos hosts/cabeceras; probamos la configurada y, si falla la auth, la otra. */
+const HOSTS: Array<{ base: string; header: string }> = [
+  { base: "https://api.freepik.com", header: "x-freepik-api-key" },
+  { base: "https://api.magnific.com", header: "x-magnific-api-key" }
+];
+let preferred: { base: string; header: string } | null = null;
+
+function candidates(s: SeoBlogSettings) {
+  const cfg = { base: s.freepikBase.replace(/\/+$/, ""), header: s.freepikHeader };
+  const list = [cfg, ...HOSTS.filter((h) => h.base !== cfg.base)];
+  if (preferred) list.sort((a, b) => (a.base === preferred!.base ? -1 : b.base === preferred!.base ? 1 : 0));
+  return list;
+}
+
+async function freepikFetch(s: SeoBlogSettings, apiKey: string, path: string, init: RequestInit): Promise<Response> {
+  let last: Response | null = null;
+  for (const h of candidates(s)) {
+    const r = await fetch(h.base + path, { ...init, headers: { ...(init.headers as any), [h.header]: apiKey } });
+    if (r.status === 401 || r.status === 403 || r.status === 404) {
+      last = r;
+      continue;
+    }
+    preferred = h;
+    return r;
+  }
+  return last!;
+}
+
+/**
+ * Comprueba la API key sin gastar créditos: pedimos el estado de una tarea inexistente.
+ * Key válida → 404 (tarea no encontrada); key inválida → 401/403.
+ */
+export async function checkFreepikKey(workspaceId: string, s: SeoBlogSettings): Promise<{ ok: boolean; message: string }> {
+  let apiKey = "";
+  try {
+    apiKey = await getFreepikKeyForWorkspace(workspaceId);
+  } catch (e: any) {
+    return { ok: false, message: e?.message ?? "Sin API key de Freepik" };
+  }
+  for (const h of candidates(s)) {
+    try {
+      const r = await fetch(`${h.base}${s.freepikT2iPath}/00000000-0000-0000-0000-000000000000`, {
+        headers: { [h.header]: apiKey, Accept: "application/json" },
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (r.status === 404 || r.ok) {
+        preferred = h;
+        return { ok: true, message: `API key válida (${h.base.replace("https://", "")})` };
+      }
+      if (r.status === 401 || r.status === 403) continue;
+      return { ok: false, message: `Respuesta inesperada de ${h.base} (${r.status})` };
+    } catch (e: any) {
+      return { ok: false, message: `No se pudo contactar con ${h.base}: ${e?.message ?? e}` };
+    }
+  }
+  return { ok: false, message: "La API key de Freepik/Magnific no es válida o ha caducado. Genera una nueva en magnific.com → API y guárdala en el calendario editorial." };
+}
+
 export async function createSeedreamTask(
   workspaceId: string,
   s: SeoBlogSettings,
@@ -19,9 +77,9 @@ export async function createSeedreamTask(
   const endpoint = refs.length ? s.freepikEditPath : s.freepikT2iPath;
   const body: any = { prompt: prompt.slice(0, 4000), aspect_ratio: aspect || "widescreen_16_9" };
   if (refs.length) body.reference_images = refs;
-  const r = await fetch(s.freepikBase.replace(/\/+$/, "") + endpoint, {
+  const r = await freepikFetch(s, apiKey, endpoint, {
     method: "POST",
-    headers: { [s.freepikHeader]: apiKey, "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(60_000)
   });
@@ -31,6 +89,7 @@ export async function createSeedreamTask(
     data = JSON.parse(text);
   } catch {}
   const d = data?.data ?? data;
+  if (r.status === 401 || r.status === 403) throw new Error("La API key de Freepik/Magnific no es válida o ha caducado. Genera una nueva en magnific.com → API y guárdala en el calendario editorial.");
   if (!r.ok || !d?.task_id) throw new Error(`Freepik (${r.status}): ${text.slice(0, 300)}`);
   return { taskId: String(d.task_id), endpoint };
 }
@@ -42,8 +101,8 @@ export async function checkSeedreamTask(
   taskId: string
 ): Promise<{ status: string; urls: string[] }> {
   const apiKey = await getFreepikKeyForWorkspace(workspaceId);
-  const r = await fetch(`${s.freepikBase.replace(/\/+$/, "")}${endpoint}/${encodeURIComponent(taskId)}`, {
-    headers: { [s.freepikHeader]: apiKey, Accept: "application/json" },
+  const r = await freepikFetch(s, apiKey, `${endpoint}/${encodeURIComponent(taskId)}`, {
+    headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(30_000)
   });
   const text = await r.text();

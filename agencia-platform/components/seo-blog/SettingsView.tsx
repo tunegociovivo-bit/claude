@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Nav } from "./SeoBlogApp";
 import { api, Btn, Card, Field, inputCls } from "./ui";
 
@@ -9,6 +9,10 @@ export default function SettingsView({ nav }: { nav: Nav }) {
   const [f, setF] = useState<Record<string, any>>({ ...s, serperApiKey: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [check, setCheck] = useState<any>(null);
+  useEffect(() => {
+    api("/settings/check").then(setCheck).catch(() => setCheck(null));
+  }, []);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
   const inp = (k: string, label: string, help?: string, type = "text") => (
     <Field label={label} help={help}><input type={type} value={f[k] ?? ""} onChange={set(k)} className={inputCls} /></Field>
@@ -19,7 +23,8 @@ export default function SettingsView({ nav }: { nav: Nav }) {
       <Card title="Claves compartidas del Hub">
         <ul className="text-sm space-y-1">
           <li>{s.anthropicConfigured ? "✅" : "⚠️"} Anthropic (Claude) — se configura en <a className="text-amber-700 underline" href="/admin/ai">Configuración de IA</a>.</li>
-          <li>{s.freepikConfigured ? "✅" : "⚠️"} Freepik (Seedream 4.5) — se configura en los ajustes del <a className="text-amber-700 underline" href="/admin/editorial">Calendario editorial</a> (o variable FREEPIK_API_KEY).</li>
+          <li>{s.freepikConfigured ? (check?.freepik ? (check.freepik.ok ? "✅" : "❌") : "⏳") : "⚠️"} Freepik / Magnific (Seedream 4.5) — se configura en los ajustes del <a className="text-amber-700 underline" href="/admin/editorial">Calendario editorial</a> (o variable FREEPIK_API_KEY).
+            {check?.freepik && <span className={check.freepik.ok ? "text-emerald-700" : "text-rose-700"}> {check.freepik.message}</span>}</li>
         </ul>
       </Card>
       <Card title="Datos de Google (Serper.dev)">

@@ -311,11 +311,19 @@ function Seo({ p, onReaudit }: { p: any; onReaudit: () => void }) {
 
 function Images({ p, reload }: { p: any; reload: () => Promise<any> }) {
   const imgs: any[] = p.images?.length ? p.images : p.brief?.images ?? [];
+  const allFailed = imgs.length > 0 && imgs.every((i) => i.status === "failed");
+  const firstErr = imgs.find((i) => i.status === "failed")?.error ?? "";
   const [subjects, setSubjects] = useState<string[]>(imgs.map((i) => i.subject ?? ""));
   const [busy, setBusy] = useState(-1);
   const [msg, setMsg] = useState("");
   return (
     <div>
+      {allFailed && (
+        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+          <b>No se han podido generar las imágenes.</b> {firstErr}
+          <div className="text-xs mt-1 text-rose-600">Cuando la clave esté bien, pulsa «Regenerar… → Solo las imágenes» en este post.</div>
+        </div>
+      )}
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {imgs.map((im, i) => (
           <div key={i} className="bg-white rounded-xl border overflow-hidden">
