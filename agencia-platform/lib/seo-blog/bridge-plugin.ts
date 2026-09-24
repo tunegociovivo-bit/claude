@@ -5,8 +5,8 @@
 export const NV_SEO_BRIDGE_PHP = `<?php
 /**
  * Plugin Name: NV SEO Bridge
- * Description: Puente entre NV Publicador (Hub Negocio Vivo) y esta web: aplica meta title, meta description y keyword en Yoast SEO / Rank Math, imprime el schema JSON-LD (Article + FAQPage) y garantiza que la autenticación por Application Password llega a WordPress aunque el hosting elimine la cabecera Authorization.
- * Version: 1.2.0
+ * Description: Conecta esta web con el Hub Negocio Vivo con un código (Ajustes → NV SEO Bridge), aplica meta title/description/keyword en Yoast SEO o Rank Math e imprime el schema JSON-LD de los posts publicados desde el Hub.
+ * Version: 2.0.0
  * Author: Negocio Vivo
  * Requires PHP: 7.4
  */
@@ -45,11 +45,117 @@ final class NV_SEO_Bridge {
     const KEYS = ['nvseo_title', 'nvseo_description', 'nvseo_focus_kw', 'nvseo_schema'];
 
     public static function init() {
+        add_action('admin_menu', [__CLASS__, 'menu']);
+        add_action('admin_post_nvseo_pair', [__CLASS__, 'handle_pair']);
+        add_action('admin_notices', [__CLASS__, 'notice']);
         add_action('init', [__CLASS__, 'register_meta']);
         add_action('rest_api_init', [__CLASS__, 'routes']);
         add_action('rest_after_insert_post', [__CLASS__, 'sync_seo_plugins'], 20, 1);
         add_action('wp_head', [__CLASS__, 'head'], 2);
         add_filter('pre_get_document_title', [__CLASS__, 'title'], 20);
+    }
+
+    /* ---------- Conexión con el Hub (un solo código) ---------- */
+
+    public static function menu() {
+        add_options_page('NV SEO Bridge', 'NV SEO Bridge', 'manage_options', 'nv-seo-bridge', [__CLASS__, 'page']);
+    }
+
+    public static function notice() {
+        if (!current_user_can('manage_options') || get_option('nvseo_paired_at')) return;
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if ($screen && $screen->id === 'settings_page_nv-seo-bridge') return;
+        echo '<div class="notice notice-info"><p><b>NV SEO Bridge:</b> esta web aún no está conectada con el Hub Negocio Vivo. <a href="' . esc_url(admin_url('options-general.php?page=nv-seo-bridge')) . '">Conectar ahora</a>.</p></div>';
+    }
+
+    public static function page() {
+        if (!current_user_can('manage_options')) return;
+        $paired = get_option('nvseo_paired_at');
+        $hub = get_option('nvseo_hub_url');
+        $msg = isset($_GET['nvseo_msg']) ? sanitize_text_field(wp_unslash($_GET['nvseo_msg'])) : '';
+        $ok = isset($_GET['nvseo_ok']) && $_GET['nvseo_ok'] === '1';
+        echo '<div class="wrap"><h1>NV SEO Bridge</h1>';
+        if ($msg) echo '<div class="notice ' . ($ok ? 'notice-success' : 'notice-error') . '"><p>' . esc_html($msg) . '</p></div>';
+        if ($paired) {
+            echo '<p style="font-size:15px">✅ <b>Conectada con el Hub Negocio Vivo</b> desde el ' . esc_html(date_i18n('d/m/Y H:i', (int) $paired)) . ($hub ? ' (' . esc_html($hub) . ')' : '') . '.</p>';
+            echo '<p>Si necesitas volver a conectar (por ejemplo, tras cambiar de usuario), genera un código nuevo en el Hub y pégalo aquí.</p>';
+        } else {
+            echo '<p style="font-size:15px">Para conectar esta web con el Hub Negocio Vivo: en el Hub, abre el cliente → pestaña <b>Conexión WordPress</b> → <b>Copiar código de conexión</b>, y pégalo aquí.</p>';
+        }
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('nvseo_pair');
+        echo '<input type="hidden" name="action" value="nvseo_pair">';
+        echo '<p><input type="text" name="code" class="regular-text code" style="width:100%;max-width:720px;font-family:monospace" placeholder="NVP1.…" autocomplete="off" required></p>';
+        submit_button($paired ? 'Volver a conectar' : 'Conectar con el Hub');
+        echo '</form>';
+        echo '<p class="description">El plugin crea una contraseña de aplicación para tu usuario (' . esc_html(wp_get_current_user()->user_login) . ') y se la envía al Hub de forma segura. No hay que configurar nada más.</p>';
+        echo '</div>';
+    }
+
+    public static function handle_pair() {
+        if (!current_user_can('manage_options')) wp_die('Sin permisos');
+        check_admin_referer('nvseo_pair');
+        $back = admin_url('options-general.php?page=nv-seo-bridge');
+        $code = isset($_POST['code']) ? trim(wp_unslash($_POST['code'])) : '';
+        $parsed = self::parse_code($code);
+        if (!$parsed) {
+            wp_safe_redirect(add_query_arg(['nvseo_ok' => '0', 'nvseo_msg' => rawurlencode('El código no es válido. Cópialo entero desde el Hub (empieza por NVP1.).')], $back));
+            exit;
+        }
+        list($hub, $site_id, $token) = $parsed;
+        $user = wp_get_current_user();
+        if (!user_can($user, 'publish_posts') || !user_can($user, 'upload_files')) {
+            wp_safe_redirect(add_query_arg(['nvseo_ok' => '0', 'nvseo_msg' => rawurlencode('Tu usuario necesita poder publicar entradas y subir archivos (rol Editor o Administrador).')], $back));
+            exit;
+        }
+        // Reutilizamos el nombre: si ya existía una clave del Hub, la sustituimos.
+        foreach (WP_Application_Passwords::get_user_application_passwords($user->ID) as $ap) {
+            if (isset($ap['name']) && $ap['name'] === 'Hub Negocio Vivo') WP_Application_Passwords::delete_application_password($user->ID, $ap['uuid']);
+        }
+        $created = WP_Application_Passwords::create_new_application_password($user->ID, ['name' => 'Hub Negocio Vivo']);
+        if (is_wp_error($created)) {
+            wp_safe_redirect(add_query_arg(['nvseo_ok' => '0', 'nvseo_msg' => rawurlencode('WordPress no permite crear contraseñas de aplicación: ' . $created->get_error_message())], $back));
+            exit;
+        }
+        $plain = $created[0];
+        $resp = wp_remote_post(rtrim($hub, '/') . '/api/public/seo-blog/pair', [
+            'timeout' => 60,
+            'headers' => ['Content-Type' => 'application/json'],
+            'body' => wp_json_encode([
+                'siteId' => $site_id,
+                'token' => $token,
+                'siteUrl' => home_url('/'),
+                'user' => $user->user_login,
+                'appPassword' => $plain,
+                'wpVersion' => get_bloginfo('version'),
+                'bridge' => '2.0.0',
+            ]),
+        ]);
+        if (is_wp_error($resp)) {
+            wp_safe_redirect(add_query_arg(['nvseo_ok' => '0', 'nvseo_msg' => rawurlencode('No se pudo contactar con el Hub: ' . $resp->get_error_message())], $back));
+            exit;
+        }
+        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if (is_array($data) && !empty($data['ok'])) {
+            update_option('nvseo_paired_at', time());
+            update_option('nvseo_hub_url', $hub);
+            wp_safe_redirect(add_query_arg(['nvseo_ok' => '1', 'nvseo_msg' => rawurlencode($data['message'] ?? 'Conectado con el Hub Negocio Vivo.')], $back));
+        } else {
+            $err = is_array($data) && !empty($data['error']) ? $data['error'] : ('Respuesta inesperada del Hub (HTTP ' . wp_remote_retrieve_response_code($resp) . ').');
+            wp_safe_redirect(add_query_arg(['nvseo_ok' => '0', 'nvseo_msg' => rawurlencode($err)], $back));
+        }
+        exit;
+    }
+
+    /** Código NVP1.<base64url("hubUrl|siteId|token")> */
+    private static function parse_code($code) {
+        if (strpos($code, 'NVP1.') !== 0) return null;
+        $b64 = strtr(substr($code, 5), '-_', '+/');
+        $raw = base64_decode($b64 . str_repeat('=', (4 - strlen($b64) % 4) % 4), true);
+        if (!$raw) return null;
+        $parts = explode('|', $raw);
+        if (count($parts) !== 3 || !preg_match('#^https?://#i', $parts[0]) || $parts[1] === '' || $parts[2] === '') return null;
+        return $parts;
     }
 
     public static function register_meta() {
@@ -74,7 +180,7 @@ final class NV_SEO_Bridge {
             'methods' => 'GET',
             'permission_callback' => function () { return current_user_can('edit_posts'); },
             'callback' => function () {
-                return ['ok' => true, 'version' => '1.2.0', 'yoast' => self::yoast(), 'rankmath' => self::rankmath()];
+                return ['ok' => true, 'version' => '2.0.0', 'yoast' => self::yoast(), 'rankmath' => self::rankmath()];
             },
         ]);
         // Diagnóstico de autenticación para el Hub: explica por qué no entra una Application Password (no revela secretos).
@@ -91,7 +197,7 @@ final class NV_SEO_Bridge {
             if (!empty($_SERVER[$k])) $seen[] = $k;
         }
         $out = [
-            'bridge' => '1.2.0',
+            'bridge' => '2.0.0',
             'headers_seen' => $seen,
             'php_auth_user' => !empty($_SERVER['PHP_AUTH_USER']),
             'app_passwords_available' => function_exists('wp_is_application_passwords_available') ? wp_is_application_passwords_available() : null,

@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { ArrowLeft, Download, Palette, Plus, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import type { Nav, Site } from "./SeoBlogApp";
-import { api, Btn, Card, Empty, Field, inputCls } from "./ui";
+import { api, Btn, Card, Empty, Field, fmtDate, inputCls } from "./ui";
 
 const SUBTABS = [
   ["negocio", "Negocio y voz"],
@@ -213,19 +213,101 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
 function WpTab({ site, form, set, txt, saveBar, onSaved }: any) {
   const [testing, setTesting] = useState(false);
   const [res, setRes] = useState<any>(null);
+  const [code, setCode] = useState("");
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [manual, setManual] = useState(false);
+  const connected = !!site.hasPassword;
+
+  // Mientras se muestra el código, comprobamos cada 5 s si el plugin ya ha conectado
+  useEffect(() => {
+    if (!code) return;
+    const t = setInterval(async () => {
+      const s = await api(`/sites/${site.id}`).catch(() => null);
+      if (s?.pairedAt && s.pairedAt !== site.pairedAt) {
+        setCode("");
+        await onSaved();
+        setRes(await api(`/sites/${site.id}/test`, { method: "POST" }).catch((e: any) => ({ ok: false, error: e.message })));
+      }
+    }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, site.id, site.pairedAt]);
+
+  const getCode = async () => {
+    setCodeBusy(true);
+    try {
+      const r = await api(`/sites/${site.id}/pair-code`, { method: "POST" });
+      setCode(r.code);
+      try {
+        await navigator.clipboard.writeText(r.code);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      } catch {}
+    } catch (e: any) {
+      setRes({ ok: false, error: e.message });
+    } finally {
+      setCodeBusy(false);
+    }
+  };
+  const test = async () => {
+    setTesting(true);
+    try {
+      const r = await api(`/sites/${site.id}/test`, { method: "POST" });
+      setRes(r);
+      if (r?.fixedUrl) await onSaved();
+    } catch (e: any) {
+      setRes({ ok: false, error: e.message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <Card>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {txt("siteUrl", "URL de la web WordPress", { ph: "https://www.cliente.com", wide: true })}
-          {txt("wpUser", "Usuario WordPress", { help: "Rol Editor o Administrador." })}
-          <Field label="Application Password" help="WP del cliente → Usuarios → Perfil → Contraseñas de aplicación. Se guarda cifrada.">
-            <input type="password" autoComplete="new-password" value={form.wpAppPassword ?? ""} onChange={set("wpAppPassword")}
-              placeholder={site.hasPassword ? "•••••••• (guardada — escribe para cambiarla)" : "xxxx xxxx xxxx xxxx xxxx xxxx"} className={inputCls} />
-          </Field>
-          {txt("wpAuthorId", "ID de autor en la web (opcional)", { type: "number", help: "Un autor real con biografía refuerza E-E-A-T." })}
-          {txt("defaultCategory", "Categoría por defecto (opcional)", { help: "Vacío = la IA propone la categoría (se crea si no existe)." })}
+      <Card title="Conexión con la web del cliente">
+        <div className={clsx("rounded-lg p-3 text-sm mb-4 border", connected ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800")}>
+          {connected ? (
+            <>✅ <b>Conectada</b>{site.wpUser ? <> como <b>{site.wpUser}</b></> : null}{site.siteUrl ? <> · {site.siteUrl}</> : null}{site.pairedAt ? <> · desde el {fmtDate(site.pairedAt)}</> : null}</>
+          ) : (
+            <>⚠️ <b>Sin conectar.</b> Sigue los 3 pasos de abajo: no hay que crear usuarios ni contraseñas en WordPress.</>
+          )}
         </div>
+        <ol className="space-y-4 text-sm">
+          <li className="flex gap-3">
+            <span className="h-6 w-6 shrink-0 rounded-full bg-slate-900 text-white grid place-items-center text-xs font-bold">1</span>
+            <div>
+              <div className="font-semibold">Descarga el plugin e instálalo en la web del cliente</div>
+              <div className="text-slate-600">En su WordPress: Plugins → Añadir nuevo → Subir plugin → elige el ZIP → Instalar → Activar.</div>
+              <a href="/api/v1/seo-blog/bridge" className="inline-flex items-center gap-1.5 mt-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium hover:bg-slate-50"><Download className="h-4 w-4" /> Descargar nv-seo-bridge.zip</a>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="h-6 w-6 shrink-0 rounded-full bg-slate-900 text-white grid place-items-center text-xs font-bold">2</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold">Copia el código de conexión</div>
+              <div className="text-slate-600">Es de un solo uso y caduca en 24 h.</div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <Btn busy={codeBusy} onClick={getCode}>{code ? "Generar otro código" : "Copiar código de conexión"}</Btn>
+                {copied && <span className="text-xs text-emerald-700 font-medium">Copiado al portapapeles ✓</span>}
+              </div>
+              {code && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input readOnly value={code} onFocus={(e) => e.currentTarget.select()} className={clsx(inputCls, "font-mono text-xs")} />
+                  <Btn variant="ghost" onClick={async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch {} }}>Copiar</Btn>
+                </div>
+              )}
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="h-6 w-6 shrink-0 rounded-full bg-slate-900 text-white grid place-items-center text-xs font-bold">3</span>
+            <div>
+              <div className="font-semibold">Pega el código en la web del cliente</div>
+              <div className="text-slate-600">En su WordPress: Ajustes → <b>NV SEO Bridge</b> → pegar → «Conectar con el Hub». Esta pantalla se actualizará sola en cuanto conecte.</div>
+              {code && <div className="mt-1.5 text-xs text-violet-700 flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-500 animate-pulse" /> Esperando a que el plugin conecte…</div>}
+            </div>
+          </li>
+        </ol>
         {res && (
           <div className={clsx("mt-4 rounded-lg p-3 text-sm", res.ok ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200")}>
             {res.ok ? (
@@ -235,30 +317,43 @@ function WpTab({ site, form, set, txt, saveBar, onSaved }: any) {
             {res.fixedUrl && <div className="mt-1 text-xs">ℹ️ La URL guardada no era la raíz del WordPress; se ha corregido automáticamente a <b>{res.fixedUrl}</b>.</div>}
           </div>
         )}
-        {saveBar(
-          <Btn variant="ghost" busy={testing} onClick={async () => {
-            setTesting(true);
-            try {
-              await api(`/sites/${site.id}`, { method: "PATCH", body: form });
-              await onSaved();
-              const r = await api(`/sites/${site.id}/test`, { method: "POST" });
-              setRes(r);
-              if (r?.fixedUrl) await onSaved();
-            } catch (e: any) {
-              setRes({ ok: false, error: e.message });
-            } finally {
-              setTesting(false);
-            }
-          }}>Guardar y probar conexión</Btn>
-        )}
+        <div className="mt-4 flex flex-wrap items-center gap-3 justify-between">
+          <button type="button" onClick={() => setManual(!manual)} className="text-xs text-slate-500 underline">{manual ? "Ocultar conexión manual" : "Conexión manual (avanzado)"}</button>
+          {connected && <Btn variant="ghost" busy={testing} onClick={test}>Probar conexión</Btn>}
+        </div>
       </Card>
-      <Card title="Plugin puente recomendado en la web del cliente">
-        <p className="text-sm text-slate-600">
-          Instala <b>NV SEO Bridge</b> (un solo archivo, sin ajustes) en la web del cliente para que el meta title, la meta description y la keyword se escriban
-          directamente en <b>Yoast</b> o <b>Rank Math</b>, y para imprimir el schema JSON-LD (Article + FAQPage) en el &lt;head&gt;. Sin él el post se publica igual y el schema va
-          embebido en el contenido.
-        </p>
-        <a href="/api/v1/seo-blog/bridge" className="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-amber-700"><Download className="h-4 w-4" /> Descargar nv-seo-bridge.php</a>
+      {manual && (
+        <Card title="Conexión manual (avanzado)">
+          <p className="text-xs text-slate-500 mb-3">Solo si no puedes instalar el plugin. Necesitas una Application Password del usuario (WordPress → Usuarios → Editar usuario → Contraseñas de aplicación).</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {txt("siteUrl", "URL de la web WordPress", { ph: "https://www.cliente.com", wide: true })}
+            {txt("wpUser", "Usuario WordPress", { help: "Rol Editor o Administrador." })}
+            <Field label="Application Password" help="Se guarda cifrada.">
+              <input type="password" autoComplete="new-password" value={form.wpAppPassword ?? ""} onChange={set("wpAppPassword")}
+                placeholder={site.hasPassword ? "•••••••• (guardada — escribe para cambiarla)" : "xxxx xxxx xxxx xxxx xxxx xxxx"} className={inputCls} />
+            </Field>
+          </div>
+          {saveBar(
+            <Btn variant="ghost" busy={testing} onClick={async () => {
+              setTesting(true);
+              try {
+                await api(`/sites/${site.id}`, { method: "PATCH", body: form });
+                await onSaved();
+                await test();
+              } catch (e: any) {
+                setRes({ ok: false, error: e.message });
+                setTesting(false);
+              }
+            }}>Guardar y probar conexión</Btn>
+          )}
+        </Card>
+      )}
+      <Card title="Opciones de publicación">
+        <div className="grid sm:grid-cols-2 gap-4">
+          {txt("wpAuthorId", "ID de autor en la web (opcional)", { type: "number", help: "Un autor real con biografía refuerza E-E-A-T. Vacío = el usuario conectado." })}
+          {txt("defaultCategory", "Categoría por defecto (opcional)", { help: "Vacío = la IA propone la categoría (se crea si no existe)." })}
+        </div>
+        {saveBar()}
       </Card>
     </div>
   );
