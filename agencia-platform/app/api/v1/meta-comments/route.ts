@@ -199,8 +199,14 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
   const message = prepareMetaCommentReplyDraft(parsed.data.message, comment.authorName);
   if (!message) throw new ApiError(400, "empty_reply", "Este comentario no tiene una respuesta válida para publicar");
-  const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, message, comment.postId, comment.platform, comment.feed.metaConnectionId);
+  let replyId: string;
+  try {
+    replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, message, comment.postId, comment.platform, comment.feed.metaConnectionId);
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : "Meta no pudo publicar la respuesta. Reinténtalo en unos minutos.";
+    throw new ApiError(502, "meta_reply_failed", `No se pudo publicar la respuesta en Meta: ${detail}`);
+  }
   await prisma.metaAdComment.update({ where: { id: comment.id }, data: { status: "replied", repliedAt: new Date(), externalReplyId: replyId, aiDraft: message } });
-  await notifyMetaOperational(api.workspaceId, "publishedReplies", "✅ Respuesta publicada en Meta", `${comment.authorName ?? "Usuario de Meta"}: ${message.slice(0, 800)}`).catch(() => {});
+  await Promise.resolve(notifyMetaOperational(api.workspaceId, "publishedReplies", "✅ Respuesta publicada en Meta", `${comment.authorName ?? "Usuario de Meta"}: ${message.slice(0, 800)}`)).catch(() => {});
   return NextResponse.json({ ok: true, replyId });
 });

@@ -178,4 +178,25 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
     expect(response.status).toBe(400);
     expect(replyCommentMock).not.toHaveBeenCalled();
   });
+
+  it("sustituye placeholders de usuario antes de publicar respuestas", async () => {
+    prisma.metaAdComment.findFirst.mockResolvedValue({ id: "comment-1", authorName: "_bxn.chnn_", externalCommentId: "ig-comment-1", postId: null, platform: "instagram", feed: { metaConnectionId: "connection-1" } });
+    replyCommentMock.mockResolvedValue("reply-1");
+
+    const response = await call({ action: "reply", commentId: "comment-1", message: "@nombredeusuario Gracias por escribirnos." });
+
+    expect(response.status).toBe(200);
+    expect(replyCommentMock).toHaveBeenCalledWith("workspace-1", "ig-comment-1", "@_bxn.chnn_ Gracias por escribirnos.", null, "instagram", "connection-1");
+  });
+
+  it("muestra el motivo de Meta cuando rechaza publicar una respuesta", async () => {
+    prisma.metaAdComment.findFirst.mockResolvedValue({ id: "comment-1", authorName: "_bxn.chnn_", externalCommentId: "ig-comment-1", postId: null, platform: "instagram", feed: { metaConnectionId: "connection-1" } });
+    replyCommentMock.mockRejectedValue(new Error("Meta 400 en ig-comment-1/replies: Unsupported post request"));
+
+    const response = await call({ action: "reply", commentId: "comment-1", message: "Gracias por escribirnos." });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: "meta_reply_failed", message: expect.stringContaining("Unsupported post request") } });
+    expect(prisma.metaAdComment.update).not.toHaveBeenCalled();
+  });
 });

@@ -712,11 +712,29 @@ export async function syncAllActiveMetaCommentFeeds() {
 export async function replyToMetaComment(workspaceId: string, externalCommentId: string, message: string, postId?: string | null, platform = "facebook", connectionId?: string | null) {
   const body = new URLSearchParams({ message });
   const pageId = postId ? postId.split("_")[0] : null;
-  const tokens = await pageTokens(workspaceId, connectionId);
-  const token = pageId && platform === "facebook" ? tokens.facebook.get(pageId) : undefined;
   const edge = platform === "instagram" ? "replies" : "comments";
-  const result = await graph(workspaceId, `${externalCommentId}/${edge}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
-  return String(result.id ?? "");
+  const connectionIds = [connectionId, ...(await listWorkspaceMetaTokens(workspaceId)).map((item) => item.id)].filter((id): id is string => Boolean(id));
+  const tokenCandidates: Array<string | undefined> = [];
+  for (const id of [...new Set(connectionIds)]) {
+    const tokens = await pageTokens(workspaceId, id).catch(() => null);
+    if (!tokens) continue;
+    if (platform === "facebook") tokenCandidates.push(pageId ? tokens.facebook.get(pageId) : undefined);
+    else tokenCandidates.push(...tokens.instagram.values());
+  }
+  if (!tokenCandidates.length) tokenCandidates.push(undefined);
+
+  let lastMetaError: MetaGraphError | null = null;
+  for (const token of [...new Set(tokenCandidates)]) {
+    try {
+      const result = await graph(workspaceId, `${externalCommentId}/${edge}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
+      return String(result.id ?? "");
+    } catch (cause) {
+      if (cause instanceof MetaGraphError) { lastMetaError = cause; continue; }
+      throw cause;
+    }
+  }
+  if (lastMetaError) throw lastMetaError;
+  throw new Error("No existe un token autorizado para responder este comentario.");
 }
 
 export function assertMetaDeletionConfirmed(result: unknown): asserts result is { success: true } {
