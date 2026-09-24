@@ -26,7 +26,7 @@ export function filterMetaCommentInbox<T extends MetaInboxItem>(
   return items.filter((item) =>
     (filters.client === "all" || metaClientKey(item.feed) === filters.client)
     && (filters.campaign === "all" || item.feed.campaignId === filters.campaign)
-    && (filters.status === "history" ? ["deleted", "hidden"].includes(item.status) : !["deleted", "hidden", "ignored_self"].includes(item.status) && (filters.status === "all"
+    && (filters.status === "history" ? ["deleted", "hidden", "replied"].includes(item.status) : !["deleted", "hidden", "ignored_self"].includes(item.status) && (filters.status === "all"
       || (filters.status === "pending" ? item.status !== "replied"
         : filters.status === "negative" ? item.sentiment === "negative" && item.status !== "replied"
           : item.status === "replied")))

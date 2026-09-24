@@ -9,8 +9,8 @@ const comments = [
 
 describe("Meta comments inbox filters", () => {
   const history = ["deleted", "hidden", "ignored_self"].map((status) => ({ ...comments[0], id: status, status }));
-  it("keeps deleted and hidden complaints in history only", () => {
-    expect(filterMetaCommentInbox([...comments, ...history], { client: "esaem", campaign: "c1", status: "history" }).map(x => x.id)).toEqual(["deleted", "hidden"]);
+  it("keeps deleted, hidden and replied comments in history only", () => {
+    expect(filterMetaCommentInbox([...comments, ...history], { client: "all", campaign: "all", status: "history" }).map(x => x.id)).toEqual(["3", "deleted", "hidden"]);
     for (const status of ["pending", "negative", "all"]) {
       expect(filterMetaCommentInbox(history, { client: "all", campaign: "all", status })).toEqual([]);
     }
