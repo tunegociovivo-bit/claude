@@ -4,6 +4,7 @@ import { listWorkspaceMetaTokens, readMetaTokenByConnection, readWorkspaceMetaTo
 import { createHash, randomUUID } from "node:crypto";
 import { acquireCronLease } from "@/lib/cron/distributed-lease";
 import { parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
+import { facebookCommentTargets } from "@/lib/meta/facebook-comment-targets";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -136,6 +137,7 @@ async function campaignAdsWithAvailableConnection(
 
 type MetaSyncOptions = {
   extraAdIds?: string[];
+  extraPosts?: Array<{ adId: string; postId: string }>;
 };
 
 async function fetchExplicitCampaignAds(
@@ -478,6 +480,11 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       select: { externalReplyId: true }
     });
     const sentReplyIds = new Set(sentReplyRows.flatMap((row) => row.externalReplyId ? [row.externalReplyId] : []));
+    // Preserve verified post/ad associations discovered during historical imports.
+    const knownFacebookPosts = await prisma.metaAdComment.findMany({
+      where: { workspaceId, feedId: feed.id, platform: "facebook", postId: { not: null }, adId: { not: null } },
+      select: { postId: true, adId: true }, distinct: ["postId", "adId"]
+    });
     await prisma.metaAdComment.updateMany({
       where: {
         workspaceId,
@@ -494,7 +501,8 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0; let unsupportedTargets = 0;
     const coverageIssues: string[] = [];
-    const explicitAds = await fetchExplicitCampaignAds(workspaceId, campaignId, options.extraAdIds ?? [], creativeFields, connectionToken, coverageIssues);
+    const targetResults: Array<{ adId: string; postId: string; platform: string; returned: number; inPeriod: number; error?: string }> = [];
+    const explicitAds = await fetchExplicitCampaignAds(workspaceId, campaignId, [...(options.extraAdIds ?? []), ...(options.extraPosts ?? []).map((post) => post.adId)], creativeFields, connectionToken, coverageIssues);
     ads = mergeMetaAdsById(ads, explicitAds);
     const hydratedAds: any[] = [];
     for (let offset = 0; offset < ads.length; offset += 10) {
@@ -524,8 +532,24 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       if (!instagramTarget && ownerHint) {
         coverageIssues.push(`Anuncio ${ad.id}: publicación de Instagram sin vínculo verificable.`);
       }
+      const facebookTargetsForAd = facebookCommentTargets(creative, authorizedPages.facebook);
+      for (const post of knownFacebookPosts) {
+        if (post.adId !== String(ad.id) || !post.postId || !/^\d+_\d+$/.test(post.postId)) continue;
+        const ownerId = post.postId.split("_")[0];
+        if (!facebookTargetsForAd.some((target) => target.id === post.postId)) facebookTargetsForAd.push({ id: post.postId, ownerId, platform: "facebook", token: authorizedPages.facebook.get(ownerId) });
+      }
+      for (const post of options.extraPosts ?? []) {
+        if (post.adId !== String(ad.id)) continue;
+        const ownerId = facebookTargetsForAd.find((target) => target.ownerId)?.ownerId || creative.object_story_spec?.page_id;
+        if (!ownerId) {
+          coverageIssues.push(`Anuncio ${ad.id}: no se pudo verificar la página de la publicación ${post.postId}.`);
+          continue;
+        }
+        const id = `${ownerId}_${post.postId}`;
+        if (!facebookTargetsForAd.some((target) => target.id === id)) facebookTargetsForAd.push({ id, ownerId, platform: "facebook", token: authorizedPages.facebook.get(ownerId) });
+      }
       const targets = [
-        (creative.effective_object_story_id ?? creative.object_story_id) ? { id: String(creative.effective_object_story_id ?? creative.object_story_id), ownerId: String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0], platform: "facebook", token: authorizedPages.facebook.get(String(creative.effective_object_story_id ?? creative.object_story_id).split("_")[0]) } : null,
+        ...facebookTargetsForAd,
         ...instagramTargetsForAd
       ].filter(Boolean) as Array<{ id: string; ownerId?: string; platform: "facebook" | "instagram"; token?: string; adId?: string | null; adName?: string | null }>;
       if (targets.length === 0) adsWithoutPost++;
@@ -551,10 +575,13 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         } catch (error: any) {
           if (!isSkippableMetaCommentTargetError(error)) throw error;
           unsupportedTargets++;
+          targetResults.push({ adId: String(ad.id), postId: target.id, platform: target.platform, returned: 0, inPeriod: 0, error: String(error?.message ?? error) });
           coverageIssues.push(`Publicación inaccesible: ${target.platform}:${target.id}.`);
           console.warn(`[meta-comments] Meta no permite consultar comentarios del objetivo ${target.platform}:${target.id}; se omite y continúa la campaña.`);
           continue;
         }
+        const targetResult = { adId: String(ad.id), postId: target.id, platform: target.platform, returned: comments.length, inPeriod: 0 };
+        targetResults.push(targetResult);
         for (const raw of comments) {
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
           comment.platform = target.platform;
@@ -572,6 +599,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           if (ownReply) repliesByCommentId.set(String(comment.id), ownReply);
           const createdAt = new Date(comment.created_time);
           if (range && (createdAt < range.from || createdAt > range.to)) continue;
+          targetResult.inPeriod++;
           discovered.push({ ...comment, postId: target.id, platform: target.platform, adId: target.adId === null ? null : ad.id, adName: target.adName ?? ad.name });
         }
       }
@@ -619,7 +647,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
     const complete = coverageIssues.length === 0;
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
-    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {

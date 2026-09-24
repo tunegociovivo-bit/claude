@@ -15,7 +15,8 @@ const schema = z.discriminatedUnion("action", [
     clientName: z.string().min(1).max(120),
     from: z.string().datetime().optional(),
     to: z.string().datetime().optional(),
-    extraAdIds: z.array(z.string().regex(/^\d+$/)).max(50).optional()
+    extraAdIds: z.array(z.string().regex(/^\d+$/)).max(50).optional(),
+    extraPosts: z.array(z.object({ adId: z.string().regex(/^\d+$/), postId: z.string().regex(/^\d+$/) })).max(50).optional()
   }),
   z.object({ action: z.literal("reply"), commentId: z.string(), message: z.string().min(1).max(2000) })
   ,z.object({ action: z.literal("monitor"), campaignId: z.string().regex(/^\d+$/), campaignName: z.string().min(1).max(240), accountId: z.string().regex(/^act_\d+$/), accountName: z.string().min(1).max(240), connectionId: z.string().min(1) })
@@ -86,7 +87,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       if (to.getTime() - from.getTime() > 366 * 24 * 60 * 60 * 1000) throw new ApiError(400, "range_too_large", "El periodo máximo por importación es de 366 días");
       range = { from, to };
     }
-    return NextResponse.json(await syncMetaCampaignComments(api.workspaceId, parsed.data.campaignId, parsed.data.clientName, range, { extraAdIds: parsed.data.extraAdIds }));
+    return NextResponse.json(await syncMetaCampaignComments(api.workspaceId, parsed.data.campaignId, parsed.data.clientName, range, { extraAdIds: parsed.data.extraAdIds, ...(parsed.data.extraPosts ? { extraPosts: parsed.data.extraPosts } : {}) }));
   }
   if (parsed.data.action === "monitor") {
     const feed = await prisma.metaCommentFeed.upsert({ where: { workspaceId_campaignId: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId } }, create: { workspaceId: api.workspaceId, campaignId: parsed.data.campaignId, clientName: parsed.data.accountName, campaignName: parsed.data.campaignName, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName, metaConnectionId: parsed.data.connectionId }, update: { active: true, campaignName: parsed.data.campaignName, adAccountId: parsed.data.accountId, adAccountName: parsed.data.accountName, metaConnectionId: parsed.data.connectionId } });

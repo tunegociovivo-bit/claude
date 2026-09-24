@@ -82,6 +82,13 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
       { extraAdIds: ["120224999030870524"] }
     );
   });
+  it("forwards the dynamic publication association without accepting arbitrary URLs", async () => {
+    syncCommentsMock.mockResolvedValue({ discovered: 1, created: 1, complete: true });
+    const extraPosts = [{ adId: "120224999030870524", postId: "1409934984491916" }];
+    expect((await call({ action: "sync", campaignId: "120221155176020524", clientName: "Eroski", extraPosts })).status).toBe(200);
+    expect(syncCommentsMock).toHaveBeenLastCalledWith("workspace-1", "120221155176020524", "Eroski", undefined, { extraAdIds: undefined, extraPosts });
+    expect((await call({ action: "sync", campaignId: "120221155176020524", clientName: "Eroski", extraPosts: [{ adId: "123", postId: "https://example.org" }] })).status).toBe(400);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     authenticateMock.mockResolvedValue({ workspaceId: "workspace-1", userId: "user-1", scopes: new Set(["*"]) });
