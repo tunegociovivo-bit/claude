@@ -339,6 +339,7 @@ function Images({ p, reload }: { p: any; reload: () => Promise<any> }) {
               <span className="inline-block rounded bg-amber-50 text-amber-800 px-1.5 py-0.5 text-[10px] uppercase">{i === 0 ? "Portada" : "En el texto"}</span>
               <p><b>Alt:</b> {im.alt}</p>
               {im.caption && <p><b>Leyenda:</b> {im.caption}</p>}
+              {im.text_in_image && <p><b>Texto en la imagen:</b> «{im.text_in_image}»</p>}
               <Field label="Escena (inglés)"><textarea rows={3} value={subjects[i] ?? ""} onChange={(e) => setSubjects((s) => s.map((x, j) => (j === i ? e.target.value : x)))} className={inputCls + " text-xs"} /></Field>
               <Btn size="sm" variant="ghost" busy={busy === i} onClick={async () => {
                 setBusy(i);
