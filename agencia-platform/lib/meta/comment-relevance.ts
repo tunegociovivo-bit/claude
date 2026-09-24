@@ -56,3 +56,17 @@ export function sanitizeMetaCommentDraft(draft: string | null | undefined) {
 
   return text;
 }
+
+function metaMentionForAuthor(authorName: string | null | undefined) {
+  const name = String(authorName ?? "").trim();
+  if (!name || /^usuario de meta$/i.test(name)) return "";
+  return name.startsWith("@") ? name : `@${name}`;
+}
+
+export function prepareMetaCommentReplyDraft(draft: string | null | undefined, authorName?: string | null) {
+  const mention = metaMentionForAuthor(authorName);
+  return sanitizeMetaCommentDraft(draft)
+    .replace(/@(?:nombre[_\s-]?de[_\s-]?usuario|usuario|nombre)(?=\b|[^\p{L}\p{N}._-])/giu, mention)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "../comment-relevance";
+import { isIrrelevantMetaComment, prepareMetaCommentReplyDraft, sanitizeMetaCommentDraft } from "../comment-relevance";
 
 describe("Meta comment relevance", () => {
   it("marks pure mentions and isolated filler words as irrelevant", () => {
@@ -21,5 +21,10 @@ describe("Meta comment relevance", () => {
     expect(sanitizeMetaCommentDraft("No se responderá a este comentario ya que carece de sentido coherente y no se relaciona con el anuncio de franquicia Eroski.")).toBe("");
     expect(sanitizeMetaCommentDraft("No hay comentario que responder.")).toBe("");
     expect(sanitizeMetaCommentDraft("Hola, gracias por tu interés.")).toBe("Hola, gracias por tu interés.");
+  });
+
+  it("replaces generic username placeholders before publishing", () => {
+    expect(prepareMetaCommentReplyDraft("@nombredeusuario Gracias por escribirnos.", "_bxn.chnn_")).toBe("@_bxn.chnn_ Gracias por escribirnos.");
+    expect(prepareMetaCommentReplyDraft("@nombredeusuario Gracias por escribirnos.", null)).toBe("Gracias por escribirnos.");
   });
 });

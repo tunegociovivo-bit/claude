@@ -7,7 +7,7 @@ import { blockMetaCommentAuthor, deleteMetaComment, MetaDeletionError, notifyMet
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection } from "@/lib/meta/connection";
-import { sanitizeMetaCommentDraft } from "@/lib/meta/comment-relevance";
+import { prepareMetaCommentReplyDraft } from "@/lib/meta/comment-relevance";
 
 const schema = z.discriminatedUnion("action", [
   z.object({
@@ -197,7 +197,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   }
   const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId }, include: { feed: { select: { metaConnectionId: true } } } });
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
-  const message = sanitizeMetaCommentDraft(parsed.data.message);
+  const message = prepareMetaCommentReplyDraft(parsed.data.message, comment.authorName);
   if (!message) throw new ApiError(400, "empty_reply", "Este comentario no tiene una respuesta válida para publicar");
   const replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, message, comment.postId, comment.platform, comment.feed.metaConnectionId);
   await prisma.metaAdComment.update({ where: { id: comment.id }, data: { status: "replied", repliedAt: new Date(), externalReplyId: replyId, aiDraft: message } });
