@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { acquireCronLease } from "@/lib/cron/distributed-lease";
 import { parseMetaCommentAnalysisJson, runMetaCommentAnalysisPipeline, type MetaCommentAnalysis } from "@/lib/meta/comment-analysis-fallback";
 import { facebookCommentTargets } from "@/lib/meta/facebook-comment-targets";
+import { readFacebookCommentThread } from "@/lib/meta/facebook-comment-thread";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -518,7 +519,6 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     }
     for (const ad of hydratedAds) {
       const creative = ad?.creative ?? {};
-      const rangeQuery = range ? `&since=${Math.floor(range.from.getTime() / 1000)}&until=${Math.floor(range.to.getTime() / 1000)}` : "";
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       const facebookPageId = String(creative.object_story_spec?.page_id ?? (creative.effective_object_story_id ?? creative.object_story_id ?? "")).split("_")[0];
       const ownerHint = String(creative.instagram_user_id ?? creative.instagram_actor_id ?? creative.object_story_spec?.instagram_user_id ?? authorizedPages.instagramByFacebookPage.get(facebookPageId) ?? "") || null;
@@ -558,10 +558,11 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         const fields = target.platform === "instagram"
           ? "id,text,username,timestamp,replies.limit(100){id,text,username,timestamp}"
           : "id,message,from{id,name},created_time,parent{id},comments.limit(100){id,message,from{id,name},created_time}";
-        const filter = target.platform === "facebook" ? "&filter=stream" : "";
         let comments: any[];
         try {
-          comments = await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100${filter}${target.platform === "instagram" ? "" : rangeQuery}`, target.token, 5000);
+          comments = target.platform === "facebook"
+            ? await readFacebookCommentThread(target.id, (path) => graphAll(workspaceId, path, target.token))
+            : await graphAll(workspaceId, `${target.id}/comments?fields=${fields}&limit=100`, target.token, 5000);
           if (target.platform === "instagram") {
             // Replies have their own pagination and may be newer than the parent.
             const replies: any[] = [];
