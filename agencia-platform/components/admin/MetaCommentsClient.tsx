@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Loader2, Mail, MessageSquare, Pencil, Plus, RefreshCw, Send, Sparkles, Trash2, UserX, X } from "lucide-react";
+import { AlertTriangle, BarChart3, Check, CheckCircle2, ChevronDown, Loader2, Mail, MessageSquare, Pencil, Plus, RefreshCw, Send, Sparkles, Trash2, UserX, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
 import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
@@ -19,6 +19,18 @@ type AdAccount = { id: string; name: string; status: number; currency: string; c
 type Campaign = { id: string; name: string; status: string; configured_status?: string; effective_status?: string; objective?: string };
 type Comment = { deletedAt: string | null; repliedAt: string | null; id: string; authorName: string | null; authorId: string | null; authorBlockedAt: string | null; platform: string; message: string; sentiment: string; sentimentReason: string | null; aiDraft: string | null; status: string; commentCreatedAt: string; adName: string | null; feed: { clientName: string; displayName: string | null; adAccountName: string | null; campaignId: string; campaignName: string | null } };
 type AlertRecipient = { id: string; email: string; active: boolean; negativeComments: boolean; allComments: boolean; syncFailures: boolean; publishedReplies: boolean };
+type DashboardMetric = "all" | "pending" | "negative_all" | "positive_all" | "neutral_all" | "replied_all" | "deleted_all";
+type ClientDashboardStats = {
+  key: string;
+  name: string;
+  total: number;
+  pending: number;
+  negative: number;
+  positive: number;
+  neutral: number;
+  replied: number;
+  removed: number;
+};
 
 function canonicalClientName(name: string) {
   return name.trim().replace(/\s+(nueva|nuevo)$/i, "").replace(/\s+/g, " ");
@@ -32,6 +44,13 @@ function clientKeyOf(value: { clientName: string; adAccountName?: string | null 
   return canonicalClientName(value.adAccountName || value.clientName).toLocaleLowerCase("es-ES");
 }
 
+function commentStatusText(item: Comment) {
+  if (item.status === "replied") return "Respondido";
+  if (item.status === "deleted") return "Eliminado";
+  if (item.status === "hidden") return "Ocultado";
+  return "Pendiente";
+}
+
 export default function MetaCommentsClient() {
   const [items, setItems] = useState<Comment[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
@@ -41,6 +60,7 @@ export default function MetaCommentsClient() {
   const [filter, setFilter] = useState("pending");
   const [clientFilter, setClientFilter] = useState("all");
   const [campaignFilter, setCampaignFilter] = useState("all");
+  const [dashboardMetric, setDashboardMetric] = useState<DashboardMetric | null>(null);
   const [selectedCommentIds, setSelectedCommentIds] = useState<Set<string>>(() => new Set());
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
   const [editingClient, setEditingClient] = useState<string | null>(null);
@@ -276,9 +296,52 @@ export default function MetaCommentsClient() {
     return [...options.entries()].sort((a, b) => a[1].localeCompare(b[1], "es"));
   }, [clientGroups, items]);
   const campaignOptions = useMemo(() => campaignOptionsForClient(items, clientFilter), [items, clientFilter]);
-  const visible = useMemo(() => filterMetaCommentInbox(items, { client: clientFilter, campaign: campaignFilter, status: filter }), [items, filter, clientFilter, campaignFilter]);
+  const effectiveStatusFilter = dashboardMetric ?? filter;
+  const visible = useMemo(() => filterMetaCommentInbox(items, { client: clientFilter, campaign: campaignFilter, status: effectiveStatusFilter }), [items, effectiveStatusFilter, clientFilter, campaignFilter]);
   const selectedVisible = useMemo(() => visible.filter((item) => selectedCommentIds.has(item.id)), [visible, selectedCommentIds]);
   const relevantVisible = useMemo(() => visible.filter((item) => !isIrrelevantMetaComment(item.message)), [visible]);
+  const dashboardStats = useMemo<ClientDashboardStats[]>(() => {
+    const groups = new Map<string, ClientDashboardStats>();
+    for (const item of items.filter((comment) => comment.status !== "ignored_self")) {
+      const key = clientKeyOf(item.feed);
+      const group = groups.get(key) ?? {
+        key,
+        name: clientNameOf(item.feed),
+        total: 0,
+        pending: 0,
+        negative: 0,
+        positive: 0,
+        neutral: 0,
+        replied: 0,
+        removed: 0
+      };
+      group.total++;
+      if (item.status === "replied") group.replied++;
+      else if (["deleted", "hidden"].includes(item.status)) group.removed++;
+      else group.pending++;
+      if (item.sentiment === "negative") group.negative++;
+      else if (item.sentiment === "positive") group.positive++;
+      else group.neutral++;
+      groups.set(key, group);
+    }
+    return [...groups.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "es"));
+  }, [items]);
+
+  function showDashboardSlice(clientKey: string, metric: DashboardMetric) {
+    cancelBulkDelete();
+    setClientFilter(clientKey);
+    setCampaignFilter("all");
+    setDashboardMetric(metric);
+    setFilter(metric === "pending" ? "pending" : metric === "all" ? "all" : filter);
+    setSelectedCommentIds(new Set());
+    window.setTimeout(() => document.getElementById("meta-comments-inbox")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
+  function clearDashboardSlice() {
+    setDashboardMetric(null);
+    setClientFilter("all");
+    setCampaignFilter("all");
+  }
 
   function setBulkDeleteFlow(next: BulkDeleteFlow) { bulkDeleteRef.current = next; setBulkDeleteState(next); }
   function cancelBulkDelete() { setBulkDeleteFlow(bulkDeleteTransition(bulkDeleteRef.current, { type: "cancel" })); }
@@ -316,7 +379,7 @@ export default function MetaCommentsClient() {
     }
     setBulkProgress({ completed: 0, total: targets.length });
     setBulkStatus({ message: formatBulkModerationStatus({ action, completed: 0, total: targets.length }) });
-    const results = await runWithConcurrency(targets, 3, async (item) => {
+    const results = await runWithConcurrency(targets, action === "reply" ? 1 : 3, async (item) => {
       try {
         const payload = action === "reply" ? { action, commentId: item.id, message: sanitizeMetaCommentDraft(drafts[item.id]) } : { action, commentId: item.id };
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -333,7 +396,9 @@ export default function MetaCommentsClient() {
     const failed = failures.map((result) => result.id);
     const hidden = results.filter((result) => result.mode === "hidden").length;
     setSelectedCommentIds(new Set(failed));
-    setBulkStatus({ message: hidden > 0 && failed.length === 0 ? `${targets.length} retirados de Meta: ${targets.length - hidden} eliminados y ${hidden} ocultados públicamente.` : formatBulkModerationStatus({ action, completed: targets.length, total: targets.length, failed: failed.length }), error: failures[0]?.error ?? undefined });
+    const firstError = failures[0]?.error;
+    const retryHint = action === "reply" && firstError && /error interno|Meta 5\d\d|tempor/i.test(firstError) ? " Meta ha devuelto un fallo temporal; los comentarios fallidos quedan seleccionados para reintentarlos." : "";
+    setBulkStatus({ message: `${hidden > 0 && failed.length === 0 ? `${targets.length} retirados de Meta: ${targets.length - hidden} eliminados y ${hidden} ocultados públicamente.` : formatBulkModerationStatus({ action, completed: targets.length, total: targets.length, failed: failed.length })}${retryHint}`, error: firstError ?? undefined });
     try {
       await load();
       if (failed.length) setError(`${targets.length - failed.length} procesados; ${failed.length} no se pudieron completar y permanecen seleccionados para revisarlos.`);
@@ -387,16 +452,38 @@ export default function MetaCommentsClient() {
       {importResult && <div className="mt-3 text-sm font-medium text-emerald-700">{importResult}</div>}
       {importTargets.length > 0 && <details className="mt-3 text-xs text-slate-600"><summary className="cursor-pointer font-medium">Ver publicaciones consultadas ({importTargets.length})</summary><div className="mt-2 max-h-64 overflow-auto"><table className="w-full text-left"><thead><tr><th>Anuncio</th><th>Publicación</th><th>Red</th><th>Devueltos</th><th>En el periodo</th></tr></thead><tbody>{importTargets.map((target, index) => <tr key={`${target.adId}:${target.postId}:${index}`}><td className="p-1">{target.adId}</td><td className="p-1">{target.postId}</td><td className="p-1">{target.platform}</td><td className="p-1">{target.returned}</td><td className="p-1">{target.error || target.inPeriod}</td></tr>)}</tbody></table></div></details>}
     </div>
+    {dashboardStats.length > 0 && <section className="mb-5 rounded-xl border bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 font-semibold text-slate-900"><BarChart3 className="h-5 w-5 text-brand-600" /> Panel de comentarios por cliente</div><p className="mt-1 text-xs text-slate-500">Pulsa cualquier métrica para ver debajo los comentarios exactos, con su estado: pendiente, respondido, eliminado u ocultado.</p></div>{dashboardMetric && <button type="button" onClick={clearDashboardSlice} className="rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700">Quitar filtro de gráfica</button>}</div>
+      <div className="grid gap-3 lg:grid-cols-2">{dashboardStats.map((stats) => {
+        const handled = stats.replied + stats.removed;
+        const handledRate = stats.total ? Math.round((handled / stats.total) * 100) : 0;
+        const sentimentTotal = Math.max(1, stats.negative + stats.positive + stats.neutral);
+        const metricButton = (metric: DashboardMetric, label: string, value: number, className: string) => <button type="button" onClick={() => showDashboardSlice(stats.key, metric)} className={`rounded-lg border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${className}`}><span className="block text-[11px] font-medium uppercase tracking-wide opacity-75">{label}</span><span className="text-lg font-bold">{value}</span></button>;
+        return <article key={stats.key} className="rounded-xl border bg-slate-50 p-4">
+          <div className="mb-3 flex items-start justify-between gap-3"><div><h3 className="font-semibold text-slate-900">{stats.name}</h3><p className="text-xs text-slate-500">{stats.total} comentarios registrados · {handledRate}% gestionados</p></div><button type="button" onClick={() => showDashboardSlice(stats.key, "all")} className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">Ver todos</button></div>
+          <div className="mb-3 h-3 overflow-hidden rounded-full bg-slate-200" title="Distribución de sentimiento"><div className="flex h-full"><div className="bg-rose-500" style={{ width: `${(stats.negative / sentimentTotal) * 100}%` }} /><div className="bg-emerald-500" style={{ width: `${(stats.positive / sentimentTotal) * 100}%` }} /><div className="bg-slate-400" style={{ width: `${(stats.neutral / sentimentTotal) * 100}%` }} /></div></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {metricButton("pending", "Pendientes", stats.pending, "bg-white text-slate-800")}
+            {metricButton("negative_all", "Negativos", stats.negative, "border-rose-200 bg-rose-50 text-rose-800")}
+            {metricButton("positive_all", "Positivos", stats.positive, "border-emerald-200 bg-emerald-50 text-emerald-800")}
+            {metricButton("neutral_all", "Neutros", stats.neutral, "bg-white text-slate-700")}
+            {metricButton("replied_all", "Contestados", stats.replied, "border-blue-200 bg-blue-50 text-blue-800")}
+            {metricButton("deleted_all", "Eliminados/ocultos", stats.removed, "border-amber-200 bg-amber-50 text-amber-800")}
+          </div>
+        </article>;
+      })}</div>
+    </section>}
     {(error || feed?.lastError) && <div role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><b>{error ? "No se ha podido completar la operación:" : "No se ha podido completar la sincronización:"}</b> {error ?? feed?.lastError}{!error && <button onClick={() => setConnectionOpen(true)} className="mt-3 block rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100">Gestionar conexiones Meta</button>}</div>}
     {moderationResult && <div role="status" className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800"><span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {moderationResult}</span><button type="button" aria-label="Cerrar confirmación" onClick={() => setModerationResult(null)} className="rounded p-1 hover:bg-emerald-100"><X className="h-4 w-4" /></button></div>}
-    <div className="mb-4 flex flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => { setClientFilter(event.target.value); setCampaignFilter("all"); setSelectedCommentIds(new Set()); }} className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select><select aria-label="Filtrar comentarios por campaña" value={campaignFilter} onChange={(event) => { setCampaignFilter(event.target.value); setSelectedCommentIds(new Set()); }} className="mr-2 max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todas las campañas</option>{campaignOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>{[["pending", "Pendientes"], ["negative", "Negativos pendientes"], ["replied", "Respondidos"], ["history", "Historial"]].map(([key, label]) => <button key={key} onClick={() => { setFilter(key); setSelectedCommentIds(new Set()); }} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
+    <div id="meta-comments-inbox" className="mb-4 flex scroll-mt-6 flex-wrap items-center gap-2"><select aria-label="Filtrar comentarios por cliente" value={clientFilter} onChange={(event) => { setDashboardMetric(null); setClientFilter(event.target.value); setCampaignFilter("all"); setSelectedCommentIds(new Set()); }} className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todos los clientes</option>{clientOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select><select aria-label="Filtrar comentarios por campaña" value={campaignFilter} onChange={(event) => { setDashboardMetric(null); setCampaignFilter(event.target.value); setSelectedCommentIds(new Set()); }} className="mr-2 max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-700"><option value="all">Todas las campañas</option>{campaignOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>{[["pending", "Pendientes"], ["negative", "Negativos pendientes"], ["replied", "Respondidos"], ["history", "Historial"]].map(([key, label]) => <button key={key} onClick={() => { setDashboardMetric(null); setFilter(key); setSelectedCommentIds(new Set()); }} className={`rounded-full px-3 py-1.5 text-xs font-medium ${filter === key && !dashboardMetric ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{label}</button>)}</div>
+    {dashboardMetric && <div className="mb-4 rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm text-brand-800">Vista filtrada desde la gráfica: {visible.length} comentarios de {clientOptions.find(([key]) => key === clientFilter)?.[1] ?? "cliente seleccionado"}. En cada tarjeta verás si está pendiente, contestado, eliminado u ocultado.</div>}
     {filter !== "history" && visible.length > 0 && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3"><label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={selectedVisible.length === visible.length} onChange={(event) => { cancelBulkDelete(); setSelectedCommentIds(event.target.checked ? new Set(visible.map((item) => item.id)) : new Set()); }} className="h-4 w-4" /> Seleccionar todos ({selectedVisible.length}/{visible.length})</label><button type="button" onClick={() => { cancelBulkDelete(); setSelectedCommentIds(new Set(relevantVisible.map((item) => item.id))); }} disabled={Boolean(busy) || relevantVisible.length === 0} className="mr-auto rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">Seleccionar todos menos irrelevantes ({relevantVisible.length})</button><button onClick={() => void bulkAction("regenerate_draft")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"><Sparkles className="h-3.5 w-3.5" /> Generar respuestas IA</button><button onClick={() => void bulkAction("reply")} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"><Send className="h-3.5 w-3.5" /> {busy === "bulk:reply" && bulkProgress ? `Publicando ${bulkProgress.completed}/${bulkProgress.total}…` : "Publicar respuestas"}</button>{bulkDeleteState.phase === "confirming" ? <div className="w-full rounded-lg border border-rose-300 bg-rose-50 p-3"><div className="mb-2 text-sm font-semibold text-rose-900">¿Eliminar definitivamente {bulkDeleteState.ids.length} comentarios de Meta? No se puede deshacer.</div><div className="flex gap-2"><button type="button" onClick={cancelBulkDelete} className="rounded-lg border bg-white px-3 py-2 text-xs font-semibold text-slate-700">Cancelar</button><button type="button" onClick={confirmBulkDelete} className="rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white">Sí, eliminar {bulkDeleteState.ids.length} comentarios</button></div></div> : <button type="button" onClick={requestBulkDelete} disabled={!selectedVisible.length || Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">{busy === "bulk:delete_comment" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} {busy === "bulk:delete_comment" && bulkProgress ? `Eliminando ${bulkProgress.completed}/${bulkProgress.total}…` : "Eliminar seleccionados"}</button>}</div>}
     {bulkStatus && <div role="status" className={`mb-4 rounded-xl border p-3 text-sm font-medium ${bulkStatus.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}><div>{bulkStatus.message}</div>{bulkStatus.error && <div className="mt-1 break-words text-xs font-normal">Motivo de Meta: {bulkStatus.error}</div>}</div>}
     {visible.length === 0 ? <div className="rounded-xl border bg-white p-10 text-center text-slate-500"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-slate-300" /><div className="font-medium text-slate-700">No hay comentarios en este filtro</div><div className="mt-1 text-sm">Pulsa “Sincronizar ahora” para consultar Meta.</div></div> : <div className="space-y-4">{visible.map((item) => <article id={`meta-comment-${item.id}`} key={item.id} className={`scroll-mt-6 rounded-xl border bg-white p-5 ${item.sentiment === "negative" ? "border-rose-300" : ""}`}>
-      <div className="mb-3 flex flex-wrap items-start gap-2"><input aria-label={`Seleccionar comentario de ${item.authorName ?? "Usuario de Meta"}`} type="checkbox" disabled={filter === "history"} checked={selectedCommentIds.has(item.id)} onChange={(event) => setSelectedCommentIds((current) => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })} className="mt-1 h-4 w-4" /><div className="flex-1"><div className="font-semibold">{item.authorName ?? "Usuario de Meta"}</div><div className="text-xs text-slate-500">{clientNameOf(item.feed)} · Campaña: {item.feed.campaignName ?? item.feed.campaignId} · Anuncio: {item.adName ?? "Sin nombre"} · {new Date(item.commentCreatedAt).toLocaleString("es-ES")}</div></div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${item.sentiment === "negative" ? "bg-rose-100 text-rose-700" : item.sentiment === "positive" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{item.sentiment === "negative" && <AlertTriangle className="h-3 w-3" />}{item.sentiment === "negative" ? "Negativo" : item.sentiment === "positive" ? "Positivo" : "Neutral"}</span></div>
+      <div className="mb-3 flex flex-wrap items-start gap-2"><input aria-label={`Seleccionar comentario de ${item.authorName ?? "Usuario de Meta"}`} type="checkbox" disabled={filter === "history" || ["deleted", "hidden"].includes(item.status)} checked={selectedCommentIds.has(item.id)} onChange={(event) => setSelectedCommentIds((current) => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })} className="mt-1 h-4 w-4" /><div className="flex-1"><div className="font-semibold">{item.authorName ?? "Usuario de Meta"}</div><div className="text-xs text-slate-500">{clientNameOf(item.feed)} · Campaña: {item.feed.campaignName ?? item.feed.campaignId} · Anuncio: {item.adName ?? "Sin nombre"} · {new Date(item.commentCreatedAt).toLocaleString("es-ES")}</div></div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${item.sentiment === "negative" ? "bg-rose-100 text-rose-700" : item.sentiment === "positive" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{item.sentiment === "negative" && <AlertTriangle className="h-3 w-3" />}{item.sentiment === "negative" ? "Negativo" : item.sentiment === "positive" ? "Positivo" : "Neutral"}</span><span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "replied" ? "bg-blue-100 text-blue-700" : ["deleted", "hidden"].includes(item.status) ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{commentStatusText(item)}</span></div>
       <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{item.message}</div>
       {item.sentimentReason && <div className="mb-3 text-xs text-slate-500">Análisis IA: {item.sentimentReason}</div>}
-      {filter === "history" ? <div className={`rounded-lg p-3 text-sm ${item.status === "replied" ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>{item.status === "replied" ? "Respondido en Meta" : item.status === "hidden" ? "Ocultado en Meta (no eliminado)" : "Eliminado de Meta"} · {item.status === "replied" ? item.repliedAt ? new Date(item.repliedAt).toLocaleString("es-ES") : "Respuesta conservada" : item.deletedAt ? new Date(item.deletedAt).toLocaleString("es-ES") : "Fecha no disponible"} · {item.platform === "instagram" ? "Instagram" : "Facebook"}<p className="mt-1">{item.status === "replied" ? "Se conserva el comentario y la respuesta publicada para revisar el histórico de atención." : "Conservado en el Hub para revisar las quejas. Este historial no vuelve a publicar el comentario."}</p>{item.status === "replied" && item.aiDraft && <div className="mt-2 rounded-md border border-emerald-200 bg-white p-2 text-slate-700"><strong>Respuesta:</strong><div className="mt-1 whitespace-pre-wrap">{item.aiDraft}</div></div>}</div> : <><div className="flex items-center justify-between gap-2"><label className="text-xs font-medium text-slate-700">Borrador de respuesta (editable)</label>{item.status !== "replied" && <button onClick={() => void regenerateDraft(item)} disabled={Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50">{busy === `regenerate:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Generar otra respuesta con IA</button>}</div><textarea value={drafts[item.id] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={item.status === "replied"} rows={3} className="mt-1 w-full rounded-lg border p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-slate-50" />
+      {filter === "history" || ["deleted", "hidden"].includes(item.status) ? <div className={`rounded-lg p-3 text-sm ${item.status === "replied" ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>{item.status === "replied" ? "Respondido en Meta" : item.status === "hidden" ? "Ocultado en Meta (no eliminado)" : "Eliminado de Meta"} · {item.status === "replied" ? item.repliedAt ? new Date(item.repliedAt).toLocaleString("es-ES") : "Respuesta conservada" : item.deletedAt ? new Date(item.deletedAt).toLocaleString("es-ES") : "Fecha no disponible"} · {item.platform === "instagram" ? "Instagram" : "Facebook"}<p className="mt-1">{item.status === "replied" ? "Se conserva el comentario y la respuesta publicada para revisar el histórico de atención." : "Conservado en el Hub para revisar las quejas. Este historial no vuelve a publicar el comentario."}</p>{item.status === "replied" && item.aiDraft && <div className="mt-2 rounded-md border border-emerald-200 bg-white p-2 text-slate-700"><strong>Respuesta:</strong><div className="mt-1 whitespace-pre-wrap">{item.aiDraft}</div></div>}</div> : <><div className="flex items-center justify-between gap-2"><label className="text-xs font-medium text-slate-700">Borrador de respuesta (editable)</label>{item.status !== "replied" && <button onClick={() => void regenerateDraft(item)} disabled={Boolean(busy)} className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50">{busy === `regenerate:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Generar otra respuesta con IA</button>}</div><textarea value={drafts[item.id] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))} disabled={item.status === "replied"} rows={3} className="mt-1 w-full rounded-lg border p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-slate-50" />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><div className="flex gap-2"><button onClick={() => void moderate(item, "delete_comment")} disabled={busy === `delete_comment:${item.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">{busy === `delete_comment:${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} {busy === `delete_comment:${item.id}` ? "Eliminando…" : "Eliminar de Meta"}</button><button onClick={() => void moderate(item, "block_author")} disabled={!item.authorId || item.platform !== "facebook" || Boolean(item.authorBlockedAt) || busy === `block_author:${item.id}`} title={!item.authorId ? "Meta no ha proporcionado la identidad del autor" : item.platform !== "facebook" ? "El bloqueo no está disponible para Instagram mediante esta conexión" : undefined} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><UserX className="h-3.5 w-3.5" /> {item.authorBlockedAt ? "Usuario bloqueado" : "Bloquear usuario"}</button></div>{item.status === "replied" ? <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Respondido en Meta</span> : <button onClick={() => reply(item)} disabled={busy === item.id || !sanitizeMetaCommentDraft(drafts[item.id])} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Publicar respuesta</button>}</div>
     </>}
     </article>)}</div>}

@@ -26,10 +26,16 @@ export function filterMetaCommentInbox<T extends MetaInboxItem>(
   return items.filter((item) =>
     (filters.client === "all" || metaClientKey(item.feed) === filters.client)
     && (filters.campaign === "all" || item.feed.campaignId === filters.campaign)
-    && (filters.status === "history" ? ["deleted", "hidden", "replied"].includes(item.status) : !["deleted", "hidden", "ignored_self"].includes(item.status) && (filters.status === "all"
-      || (filters.status === "pending" ? item.status !== "replied"
-        : filters.status === "negative" ? item.sentiment === "negative" && item.status !== "replied"
-          : item.status === "replied")))
+    && (filters.status === "history" ? ["deleted", "hidden", "replied"].includes(item.status)
+      : filters.status === "negative_all" ? item.sentiment === "negative" && item.status !== "ignored_self"
+        : filters.status === "positive_all" ? item.sentiment === "positive" && item.status !== "ignored_self"
+          : filters.status === "neutral_all" ? !["negative", "positive"].includes(item.sentiment) && item.status !== "ignored_self"
+            : filters.status === "deleted_all" ? ["deleted", "hidden"].includes(item.status)
+              : filters.status === "replied_all" ? item.status === "replied"
+                : !["deleted", "hidden", "ignored_self"].includes(item.status) && (filters.status === "all"
+                  || (filters.status === "pending" ? item.status !== "replied"
+                    : filters.status === "negative" ? item.sentiment === "negative" && item.status !== "replied"
+                      : item.status === "replied")))
   );
 }
 
