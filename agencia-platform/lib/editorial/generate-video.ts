@@ -26,6 +26,7 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import sharp from "sharp";
 
 import { prisma } from "@/lib/db/prisma";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl, buildS3Key } from "@/lib/storage/r2";
@@ -511,6 +512,9 @@ export async function generatePostVideo(opts: {
   voiceId?: string;
   /** Usa la imagen actual guardada del post como primera toma. */
   useCurrentImage?: boolean;
+  durationSeconds?: 5 | 10;
+  aspectRatio?: "9:16" | "16:9" | "1:1";
+  style?: string;
   /** Personas del roster del cliente que DEBEN aparecer en las tomas. Si
    *  se pasa, las imágenes de cada toma se generan con gpt-image-2 /edits
    *  usando las fotos reales del roster como referencia, igual que el
@@ -533,13 +537,13 @@ export async function generatePostVideo(opts: {
   // "9:16"), gana sobre el default por formato. Si no, vertical para
   // reel/story y horizontal para el resto.
   const { parseAspectRatioDims, pickOpenAiSize } = await import("./generate-image");
-  const arDim = parseAspectRatioDims((post as any).aspectRatio ?? null);
+  const arDim = parseAspectRatioDims(opts.aspectRatio ?? (post as any).aspectRatio ?? null);
   let imageSize: string;
   let aspectRatio: string;
   if (arDim) {
     const s = pickOpenAiSize(arDim.width, arDim.height);
     imageSize = s;
-    aspectRatio = (post as any).aspectRatio as string;
+    aspectRatio = opts.aspectRatio ?? (post as any).aspectRatio as string;
   } else {
     const v = format === "reel" || format === "story";
     imageSize = v ? "1024x1536" : "1536x1024";
@@ -573,7 +577,7 @@ export async function generatePostVideo(opts: {
         `(escena, sujeto descrito físicamente sin nombres propios, ambiente, luz, encajado en ${aspectRatio}, ` +
         `SIN texto sobreimpreso) y un 'motion' corto en inglés (movimiento de cámara/sujeto). Mantén coherencia ` +
         `de marca y del MISMO personaje entre tomas.`,
-      user: (opts.promptOverride?.trim() || baseCtx).slice(0, 6000),
+      user: [(opts.promptOverride?.trim() || baseCtx), opts.style ? `Requested visual style: ${opts.style}` : ""].join("\n").slice(0, 6000),
       schema: STORYBOARD_SCHEMA,
       maxTokens: 2000,
       feature: "editorial_video_storyboard"
@@ -583,7 +587,7 @@ export async function generatePostVideo(opts: {
     shots = [];
   }
   if (shots.length === 0) {
-    shots = [{ image_prompt: baseCtx, motion: "slow cinematic push-in, natural subject movement" }];
+    shots = [{ image_prompt: [opts.promptOverride?.trim() || baseCtx, opts.style].filter(Boolean).join("\n"), motion: "slow cinematic push-in, natural subject movement" }];
   }
 
   // 2) Por cada toma: imagen con gpt-image-2 → vídeo con Freepik/Kling.
@@ -605,6 +609,8 @@ export async function generatePostVideo(opts: {
     } else {
       imgBuf = await generateShotImageWithRefs(opts.workspaceId, shot.image_prompt, imageSize, shotRefUrls);
     }
+    const targetSize = aspectRatio === "9:16" ? { width: 1080, height: 1920 } : aspectRatio === "1:1" ? { width: 1080, height: 1080 } : { width: 1920, height: 1080 };
+    imgBuf = await sharp(imgBuf).rotate().resize({ ...targetSize, fit: "contain", background: "#ffffff" }).png().toBuffer();
     const imgKey = buildS3Key({
       workspaceId: opts.workspaceId,
       targetType: "editorial",
@@ -626,7 +632,7 @@ export async function generatePostVideo(opts: {
       workspaceId: opts.workspaceId,
       imageBase64: imgBuf.toString("base64"),
       prompt: shot.motion || "cinematic motion",
-      durationSeconds: 5,
+      durationSeconds: opts.durationSeconds ?? 5,
       modelSlug: opts.model
     });
     const vresp = await fetch(clipUrl);
@@ -641,6 +647,8 @@ export async function generatePostVideo(opts: {
     });
     await uploadBuffer({ s3Key: vKey, body: vbuf, contentType: "video/mp4" });
     videoUrls.push(await signedDownloadUrl(vKey));
+    await registerEditorialMediaVersion({ workspaceId: opts.workspaceId, postId: post.id, kind: "video", source: "video", url: videoUrls[videoUrls.length - 1], s3Key: vKey, prompt: shot.motion,
+      metaJson: { aspectRatio, durationSeconds: opts.durationSeconds ?? 5, style: opts.style ?? null, shot: i + 1 } });
     logAiUsage({
       workspaceId: opts.workspaceId,
       feature: "editorial_video",
@@ -726,7 +734,8 @@ export async function generatePostVideo(opts: {
   } catch {
     mediaUrls = [];
   }
-  mediaUrls = [...(finalUrl ? [finalUrl] : []), ...videoUrls, ...imageUrls, ...mediaUrls];
+  // Intermediate shots live in version history, not in the publication's destination media.
+  mediaUrls = [finalUrl ?? videoUrls[0]];
   await prisma.editorialPost.update({
     where: { id: post.id },
     data: { mediaUrls: JSON.stringify(mediaUrls) }

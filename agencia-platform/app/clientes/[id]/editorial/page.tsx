@@ -11,7 +11,7 @@ import { defaultDimensionsByFormat, type DimensionsByFormat, type ReferenceImage
 
 export const dynamic = "force-dynamic";
 
-export default async function ClienteEditorialPage({ params }: { params: { id: string } }) {
+export default async function ClienteEditorialPage({ params, searchParams }: { params: { id: string }; searchParams: { connected?: string; error?: string } }) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id as string | undefined;
   const workspaceId = await getSessionWorkspaceId();
@@ -67,6 +67,10 @@ export default async function ClienteEditorialPage({ params }: { params: { id: s
         title={`Configuración editorial · ${client.name}`}
         description="Brief, branding, colores, fuentes, refs visuales y formato de las publicaciones generadas con IA."
       />
+
+      {searchParams.connected && <p role="status" className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">Meta conectado. Abre el calendario y elige las cuentas autorizadas que pertenecen a este cliente desde una publicación.</p>}
+      {searchParams.error && <p role="alert" className="mb-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{searchParams.error}</p>}
+      <Link href={`/admin/editorial?clientId=${encodeURIComponent(client.id)}`} className="mb-4 inline-block rounded-lg bg-violet-600 px-4 py-2 text-sm text-white">Abrir calendario de {client.name}</Link>
 
       <ClienteEditorialForm
         initial={{

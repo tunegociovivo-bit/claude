@@ -6,6 +6,11 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/ui/Modal";
 import EditorialJobsToast from "@/components/admin/EditorialJobsToast";
 import AdminPostThread from "@/components/editorial/AdminPostThread";
+import EditorialMonthBrief, { emptyMonthBrief, type MonthBrief } from "@/components/admin/EditorialMonthBrief";
+import EditorialContentUsage from "@/components/admin/EditorialContentUsage";
+import EditorialMediaHistory from "@/components/admin/EditorialMediaHistory";
+import EditorialResizePreview from "@/components/admin/EditorialResizePreview";
+import { EditorialMetaPanel } from "@/components/admin/EditorialMetaPanel";
 import {
   Plus,
   Loader2,
@@ -113,6 +118,12 @@ function parseNetworks(value: string | null | undefined): string[] {
 
 function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function localDateTimeInput(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
 function buildCalendarCells(year: number, month: number) {
@@ -265,6 +276,8 @@ export default function EditorialClient() {
   const [filterClient, setFilterClient] = useState(() => {
     if (typeof window === "undefined") return "ALL";
     try {
+      const requestedClient = new URLSearchParams(window.location.search).get("clientId");
+      if (requestedClient) return requestedClient;
       return localStorage.getItem("editorial.filterClient") ?? "ALL";
     } catch {
       return "ALL";
@@ -919,7 +932,7 @@ export default function EditorialClient() {
 
       <PostFormModal
         open={formOpen}
-        onClose={() => { setFormOpen(false); setNewPostDate(null); }}
+        onClose={() => { setFormOpen(false); setNewPostDate(null); load(); }}
         post={editing}
         clients={clients}
         defaultMonth={month}
@@ -1370,6 +1383,9 @@ function GenerateMonthModal({
   // suele dar mejor resultado y los pocos tokens extra valen la pena.
   const [perNetworkCopy, setPerNetworkCopy] = useState(true);
   const [extraGuidance, setExtraGuidance] = useState("");
+  const [monthBrief, setMonthBrief] = useState<MonthBrief>(emptyMonthBrief);
+  const [uploadingReferences, setUploadingReferences] = useState(false);
+  useEffect(() => { setMonthBrief(emptyMonthBrief); }, [clientId, month, open]);
   const [imageIncludeHint, setImageIncludeHint] = useState("");
   const [imageAvoidHint, setImageAvoidHint] = useState("");
   // Pillars temáticos. Sliders 0-100 con valores no normalizados —
@@ -1553,6 +1569,7 @@ function GenerateMonthModal({
   const totalCost = claudeCost + imageCost;
 
   async function run() {
+    if (uploadingReferences) { setError("Espera a que terminen de subir las referencias."); return; }
     if (!clientId) {
       setError("Selecciona un cliente");
       return;
@@ -1591,6 +1608,7 @@ function GenerateMonthModal({
         mix,
         copyLength,
         perNetworkCopy,
+        ...monthBrief,
         extraGuidance: extraGuidance || undefined,
         imageIncludeHint: imageIncludeHint || undefined,
         imageAvoidHint: imageAvoidHint || undefined,
@@ -1972,6 +1990,8 @@ function GenerateMonthModal({
           />
         </div>
 
+        <EditorialMonthBrief clientId={clientId} value={monthBrief} onChange={setMonthBrief} onBusyChange={setUploadingReferences} />
+
         {/* Estimación de coste */}
         <div className="rounded-lg border bg-amber-50/40 border-amber-200 px-3 py-2 text-xs text-amber-900 flex items-center gap-3">
           <span className="font-medium">Coste estimado:</span>
@@ -2017,7 +2037,7 @@ function GenerateMonthModal({
 function PostFormModal({
   open,
   onClose,
-  post,
+  post: initialPost,
   clients,
   defaultMonth,
   defaultClientId,
@@ -2036,11 +2056,26 @@ function PostFormModal({
   defaultDateIso?: string;
   onSaved: () => void;
 }) {
+  const [createdPost, setCreatedPost] = useState<EditorialPost | null>(null);
+  const post = initialPost ?? createdPost;
+  useEffect(() => { setCreatedPost(null); }, [open, initialPost?.id]);
   const isEdit = !!post;
   // Detalle recargado del servidor al abrir el modal, para asegurar que
   // tenemos metaJson y los campos más recientes aunque el listado tuviera
   // datos desactualizados.
   const [fullPost, setFullPost] = useState<EditorialPost | null>(null);
+  async function refreshDetail() {
+    if (!post) return;
+    const response = await fetch(`/api/v1/editorial/posts/${post.id}`);
+    if (response.ok) {
+      const fresh = await response.json();
+      setFullPost(fresh);
+      setForm(previous => ({ ...previous,
+        status: previous.status === fullPost?.status ? fresh.status : previous.status,
+        scheduledFor: previous.scheduledFor === localDateTimeInput(fullPost?.scheduledFor ?? null) ? localDateTimeInput(fresh.scheduledFor) : previous.scheduledFor
+      }));
+    }
+  }
   // Modo del modal: en edición se abre primero la vista preview (como el plugin)
   // y desde ahí se puede pasar a editar; al crear nuevo va directo a edit.
   const [mode, setMode] = useState<"preview" | "edit">("preview");
@@ -2095,7 +2130,7 @@ function PostFormModal({
   // preview si estamos viendo uno existente.
   useEffect(() => {
     if (!open) return;
-    setMode(post ? "preview" : "edit");
+    setMode(initialPost ? "preview" : "edit");
   }, [open, post?.id]);
 
   // Cuando fullPost se actualiza (con metaJson, etc.), si los campos del form
@@ -2134,7 +2169,7 @@ function PostFormModal({
         title: post.title,
         content: post.content ?? "",
         excerpt: post.excerpt ?? "",
-        scheduledFor: post.scheduledFor ? new Date(post.scheduledFor).toISOString().slice(0, 16) : "",
+        scheduledFor: localDateTimeInput(post.scheduledFor),
         status: post.status,
         format: post.format ?? "post",
         clientId: post.client?.id ?? "",
@@ -2309,8 +2344,9 @@ function PostFormModal({
     }
   }
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent, openTools = false) {
     e.preventDefault();
+    if (!form.title.trim() || !form.clientId) { setError("Indica un título y selecciona un cliente."); return; }
     if (!isEdit && createImageEditPrompt.trim() && !createImageFile) {
       setError("Sube una imagen para poder modificarla con un prompt al crear la publicacion.");
       return;
@@ -2321,7 +2357,7 @@ function PostFormModal({
       title: form.title,
       content: form.content || undefined,
       excerpt: form.excerpt || undefined,
-      status: form.status,
+      status: openTools ? "DRAFT" : form.status,
       format: form.format || undefined,
       clientId: form.clientId || undefined,
       networks: form.networks,
@@ -2379,7 +2415,14 @@ function PostFormModal({
         }
       }
 
-      onSaved();
+      if (openTools && savedPostId) {
+        const detail = await fetch(`/api/v1/editorial/posts/${savedPostId}`);
+        if (!detail.ok) throw new Error("El borrador se guardó, pero no se pudo cargar. Vuelve a abrirlo desde el calendario.");
+        const next = await detail.json();
+        setCreatedPost(next); setFullPost(next); setMode("edit");
+      } else if (isEdit) {
+        await refreshDetail();
+      } else onSaved();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -2449,6 +2492,7 @@ function PostFormModal({
         }
       >
         <div className="space-y-4">
+          <EditorialContentUsage post={fullPost} onChanged={refreshDetail} />
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Icon className="h-4 w-4 text-slate-400" />
             <span className="font-medium tracking-wide">{formatLabel}</span>
@@ -2683,6 +2727,11 @@ function PostFormModal({
             </button>
           )}
           <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          {!isEdit && (
+            <button type="button" disabled={saving || aiRunning || !form.title.trim() || !form.clientId} onClick={e => submit(e, true)} className="rounded-lg border border-violet-300 px-3 py-2 text-sm text-violet-800 disabled:opacity-50">
+              Guardar borrador y crear vídeo / adaptar imagen
+            </button>
+          )}
           {!isEdit && (
             <button
               type="button"
@@ -3058,19 +3107,22 @@ function PostFormModal({
         )}
 
         {isEdit && post && (
-          <UploadImageBar postId={post.id} onUploaded={() => onSaved()} />
+          <UploadImageBar postId={post.id} onUploaded={refreshDetail} />
         )}
 
         {isEdit && post && fullPost?.thumbnail && (
-          <ResizeImageBar postId={post.id} onResized={() => onSaved()} />
+          <EditorialResizePreview key={fullPost.thumbnail} postId={post.id} imageUrl={fullPost.thumbnail} onApplied={refreshDetail} />
         )}
 
         {isEdit && post && fullPost && (
-          <MetaProfileBar post={fullPost} onChanged={() => onSaved()} />
+          <EditorialContentUsage post={fullPost} onChanged={refreshDetail} />
         )}
 
         {isEdit && post && fullPost && (
-          <MetaPublishBar post={fullPost} onDone={() => onSaved()} />
+          <fieldset disabled={saving || form.status !== fullPost.status || form.content !== (fullPost.content ?? "") || form.title !== fullPost.title || form.scheduledFor !== localDateTimeInput(fullPost.scheduledFor) || form.format !== (fullPost.format ?? "post") || form.hashtags !== (fullPost.hashtags ?? "") || JSON.stringify(form.copyByNetwork) !== JSON.stringify(fullPost.copyByNetwork ?? {})}>
+            <p className="mb-2 text-xs text-slate-500">Guarda los cambios de texto, estado y fecha antes de programar o publicar. La hora se muestra en tu zona horaria.</p>
+            <EditorialMetaPanel post={fullPost} onChanged={refreshDetail} />
+          </fieldset>
         )}
 
         {/* Generar imagen con IA */}
@@ -3081,7 +3133,7 @@ function PostFormModal({
             initialPattern={(post as any).visualPattern ?? null}
             initialStrength={(post as any).patternStrength ?? null}
             initialTemplateId={(post as any).patternTemplateId ?? null}
-            onGenerated={() => onSaved()}
+            onGenerated={refreshDetail}
           />
         )}
 
@@ -3090,13 +3142,13 @@ function PostFormModal({
           <EditImageBar
             postId={post.id}
             thumbnail={fullPost.thumbnail}
-            onEdited={() => onSaved()}
+            onEdited={refreshDetail}
           />
         )}
 
         {/* Generar vídeo con IA (reel/story/video) */}
         {isEdit && post && (
-          <GenerateVideoBar postId={post.id} thumbnail={fullPost?.thumbnail ?? null} onGenerated={() => onSaved()} />
+          <GenerateVideoBar postId={post.id} thumbnail={fullPost?.thumbnail ?? null} onGenerated={refreshDetail} />
         )}
 
         {/* Re-aplicar overlay (logo + headlines) sobre imagen existente */}
@@ -3105,7 +3157,7 @@ function PostFormModal({
             postId={post.id}
             currentTitle={form.title}
             currentContent={form.content}
-            onApplied={() => onSaved()}
+            onApplied={refreshDetail}
           />
         )}
 
@@ -3114,7 +3166,7 @@ function PostFormModal({
           <AdaptFormatBar
             postId={post.id}
             currentFormat={form.format}
-            onAdapted={() => onSaved()}
+            onAdapted={refreshDetail}
           />
         )}
 
@@ -3152,6 +3204,8 @@ function PostFormModal({
             </div>
           </details>
         )}
+
+        {isEdit && post && <EditorialMediaHistory key={`${post.id}:${fullPost?.thumbnail}:${fullPost?.mediaUrls}`} postId={post.id} onApplied={refreshDetail} />}
 
         {/* Preview de imágenes asociadas */}
         {fullPost && <MediaPreview post={fullPost} />}
@@ -4459,10 +4513,39 @@ function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; 
   const [error, setError] = useState<string | null>(null);
   const [extra, setExtra] = useState("");
   const [shots, setShots] = useState(2);
+  const [durationSeconds, setDurationSeconds] = useState(5);
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [style, setStyle] = useState("Natural y realista");
   const [voiceover, setVoiceover] = useState(true);
   const [subtitles, setSubtitles] = useState(true);
   const [useThumbnail, setUseThumbnail] = useState(Boolean(thumbnail));
   const [done, setDone] = useState<string | null>(null);
+  const onGeneratedRef = useRef(onGenerated);
+  onGeneratedRef.current = onGenerated;
+  const [jobId, setJobId] = useState<string | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let sawRunning = false;
+    async function poll() {
+      try {
+        const response = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`);
+        if (!response.ok) throw new Error("No se pudo consultar el progreso del vídeo.");
+        const { job } = await response.json();
+        if (stopped) return;
+        const active = job && ["PENDING", "RUNNING"].includes(job.status);
+        setRunning(Boolean(active));
+        if (active) {
+          sawRunning = true; setDone(job.message); timer = setTimeout(poll, 5000);
+        } else if (job?.status === "FAILED") { setError(job.error ?? "No se pudo generar el vídeo."); setDone(null); }
+        else if (job?.status === "COMPLETED" && (sawRunning || jobId)) { setDone("Vídeo listo. Puedes previsualizarlo y elegir una versión en el historial."); onGeneratedRef.current(); }
+      } catch (e) {
+        if (!stopped) { setError(e instanceof Error ? e.message : "Error consultando el vídeo."); timer = setTimeout(poll, 10000); }
+      }
+    }
+    void poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [postId, jobId]);
 
   async function run() {
     setRunning(true);
@@ -4475,6 +4558,10 @@ function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; 
         body: JSON.stringify({
           extraGuidance: extra.trim() || undefined,
           shots,
+          durationSeconds,
+          aspectRatio,
+          style,
+          async: true,
           voiceover,
           subtitles,
           useCurrentImage: useThumbnail && Boolean(thumbnail)
@@ -4485,8 +4572,10 @@ function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; 
         setError(j?.error?.message ?? `Error ${r.status}`);
         return;
       }
-      setDone(j?.note ?? "Vídeo generado y adjuntado al post.");
-      onGenerated();
+      if (j.jobId) { setJobId(j.jobId); setDone("Creando vídeo. Puedes cerrar la publicación y volver más tarde."); }
+      else { setDone(j?.note ?? "Vídeo generado y adjuntado al post."); onGenerated(); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo iniciar el vídeo.");
     } finally {
       setRunning(false);
     }
@@ -4496,13 +4585,11 @@ function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; 
     <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
       <div className="flex items-center gap-2">
         <Film className="h-4 w-4 text-violet-600" />
-        <span className="text-xs font-semibold text-violet-900">Generar vídeo con IA (imágenes + Freepik/Kling)</span>
+        <span className="text-xs font-semibold text-violet-900">Crear vídeo con IA</span>
       </div>
       <p className="text-[11px] text-slate-600">
-        Genera una imagen por toma con gpt-image-2 (mismo look que las imágenes) y la anima con Freepik/Kling 2.0.
-        Monta las tomas en un solo reel y, si lo marcas, añade voz en off (ElevenLabs) y subtítulos sincronizados.
-        9:16 para reel/story, 16:9 para vídeo. Tarda varios minutos por toma. Requiere la API key de Freepik
-        (Administración → Calendario editorial), OpenAI y, para la voz, ElevenLabs.
+        Anima la imagen que hayas subido o crea un vídeo a partir de tus instrucciones.
+        Podrás previsualizarlo, crear otra versión y elegir cuál adjuntar desde el historial.
       </p>
       <div className="flex items-center gap-2">
         <label className="text-[11px] text-slate-600">Tomas</label>
@@ -4517,8 +4604,11 @@ function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; 
             </option>
           ))}
         </select>
-        <span className="text-[10px] text-slate-400">una imagen + clip por toma</span>
+        <label className="text-[11px]">Duración por toma <select aria-label="Duración por toma" value={durationSeconds} onChange={e => setDurationSeconds(Number(e.target.value))} className="rounded border p-1"><option value={5}>5 segundos</option><option value={10}>10 segundos</option></select></label>
+        <label className="text-[11px]">Formato <select aria-label="Formato del vídeo" value={aspectRatio} onChange={e => setAspectRatio(e.target.value)} className="rounded border p-1"><option value="9:16">Vertical 9:16</option><option value="16:9">Horizontal 16:9</option><option value="1:1">Cuadrado 1:1</option></select></label>
       </div>
+      <label className="block text-xs">Estilo visual<input value={style} onChange={e => setStyle(e.target.value)} className="mt-1 w-full rounded border p-2" placeholder="Cinematográfico, natural, animación…" /></label>
+      <p className="text-[11px] text-slate-500">Duración aproximada: {shots * durationSeconds} segundos antes de añadir voz.</p>
       <div className="flex flex-wrap items-center gap-3">
         {thumbnail && (
           <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
@@ -4538,7 +4628,7 @@ function GenerateVideoBar({ postId, thumbnail, onGenerated }: { postId: string; 
       <input
         value={extra}
         onChange={(e) => setExtra(e.target.value)}
-        placeholder="Dirección extra (opcional): 'plano cenital del producto girando', 'persona usando la app'…"
+        placeholder="Describe el vídeo: plano cenital del plato, movimiento suave de cámara…"
         className="w-full px-2 py-1.5 rounded-md border border-slate-200 text-[11px]"
       />
       <button

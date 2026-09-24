@@ -1259,6 +1259,7 @@ model EditorialMetaProfile {
 }
 
 model EditorialPublication {
+  metaJson       Json?
   id             String   @id @default(cuid())
   workspaceId    String
   postId         String

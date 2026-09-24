@@ -18,9 +18,9 @@ const createSchema = z.object({
   networks: z.array(z.string()).default([]),
   thumbnail: z.string().url().optional(),
   mediaUrls: z.array(z.string().url()).default([]),
-  copyByNetwork: z.record(z.string(), z.string()).optional(),
-  hashtags: z.string().optional(),
-  firstComment: z.string().optional(),
+  copyByNetwork: z.record(z.string(), z.string()).nullable().optional(),
+  hashtags: z.string().nullable().optional(),
+  firstComment: z.string().nullable().optional(),
   // Aspect ratio elegido en el modal "Nueva publicación". Null/"auto" =
   // derivado del formato + ficha del cliente. Cualquier "W:H" (1:1, 16:9, …)
   // se respeta en la generación de imagen/vídeo.
@@ -64,6 +64,10 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+
+  if (parsed.data.clientId && !await prisma.client.findFirst({ where: { id: parsed.data.clientId, workspaceId: api.workspaceId }, select: { id: true } })) {
+    throw new ApiError(404, "not_found", "Cliente no encontrado");
+  }
 
   const created = await prisma.editorialPost.create({
     data: {

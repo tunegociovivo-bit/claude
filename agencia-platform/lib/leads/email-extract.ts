@@ -154,7 +154,7 @@ async function requestText(target: { url: URL; address: string; family: 4 | 6 })
   });
 }
 
-async function fetchText(initialUrl: string, allowedDomain?: string): Promise<string> {
+export async function fetchText(initialUrl: string, allowedDomain?: string): Promise<string> {
   let current = initialUrl;
   for (let redirect = 0; redirect <= 3; redirect++) {
     if (allowedDomain && domainOf(current) !== allowedDomain) return "";

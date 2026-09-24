@@ -23,7 +23,7 @@ import { resignUrlLong } from "@/lib/storage/resign";
 import { logAiUsage } from "@/lib/ai/usage";
 import type { DimensionsByFormat, EditorialFormat } from "@/lib/editorial/client-meta";
 import { defaultDimensionsByFormat, visualPatternHint } from "@/lib/editorial/client-meta";
-import { prependMediaUrl, registerEditorialMediaVersion } from "@/lib/editorial/media";
+import { getLatestEditorialImageBuffer, prependMediaUrl, registerEditorialMediaVersion } from "@/lib/editorial/media";
 
 type Size = "1024x1024" | "1024x1536" | "1536x1024";
 
@@ -45,6 +45,7 @@ export async function openaiImagesEdits(opts: {
   size: string;
   quality: "low" | "medium" | "high";
   referenceUrls: string[];
+  referenceBuffers?: Buffer[];
 }): Promise<Buffer> {
   const t0 = Date.now();
   // Descargamos cada ref en paralelo (antes era secuencial — añadía 4-8s
@@ -83,8 +84,12 @@ export async function openaiImagesEdits(opts: {
   formData.append("size", opts.size);
   formData.append("quality", opts.quality);
   formData.append("n", "1");
-  const fieldName = opts.referenceUrls.length > 1 ? "image[]" : "image";
+  const fieldName = opts.referenceUrls.length + (opts.referenceBuffers?.length ?? 0) > 1 ? "image[]" : "image";
   let added = 0;
+  for (const buffer of opts.referenceBuffers ?? []) {
+    formData.append(fieldName, new Blob([new Uint8Array(buffer)], { type: "image/png" }), `stored-${added}.png`);
+    added++;
+  }
   for (const r of refResults) {
     if (!r) continue;
     formData.append(fieldName, new Blob([r.ab], { type: r.ct }), `ref-${r.idx}.${r.ext}`);
@@ -429,18 +434,16 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
     if (forced.includes(p.name.toLowerCase())) includedNames.add(p.name);
   }
 
-  // Construir referenceUrls. Cap total = 5 (compromiso entre fidelidad
-  // de identidad y latencia de OpenAI /edits — cada ref añade ~15-25s).
-  // Distribución:
-  //   1 persona  → 2 refs
-  //   2 personas → 4 refs (2+2)
-  //   3 personas → 5 refs (2+2+1)
-  //   4+ personas → 5 refs (1+1+1+1+1, prioriza diversidad de caras)
+  // Keep all monthly references; reserve additional slots for the template and selected people.
   const names = Array.from(includedNames);
-  const TOTAL_CAP = 5;
+  const TOTAL_CAP = 14;
   const perPerson = names.length >= 4 ? 1 : 2;
   const referenceUrls: string[] = [];
-  for (const u of opts.extraReferenceUrls ?? []) {
+  const monthlyMeta = post.metaJson && typeof post.metaJson === "object" && !Array.isArray(post.metaJson)
+    ? (post.metaJson as Record<string, unknown>).editorialGeneration : null;
+  const savedRefs = monthlyMeta && typeof monthlyMeta === "object" && "referenceImageUrls" in monthlyMeta
+    && Array.isArray(monthlyMeta.referenceImageUrls) ? monthlyMeta.referenceImageUrls : [];
+  for (const u of opts.extraReferenceUrls ?? savedRefs) {
     if (typeof u === "string" && u.trim() && referenceUrls.length < TOTAL_CAP) {
       referenceUrls.push(u.trim());
     }
@@ -455,6 +458,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       if (referenceUrls.length < TOTAL_CAP) referenceUrls.push(u);
     }
   }
+  for (let i = 0; i < referenceUrls.length; i++) referenceUrls[i] = (await resignUrlLong(referenceUrls[i])) || referenceUrls[i];
 
   // Log diagnóstico: qué personas detectamos y por qué. Visible en
   // Railway logs (kind=info). Permite saber si el matching falla por
@@ -662,13 +666,14 @@ export async function editImageForPost(opts: EditImageOptions): Promise<{
   // El thumbnail guardado suele ser una URL firmada de R2 que CADUCA: si ha
   // expirado, el fetch da 403 y saltaba "Ninguna referencia se pudo descargar".
   // La re-firmamos con validez larga antes de pasarla como referencia.
-  const refUrl = (await resignUrlLong(post.thumbnail).catch(() => null)) || post.thumbnail;
+  const originalBuffer = await getLatestEditorialImageBuffer({ postId: post.id, workspaceId: opts.workspaceId, fallbackUrl: post.thumbnail });
   const buf = await openaiImagesEdits({
     apiKey,
     prompt,
     size,
     quality,
-    referenceUrls: [refUrl]
+    referenceUrls: [],
+    referenceBuffers: [originalBuffer]
   });
 
   const s3Key = buildS3Key({

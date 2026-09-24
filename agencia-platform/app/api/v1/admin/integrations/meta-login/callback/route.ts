@@ -19,7 +19,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
 
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
   const saved = (ws?.settings as any)?.integrations?.metaLogin;
-  const returnPath =
+  const returnPath = typeof saved?.returnPath === "string" && /^\/clientes\/[a-zA-Z0-9_-]+\/editorial$/.test(saved.returnPath) ? saved.returnPath :
     saved?.returnPath === "/admin/meta-comments"
       ? "/admin/meta-comments"
       : saved?.returnPath === "/admin/editorial"
@@ -32,9 +32,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const state = url.searchParams.get("state");
   if (!code || !state) return fail("Faltan code/state");
   if (!saved?.state || saved.state !== state) return fail("State inválido o expirado. Reinténtalo.");
+  if (saved.userId && saved.userId !== api.userId) return fail("La sesión no coincide con la que inició la vinculación.");
   if (Date.now() - (saved.at ?? 0) > 15 * 60 * 1000) return fail("La conexión caducó. Reinténtala.");
 
   try {
+    const settings = ws?.settings as any;
+    delete settings.integrations.metaLogin;
+    await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
     const r = await handleMetaLoginCallback({ workspaceId: api.workspaceId, userId: api.userId, code });
     return NextResponse.redirect(`${base}${returnPath}?connected=1&name=${encodeURIComponent(r.name ?? "")}`);
   } catch (e: any) {

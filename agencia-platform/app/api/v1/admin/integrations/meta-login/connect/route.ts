@@ -15,7 +15,9 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   if (!(await callerIsAdmin(api))) throw new ApiError(403, "forbidden", "Solo admin");
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://hub.negociovivo.app").replace(/\/+$/, "");
   const requestedReturn = new URL(req.url).searchParams.get("returnTo");
-  const returnPath =
+  const clientId = new URL(req.url).searchParams.get("clientId");
+  if (clientId && !(await prisma.client.findFirst({ where: { id: clientId, workspaceId: api.workspaceId } }))) throw new ApiError(404, "not_found", "Cliente no encontrado");
+  const returnPath = clientId ? `/clientes/${encodeURIComponent(clientId)}/editorial` :
     requestedReturn === "meta-comments"
       ? "/admin/meta-comments"
       : requestedReturn === "editorial"
@@ -34,7 +36,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const ws = await prisma.workspace.findUnique({ where: { id: api.workspaceId }, select: { settings: true } });
   const settings: any = ws?.settings ?? {};
   settings.integrations = settings.integrations ?? {};
-  settings.integrations.metaLogin = { state, at: Date.now(), returnPath };
+  settings.integrations.metaLogin = { state, at: Date.now(), returnPath, userId: api.userId };
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
   return NextResponse.redirect(buildMetaLoginUrl(state));
 });

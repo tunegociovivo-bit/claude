@@ -15,6 +15,7 @@ const updateSchema = z.object({
   scheduledFor: z.string().datetime().nullable().optional(),
   publishedAt: z.string().datetime().nullable().optional(),
   status: z.enum(STATUSES).optional(),
+  used: z.boolean().optional(),
   format: z.string().optional(),
   networks: z.array(z.string()).optional(),
   thumbnail: z.string().url().nullable().optional(),
@@ -61,7 +62,13 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (!existing) throw new ApiError(404, "not_found", "Publicación no encontrada");
 
   const data: any = {};
-  if (parsed.data.clientId !== undefined) data.clientId = parsed.data.clientId;
+  if (parsed.data.clientId !== undefined) {
+    if (parsed.data.clientId) {
+      const client = await prisma.client.findFirst({ where: { id: parsed.data.clientId, workspaceId: api.workspaceId, deletedAt: null }, select: { id: true } });
+      if (!client) throw new ApiError(404, "not_found", "Cliente no encontrado");
+    }
+    data.clientId = parsed.data.clientId;
+  }
   if (parsed.data.title !== undefined) data.title = parsed.data.title;
   if (parsed.data.content !== undefined) data.content = parsed.data.content;
   if (parsed.data.excerpt !== undefined) data.excerpt = parsed.data.excerpt;
@@ -81,16 +88,21 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.patternStrength !== undefined) data.patternStrength = parsed.data.patternStrength;
   if (parsed.data.patternTemplateId !== undefined) data.patternTemplateId = parsed.data.patternTemplateId;
   if (parsed.data.aspectRatio !== undefined) data.aspectRatio = parsed.data.aspectRatio;
+  if (parsed.data.used !== undefined) {
+    const meta = existing.metaJson && typeof existing.metaJson === "object" && !Array.isArray(existing.metaJson) ? existing.metaJson : {};
+    data.metaJson = { ...meta, contentUsage: { usedAt: parsed.data.used ? new Date().toISOString() : null, usedById: api.userId ?? null } };
+  }
+  if (parsed.data.status === "PUBLISHED" && parsed.data.publishedAt === undefined && !existing.publishedAt) data.publishedAt = new Date();
 
   const result = await prisma.$transaction(async (tx) => {
     const upd = await tx.editorialPost.update({ where: { id: params.id }, data });
-    if (parsed.data.changeSummary || parsed.data.content) {
+    if (Object.keys(data).length) {
       await tx.editorialRevision.create({
         data: {
           postId: params.id,
           authorId: api.userId ?? null,
-          body: parsed.data.content ?? existing.content,
-          changeSummary: parsed.data.changeSummary ?? null
+          body: JSON.stringify({ before: existing, after: upd }),
+          changeSummary: parsed.data.changeSummary ?? (parsed.data.used !== undefined ? (parsed.data.used ? "Marcada como utilizada" : "Desmarcada como utilizada") : `Actualización: ${Object.keys(data).join(", ")}`)
         }
       });
     }

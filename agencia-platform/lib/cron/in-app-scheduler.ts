@@ -53,11 +53,6 @@ export function startInAppScheduler(): void {
     try {
       // Una sola réplica sincroniza Meta y como máximo cada 15 minutos. Antes
       // cada proceso lo hacía cada 5 minutos, multiplicando peticiones y avisos.
-      const { publishScheduledEditorialMetaPublications } = await import("@/lib/editorial/meta-publishing");
-      const editorialMetaResult = await publishScheduledEditorialMetaPublications(10);
-      if (editorialMetaResult.published > 0 || editorialMetaResult.failed > 0) {
-        console.log(`[in-app-cron] editorial Meta: ${editorialMetaResult.published} publicadas, ${editorialMetaResult.failed} fallidas`);
-      }
       const metaLeaseName = "in-app/meta-comments";
       const metaLeaseOwner = randomUUID();
       const acquired = await acquireCronLease(metaLeaseName, metaLeaseOwner, 5 * 60 * 1000);
@@ -157,6 +152,23 @@ export function startInAppScheduler(): void {
   // Primer tick 60s tras el arranque (deja estabilizar la app y la BD).
   setTimeout(tick, 60_000);
   setInterval(tick, TICK_MS);
+
+  // Editorial has its own minute tick: unrelated slow integrations must not
+  // delay scheduled posts. Each destination is claimed atomically in the DB.
+  let editorialBusy = false;
+  async function editorialTick() {
+    if (editorialBusy) return;
+    editorialBusy = true;
+    try {
+      const { publishScheduledEditorialMetaPublications } = await import("@/lib/editorial/meta-publishing");
+      const result = await publishScheduledEditorialMetaPublications(10);
+      if (result.published || result.failed) console.log(`[in-app-cron] editorial Meta: ${result.published} publicadas, ${result.failed} fallidas`);
+    } catch (error) {
+      console.warn("[in-app-cron] editorial Meta:", (error as Error).message);
+    } finally { editorialBusy = false; }
+  }
+  setTimeout(editorialTick, 30_000);
+  setInterval(editorialTick, 60_000);
 
   // Holded + SEPA no puede depender del tick general: una integración lenta
   // anterior no debe impedir que entren facturas ni que se creen aprobaciones.

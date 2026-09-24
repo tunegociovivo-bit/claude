@@ -210,6 +210,8 @@ export async function completeJson<T = any>(opts: {
    *  user. Útil para que Claude VEA fotos del cliente y las describa
    *  físicamente en el JSON estructurado (image_prompt). */
   imageUrls?: string[];
+  /** When references are mandatory, fail instead of silently omitting unreadable images. */
+  requireAllImages?: boolean;
   /** Imágenes efímeras ya validadas, enviadas directamente sin URL ni persistencia. */
   inlineImages?: Array<{
     mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -241,6 +243,9 @@ export async function completeJson<T = any>(opts: {
       opts.imageUrls.slice(0, 20).map((url) => fetchImageAsBase64Block(url))
     );
     const valid = blocks.filter((b): b is NonNullable<typeof b> => b !== null);
+    if (opts.requireAllImages && valid.length !== opts.imageUrls.length) {
+      throw new Error("No se pudieron leer todas las imágenes de referencia. Vuelve a subirlas antes de generar.");
+    }
     userContent = [...valid, { type: "text", text: opts.user }];
   } else {
     userContent = opts.user;

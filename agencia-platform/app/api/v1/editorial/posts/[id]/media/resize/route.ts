@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { EDITORIAL_IMAGE_PRESETS, resizeEditorialImage } from "@/lib/editorial/media";
 
 const schema = z.object({
+  preview: z.boolean().optional(),
   preset: z.enum(Object.keys(EDITORIAL_IMAGE_PRESETS) as [keyof typeof EDITORIAL_IMAGE_PRESETS, ...(keyof typeof EDITORIAL_IMAGE_PRESETS)[]]).optional(),
   width: z.number().int().min(100).max(4096).optional(),
   height: z.number().int().min(100).max(4096).optional(),

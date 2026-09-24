@@ -34,6 +34,10 @@ const schema = z.object({
   copyLength: z.number().int().min(0).max(100).default(50),
   perNetworkCopy: z.boolean().default(false),
   extraGuidance: z.string().optional(),
+  referenceLinks: z.array(z.string().url().max(2048).refine((v) => /^https?:\/\//i.test(v), "Usa enlaces HTTP o HTTPS")).max(8).default([]),
+  extraReferenceUrls: z.array(z.string().url().max(4096)).max(8).default([]),
+  requiredTopics: z.array(z.string().trim().min(2).max(200)).max(20).default([]),
+  allowReuseUsed: z.boolean().default(false),
   imageIncludeHint: z.string().optional(),
   imageAvoidHint: z.string().optional(),
   pillars: z.record(z.string(), z.number().min(0).max(100)).optional(),
@@ -49,6 +53,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
+  const client = await prisma.client.findFirst({ where: { id: parsed.data.clientId, workspaceId: api.workspaceId, deletedAt: null }, select: { id: true } });
+  if (!client) throw new ApiError(404, "not_found", "Cliente no encontrado");
 
   // Crear el job
   const job = await prisma.backgroundJob.create({

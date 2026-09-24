@@ -60,6 +60,7 @@ async function main() {
   // en cada tick.
   if (CRON_SECRET) await hit("GET", "/api/cron/leads-monitor", CRON_SECRET);
   if (CRON_SECRET) await hit("GET", "/api/cron/meta-leads-sync", CRON_SECRET);
+  if (CRON_SECRET) await hit("GET", "/api/cron/editorial-meta-publish", CRON_SECRET);
 }
 
 main();

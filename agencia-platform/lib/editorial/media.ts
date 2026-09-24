@@ -24,8 +24,13 @@ export function parseMediaUrls(value: string | null | undefined): string[] {
 }
 
 export function prependMediaUrl(current: string | null | undefined, url: string): string {
-  const urls = parseMediaUrls(current).filter((item) => item !== url);
+  const urls = parseMediaUrls(current).filter((item) => mediaIdentity(item) !== mediaIdentity(url));
   return JSON.stringify([url, ...urls].slice(0, 30));
+}
+
+export function mediaIdentity(url: string): string {
+  try { const parsed = new URL(url); return parsed.origin + parsed.pathname; }
+  catch { return url; }
 }
 
 export async function registerEditorialMediaVersion(opts: {
@@ -104,17 +109,40 @@ export async function getLatestEditorialImageBuffer(opts: {
   workspaceId: string;
   fallbackUrl?: string | null;
 }): Promise<Buffer> {
-  const latest = await prisma.editorialMediaVersion.findFirst({
-    where: { postId: opts.postId, workspaceId: opts.workspaceId, kind: "image", s3Key: { not: null } },
-    orderBy: { createdAt: "desc" }
-  });
-  if (latest?.s3Key) return downloadBuffer(latest.s3Key);
   if (!opts.fallbackUrl) throw new Error("La publicación no tiene imagen.");
-  const resp = await fetch(opts.fallbackUrl, { signal: AbortSignal.timeout(20000) });
-  if (!resp.ok) throw new Error(`No pude descargar la imagen actual (${resp.status}).`);
-  const ct = resp.headers.get("content-type") ?? "";
-  if (!ct.startsWith("image/")) throw new Error("La URL actual no devuelve una imagen.");
-  return Buffer.from(await resp.arrayBuffer());
+  const versions = await prisma.editorialMediaVersion.findMany({
+    where: { postId: opts.postId, workspaceId: opts.workspaceId, kind: "image" }
+  });
+  const identity = (url: string) => { try { const u = new URL(url); return u.origin + u.pathname; } catch { return url; } };
+  const selected = versions.find((v) => identity(v.url) === identity(opts.fallbackUrl!));
+  if (selected?.s3Key) return downloadBuffer(selected.s3Key);
+  // Legacy images are resolved only against our configured storage, never fetched from arbitrary URLs.
+  const key = editorialStorageKey(opts.fallbackUrl, opts.workspaceId);
+  if (!key) throw new Error("Sube la imagen al Hub antes de editarla o redimensionarla.");
+  // Capture legacy originals once, before the first edit/resize can replace their thumbnail.
+  await registerEditorialMediaVersion({ workspaceId: opts.workspaceId, postId: opts.postId,
+    kind: "image", source: "uploaded", url: opts.fallbackUrl, s3Key: key });
+  return downloadBuffer(key);
+}
+
+export function editorialStorageKey(url: string, workspaceId: string): string | null {
+  try {
+    const target = new URL(url);
+    const bases = [process.env.STORAGE_PUBLIC_URL, process.env.STORAGE_ENDPOINT].filter(Boolean) as string[];
+    for (const base of bases) {
+      const allowed = new URL(base);
+      const bucket = process.env.STORAGE_BUCKET;
+      const virtualHost = bucket ? `${bucket}.${allowed.hostname}` : "";
+      if (target.protocol !== allowed.protocol || target.port !== allowed.port ||
+          (target.hostname !== allowed.hostname && target.hostname !== virtualHost)) continue;
+      let path = decodeURIComponent(target.pathname).replace(/^\/+/, "");
+      const prefix = allowed.pathname.replace(/^\/+|\/+$/g, "");
+      if (prefix) { if (!path.startsWith(prefix + "/")) continue; path = path.slice(prefix.length + 1); }
+      if (bucket && path.startsWith(bucket + "/")) path = path.slice(bucket.length + 1);
+      if (path.startsWith(workspaceId + "/") && !path.split("/").includes("..")) return path;
+    }
+  } catch { /* Invalid URLs cannot identify stored media. */ }
+  return null;
 }
 
 export async function resizeEditorialImage(opts: {
@@ -126,6 +154,7 @@ export async function resizeEditorialImage(opts: {
   height?: number;
   fit?: ResizeFit;
   background?: string;
+  preview?: boolean;
 }) {
   if (!isStorageEnabled()) throw new Error("Storage no configurado. Configura STORAGE_* para guardar imágenes.");
   const post = await prisma.editorialPost.findFirst({ where: { id: opts.postId, workspaceId: opts.workspaceId } });
@@ -138,16 +167,22 @@ export async function resizeEditorialImage(opts: {
   }
   const input = await getLatestEditorialImageBuffer({ postId: opts.postId, workspaceId: opts.workspaceId, fallbackUrl: post.thumbnail });
   const fit = opts.fit ?? "cover";
-  const resized = await sharp(input)
+  let resized = await sharp(input)
     .rotate()
     .resize({
       width,
       height,
-      fit,
+      fit: fit === "fill" ? "contain" : fit,
       background: opts.background ?? "#ffffff"
     })
     .png()
     .toBuffer();
+  if (fit === "fill") {
+    const foreground = await sharp(input).rotate().resize({ width, height, fit: "inside" }).png().toBuffer();
+    resized = await sharp(input).rotate().resize({ width, height, fit: "cover" }).blur(24)
+      .composite([{ input: foreground, gravity: "centre" }]).png().toBuffer();
+  }
+  if (opts.preview) return { url: `data:image/png;base64,${resized.toString("base64")}`, s3Key: null, width, height, fit, preview: true };
   const s3Key = buildS3Key({
     workspaceId: opts.workspaceId,
     targetType: "editorial",
