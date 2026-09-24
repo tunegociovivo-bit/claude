@@ -1,4 +1,5 @@
 import { parseConversationBatch } from "@/lib/mobile/facebook-conversations";
+import { isPageFollowBatchText, parsePageFollowBatch, samePageFollowTargets } from "@/lib/mobile/page-follow-batch";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
@@ -108,7 +109,8 @@ export async function claimNextMobileAutomationJob(input: {
         "DISCOVER_FACEBOOK_GROUPS",
         "JOIN_FACEBOOK_GROUP_BATCH",
         "DISCOVER_FACEBOOK_CONVERSATIONS",
-        "REPLY_FACEBOOK_CONVERSATIONS"
+        "REPLY_FACEBOOK_CONVERSATIONS",
+        "FOLLOW_PAGES"
       ].includes(candidate.action);
       const leaseUntil = new Date(now.getTime() + (isFacebookGroupBatch ? 10 * 60_000 : 60_000));
       const claimed = await tx.mobileAutomationJob.updateMany({
@@ -170,14 +172,21 @@ export async function reportMobileAutomationResult(input: {
     if (input.outcome === "DISCOVERED" && !["DISCOVER_FACEBOOK_GROUPS", "DISCOVER_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba resultados de grupos");
     }
-    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
+    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba solicitudes de grupos");
     }
     if (["DISCOVERED", "COMPLETED", "PARTIAL"].includes(input.outcome) && !input.resultText) {
       throw new ApiError(400, "missing_result", "Falta el resultado del lote de grupos");
     }
 
-    if (input.resultText && job.action.endsWith("FACEBOOK_CONVERSATIONS")) {
+    if (job.action === "FOLLOW_PAGES" && input.resultText) {
+      let result, original;
+      try { result = parsePageFollowBatch(input.resultText); original = parsePageFollowBatch(job.text ?? ""); }
+      catch { throw new ApiError(400, "invalid_result", "El lote de páginas no es válido."); }
+      if (!samePageFollowTargets(original, result)) throw new ApiError(400, "invalid_result", "El resultado no corresponde a las páginas del encargo.");
+    } else if (input.resultText && isPageFollowBatchText(input.resultText)) {
+      throw new ApiError(400, "invalid_result", "Este trabajo no esperaba un lote de páginas.");
+    } else if (input.resultText && job.action.endsWith("FACEBOOK_CONVERSATIONS")) {
       const result = parseConversationBatch(input.resultText);
       const original = parseConversationBatch(job.text ?? "");
       if (JSON.stringify(result.config) !== JSON.stringify(original.config)) throw new ApiError(400, "invalid_result", "El alcance de la búsqueda ha cambiado.");
@@ -250,7 +259,7 @@ export async function reportMobileAutomationResult(input: {
         data: {
           workspaceId: input.workspaceId,
           jobId: job.id,
-          event: partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
+          event: job.action === "FOLLOW_PAGES" ? (partial ? "PAGE_FOLLOW_PARTIAL" : "PAGE_FOLLOW_COMPLETED") : partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
           actorType: "BROWSER",
           actorId: input.executorSessionId
         }

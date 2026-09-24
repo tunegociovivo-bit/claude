@@ -68,6 +68,19 @@ const COMMENT_REPLY: MobileAutomationWorkflow = {
   submitLabel: "Generar respuesta"
 };
 
+const PAGE_FOLLOW: MobileAutomationWorkflow = {
+  sourceKind: "PAGE_FOLLOW",
+  label: "Seguir páginas o perfiles",
+  description: "Abre cada página de la lista en la app y pulsa «Seguir». Las que ya sigues se marcan y se omiten.",
+  targetNameLabel: "Nombre del encargo (opcional)",
+  targetNamePlaceholder: "Ej. páginas del sector franquicias",
+  targetUrlLabel: null,
+  targetUrlPlaceholder: null,
+  factsLabel: "Páginas a seguir",
+  factsPlaceholder: "Una por línea: URL completa o @usuario.",
+  submitLabel: "Seguir páginas"
+};
+
 const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkflow[]> = {
   facebook: [
     {
@@ -97,10 +110,11 @@ const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkf
     { ...COMMENT_DISCOVERY, description: "Busca por palabra clave en tus grupos y prepara respuestas revisables, sin necesidad de URL." },
     { ...COMMENT_REPLY, label: "Responder a un enlace concreto" },
     COMMON_POST,
-    COMMON_LINK
+    COMMON_LINK,
+    PAGE_FOLLOW
   ],
-  instagram: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK],
-  tiktok: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK],
+  instagram: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK, PAGE_FOLLOW],
+  tiktok: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK, PAGE_FOLLOW],
   google_maps: [{
     sourceKind: "REAL_REVIEW",
     label: "Reseñar una experiencia real",

@@ -89,6 +89,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       data.lastError = null;
       data.lastErrorCode = null;
       if (["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)) data.text = text;
+      // FOLLOW_PAGES conserva el lote del servidor: el reintento solo repite las páginas pendientes o fallidas.
     }
 
     const changed = await tx.mobileAutomationJob.updateMany({

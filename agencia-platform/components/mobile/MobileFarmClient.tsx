@@ -86,6 +86,8 @@ import { serializeConversationBatch, type FacebookConversationBatch } from "@/li
 import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-navigation";
 import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
+import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
+import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import { discardMobileClipboard, readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
 import {
@@ -203,6 +205,21 @@ async function mobileApiJson(url: string, init?: RequestInit) {
     throw new Error(payload?.error?.message || payload?.message || "La automatización móvil no ha podido continuar.");
   }
   return payload;
+}
+
+const FOLLOW_APP_PACKAGES: Record<Exclude<PageFollowPlatform, "facebook">, readonly string[]> = {
+  instagram: ["com.instagram.android", "com.instagram.lite"],
+  tiktok: ["com.zhiliaoapp.musically", "com.ss.android.ugc.trill", "com.zhiliaoapp.musically.go"]
+};
+
+/** Paquete de la app con la que abrir las páginas a seguir; null = que Android elija. */
+async function resolveFollowAppPackage(adb: Adb, platform: PageFollowPlatform): Promise<string | null> {
+  if (platform === "facebook") return resolveFacebookPackage(adb);
+  for (const pkg of FOLLOW_APP_PACKAGES[platform]) {
+    const installed = await runAdbCommand(adb, ["pm", "path", pkg]).catch(() => "");
+    if (String(installed).includes("package:")) return pkg;
+  }
+  return null;
 }
 
 async function resolveFacebookPackage(adb: Adb): Promise<string> {
@@ -1282,6 +1299,41 @@ function MobileDeviceCard({
           outcome: "DISCOVERED",
           resultText: serializeFacebookGroupBatch(analyzed),
           summary: `${analyzed.candidates.length} grupos analizados.`
+        };
+      },
+      followPages: async (batch): Promise<MobileAutomationExecutionResult> => {
+        const appPackage = await resolveFollowAppPackage(adb, batch.platform);
+        const result = await runPageFollowBatch(batch, {
+          openUrl: async (url) => {
+            await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
+            await runAdbCommand(adb, ["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, ...(appPackage ? ["-p", appPackage] : [])]);
+          },
+          read: () => readAndroidUiHierarchy(adb),
+          tap: async (point) => { await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]); },
+          scrollDown: async (xml) => {
+            const nodes = parseAndroidUiNodes(xml);
+            const width = Math.max(...nodes.map((node) => node.bounds.right));
+            const height = Math.max(...nodes.map((node) => node.bounds.bottom));
+            if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+            const x = String(Math.round(width * 0.5));
+            await runAdbCommand(adb, ["input", "swipe", x, String(Math.round(height * 0.7)), x, String(Math.round(height * 0.4)), "400"]);
+            await waitForAndroidUi(900);
+          },
+          wait: waitForAndroidUi,
+          pause: () => waitForAndroidUi(4_000 + Math.round(Math.random() * 4_000)),
+          onProgress: async (progress) => {
+            if (!job.id || !job.executorSessionId) return;
+            await mobileApiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ executorSessionId: job.executorSessionId, text: serializePageFollowBatch(progress) })
+            }).catch(() => undefined);
+          }
+        });
+        const { done, failed } = pageFollowSummary(result);
+        return {
+          outcome: failed > 0 ? "PARTIAL" : "COMPLETED",
+          resultText: serializePageFollowBatch(result),
+          summary: failed > 0 ? `${done} páginas seguidas y ${failed} necesitan revisión.` : `${done} páginas seguidas.`
         };
       },
       joinFacebookGroupBatch: async (batch): Promise<MobileAutomationExecutionResult> => {

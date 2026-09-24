@@ -12,7 +12,8 @@ describe("catálogo de automatizaciones por plataforma", () => {
       "COMMENT_DISCOVERY",
       "COMMENT_REPLY",
       "OWNED_POST",
-      "LINK_SHARE"
+      "LINK_SHARE",
+      "PAGE_FOLLOW"
     ]);
   });
 
@@ -21,7 +22,8 @@ describe("catálogo de automatizaciones por plataforma", () => {
       "COMMENT_DISCOVERY",
       "COMMENT_REPLY",
       "OWNED_POST",
-      "LINK_SHARE"
+      "LINK_SHARE",
+      "PAGE_FOLLOW"
     ]);
     expect(getAutomationWorkflows("google_maps").map((item) => item.sourceKind)).toEqual([
       "REAL_REVIEW"

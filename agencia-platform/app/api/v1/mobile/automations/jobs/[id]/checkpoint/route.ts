@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { loadMobileAutomationAccess } from "@/lib/mobile/automation-access";
 import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch } from "@/lib/mobile/facebook-conversations";
+import { parsePageFollowBatch, samePageFollowTargets } from "@/lib/mobile/page-follow-batch";
 
 const schema = z.object({ executorSessionId: z.string().uuid(), text: z.string().max(MAX_CONVERSATION_BATCH_TEXT).optional() }).strict();
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, params }) => {
@@ -12,10 +13,14 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", "Progreso no válido.");
   const job = await prisma.mobileAutomationJob.findFirst({ where: { id: params.id, workspaceId: api.workspaceId } });
-  if (!job || job.status !== "RUNNING" || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
+  if (!job || job.status !== "RUNNING" || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action)) {
     throw new ApiError(409, "lease_lost", "La ejecución se ha detenido o está en otra pestaña.");
   }
-  if (parsed.data.text) {
+  if (parsed.data.text && job.action === "FOLLOW_PAGES") {
+    let same = false;
+    try { same = samePageFollowTargets(parsePageFollowBatch(job.text ?? ""), parsePageFollowBatch(parsed.data.text)); } catch { same = false; }
+    if (!same) throw new ApiError(400, "invalid_progress", "La lista de páginas no puede cambiar durante la ejecución.");
+  } else if (parsed.data.text) {
     const current = parseConversationBatch(job.text ?? "");
     const next = parseConversationBatch(parsed.data.text);
     if (JSON.stringify(current.config) !== JSON.stringify(next.config)) throw new ApiError(400, "invalid_progress", "El alcance no puede cambiar durante la ejecución.");

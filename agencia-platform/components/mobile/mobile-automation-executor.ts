@@ -1,5 +1,6 @@
 import { parseConversationBatch, type FacebookConversationBatch } from "@/lib/mobile/facebook-conversations";
 import type { MobileAutomationAction } from "@/lib/mobile/automation-policy";
+import { parsePageFollowBatch, type PageFollowBatch } from "@/lib/mobile/page-follow-batch";
 import {
   parseFacebookGroupBatch,
   type FacebookGroupBatch
@@ -31,6 +32,7 @@ export type MobileAutomationExecutorDependencies = {
   searchFacebookGroups?: (query: string) => Promise<unknown>;
   discoverFacebookGroups?: (batch: FacebookGroupBatch) => Promise<MobileAutomationExecutionResult>;
   joinFacebookGroupBatch?: (batch: FacebookGroupBatch) => Promise<MobileAutomationExecutionResult>;
+  followPages?: (batch: PageFollowBatch) => Promise<MobileAutomationExecutionResult>;
 };
 
 export async function executeMobileAutomationJob(
@@ -73,6 +75,10 @@ export async function executeMobileAutomationJob(
       if (!job.text) throw new Error("El trabajo no contiene el lote de grupos aprobado.");
       if (!dependencies.joinFacebookGroupBatch) throw new Error("Este móvil no puede ejecutar solicitudes de grupos.");
       return dependencies.joinFacebookGroupBatch(parseFacebookGroupBatch(job.text));
+    case "FOLLOW_PAGES":
+      if (!job.text) throw new Error("El trabajo no contiene la lista de páginas.");
+      if (!dependencies.followPages) throw new Error("Este móvil no puede seguir páginas automáticamente.");
+      return dependencies.followPages(parsePageFollowBatch(job.text));
     default:
       throw new Error("Acción móvil no permitida.");
   }
