@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { resignPostMedia } from "@/lib/storage/resign";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { lockEditorialEdit, syncPublicationEdit } from "@/lib/editorial/sync-publication-edit";
 
 const STATUSES = ["DRAFT", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED", "ARCHIVED"] as const;
 
@@ -95,13 +96,19 @@ export const PATCH = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (parsed.data.status === "PUBLISHED" && parsed.data.publishedAt === undefined && !existing.publishedAt) data.publishedAt = new Date();
 
   const result = await prisma.$transaction(async (tx) => {
+    const locked = await lockEditorialEdit(tx, params.id, api.workspaceId);
+    if (parsed.data.used !== undefined) {
+      const meta = locked.post.metaJson && typeof locked.post.metaJson === "object" && !Array.isArray(locked.post.metaJson) ? locked.post.metaJson : {};
+      data.metaJson = { ...meta, contentUsage: { usedAt: parsed.data.used ? new Date().toISOString() : null, usedById: api.userId ?? null } };
+    }
+    await syncPublicationEdit(tx, locked, data, api.userId);
     const upd = await tx.editorialPost.update({ where: { id: params.id }, data });
     if (Object.keys(data).length) {
       await tx.editorialRevision.create({
         data: {
           postId: params.id,
           authorId: api.userId ?? null,
-          body: JSON.stringify({ before: existing, after: upd }),
+          body: JSON.stringify({ before: locked.post, after: upd }),
           changeSummary: parsed.data.changeSummary ?? (parsed.data.used !== undefined ? (parsed.data.used ? "Marcada como utilizada" : "Desmarcada como utilizada") : `Actualización: ${Object.keys(data).join(", ")}`)
         }
       });

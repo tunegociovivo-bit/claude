@@ -10,6 +10,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { lockEditorialEdit, syncPublicationEdit } from "@/lib/editorial/sync-publication-edit";
 
 const schema = z.object({
   scheduledFor: z.string().datetime()
@@ -20,10 +21,16 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const updated = await prisma.editorialPost.updateMany({
-    where: { id: params.id, workspaceId: api.workspaceId },
-    data: { scheduledFor: new Date(parsed.data.scheduledFor) }
+  await prisma.$transaction(async (tx) => {
+    const locked = await lockEditorialEdit(tx, params.id, api.workspaceId);
+    const data = { scheduledFor: new Date(parsed.data.scheduledFor) };
+    await syncPublicationEdit(tx, locked, data, api.userId);
+    const updated = await tx.editorialPost.update({ where: { id: params.id }, data });
+    await tx.editorialRevision.create({ data: {
+      postId: params.id, authorId: api.userId ?? null,
+      body: JSON.stringify({ before: locked.post, after: updated }),
+      changeSummary: "Fecha cambiada desde el calendario"
+    } });
   });
-  if (updated.count === 0) throw new ApiError(404, "not_found", "Publicación no encontrada");
   return NextResponse.json({ ok: true });
 });

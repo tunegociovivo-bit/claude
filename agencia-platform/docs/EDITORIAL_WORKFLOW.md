@@ -30,4 +30,4 @@ Meta requiere una aplicación configurada, permisos de publicación aprobados y 
 
 ## Cambio de datos
 
-Se añade únicamente `EditorialPublication.metaJson` (nullable), con migración aditiva `20260924170000_editorial_publication_media`. El arranque Docker habitual sincroniza el esquema con Prisma sin aceptar pérdida de datos. No se borran publicaciones ni versiones existentes.
+Se añade únicamente `EditorialPublication.metaJson` (nullable), con migración aditiva `20260924170000_editorial_publication_media`. El comando de preparación de Railway sincroniza el esquema con Prisma. Este cambio no elimina columnas, publicaciones ni versiones existentes.

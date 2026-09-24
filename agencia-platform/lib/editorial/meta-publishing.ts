@@ -264,9 +264,22 @@ export async function publishEditorialPublication(workspaceId: string, publicati
   if (!publication.profile) throw new Error("El perfil Meta ya no está disponible.");
   if (publication.status === "PUBLISHED") return publication;
   if (!publication.profile.active) throw new Error("El perfil Meta está desconectado.");
+  if (publication.workspaceId !== workspaceId || publication.post.workspaceId !== workspaceId || publication.profile.workspaceId !== workspaceId || !publication.post.clientId || publication.profile.clientId !== publication.post.clientId) {
+    throw new Error("La cuenta Meta ya no corresponde al cliente de esta publicación. Selecciona de nuevo sus destinos.");
+  }
   if (!["APPROVED", "SCHEDULED", "PUBLISHED"].includes(publication.post.status)) throw new Error("La publicación debe estar aprobada.");
+  const now = new Date();
+  const scheduled = publication.status === "SCHEDULED";
+  // A due row may have been selected just before the editor moved its date.
+  if (scheduled && (!publication.scheduledFor || publication.scheduledFor > now || !publication.post.scheduledFor || publication.post.scheduledFor > now)) return publication;
   const claimed = await prisma.editorialPublication.updateMany({
-    where: { id: publication.id, status: { in: ["PENDING", "SCHEDULED", "FAILED"] } },
+    where: {
+      id: publication.id, workspaceId, updatedAt: publication.updatedAt,
+      status: scheduled ? "SCHEDULED" : { in: ["PENDING", "FAILED"] },
+      ...(scheduled ? { scheduledFor: { lte: now } } : {}),
+      post: { is: { workspaceId, clientId: publication.post.clientId, updatedAt: publication.post.updatedAt, status: { in: ["APPROVED", "SCHEDULED", "PUBLISHED"] }, ...(scheduled ? { scheduledFor: { lte: now } } : {}) } },
+      profile: { is: { workspaceId, clientId: publication.post.clientId, active: true } }
+    },
     data: { status: "PUBLISHING", attempts: { increment: 1 }, lastError: null, metaJson: publicationHistory(publication.metaJson, "PUBLISHING") }
   });
   if (!claimed.count) return publication;
@@ -335,8 +348,8 @@ export async function publishScheduledEditorialMetaPublications(limit = 10) {
   let failed = 0;
   for (const item of due) {
     try {
-      await publishEditorialPublication(item.workspaceId, item.id);
-      published++;
+      const result = await publishEditorialPublication(item.workspaceId, item.id);
+      if (result.status === "PUBLISHED") published++;
     } catch {
       failed++;
     }
@@ -354,8 +367,8 @@ export async function publishDueEditorialPublications(opts: { limit?: number } =
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
   for (const item of due) {
     try {
-      await publishEditorialPublication(item.workspaceId, item.id);
-      results.push({ id: item.id, ok: true });
+      const result = await publishEditorialPublication(item.workspaceId, item.id);
+      results.push({ id: item.id, ok: result.status === "PUBLISHED" });
     } catch (error: any) {
       results.push({ id: item.id, ok: false, error: String(error?.message ?? error).slice(0, 300) });
     }

@@ -1,7 +1,7 @@
 /**
  * Acciones en masa sobre todas las publicaciones de un mes/cliente:
  *   - approve: cambia DRAFT/REVIEW → APPROVED
- *   - schedule: cambia APPROVED → SCHEDULED
+ *   - schedule: requires explicit destination selection through publish-meta
  *   - publish: marca SCHEDULED → PUBLISHED + sella publishedAt = now
  *   - duplicate: copia las del mes origen al mes destino con status DRAFT
  *   - archive: cualquier → ARCHIVED
@@ -12,6 +12,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { lockEditorialEdit, syncPublicationEdit } from "@/lib/editorial/sync-publication-edit";
 
 const baseSchema = z.object({
   action: z.enum(["approve", "schedule", "publish", "duplicate", "archive"]),
@@ -41,11 +42,26 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   };
   if (clientId) where.clientId = clientId;
 
+  async function changeStatus(status: string, filter: any = where, manualPublished = false) {
+    return prisma.$transaction(async tx => {
+      const posts = await tx.editorialPost.findMany({ where: filter, orderBy: { id: "asc" }, select: { id: true } });
+      const now = new Date();
+      for (const item of posts) {
+        const locked = await lockEditorialEdit(tx, item.id, api.workspaceId);
+        await syncPublicationEdit(tx, locked, { status: manualPublished ? "ARCHIVED" : status }, api.userId);
+        const updated = await tx.editorialPost.update({ where: { id: item.id }, data: { status, ...(manualPublished ? { publishedAt: now } : {}) } });
+        await tx.editorialRevision.create({ data: {
+          postId: item.id, authorId: api.userId ?? null,
+          changeSummary: manualPublished ? "Marcada publicada manualmente (sin envío a Meta)" : `Estado del mes: ${status}`,
+          body: JSON.stringify({ before: locked.post, after: updated })
+        } });
+      }
+      return { count: posts.length };
+    }, { timeout: 30000 });
+  }
+
   if (action === "approve") {
-    const r = await prisma.editorialPost.updateMany({
-      where: { ...where, status: { in: ["DRAFT", "REVIEW"] } },
-      data: { status: "APPROVED" }
-    });
+    const r = await changeStatus("APPROVED", { ...where, status: { in: ["DRAFT", "REVIEW"] } });
     // Disparar webhook Make si está configurado en el workspace y hubo
     // pubs aprobadas. No bloquea la respuesta.
     if (r.count > 0) {
@@ -79,21 +95,14 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     return NextResponse.json({ ok: true, affected: r.count });
   }
   if (action === "schedule") {
-    const r = await prisma.editorialPost.updateMany({
-      where: { ...where, status: "APPROVED" },
-      data: { status: "SCHEDULED" }
-    });
-    return NextResponse.json({ ok: true, affected: r.count });
+    throw new ApiError(400, "destinations_required", "Abre cada publicación, elige sus cuentas de destino y pulsa Programar en Meta.");
   }
   if (action === "publish") {
-    const r = await prisma.editorialPost.updateMany({
-      where: { ...where, status: { in: ["SCHEDULED", "APPROVED"] } },
-      data: { status: "PUBLISHED", publishedAt: new Date() }
-    });
+    const r = await changeStatus("PUBLISHED", { ...where, status: { in: ["SCHEDULED", "APPROVED"] } }, true);
     return NextResponse.json({ ok: true, affected: r.count });
   }
   if (action === "archive") {
-    const r = await prisma.editorialPost.updateMany({ where, data: { status: "ARCHIVED" } });
+    const r = await changeStatus("ARCHIVED");
     return NextResponse.json({ ok: true, affected: r.count });
   }
   if (action === "duplicate") {
