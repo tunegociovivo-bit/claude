@@ -172,9 +172,10 @@ export const BRIEF_SCHEMA = {
           subject: { type: "string" },
           alt: { type: "string" },
           title: { type: "string" },
-          caption: { type: "string" }
+          caption: { type: "string" },
+          text_in_image: { type: "string" }
         },
-        required: ["role", "after_h2", "subject", "alt", "title", "caption"]
+        required: ["role", "after_h2", "subject", "alt", "title", "caption", "text_in_image"]
       }
     },
     category: { type: "string" },
@@ -234,7 +235,7 @@ export function briefPrompt(s: SiteCtx, p: PostLike, research: any) {
     "- faq: 4–6 preguntas reales (prioriza People Also Ask) para bloque FAQ con schema.\n" +
     "- internal_links: 3–6 enlaces a URLs EXACTAS de la lista del cliente, con anchor descriptivo y variado (nunca 'haz clic aquí'). Incluye la página de servicio/contacto más relevante.\n" +
     "- external_links: 1–3 URLs EXACTAS de la lista de fuentes candidatas, solo autoridades (organismos oficiales, estudios, asociaciones); nunca competidores.\n" +
-    `- images: exactamente ${s.imagesPerPost} imágenes. La primera es 'featured'. Para cada una describe en INGLÉS la escena concreta (subject), en ${langName(s.language)} el alt SEO (describe la imagen e incluye la keyword o una secundaria de forma natural, máx. 125 caracteres), title y caption. 'after_h2' = índice (0-based) del H2 tras cuyo primer párrafo va la imagen (la featured no se inserta en el cuerpo). Las escenas deben ser realistas, sin texto ni rótulos, coherentes con el sector.\n` +
+    `- images: exactamente ${s.imagesPerPost} imágenes. La primera es 'featured'. Para cada una describe en INGLÉS la escena concreta (subject), en ${langName(s.language)} el alt SEO (describe la imagen e incluye la keyword o una secundaria de forma natural, máx. 125 caracteres), title y caption. 'after_h2' = índice (0-based) del H2 tras cuyo primer párrafo va la imagen (la featured no se inserta en el cuerpo). Las escenas deben ser realistas y coherentes con el sector. 'text_in_image': texto corto (máx. 6 palabras, en ${langName(s.language)}, ortografía perfecta) que aparecerá escrito dentro de la imagen de forma natural (rótulo, cartel, tarjeta, pizarra, portada) solo cuando aporte valor —por ejemplo el nombre de la marca o una cifra/idea clave del apartado—; si no aporta, cadena vacía. Nunca frases largas ni jerga médica en el texto.\n` +
     "- information_gain: 3–5 aportes concretos que harán este artículo mejor que el top 10.\n" +
     "- experience_points: 2–4 lugares donde encaja experiencia real del negocio (ejemplos, procesos, observaciones) sin inventar datos.";
   return { system, user };
@@ -329,9 +330,10 @@ export function seoFixPrompt(s: SiteCtx, p: PostLike, html: string, issues: stri
 /*  Imágenes                                                           */
 /* ------------------------------------------------------------------ */
 
-export function imagePrompt(s: SiteCtx, img: any, hasRefs: boolean): string {
+export function imagePrompt(s: SiteCtx, img: any, hasRefs: boolean, allowText = true): string {
   const style = [s.visualStyle, s.visualNotes].filter(Boolean).join(" ").trim();
   const parts: string[] = [];
+  const text = allowText ? String(img?.text_in_image ?? "").trim().slice(0, 60) : "";
   if (hasRefs) {
     parts.push(
       "Use the reference images as the visual style guide only: match their color palette, lighting, mood, composition and photographic treatment. Create a completely new scene."
@@ -339,8 +341,13 @@ export function imagePrompt(s: SiteCtx, img: any, hasRefs: boolean): string {
   }
   parts.push(`Scene: ${String(img?.subject ?? "").trim()}.`);
   if (style) parts.push(`Visual style: ${style}.`);
+  if (text) {
+    parts.push(`The image must include this exact text, written once, clearly legible and perfectly spelled, integrated naturally into the scene (a sign, plaque, card, board or cover): "${text}". No other text, letters or logos anywhere.`);
+  } else {
+    parts.push("No text, letters, numbers, logos or watermarks anywhere in the image.");
+  }
   parts.push(
-    `Photorealistic editorial blog image, natural and authentic, high detail, professional lighting, clean text-free surfaces, suitable as a website article image for a ${s.sector || "local business"}.`
+    `Photorealistic editorial blog image, natural and authentic, high detail, professional lighting, suitable as a website article image for a ${s.sector || "local business"}.`
   );
   return parts.join(" ");
 }

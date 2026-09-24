@@ -19,7 +19,7 @@ import { competitorOutlines, isAuthority, serperSearch } from "./serp";
 import { BRIEF_SCHEMA, briefPrompt, draftPrompt, humanizePrompt, imagePrompt, seoFixPrompt, type SiteCtx } from "./prompts";
 import { addToc, analyze, buildSchema, cleanHtml, extractFaq, norm } from "./seo";
 import { getSiteCtx, referenceUrls, seoLog, sitePages, storeGeneratedImage } from "./service";
-import { createSeedreamTask, checkSeedreamTask } from "./freepik";
+import { createSeedreamTask, checkSeedreamTask, isNanoBanana } from "./freepik";
 import { WpError, wpEnsureTerm, wpGetPost, wpUploadMedia, wpUpsertPost } from "./wp";
 import { asArray, asObject, hostOf, slugify, untrailingslash, wordCount } from "./util";
 
@@ -292,7 +292,7 @@ async function stepImagesRequest(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
   let anyOk = false;
   for (let i = 0; i < imgs.length; i++) {
     const img = imgs[i];
-    const prompt = imagePrompt(site, img, refs.length > 0);
+    const prompt = imagePrompt(site, img, refs.length > 0, isNanoBanana(s));
     const row: ImgItem = { ...img, prompt, aspect: site.imageAspect || "widescreen_16_9", status: "pending", tries: 1, requestedAt: Date.now() };
     try {
       const t = await createSeedreamTask(p.workspaceId, s, prompt, row.aspect!, refs);
@@ -384,7 +384,7 @@ export async function regenImage(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
   }
   if (subject) imgs[index].subject = subject;
   const refs = await referenceUrls(p.workspaceId, site.id, 5);
-  const prompt = imagePrompt(site, imgs[index], refs.length > 0);
+  const prompt = imagePrompt(site, imgs[index], refs.length > 0, isNanoBanana(s));
   const aspect = imgs[index].aspect ?? (site.imageAspect || "widescreen_16_9");
   const t = await createSeedreamTask(p.workspaceId, s, prompt, aspect, refs);
   imgs[index] = {

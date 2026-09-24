@@ -18,6 +18,8 @@ export type SeoBlogSettings = {
   freepikHeader: string;
   freepikEditPath: string;
   freepikT2iPath: string;
+  imageEngine: string; // "nano-banana-2" (Gemini 3.1 Flash, texto legible) | "seedream-4.5"
+  imageResolution: string; // nano banana: 1K | 2K | 4K
   seoMinScore: number;
   maxFixPasses: number;
   ideasPerRun: number;
@@ -33,6 +35,8 @@ export const SEO_BLOG_DEFAULTS: Omit<SeoBlogSettings, "serperApiKey"> = {
   freepikHeader: "x-freepik-api-key",
   freepikEditPath: "/v1/ai/text-to-image/seedream-v4-5-edit",
   freepikT2iPath: "/v1/ai/text-to-image/seedream-v4-5",
+  imageEngine: "nano-banana-2",
+  imageResolution: "1K",
   seoMinScore: 85,
   maxFixPasses: 2,
   ideasPerRun: 12,

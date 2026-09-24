@@ -49,12 +49,29 @@ export default function SettingsView({ nav }: { nav: Nav }) {
         </div>
       </Card>
       <Card title="Imágenes (Freepik / Magnific)">
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-2 gap-4 mb-4">
+          <Field label="Motor de imágenes" help="Nano Banana 2 escribe textos legibles dentro de la imagen (rótulos, carteles) y admite referencias de estilo.">
+            <select value={f.imageEngine ?? "nano-banana-2"} onChange={set("imageEngine")} className={inputCls}>
+              <option value="nano-banana-2">Google Nano Banana 2 (Gemini 3.1 Flash) — recomendado</option>
+              <option value="seedream-4.5">Seedream 4.5</option>
+            </select>
+          </Field>
+          <Field label="Resolución (Nano Banana)" help="1K es rápida y suficiente para blog (se guarda a 1600 px de ancho).">
+            <select value={f.imageResolution ?? "1K"} onChange={set("imageResolution")} className={inputCls}>
+              <option value="1K">1K</option>
+              <option value="2K">2K</option>
+              <option value="4K">4K</option>
+            </select>
+          </Field>
+        </div>
+        <details className="text-xs text-slate-500"><summary className="cursor-pointer">Avanzado (Seedream)</summary>
+        <div className="grid sm:grid-cols-2 gap-4 mt-3">
           {inp("freepikBase", "URL base de la API", "https://api.freepik.com (o https://api.magnific.com)")}
           {inp("freepikHeader", "Cabecera de autenticación", "x-freepik-api-key (o x-magnific-api-key)")}
           {inp("freepikEditPath", "Endpoint con referencias de estilo")}
           {inp("freepikT2iPath", "Endpoint sin referencias")}
         </div>
+        </details>
       </Card>
       <Card title="Calidad y flujo">
         <div className="grid sm:grid-cols-3 gap-4">
