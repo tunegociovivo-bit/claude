@@ -336,12 +336,18 @@ export async function pollImages(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
         img.error = e?.message ?? String(e);
       }
     } else if (r.status === "FAILED") {
-      if ((img.tries ?? 1) < 2) {
-        // Reintento con prompt simplificado (Seedream rechaza a veces prompts largos o con negaciones)
-        const simple = `Scene: ${img.subject}. Photorealistic editorial image, natural light.${site.visualStyle ? " Style: " + site.visualStyle.slice(0, 400) : ""}`;
-        img.tries = (img.tries ?? 1) + 1;
+      const tries = img.tries ?? 1;
+      if (tries < 3) {
+        // 2.º intento: prompt simplificado (Seedream rechaza a veces prompts largos o con negaciones).
+        // 3.º intento: escena neutra del sector (el filtro de seguridad rechaza escenas médicas/corporales explícitas).
+        const safe = `Editorial photograph for a blog article of a ${site.sector || "business"}${site.location ? " in " + site.location : ""}: bright, elegant premises interior or a professional at work seen from a distance, natural light, clean composition, no close-ups of bodies, no medical devices, no text.`;
+        const promptTry = tries === 1
+          ? `Scene: ${img.subject}. Photorealistic editorial image, natural light.${site.visualStyle ? " Style: " + site.visualStyle.slice(0, 400) : ""}`
+          : safe + (site.visualStyle ? " Style: " + site.visualStyle.slice(0, 300) : "");
+        img.tries = tries + 1;
+        if (tries === 2) await seoLog(p.workspaceId, { siteId: p.siteId, postId: p.id }, `Imagen ${i}: Seedream rechazó la escena dos veces (filtro de seguridad); se genera una escena neutra del sector.`, "warn");
         try {
-          const t = await createSeedreamTask(p.workspaceId, s, simple, img.aspect ?? "widescreen_16_9", await referenceUrls(p.workspaceId, site.id, 5));
+          const t = await createSeedreamTask(p.workspaceId, s, promptTry, img.aspect ?? "widescreen_16_9", await referenceUrls(p.workspaceId, site.id, 5));
           Object.assign(img, { taskId: t.taskId, endpoint: t.endpoint, requestedAt: Date.now() });
           pending++;
         } catch (e: any) {
@@ -350,7 +356,7 @@ export async function pollImages(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
         }
       } else {
         img.status = "failed";
-        img.error = "Freepik FAILED";
+        img.error = "Seedream rechazó la escena (filtro de seguridad). Cambia la escena en esta pestaña y pulsa «Regenerar».";
       }
     } else if (Date.now() - (img.requestedAt ?? 0) > 20 * 60 * 1000) {
       img.status = "failed";
