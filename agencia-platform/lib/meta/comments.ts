@@ -148,33 +148,47 @@ async function fetchExplicitCampaignAds(
 ) {
   const uniqueIds = [...new Set(adIds.filter((id) => /^\d+$/.test(id)))];
   const ads: any[] = [];
+  const connections = await listWorkspaceMetaTokens(workspaceId).catch(() => []);
+  const tokenCandidates = [...new Set([token, ...connections.map((connection) => connection.token)].filter((item): item is string => Boolean(item)))];
   for (const adId of uniqueIds) {
+    let lastError: unknown = null;
+    let imported = false;
+    for (const candidateToken of tokenCandidates) {
+      try {
+        const ad = await graph(
+          workspaceId,
+          `${adId}?fields=id,name,campaign{id},creative{id}`,
+          undefined,
+          candidateToken
+        );
+        const adCampaignId = String(ad?.campaign?.id ?? "");
+        if (adCampaignId && adCampaignId !== campaignId) {
+          coverageIssues.push(`Anuncio ${adId}: Meta indica que pertenece a otra campaña (${adCampaignId}); aun así se intentó importar bajo la campaña seleccionada.`);
+        }
+        if (!ad?.id) {
+          coverageIssues.push(`Anuncio ${adId}: Meta no devolvió datos del anuncio.`);
+          imported = true;
+          break;
+        }
+        if (ad.creative?.id) {
+          ad.creative = await graph(workspaceId, `${ad.creative.id}?fields=${creativeFields}`, undefined, candidateToken).catch(() => {
+            coverageIssues.push(`No se pudo consultar el creative del anuncio ${adId}.`);
+            return ad.creative;
+          });
+        }
+        ads.push({ ...ad, _manualToken: candidateToken });
+        imported = true;
+        break;
+      } catch (error: any) {
+        lastError = error;
+      }
+    }
+    if (imported) continue;
     try {
-      const ad = await graph(
-        workspaceId,
-        `${adId}?fields=id,name,campaign{id},creative{id}`,
-        undefined,
-        token ?? undefined
-      );
-      const adCampaignId = String(ad?.campaign?.id ?? "");
-      if (adCampaignId && adCampaignId !== campaignId) {
-        coverageIssues.push(`Anuncio ${adId}: pertenece a otra campaña (${adCampaignId}) y no se importó en ${campaignId}.`);
-        continue;
-      }
-      if (!ad?.id) {
-        coverageIssues.push(`Anuncio ${adId}: Meta no devolvió datos del anuncio.`);
-        continue;
-      }
-      if (ad.creative?.id) {
-        ad.creative = await graph(workspaceId, `${ad.creative.id}?fields=${creativeFields}`, undefined, token ?? undefined).catch(() => {
-          coverageIssues.push(`No se pudo consultar el creative del anuncio ${adId}.`);
-          return ad.creative;
-        });
-      }
-      ads.push(ad);
+      throw lastError ?? new Error("Meta no devolvió datos");
     } catch (error: any) {
       const message = String(error?.message ?? error).slice(0, 400);
-      coverageIssues.push(`Anuncio ${adId}: no se pudo consultar como anuncio; se intentará como publicación directa. ${message}`);
+      coverageIssues.push(`Anuncio ${adId}: no se pudo consultar como anuncio con ninguna conexión; se intentará como publicación directa. ${message}`);
       ads.push({
         id: adId,
         name: `ID manual ${adId}`,
@@ -487,7 +501,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       hydratedAds.push(...await Promise.all(ads.slice(offset, offset + 10).map(async (ad: any) => {
         const creative = ad?.creative ?? {};
         if (!shouldHydrateMetaCreative(creative)) return ad;
-        const hydratedCreative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, connectionToken ?? undefined).catch(() => {
+        const hydratedCreative = await graph(workspaceId, `${creative.id}?fields=${creativeFields}`, undefined, ad._manualToken ?? connectionToken ?? undefined).catch(() => {
           coverageIssues.push(`No se pudo consultar el anuncio ${ad.id}.`);
           return creative;
         });

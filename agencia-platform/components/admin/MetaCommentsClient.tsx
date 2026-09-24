@@ -239,7 +239,7 @@ export default function MetaCommentsClient() {
       const from = new Date(`${fromDate}T00:00:00.000`).toISOString();
       const to = new Date(`${toDate}T23:59:59.999`).toISOString();
       const extraAdIds = parseManualAdIds(manualAdIds);
-      let imported = 0; let discovered = 0; let remaining = 0; let rounds = 0; let diagnostics: any = null;
+      let imported = 0; let discovered = 0; let remaining = 0; let rounds = 0; let diagnostics: any = null; let coverageIssues: string[] = [];
       const selectedFeed = feeds.find((feed) => feed.campaignId === selectedCampaignId);
       if (!selectedFeed) throw new Error("Selecciona primero una campaña monitorizada");
       do {
@@ -251,10 +251,11 @@ export default function MetaCommentsClient() {
           await load();
           throw new Error(`Importación incompleta. Se han conservado los comentarios accesibles. ${(data.coverageIssues ?? []).join(" ")}`);
         }
-        imported += data.created ?? 0; discovered = data.discovered ?? discovered; remaining = data.remaining ?? 0; diagnostics = data.diagnostics ?? diagnostics; rounds++;
+        imported += data.created ?? 0; discovered = data.discovered ?? discovered; remaining = data.remaining ?? 0; diagnostics = data.diagnostics ?? diagnostics; coverageIssues = data.coverageIssues ?? coverageIssues; rounds++;
       } while (remaining > 0 && rounds < 20);
       const detail = diagnostics ? ` Meta revisó ${diagnostics.ads} anuncios${diagnostics.explicitAds ? ` (${diagnostics.explicitAds} añadidos manualmente por ID)` : ""}, ${diagnostics.facebookTargets} publicaciones de Facebook y ${diagnostics.instagramTargets} de Instagram; ${diagnostics.adsWithoutPost} anuncios no tenían publicación accesible.` : "";
-      setImportResult(`Importación terminada: ${imported} comentarios nuevos de ${discovered} encontrados en el periodo.${detail}`);
+      const warnings = coverageIssues.length ? ` Avisos: ${coverageIssues.slice(0, 4).join(" ")}` : "";
+      setImportResult(`Importación terminada: ${imported} comentarios nuevos de ${discovered} encontrados en el periodo.${detail}${warnings}`);
       await load();
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
     finally { setBusy(null); }
