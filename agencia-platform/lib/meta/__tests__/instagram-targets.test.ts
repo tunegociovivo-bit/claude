@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { fallbackInstagramMediaTargets, matchInstagramMediaForCreative, resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
+import { fallbackInstagramMediaTargets, matchInstagramMediaForCreative, mergeMetaAdsById, resolveInstagramMediaTarget, shouldHydrateMetaCreative } from "../comments";
 
 describe("Instagram comment target discovery", () => {
   it("uses the effective media id returned by current Meta creatives", () => {
     const creative = { id: "creative", effective_instagram_media_id: "media-current", effective_instagram_story_id: "legacy", instagram_user_id: "ig-owner" };
     expect(shouldHydrateMetaCreative(creative)).toBe(false);
     expect(resolveInstagramMediaTarget(creative, new Map())).toMatchObject({ id: "media-current", ownerId: "ig-owner", platform: "instagram" });
+  });
+
+  it("mezcla anuncios de campaña y anuncios añadidos manualmente sin duplicarlos", () => {
+    expect(mergeMetaAdsById([{ id: "1", name: "Campaña" }], [{ id: "1", name: "Manual" }, { id: "2", name: "Extra" }])).toEqual([
+      { id: "1", name: "Manual" },
+      { id: "2", name: "Extra" }
+    ]);
   });
   it("falls back to source media when an effective id is empty", () => {
     expect(resolveInstagramMediaTarget({ effective_instagram_media_id: "", source_instagram_media_id: "source" }, new Map())).toMatchObject({ id: "source" });

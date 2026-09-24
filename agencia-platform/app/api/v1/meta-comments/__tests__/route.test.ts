@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, MetaDeletionErrorMock } = vi.hoisted(() => ({
+const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, syncCommentsMock, MetaDeletionErrorMock } = vi.hoisted(() => ({
   authenticateMock: vi.fn(),
   regenerateDraftMock: vi.fn(),
   deleteCommentMock: vi.fn(),
+  syncCommentsMock: vi.fn(),
   MetaDeletionErrorMock: class MetaDeletionError extends Error {},
   prisma: {
     metaCommentFeed: { findMany: vi.fn().mockResolvedValue([]) },
@@ -28,7 +29,7 @@ vi.mock("@/lib/meta/comments", () => ({
   notifyMetaOperational: vi.fn(),
   regenerateMetaCommentDraft: regenerateDraftMock,
   replyToMetaComment: vi.fn(),
-  syncMetaCampaignComments: vi.fn()
+  syncMetaCampaignComments: syncCommentsMock
 }));
 vi.mock("@/lib/audit/log", () => ({ auditFromReq: vi.fn() }));
 vi.mock("@/lib/integrations/meta-ads", () => ({ metaAdsListAdAccounts: vi.fn(), metaAdsListCampaigns: vi.fn() }));
@@ -57,6 +58,29 @@ describe("POST /api/v1/meta-comments regenerate_draft", () => {
     prisma.metaAdComment.findMany.mockResolvedValue([]);
     await GET(new NextRequest(`https://hub.example/api/v1/meta-comments?${new URLSearchParams(data.nextCursor)}`), { params: {} });
     expect(prisma.metaAdComment.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ workspaceId: "workspace-1", OR: [{ commentCreatedAt: { lt: timestamp } }, { commentCreatedAt: timestamp, id: { lt: "c-299" } }] }) }));
+  });
+
+  it("permite forzar IDs concretos de anuncio al importar comentarios", async () => {
+    authenticateMock.mockResolvedValue({ workspaceId: "workspace-1", userId: "user-1", scopes: new Set(["*"]) });
+    syncCommentsMock.mockResolvedValue({ discovered: 3, created: 3, remaining: 0, complete: true, diagnostics: { explicitAds: 1 } });
+
+    const response = await call({
+      action: "sync",
+      campaignId: "120247270045340145",
+      clientName: "Eroski",
+      from: "2026-09-01T00:00:00.000Z",
+      to: "2026-09-24T23:59:59.999Z",
+      extraAdIds: ["120224999030870524"]
+    });
+
+    expect(response.status).toBe(200);
+    expect(syncCommentsMock).toHaveBeenCalledWith(
+      "workspace-1",
+      "120247270045340145",
+      "Eroski",
+      { from: new Date("2026-09-01T00:00:00.000Z"), to: new Date("2026-09-24T23:59:59.999Z") },
+      { extraAdIds: ["120224999030870524"] }
+    );
   });
   beforeEach(() => {
     vi.clearAllMocks();

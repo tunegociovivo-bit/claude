@@ -134,6 +134,61 @@ async function campaignAdsWithAvailableConnection(
   );
 }
 
+type MetaSyncOptions = {
+  extraAdIds?: string[];
+};
+
+async function fetchExplicitCampaignAds(
+  workspaceId: string,
+  campaignId: string,
+  adIds: string[],
+  creativeFields: string,
+  token: string | null | undefined,
+  coverageIssues: string[]
+) {
+  const uniqueIds = [...new Set(adIds.filter((id) => /^\d+$/.test(id)))];
+  const ads: any[] = [];
+  for (const adId of uniqueIds) {
+    try {
+      const ad = await graph(
+        workspaceId,
+        `${adId}?fields=id,name,campaign{id},creative{id}`,
+        undefined,
+        token ?? undefined
+      );
+      const adCampaignId = String(ad?.campaign?.id ?? "");
+      if (adCampaignId && adCampaignId !== campaignId) {
+        coverageIssues.push(`Anuncio ${adId}: pertenece a otra campaña (${adCampaignId}) y no se importó en ${campaignId}.`);
+        continue;
+      }
+      if (!ad?.id) {
+        coverageIssues.push(`Anuncio ${adId}: Meta no devolvió datos del anuncio.`);
+        continue;
+      }
+      if (ad.creative?.id) {
+        ad.creative = await graph(workspaceId, `${ad.creative.id}?fields=${creativeFields}`, undefined, token ?? undefined).catch(() => {
+          coverageIssues.push(`No se pudo consultar el creative del anuncio ${adId}.`);
+          return ad.creative;
+        });
+      }
+      ads.push(ad);
+    } catch (error: any) {
+      const message = String(error?.message ?? error).slice(0, 400);
+      coverageIssues.push(`Anuncio ${adId}: no se pudo consultar como anuncio; se intentará como publicación directa. ${message}`);
+      ads.push({
+        id: adId,
+        name: `ID manual ${adId}`,
+        creative: { effective_object_story_id: adId }
+      });
+    }
+  }
+  return ads;
+}
+
+export function mergeMetaAdsById(primary: any[], extra: any[]) {
+  return [...new Map([...primary, ...extra].filter((item) => item?.id).map((item) => [String(item.id), item])).values()];
+}
+
 export function metaSyncErrorFingerprint(message: string) {
   return message
     .toLowerCase()
@@ -374,7 +429,7 @@ export async function regenerateMetaCommentDraft(workspaceId: string, comment: {
   return draft.slice(0, 2000);
 }
 
-export async function syncMetaCampaignComments(workspaceId: string, campaignId: string, clientName: string, range?: Range) {
+export async function syncMetaCampaignComments(workspaceId: string, campaignId: string, clientName: string, range?: Range, options: MetaSyncOptions = {}) {
   const feed = await prisma.metaCommentFeed.upsert({
     where: { workspaceId_campaignId: { workspaceId, campaignId } },
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
@@ -383,7 +438,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const creativeFields = "id,effective_object_story_id,effective_instagram_media_id,source_instagram_media_id,instagram_user_id,instagram_permalink_url,object_story_id,object_story_spec,asset_feed_spec";
     const resolved = await campaignAdsWithAvailableConnection(workspaceId, campaignId, creativeFields, feed.metaConnectionId);
     const connectionToken = resolved.token;
-    const ads = resolved.ads;
+    let ads = resolved.ads;
     const resolvedConnectionId = resolved.connectionId ?? feed.metaConnectionId;
     if (resolvedConnectionId && resolvedConnectionId !== feed.metaConnectionId) {
       await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { metaConnectionId: resolvedConnectionId } });
@@ -425,6 +480,8 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0; let unsupportedTargets = 0;
     const coverageIssues: string[] = [];
+    const explicitAds = await fetchExplicitCampaignAds(workspaceId, campaignId, options.extraAdIds ?? [], creativeFields, connectionToken, coverageIssues);
+    ads = mergeMetaAdsById(ads, explicitAds);
     const hydratedAds: any[] = [];
     for (let offset = 0; offset < ads.length; offset += 10) {
       hydratedAds.push(...await Promise.all(ads.slice(offset, offset + 10).map(async (ad: any) => {
@@ -548,7 +605,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
     const complete = coverageIssues.length === 0;
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
-    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {

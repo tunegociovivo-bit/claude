@@ -30,6 +30,10 @@ function clientKeyOf(value: { clientName: string; adAccountName?: string | null 
   return canonicalClientName(value.adAccountName || value.clientName).toLocaleLowerCase("es-ES");
 }
 
+function parseManualAdIds(value: string) {
+  return [...new Set(value.split(/[\s,;]+/).map((item) => item.trim()).filter((item) => /^\d+$/.test(item)))];
+}
+
 export default function MetaCommentsClient() {
   const [items, setItems] = useState<Comment[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
@@ -49,6 +53,7 @@ export default function MetaCommentsClient() {
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [fromDate, setFromDate] = useState(() => new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [manualAdIds, setManualAdIds] = useState("");
   const [importResult, setImportResult] = useState<string | null>(null);
   const [moderationResult, setModerationResult] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(null);
@@ -233,11 +238,12 @@ export default function MetaCommentsClient() {
     try {
       const from = new Date(`${fromDate}T00:00:00.000`).toISOString();
       const to = new Date(`${toDate}T23:59:59.999`).toISOString();
+      const extraAdIds = parseManualAdIds(manualAdIds);
       let imported = 0; let discovered = 0; let remaining = 0; let rounds = 0; let diagnostics: any = null;
       const selectedFeed = feeds.find((feed) => feed.campaignId === selectedCampaignId);
       if (!selectedFeed) throw new Error("Selecciona primero una campaña monitorizada");
       do {
-        const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync", campaignId: selectedFeed.campaignId, clientName: selectedFeed.clientName, from, to }) });
+        const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync", campaignId: selectedFeed.campaignId, clientName: selectedFeed.clientName, from, to, ...(extraAdIds.length ? { extraAdIds } : {}) }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data?.error?.message ?? "No se pudo importar el periodo");
         if (data.deferred) throw new Error("Meta ha aplazado la consulta. El periodo todavía no está completamente importado; reinténtalo más tarde.");
@@ -247,7 +253,7 @@ export default function MetaCommentsClient() {
         }
         imported += data.created ?? 0; discovered = data.discovered ?? discovered; remaining = data.remaining ?? 0; diagnostics = data.diagnostics ?? diagnostics; rounds++;
       } while (remaining > 0 && rounds < 20);
-      const detail = diagnostics ? ` Meta revisó ${diagnostics.ads} anuncios, ${diagnostics.facebookTargets} publicaciones de Facebook y ${diagnostics.instagramTargets} de Instagram; ${diagnostics.adsWithoutPost} anuncios no tenían publicación accesible.` : "";
+      const detail = diagnostics ? ` Meta revisó ${diagnostics.ads} anuncios${diagnostics.explicitAds ? ` (${diagnostics.explicitAds} añadidos manualmente por ID)` : ""}, ${diagnostics.facebookTargets} publicaciones de Facebook y ${diagnostics.instagramTargets} de Instagram; ${diagnostics.adsWithoutPost} anuncios no tenían publicación accesible.` : "";
       setImportResult(`Importación terminada: ${imported} comentarios nuevos de ${discovered} encontrados en el periodo.${detail}`);
       await load();
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
@@ -374,7 +380,8 @@ export default function MetaCommentsClient() {
     })}</div>}
     <div className="mb-5 rounded-xl border bg-white p-4">
       <div className="mb-3"><div className="font-semibold text-slate-900">Importar comentarios antiguos</div><div className="text-xs text-slate-500">Selecciona un periodo y se recorrerán todas las páginas de resultados de Meta sin duplicar comentarios ya guardados.</div></div>
-      <div className="flex flex-wrap items-end gap-3"><label className="text-xs font-medium text-slate-700">Campaña<select value={selectedCampaignId} onChange={(event) => setSelectedCampaignId(event.target.value)} className="mt-1 block max-w-xs rounded-lg border px-3 py-2 text-sm">{feeds.filter((item) => item.active).map((item) => <option key={item.campaignId} value={item.campaignId}>{item.campaignName ?? item.clientName}</option>)}</select></label><label className="text-xs font-medium text-slate-700">Desde<input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label><label className="text-xs font-medium text-slate-700">Hasta<input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label><button onClick={importPeriod} disabled={busy === "import" || !selectedCampaignId || !fromDate || !toDate || fromDate > toDate} className="inline-flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 disabled:opacity-50">{busy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Importar periodo</button></div>
+      <div className="flex flex-wrap items-end gap-3"><label className="text-xs font-medium text-slate-700">Campaña<select value={selectedCampaignId} onChange={(event) => setSelectedCampaignId(event.target.value)} className="mt-1 block max-w-xs rounded-lg border px-3 py-2 text-sm">{feeds.filter((item) => item.active).map((item) => <option key={item.campaignId} value={item.campaignId}>{item.campaignName ?? item.clientName}</option>)}</select></label><label className="text-xs font-medium text-slate-700">Desde<input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label><label className="text-xs font-medium text-slate-700">Hasta<input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="mt-1 block rounded-lg border px-3 py-2 text-sm" /></label><label className="min-w-[260px] flex-1 text-xs font-medium text-slate-700">IDs de anuncios concretos, opcional<textarea value={manualAdIds} onChange={(event) => setManualAdIds(event.target.value)} rows={2} placeholder="Ej.: 120224999030870524" className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm" /></label><button onClick={importPeriod} disabled={busy === "import" || !selectedCampaignId || !fromDate || !toDate || fromDate > toDate} className="inline-flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 disabled:opacity-50">{busy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Importar periodo</button></div>
+      <p className="mt-2 text-xs text-slate-500">Si ves comentarios en Meta que no aparecen aquí, pega el ID del anuncio para forzar su consulta en esa campaña y periodo.</p>
       {importResult && <div className="mt-3 text-sm font-medium text-emerald-700">{importResult}</div>}
     </div>
     {(error || feed?.lastError) && <div role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><b>{error ? "No se ha podido completar la operación:" : "No se ha podido completar la sincronización:"}</b> {error ?? feed?.lastError}{!error && <button onClick={() => setConnectionOpen(true)} className="mt-3 block rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100">Gestionar conexiones Meta</button>}</div>}
