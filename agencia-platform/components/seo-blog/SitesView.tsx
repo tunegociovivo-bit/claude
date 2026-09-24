@@ -232,6 +232,7 @@ function WpTab({ site, form, set, txt, saveBar, onSaved }: any) {
               <>✅ Conectado como <b>{res.user}</b> (ID {res.userId}) en «{res.siteName}» · {res.pagesFound} páginas/posts indexados para el enlazado interno<br />
                 Publicar: {res.canPublish ? "✅" : "❌"} · Subir medios: {res.canUpload ? "✅" : "❌"} · NV SEO Bridge: {res.bridge ? "✅" : "⚠️ no instalado"} · Yoast: {res.yoast ? "✅" : "—"} · Rank Math: {res.rankmath ? "✅" : "—"}</>
             ) : <>❌ {res.error}</>}
+            {res.fixedUrl && <div className="mt-1 text-xs">ℹ️ La URL guardada no era la raíz del WordPress; se ha corregido automáticamente a <b>{res.fixedUrl}</b>.</div>}
           </div>
         )}
         {saveBar(
@@ -240,7 +241,9 @@ function WpTab({ site, form, set, txt, saveBar, onSaved }: any) {
             try {
               await api(`/sites/${site.id}`, { method: "PATCH", body: form });
               await onSaved();
-              setRes(await api(`/sites/${site.id}/test`, { method: "POST" }));
+              const r = await api(`/sites/${site.id}/test`, { method: "POST" });
+              setRes(r);
+              if (r?.fixedUrl) await onSaved();
             } catch (e: any) {
               setRes({ ok: false, error: e.message });
             } finally {
