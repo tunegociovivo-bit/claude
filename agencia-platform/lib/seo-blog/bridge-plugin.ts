@@ -5,13 +5,40 @@
 export const NV_SEO_BRIDGE_PHP = `<?php
 /**
  * Plugin Name: NV SEO Bridge
- * Description: Puente entre NV Publicador (Hub Negocio Vivo) y esta web: aplica meta title, meta description y keyword en Yoast SEO / Rank Math e imprime el schema JSON-LD (Article + FAQPage) de los posts publicados desde el Hub.
- * Version: 1.0.0
+ * Description: Puente entre NV Publicador (Hub Negocio Vivo) y esta web: aplica meta title, meta description y keyword en Yoast SEO / Rank Math, imprime el schema JSON-LD (Article + FAQPage) y garantiza que la autenticación por Application Password llega a WordPress aunque el hosting elimine la cabecera Authorization.
+ * Version: 1.1.0
  * Author: Negocio Vivo
  * Requires PHP: 7.4
  */
 
 if (!defined('ABSPATH')) exit;
+
+/**
+ * Algunos hostings (Apache en modo CGI/FastCGI, algunos proxies) eliminan la cabecera Authorization
+ * antes de que llegue a PHP y WordPress responde «No estás conectado». El Hub envía además la cabecera
+ * X-NV-Auth con las mismas credenciales; aquí la volvemos a poner donde WordPress la espera.
+ */
+if (empty($_SERVER['PHP_AUTH_USER'])) {
+    $nv_auth = '';
+    foreach (['HTTP_X_NV_AUTH', 'HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION'] as $nv_k) {
+        if (!empty($_SERVER[$nv_k])) { $nv_auth = $_SERVER[$nv_k]; break; }
+    }
+    if (!$nv_auth && function_exists('apache_request_headers')) {
+        $nv_h = apache_request_headers();
+        foreach (['X-NV-Auth', 'Authorization', 'x-nv-auth', 'authorization'] as $nv_k) {
+            if (!empty($nv_h[$nv_k])) { $nv_auth = $nv_h[$nv_k]; break; }
+        }
+    }
+    if ($nv_auth && stripos($nv_auth, 'basic ') === 0) {
+        $nv_dec = base64_decode(trim(substr($nv_auth, 6)), true);
+        if ($nv_dec !== false && strpos($nv_dec, ':') !== false) {
+            list($nv_u, $nv_p) = explode(':', $nv_dec, 2);
+            $_SERVER['PHP_AUTH_USER'] = $nv_u;
+            $_SERVER['PHP_AUTH_PW'] = $nv_p;
+        }
+    }
+    unset($nv_auth, $nv_k, $nv_h, $nv_dec, $nv_u, $nv_p);
+}
 
 final class NV_SEO_Bridge {
 

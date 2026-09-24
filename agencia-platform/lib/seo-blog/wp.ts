@@ -39,8 +39,10 @@ export async function wpRequest<T = any>(
   if (!site.siteUrl || !site.wpUser || !site.wpAppPasswordEnc) {
     throw new WpError(400, "El cliente no tiene configurada la conexión WordPress (URL, usuario y Application Password).");
   }
+  const basic = auth(site);
   const headers: Record<string, string> = {
-    Authorization: auth(site),
+    Authorization: basic,
+    "X-NV-Auth": basic, // copia para el plugin puente cuando el hosting elimina Authorization
     Accept: "application/json",
     "User-Agent": "NV-Hub-Publicador/1.0",
     ...(opts.headers ?? {})
@@ -71,6 +73,18 @@ export async function wpRequest<T = any>(
   }
   if (!r.ok) {
     const msg = data?.message ?? plainText(text).slice(0, 300);
+    if (r.status === 401 && data?.code === "rest_not_logged_in") {
+      throw new WpError(
+        401,
+        "La web responde «No estás conectado» a pesar de enviar usuario y Application Password. Dos causas posibles: " +
+          "(1) las credenciales no son válidas: la Application Password se crea en WordPress → Usuarios → Perfil del usuario → «Contraseñas de aplicación» (no es la contraseña de acceso) y el usuario debe existir con ese nombre exacto; " +
+          "(2) el hosting elimina la cabecera Authorization antes de llegar a WordPress (habitual en Apache CGI/FastCGI): instala el plugin NV SEO Bridge (botón de esta pestaña), que lo corrige solo, " +
+          "o añade al .htaccess encima de «# BEGIN WordPress»: RewriteEngine On · RewriteCond %{HTTP:Authorization} ^(.*) · RewriteRule ^(.*) - [E=HTTP_AUTHORIZATION:%1]."
+      );
+    }
+    if (r.status === 401 && (data?.code === "incorrect_password" || data?.code === "invalid_username")) {
+      throw new WpError(401, `Credenciales incorrectas (${data.code}): revisa el usuario WordPress y la Application Password (se crea en Usuarios → Perfil → Contraseñas de aplicación; no es la contraseña normal).`);
+    }
     throw new WpError(r.status, `Web cliente (${r.status}): ${msg}`);
   }
   if (data === null) throw new WpError(502, diagnoseNonJson(r, text));
