@@ -49,7 +49,7 @@ export default function PanelView({ nav }: { nav: Nav }) {
   const warn: string[] = [];
   if (!s.anthropicConfigured) warn.push("Falta la API key de Anthropic (Configuración de IA).");
   if (!s.freepikConfigured) warn.push("Falta la API key de Freepik (Calendario editorial → ajustes). Sin ella los posts salen sin imágenes.");
-  else if (check?.freepik && !check.freepik.ok) warn.push(`Imágenes desactivadas: ${check.freepik.message}`);
+  else if (check?.freepik && !check.freepik.ok) warn.push(`Los posts salen SIN IMÁGENES: ${check.freepik.message} → pega la clave nueva en la pestaña Ajustes.`);
   if (!s.serperConfigured) warn.push("Sin API key de Serper.dev: las propuestas y briefs se hacen sin datos reales de Google (recomendado activarla en Ajustes).");
 
   const cnt = (st: string[]) => (posts ?? []).filter((p) => st.includes(p.status)).length;

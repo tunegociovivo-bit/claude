@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import clsx from "clsx";
 import type { Nav } from "./SeoBlogApp";
 import { api, Btn, Card, Field, inputCls } from "./ui";
 
 export default function SettingsView({ nav }: { nav: Nav }) {
   const s = nav.settings ?? {};
-  const [f, setF] = useState<Record<string, any>>({ ...s, serperApiKey: "" });
+  const [f, setF] = useState<Record<string, any>>({ ...s, serperApiKey: "", freepikApiKey: "" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [check, setCheck] = useState<any>(null);
@@ -23,9 +24,14 @@ export default function SettingsView({ nav }: { nav: Nav }) {
       <Card title="Claves compartidas del Hub">
         <ul className="text-sm space-y-1">
           <li>{s.anthropicConfigured ? "✅" : "⚠️"} Anthropic (Claude) — se configura en <a className="text-amber-700 underline" href="/admin/ai">Configuración de IA</a>.</li>
-          <li>{s.freepikConfigured ? (check?.freepik ? (check.freepik.ok ? "✅" : "❌") : "⏳") : "⚠️"} Freepik / Magnific (Seedream 4.5) — se configura en los ajustes del <a className="text-amber-700 underline" href="/admin/editorial">Calendario editorial</a> (o variable FREEPIK_API_KEY).
-            {check?.freepik && <span className={check.freepik.ok ? "text-emerald-700" : "text-rose-700"}> {check.freepik.message}</span>}</li>
+          <li>{s.freepikConfigured ? (check?.freepik ? (check.freepik.ok ? "✅" : "❌") : "⏳") : "⚠️"} Freepik / Magnific (imágenes Seedream 4.5)
+            {check?.freepik && <span className={check.freepik.ok ? "text-emerald-700" : "text-rose-700"}> — {check.freepik.message}</span>}</li>
         </ul>
+        <div className={clsx("mt-3 rounded-lg border p-3", check?.freepik && !check.freepik.ok ? "border-rose-200 bg-rose-50" : "border-slate-200 bg-slate-50")}>
+          <Field label="API key de Freepik / Magnific" help={check?.freepik?.ok ? "Guardada y válida. Escribe una nueva solo para cambiarla." : "Genera una en magnific.com → API → Dashboard → API key, pégala aquí y pulsa «Guardar ajustes». Se comprueba al instante y sirve también para el calendario editorial."}>
+            <input type="password" autoComplete="new-password" value={f.freepikApiKey} onChange={set("freepikApiKey")} placeholder={s.freepikConfigured ? "••••••••" : "FPSX…"} className={inputCls} />
+          </Field>
+        </div>
       </Card>
       <Card title="Datos de Google (Serper.dev)">
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -66,9 +72,12 @@ export default function SettingsView({ nav }: { nav: Nav }) {
         <Btn busy={busy} onClick={async () => {
           setBusy(true);
           try {
-            await api("/settings", { method: "PATCH", body: { ...f, serperApiKey: f.serperApiKey || undefined } });
+            await api("/settings", { method: "PATCH", body: { ...f, serperApiKey: f.serperApiKey || undefined, freepikApiKey: f.freepikApiKey || undefined } });
             await nav.reloadSettings();
-            setMsg("Ajustes guardados ✓");
+            const c = await api("/settings/check").catch(() => null);
+            setCheck(c);
+            setF((x) => ({ ...x, freepikApiKey: "" }));
+            setMsg(c?.freepik && !c.freepik.ok ? `Ajustes guardados, pero Freepik: ${c.freepik.message}` : "Ajustes guardados ✓ · Freepik OK");
           } catch (e: any) {
             setMsg(e.message);
           } finally {
