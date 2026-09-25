@@ -101,7 +101,15 @@ export type DiscoveryCandidate = {
   reviewers: { cid: string; name: string; rating: number; date: string; negDate: string; gapDays: number | null }[];
 };
 
-export type Discovery = { mode: "manual" | "auto"; minOverlap: number; profilesScanned: number; candidates: DiscoveryCandidate[] };
+export type Discovery = {
+  mode: "manual" | "auto";
+  /** history = historial de cada perfil (SerpApi); sweep = barrido de negocios cercanos del sector (Serper). */
+  method?: "history" | "sweep";
+  minOverlap: number;
+  profilesScanned: number;
+  candidates: DiscoveryCandidate[];
+  sweptPlaces?: { title: string; reviewsRead: number }[];
+};
 
 export type SimilarPair = { a: string; b: string; sim: number; aName: string; bName: string; aText: string; bText: string };
 
@@ -183,6 +191,10 @@ export function samePlace(r: { dataId?: string; placeTitle?: string; lat?: numbe
 }
 
 const STOP = new Set(["de", "del", "la", "el", "y", "en", "tienda", "servicio", "centro", "shop", "store", "service"]);
+export function sameSector(a: string, b: string): boolean {
+  return typeMatch(a, b);
+}
+
 function typeMatch(a: string, b: string): boolean {
   const na = norm(a);
   const nb = norm(b);
@@ -336,16 +348,17 @@ export function discoverBeneficiaries(
     for (const c of candidates) c.selected = keys.has(placeKey(c));
   }
 
-  return { mode: opts.mode, minOverlap: opts.minOverlap, profilesScanned: Object.keys(positives).length, candidates: candidates.slice(0, 25) };
+  return { mode: opts.mode, method: "history", minOverlap: opts.minOverlap, profilesScanned: Object.keys(positives).length, candidates: candidates.slice(0, 25) };
 }
 
 /** Hallazgos del descubrimiento de negocios beneficiados (para el resumen del informe). */
 export function discoveryFindings(d: Discovery): string[] {
   const top = d.candidates.slice(0, 3);
   if (!d.candidates.length) {
-    return d.mode === "auto"
-      ? [`Se ha revisado el historial de ${d.profilesScanned} perfiles y ningún negocio acumula ${d.minOverlap} o más valoraciones positivas de autores de negativas al cliente.`]
-      : [];
+    if (d.mode !== "auto") return [];
+    return d.method === "sweep"
+      ? [`Se han revisado ${d.sweptPlaces?.length ?? 0} negocios del mismo sector cercanos al cliente y ninguno acumula ${d.minOverlap} o más valoraciones positivas de autores de negativas al cliente.`]
+      : [`Se ha revisado el historial de ${d.profilesScanned} perfiles y ningún negocio acumula ${d.minOverlap} o más valoraciones positivas de autores de negativas al cliente.`];
   }
   const f: string[] = [];
   const desc = (c: DiscoveryCandidate) =>

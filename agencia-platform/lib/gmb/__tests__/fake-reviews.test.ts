@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/db/prisma", () => ({ prisma: {} }));
-vi.mock("@/lib/ai/anthropic", () => ({ complete: vi.fn() }));
+vi.mock("@/lib/ai/anthropic", () => ({ complete: vi.fn(), DEFAULT_MODEL: "test-model" }));
 
 import { SerpApiClient } from "@/lib/integrations/serpapi";
+import { SerperReviewsClient, serperReviewToSerpApi } from "@/lib/integrations/serper-reviews";
 import { initState, tick, type JobState } from "@/lib/gmb/fake-reviews/job";
 import { parsePlaceInput, relativeToTs, normalizeReview, type AnalysisParams, type Place } from "@/lib/gmb/fake-reviews/core";
 import { similarity, type AnalysisResults } from "@/lib/gmb/fake-reviews/analyzer";
@@ -87,7 +88,30 @@ function scenario() {
     }
     throw new Error("engine inesperado");
   };
-  return { transport };
+  // Misma escena servida con el formato de Serper.dev (/maps y /reviews, sin historial de perfiles).
+  const serperTransport = async (path: string, body: any) => {
+    if (path === "/maps") {
+      return {
+        places: [CLIENT, COMP, SUPER, OTHER].map((p) => ({
+          title: p.title, address: "", latitude: p.lat, longitude: p.lng, rating: p.rating, ratingCount: p.reviews, type: p.type, fid: p.dataId
+        }))
+      };
+    }
+    if (path === "/reviews") {
+      const sortBy = body.sortBy === "lowestRating" ? "ratingLow" : "newestFirst";
+      const sp = await transport({ engine: "google_maps_reviews", data_id: body.fid, sort_by: sortBy, next_page_token: body.nextPageToken });
+      const list = body.fid === CLIENT.dataId || body.fid === COMP.dataId ? sp.reviews : [];
+      return {
+        reviews: list.map((r: any) => ({
+          rating: r.rating, isoDate: r.iso_date, snippet: r.snippet, id: r.review_id, media: r.images,
+          user: { name: r.user.name, link: r.user.link, reviews: r.user.reviews }
+        })),
+        ...(list.length && sp.serpapi_pagination ? { nextPageToken: sp.serpapi_pagination.next_page_token } : {})
+      };
+    }
+    throw new Error("ruta inesperada");
+  };
+  return { transport, serperTransport };
 }
 
 async function runAll(params: AnalysisParams, api: SerpApiClient, summarize?: (r: AnalysisResults) => Promise<string>) {
@@ -190,6 +214,46 @@ describe("detección automática de competencia", () => {
     expect(results.discovery!.mode).toBe("manual");
     // El competidor indicado se excluye; queda el supermercado (3 perfiles).
     expect(results.discovery!.candidates.map((c) => c.dataId)).toEqual([SUPER.dataId]);
+  });
+});
+
+describe("proveedor Serper (sin historial de perfiles)", () => {
+  it("modo manual: cruce directo y avisa de que no hay investigación profunda", async () => {
+    const { serperTransport } = scenario();
+    const api = new SerperReviewsClient("k", { cacheDays: 0, transport: serperTransport });
+    const { results } = await runAll(baseParams({ deep: true }), api);
+    expect(api.supportsContributor).toBe(false);
+    expect(results.stats.authorsCrossPos).toBe(4);
+    expect(results.stats.profilesDeep).toBe(0);
+    expect(results.warnings?.join(" ")).toContain("Serper");
+    const byName = Object.fromEntries(results.authors.map((a) => [a.name, a]));
+    expect(byName["Falso 1"].level).toBe("alto");
+  });
+
+  it("modo auto: barrido de negocios cercanos del mismo sector y selección del beneficiado", async () => {
+    const { serperTransport } = scenario();
+    const api = new SerperReviewsClient("k", { cacheDays: 0, transport: serperTransport });
+    const { results } = await runAll(baseParams({ mode: "auto", competitors: [], minOverlap: 2 }), api);
+    const d = results.discovery!;
+    expect(d.method).toBe("sweep");
+    // Barrido: COMP y OTHER (mismo sector); el supermercado y el propio cliente quedan fuera.
+    expect(d.sweptPlaces!.map((s) => s.title).sort()).toEqual([COMP.title, OTHER.title].sort());
+    expect(d.candidates.map((c) => c.title)).toEqual([COMP.title]);
+    expect(d.candidates[0].count).toBe(4);
+    expect(results.competitors.map((c) => c.title)).toEqual([COMP.title]);
+    const byName = Object.fromEntries(results.authors.map((a) => [a.name, a]));
+    for (let i = 1; i <= 4; i++) expect(byName[`Falso ${i}`].level).toBe("alto");
+  });
+
+  it("traduce reseñas de Serper al formato interno (contributor_id desde el enlace)", () => {
+    const r = normalizeReview(
+      serperReviewToSerpApi({
+        rating: 1, isoDate: "2026-09-01T10:00:00Z", snippet: "Mal", id: "x1", user: { name: "Ana", link: "https://www.google.com/maps/contrib/1234567890?hl=es", reviews: 3 }
+      })
+    );
+    expect(r.user.contributorId).toBe("1234567890");
+    expect(r.date).toBe("2026-09-01");
+    expect(r.user.reviews).toBe(3);
   });
 });
 

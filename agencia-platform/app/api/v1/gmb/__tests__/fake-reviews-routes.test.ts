@@ -19,7 +19,7 @@ const { authenticateMock, prisma } = vi.hoisted(() => {
   return { authenticateMock: vi.fn(), prisma: p };
 });
 vi.mock("@/lib/db/prisma", () => ({ prisma }));
-vi.mock("@/lib/ai/anthropic", () => ({ complete: vi.fn() }));
+vi.mock("@/lib/ai/anthropic", () => ({ complete: vi.fn(), DEFAULT_MODEL: "test-model" }));
 vi.mock("@/lib/api/auth", async (importActual) => ({ ...(await importActual() as any), authenticate: authenticateMock }));
 vi.mock("@/lib/api/rate-limit", () => ({ rateLimit: () => ({ ok: true, remaining: 100, resetAt: Date.now() + 60_000 }) }));
 

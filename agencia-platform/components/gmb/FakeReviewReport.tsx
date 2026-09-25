@@ -121,7 +121,10 @@ export default function FakeReviewReport({
           <H2>{res.discovery.mode === "auto" ? "Competencia detectada automáticamente" : "Otros negocios con autores en común"}</H2>
           <p className="text-[13px] mb-3">
             Negocios a los que al menos {res.discovery.minOverlap} de los perfiles que valoraron negativamente al cliente han dado una reseña
-            positiva (se ha revisado el historial de {res.discovery.profilesScanned} perfiles).
+            positiva
+            {res.discovery.method === "sweep"
+              ? ` (barrido de ${res.discovery.sweptPlaces?.length ?? 0} negocios del mismo sector cercanos al cliente: ${(res.discovery.sweptPlaces ?? []).map((s) => s.title).join(", ")}).`
+              : ` (se ha revisado el historial de ${res.discovery.profilesScanned} perfiles).`}
             {res.discovery.mode === "auto" && " Los marcados como «Analizado» se han tratado como competencia en este informe."}
           </p>
           {!res.discovery.candidates.length ? (

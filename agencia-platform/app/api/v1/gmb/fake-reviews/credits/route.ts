@@ -1,17 +1,21 @@
-/** GET /api/v1/gmb/fake-reviews/credits → búsquedas SerpApi disponibles (no consume créditos). */
+/**
+ * GET /api/v1/gmb/fake-reviews/credits → proveedor de reseñas activo (SerpApi o Serper del
+ * Publicador SEO) y, con SerpApi, búsquedas disponibles (no consume créditos).
+ */
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api/handler";
-import { getSerpApiKey, serpApiAccount } from "@/lib/integrations/serpapi";
+import { serpApiAccount } from "@/lib/integrations/serpapi";
+import { describeReviewSource } from "@/lib/gmb/fake-reviews/provider";
 
 export const dynamic = "force-dynamic";
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
-  const key = await getSerpApiKey(api.workspaceId);
-  if (!key) return NextResponse.json({ configured: false });
+  const { key, ...info } = await describeReviewSource(api.workspaceId);
+  if (!info.provider) return NextResponse.json({ configured: false, ...info });
+  if (info.provider !== "serpapi" || !key) return NextResponse.json({ configured: true, left: null, plan: "", ...info });
   try {
-    const acc = await serpApiAccount(key);
-    return NextResponse.json({ configured: true, ...acc });
+    return NextResponse.json({ configured: true, ...info, ...(await serpApiAccount(key)) });
   } catch (e) {
-    return NextResponse.json({ configured: true, left: null, plan: "", error: (e as Error).message });
+    return NextResponse.json({ configured: true, ...info, left: null, plan: "", error: (e as Error).message });
   }
 });

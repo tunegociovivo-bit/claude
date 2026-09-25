@@ -31,12 +31,25 @@ export async function getSerpApiKey(workspaceId: string): Promise<string | null>
 }
 
 export type SerpParams = Record<string, string | number>;
+
+/** Fuente de reseñas usada por el detector (SerpApi o Serper con respuestas en formato SerpApi). */
+export interface ReviewSource {
+  readonly provider: "serpapi" | "serper";
+  /** ¿Puede leer el historial de reseñas de un perfil? (sólo SerpApi) */
+  readonly supportsContributor: boolean;
+  calls: number;
+  searchPlaces(q: string, ll?: string): Promise<any>;
+  reviews(id: { data_id?: string; place_id?: string }, sortBy: string, nextPageToken?: string): Promise<any>;
+  contributor(contributorId: string): Promise<any>;
+}
 export type SerpTransport = (params: SerpParams) => Promise<any>;
 
 const CACHE_DAYS = 7;
 
 /** Cliente con caché en BD y contador de llamadas reales. */
-export class SerpApiClient {
+export class SerpApiClient implements ReviewSource {
+  readonly provider = "serpapi" as const;
+  readonly supportsContributor = true;
   calls = 0;
   constructor(
     private key: string,

@@ -8,7 +8,8 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { complete } from "@/lib/ai/anthropic";
-import { SerpApiClient, getSerpApiKey, SerpApiKeyMissingError } from "@/lib/integrations/serpapi";
+import type { ReviewSource } from "@/lib/integrations/serpapi";
+import { getReviewSource } from "./provider";
 import {
   DAY,
   idParam,
@@ -25,6 +26,7 @@ import {
   attachCompHits,
   discoverBeneficiaries,
   discoveryFindings,
+  sameSector,
   positivesElsewhere,
   profileFeatures,
   runAnalysis,
@@ -35,7 +37,9 @@ import {
 } from "./analyzer";
 
 export type JobState = {
-  phase: "client" | "comp" | "deep" | "discover" | "compinfo" | "analyze" | "ai" | "done";
+  phase: "client" | "comp" | "deep" | "discover" | "compinfo" | "nearby" | "sweepselect" | "analyze" | "ai" | "done";
+  /** Auto sin historial de perfiles (Serper): barrido de negocios cercanos del mismo sector. */
+  sweep?: boolean;
   client: { token: string; pages: number; reviews: Review[] };
   compI: number;
   comps: { token: string; pages: number; reviews: Review[] }[];
@@ -53,6 +57,9 @@ export type JobState = {
 };
 
 const isAuto = (p: AnalysisParams) => p.mode === "auto";
+/** Barrido de competencia cercana (proveedores sin historial de perfiles). */
+const SWEEP_MAX = 8;
+const SWEEP_PAGES = 6;
 /** Competidores efectivos: los indicados (manual) o los descubiertos (auto). */
 export function effectiveComps(p: AnalysisParams, s: JobState): Place[] {
   return isAuto(p) ? s.autoComps ?? [] : p.competitors;
@@ -75,7 +82,7 @@ export function initState(params: AnalysisParams): JobState {
   };
 }
 
-type Deps = { api: SerpApiClient; summarize?: (r: AnalysisResults) => Promise<string> };
+type Deps = { api: ReviewSource; summarize?: (r: AnalysisResults) => Promise<string> };
 
 /** Una unidad de trabajo (normalmente 1 llamada a SerpApi). Muta `state`. */
 export async function tick(params: AnalysisParams, state: JobState, deps: Deps): Promise<AnalysisResults | null> {
@@ -102,19 +109,25 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
       c.token = nextToken(data);
       if (stop || !c.token || c.pages >= params.maxClientPages) {
         if (!stop && c.token) state.warnings.push("Se alcanzó el límite de páginas del cliente; puede haber más reseñas negativas sin analizar.");
-        state.phase = isAuto(params) ? "deep" : "comp";
+        state.phase = isAuto(params) ? (deps.api.supportsContributor ? "deep" : "nearby") : "comp";
       }
       return null;
     }
 
     case "comp": {
       const i = state.compI;
-      if (!params.competitors[i]) {
-        state.phase = params.deep ? "deep" : "analyze";
+      const compsNow = effectiveComps(params, state);
+      if (!compsNow[i]) {
+        if (state.sweep) state.phase = "sweepselect";
+        else if (params.deep && deps.api.supportsContributor) state.phase = "deep";
+        else {
+          if (params.deep) state.warnings.push("El proveedor de reseñas actual (Serper) no permite revisar el historial de cada perfil; se ha hecho el cruce directo con la competencia.");
+          state.phase = "analyze";
+        }
         return null;
       }
       const cs = state.comps[i];
-      const data = await deps.api.reviews(idParam(params.competitors[i]), "newestFirst", cs.token);
+      const data = await deps.api.reviews(idParam(compsNow[i]), "newestFirst", cs.token);
       cs.pages++;
       let tooOld = false;
       const limit = fromTs ? fromTs - params.windowDays * DAY : 0;
@@ -129,7 +142,58 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
         cs.reviews.push(r);
       }
       cs.token = nextToken(data);
-      if (tooOld || !cs.token || cs.pages >= params.maxCompPages) state.compI++;
+      if (tooOld || !cs.token || cs.pages >= (state.sweep ? SWEEP_PAGES : params.maxCompPages)) state.compI++;
+      return null;
+    }
+
+    case "nearby": {
+      // Barrido: negocios del mismo sector cerca del cliente; luego se leen sus reseñas (fase comp).
+      const q = params.client.type || params.client.title;
+      const ll = params.client.lat != null && params.client.lng != null ? `@${params.client.lat},${params.client.lng},14z` : undefined;
+      const data = await deps.api.searchPlaces(q, ll);
+      const clientKey = (params.client.dataId || params.client.placeId || params.client.title).toLowerCase();
+      const found: Place[] = (data.local_results ?? [])
+        .map(placeFrom)
+        .filter((p: Place) => (p.dataId || p.placeId) && (p.dataId || p.placeId || p.title).toLowerCase() !== clientKey && p.title !== params.client.title)
+        .filter((p: Place) => !params.client.type || sameSector(p.type, params.client.type));
+      state.autoComps = found.slice(0, SWEEP_MAX);
+      state.comps = state.autoComps.map(() => ({ token: "", pages: 0, reviews: [] }));
+      state.compI = 0;
+      state.sweep = true;
+      state.phase = state.autoComps.length ? "comp" : "analyze";
+      if (!state.autoComps.length) state.warnings.push("No se han encontrado negocios del mismo sector cerca del cliente para el barrido.");
+      return null;
+    }
+
+    case "sweepselect": {
+      // Positivas de autores de negativas en cada negocio barrido → mismos criterios que el descubrimiento.
+      const negAuthors = new Set(state.client.reviews.map((r) => r.user.contributorId).filter(Boolean));
+      const positives: Record<string, PositiveElsewhere[]> = {};
+      const swept = state.autoComps ?? [];
+      swept.forEach((p, i) => {
+        for (const r of state.comps[i]?.reviews ?? []) {
+          const cid = r.user.contributorId;
+          if (!cid || !negAuthors.has(cid) || r.rating < params.posThreshold) continue;
+          (positives[cid] ??= []).push({ dataId: p.dataId, title: p.title, type: p.type, lat: p.lat, lng: p.lng, rating: r.rating, ts: r.ts, date: r.date, text: r.text.slice(0, 200), link: r.link });
+        }
+      });
+      const disc = discoverBeneficiaries(params.client, state.client.reviews, positives, {
+        minOverlap: Math.max(2, params.minOverlap ?? 2),
+        windowDays: params.windowDays,
+        mode: "auto"
+      });
+      disc.profilesScanned = negAuthors.size;
+      disc.method = "sweep";
+      disc.sweptPlaces = swept.map((p, i) => ({ title: p.title, reviewsRead: state.comps[i]?.reviews.length ?? 0 }));
+      // Todos los barridos son del mismo sector: se analizan los que superan el mínimo.
+      for (const c of disc.candidates) c.selected = true;
+      const keep = swept.map((p, i) => ({ p, i })).filter(({ p }) => disc.candidates.some((c) => (c.dataId && c.dataId === p.dataId) || c.title === p.title));
+      state.discovery = disc;
+      state.autoComps = keep.map(({ p }) => p);
+      state.comps = keep.map(({ i }) => state.comps[i]);
+      state.sweep = false;
+      state.phase = "analyze";
+      if (!keep.length) state.warnings.push("Ningún negocio cercano del mismo sector acumula suficientes autores en común con las negativas del cliente.");
       return null;
     }
 
@@ -248,15 +312,21 @@ export function progressOf(params: AnalysisParams, s: JobState): number {
     case "client":
       return Math.min(14, 2 + s.client.pages * 2);
     case "comp": {
-      const n = Math.max(1, params.competitors.length);
+      const n = Math.max(1, effectiveComps(params, s).length);
       const pages = s.comps[s.compI]?.pages ?? 0;
-      return Math.floor(15 + (25 * (s.compI + Math.min(1, pages / Math.max(1, params.maxCompPages)))) / n);
+      const maxP = s.sweep ? SWEEP_PAGES : params.maxCompPages;
+      const span = s.sweep ? 75 : 25;
+      return Math.floor(15 + (span * (s.compI + Math.min(1, pages / Math.max(1, maxP)))) / n);
     }
     case "deep": {
       const q = s.queue?.length ?? 0;
       const base = isAuto(params) ? 15 : 40;
       return q ? Math.floor(base + ((92 - base) * s.deepI) / q) : base;
     }
+    case "nearby":
+      return 16;
+    case "sweepselect":
+      return 92;
     case "discover":
       return 92;
     case "compinfo":
@@ -274,11 +344,16 @@ export function labelOf(params: AnalysisParams, s: JobState): string {
     case "client":
       return `Leyendo reseñas negativas de ${params.client.title} (${s.client.reviews.length})`;
     case "comp": {
-      const c = params.competitors[s.compI];
-      return c ? `Leyendo reseñas de ${c.title} (${s.comps[s.compI].reviews.length})` : "Preparando cruce";
+      const c = effectiveComps(params, s)[s.compI];
+      const prefix = s.sweep ? `Barrido ${s.compI + 1}/${effectiveComps(params, s).length} · ` : "";
+      return c ? `${prefix}Leyendo reseñas de ${c.title} (${s.comps[s.compI].reviews.length})` : "Preparando cruce";
     }
     case "deep":
       return `Investigando historial de perfiles (${s.deepI}/${s.queue?.length ?? 0})`;
+    case "nearby":
+      return "Buscando negocios del mismo sector cerca del cliente";
+    case "sweepselect":
+      return "Cruzando autores con la competencia cercana";
     case "discover":
       return "Buscando negocios con autores en común";
     case "compinfo":
@@ -352,11 +427,7 @@ export async function runAnalysisJob(workspaceId: string, id: string, budgetMs =
   let results: AnalysisResults | null = null;
 
   try {
-    if (!api) {
-      const key = await getSerpApiKey(workspaceId);
-      if (!key) throw new SerpApiKeyMissingError();
-      api = new SerpApiClient(key);
-    }
+    if (!api) api = await getReviewSource(workspaceId);
     const summarize = deps?.summarize ?? ((r: AnalysisResults) => summarizeWithClaude(workspaceId, row.createdById, r));
     const start = Date.now();
     while (state.phase !== "done" && Date.now() - start < budgetMs) {
@@ -426,25 +497,31 @@ async function expandShortUrl(url: string): Promise<string> {
 
 export type ResolveResult = { place: Place } | { candidates: Place[] };
 
-export async function resolvePlace(api: SerpApiClient, input: string): Promise<ResolveResult> {
+export async function resolvePlace(api: ReviewSource, input: string): Promise<ResolveResult> {
   let q = input.trim();
   if (!q) throw new Error("Introduce el nombre o la URL de la ficha.");
   if (/^https?:\/\//i.test(q)) q = await expandShortUrl(q);
   const parsed = parsePlaceInput(q);
 
-  if (parsed.dataId || parsed.placeId) {
+  if ((parsed.dataId || parsed.placeId) && api.provider === "serpapi") {
     const id = parsed.dataId ? { data_id: parsed.dataId } : { place_id: parsed.placeId };
     const data = await api.reviews(id, "ratingLow");
     const pi = data.place_info ?? {};
-    if (!pi.title) throw new Error("No se ha encontrado la ficha con ese identificador.");
-    return { place: placeFrom({ ...pi, ...id, lat: parsed.lat, lng: parsed.lng }) };
+    if (pi.title) return { place: placeFrom({ ...pi, ...id, lat: parsed.lat, lng: parsed.lng }) };
+    if (!parsed.name) throw new Error("No se ha encontrado la ficha con ese identificador.");
+  } else if ((parsed.dataId || parsed.placeId) && !parsed.name) {
+    throw new Error("Con este proveedor busca la ficha por nombre y ciudad, o pega la URL completa de Google Maps (/maps/place/…).");
   }
 
   const query = parsed.name || q;
   const ll = parsed.lat != null && parsed.lng != null ? `@${parsed.lat},${parsed.lng},15z` : undefined;
   const data = await api.searchPlaces(query, ll);
   if (data.place_results?.title) return { place: placeFrom(data.place_results) };
-  const cands: Place[] = (data.local_results ?? []).slice(0, 6).map(placeFrom);
+  const all: Place[] = (data.local_results ?? []).map(placeFrom);
+  // Si la URL traía el identificador, elegimos esa ficha exacta entre los resultados.
+  const exact = all.find((p) => (parsed.dataId && p.dataId.toLowerCase() === parsed.dataId) || (parsed.placeId && p.placeId === parsed.placeId));
+  if (exact) return { place: exact };
+  const cands: Place[] = all.slice(0, 6);
   if (!cands.length) throw new Error(`Google Maps no devuelve resultados para «${query}». Prueba con la URL de la ficha.`);
   return cands.length === 1 ? { place: cands[0] } : { candidates: cands };
 }

@@ -168,7 +168,11 @@ function PlacePicker({
 
 /* ───────────────────────── Formulario ───────────────────────── */
 
-function NewAnalysis({ onCreated, hasKey }: { onCreated: (id: string) => void; hasKey: boolean | null }) {
+type SourceInfo = { configured: boolean; provider?: "serpapi" | "serper" | null; origin?: string; supportsContributor?: boolean; left?: number | null; plan?: string };
+
+function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; source: SourceInfo | null }) {
+  const hasKey = source ? source.configured : null;
+  const history = !!source?.supportsContributor;
   const [fichas, setFichas] = useState<Ficha[]>([]);
   const [client, setClient] = useState<Place | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -206,11 +210,12 @@ function NewAnalysis({ onCreated, hasKey }: { onCreated: (id: string) => void; h
       const months = (Date.now() - Date.parse(dateFrom)) / 2.63e9;
       frac = Math.min(1, Math.max(0.15, months / 48));
     }
+    if (auto && !history) return calls + 1 + 8 * 6;
     if (auto) return calls + Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1))) + 5;
     for (const c of chosen) calls += Math.min(25, 1 + Math.ceil(((c.reviews ?? 100) * frac) / 20));
-    if (deep) calls += Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1)));
+    if (deep && history) calls += Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1)));
     return calls;
-  }, [client, chosen, negThreshold, dateFrom, deep, maxDeep, auto]);
+  }, [client, chosen, negThreshold, dateFrom, deep, maxDeep, auto, history]);
 
   async function start() {
     setErr(null);
@@ -222,7 +227,7 @@ function NewAnalysis({ onCreated, hasKey }: { onCreated: (id: string) => void; h
         method: "POST",
         body: JSON.stringify({
           mode, minOverlap, clientId: clientId ?? undefined, client, competitors: auto ? [] : chosen,
-          negThreshold, posThreshold, windowDays, dateFrom, deep: auto ? true : deep, maxDeep, ai
+          negThreshold, posThreshold, windowDays, dateFrom, deep: auto ? true : deep && history, maxDeep, ai
         })
       });
       onCreated(d.id);
@@ -237,7 +242,15 @@ function NewAnalysis({ onCreated, hasKey }: { onCreated: (id: string) => void; h
       <div className="space-y-4">
         {hasKey === false && (
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-            Falta la API key de SerpApi. Añádela en <b>GMB Hub → Ajustes</b> (icono de engranaje) para poder buscar fichas y leer reseñas.
+            No hay proveedor de reseñas. Añade la API key de <b>SerpApi</b> en GMB Hub → Ajustes (análisis completo) o la de <b>Serper.dev</b> en
+            Publicador SEO → Ajustes.
+          </div>
+        )}
+        {source?.provider === "serper" && (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+            Usando <b>Serper.dev</b> (la clave del Publicador SEO). Lee todas las reseñas del cliente y de la competencia, pero no el historial de
+            cada perfil: la investigación profunda no está disponible y la detección automática hace un barrido de los negocios del mismo
+            sector cercanos. Con una key de SerpApi en Ajustes el análisis es completo.
           </div>
         )}
         <div className={CARD}>
@@ -268,10 +281,17 @@ function NewAnalysis({ onCreated, hasKey }: { onCreated: (id: string) => void; h
           </div>
           {auto ? (
             <div className="text-sm text-slate-600 space-y-2">
-              <p>
-                Se revisa el historial público de cada perfil que ha dejado una reseña negativa al cliente y se buscan los negocios
-                a los que <b>varios de esos perfiles</b> han puesto reseñas positivas. Los del mismo sector pasan a analizarse como competencia.
-              </p>
+              {history ? (
+                <p>
+                  Se revisa el historial público de cada perfil que ha dejado una reseña negativa al cliente y se buscan los negocios
+                  a los que <b>varios de esos perfiles</b> han puesto reseñas positivas. Los del mismo sector pasan a analizarse como competencia.
+                </p>
+              ) : (
+                <p>
+                  Se buscan hasta 8 negocios <b>del mismo sector cercanos</b> al cliente, se leen sus reseñas recientes y se detectan los que
+                  reciben reseñas positivas de <b>varios</b> de los perfiles que dejaron negativas al cliente.
+                </p>
+              )}
               <label className="flex items-center gap-2 text-xs text-slate-600">
                 Mínimo de perfiles en común
                 <input type="number" min={2} max={20} value={minOverlap} onChange={(e) => setMinOverlap(Math.max(2, Number(e.target.value) || 2))} className="w-16 px-2 py-1 rounded-lg border text-sm" />
@@ -324,13 +344,13 @@ function NewAnalysis({ onCreated, hasKey }: { onCreated: (id: string) => void; h
           Ventana entre negativa y positiva (días)
           <input type="number" min={1} max={365} value={windowDays} onChange={(e) => setWindow(Number(e.target.value) || 30)} className="mt-1 w-full px-2 py-1.5 rounded-lg border text-sm" />
         </label>
-        <label className={`flex items-start gap-2 text-xs text-slate-700 ${auto ? "opacity-60" : ""}`}>
-          <input type="checkbox" checked={auto || deep} disabled={auto} onChange={(e) => setDeep(e.target.checked)} className="mt-0.5" />
+        <label className={`flex items-start gap-2 text-xs text-slate-700 ${auto || !history ? "opacity-60" : ""}`}>
+          <input type="checkbox" checked={history && (auto || deep)} disabled={auto || !history} onChange={(e) => setDeep(e.target.checked)} className="mt-0.5" />
           <span>
             <b>Investigación profunda</b>: historial completo de cada perfil (cruces antiguos, ataques al sector, cuentas nuevas). 1 búsqueda por perfil.
           </span>
         </label>
-        {(auto || deep) && (
+        {history && (auto || deep) && (
           <label className="block text-xs text-slate-600">
             Máx. perfiles a investigar
             <input type="number" min={1} max={300} value={maxDeep} onChange={(e) => setMaxDeep(Number(e.target.value) || 80)} className="mt-1 w-full px-2 py-1.5 rounded-lg border text-sm" />
@@ -522,7 +542,7 @@ export default function FakeReviewsView() {
   const [mode, setMode] = useState<"list" | "new">("list");
   const [sel, setSel] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [credits, setCredits] = useState<{ configured: boolean; left?: number | null; plan?: string } | null>(null);
+  const [credits, setCredits] = useState<SourceInfo | null>(null);
 
   const loadList = useCallback(async () => {
     const d = await api<{ analyses: Row[] }>("/api/v1/gmb/fake-reviews").catch(() => ({ analyses: [] as Row[] }));
@@ -552,7 +572,8 @@ export default function FakeReviewsView() {
           <h2 className="font-semibold flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-amber-500" /> Detector de reseñas falsas</h2>
           <p className="text-xs text-slate-500">
             Cruza los autores de las reseñas negativas de un cliente con las reseñas de su competencia y genera un informe con evidencias.
-            {credits?.configured && credits.left != null && <> · SerpApi: <b>{credits.left}</b> búsquedas disponibles</>}
+            {credits?.configured && <> · Fuente: <b>{credits.provider === "serpapi" ? "SerpApi" : "Serper.dev"}</b></>}
+            {credits?.configured && credits.left != null && <> ({credits.left} búsquedas disponibles)</>}
           </p>
         </div>
         <div className="flex gap-2">
@@ -567,7 +588,7 @@ export default function FakeReviewsView() {
       </div>
 
       {mode === "new" ? (
-        <NewAnalysis hasKey={credits ? credits.configured : null} onCreated={(id) => { setMode("list"); setSel(id); }} />
+        <NewAnalysis source={credits} onCreated={(id) => { setMode("list"); setSel(id); }} />
       ) : !rows ? (
         <div className="py-10 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
       ) : (
