@@ -7,7 +7,7 @@ import path from "node:path";
 import PDFDocument from "pdfkit";
 import { LEVEL_HIGH, LEVEL_MEDIUM, type AnalysisResults, type Author } from "./analyzer";
 import { buildGoogleCase, fallbackLetter } from "./google";
-import { POLICY_CATEGORIES } from "./policy";
+import { POLICY_CATEGORIES, type PolicyFinding } from "./policy";
 
 export type PdfKind = "cliente" | "google" | "carta";
 type Brand = { agency: string; contact?: string };
@@ -17,6 +17,8 @@ const GOLD = "#C9962E";
 const MUTED = "#6B665A";
 const RED = "#B3261E";
 const AMBER = "#B26A00";
+const LINK = "#8A6414";
+const BOX = "#F7F2E7";
 
 const EMOJI_NAMES: Record<string, string> = {
   "🖕": "dedo corazón", "💩": "excremento", "🤮": "vomitando", "🤢": "náuseas", "🤬": "insultando", "🤡": "payaso",
@@ -30,8 +32,7 @@ export function pdfText(s: string): string {
       const base = [...m][0];
       return `[emoji: ${EMOJI_NAMES[base] ?? "icono"}]`;
     })
-    .replace(/[​-‍️]/g, "")
-    .replace(/★/g, "*");
+    .replace(/[​-‍️]/g, "");
 }
 
 const fdate = (d?: string) => (d ? d.split("-").reverse().join("/") : "—");
@@ -90,7 +91,7 @@ class Writer {
     const d = this.doc;
     d.fillColor(opts.color ?? INK).font(opts.bold ? "B" : "R").fontSize(opts.size ?? 9.5);
     const w = this.width - (opts.indent ?? 0);
-    this.ensure(d.heightOfString(pdfText(t), { width: w }) + 4);
+    this.ensure(d.heightOfString(pdfText(t), { width: w, lineGap: 1.5 }) + 4);
     d.text(pdfText(t), this.left + (opts.indent ?? 0), d.y, { width: w, lineGap: 1.5 });
     d.moveDown(0.25);
   }
@@ -112,20 +113,53 @@ class Writer {
       d.y = y + Math.max(hk, hv, 11) + 4;
     }
   }
+  /** Texto con un enlace corto al final (las URLs largas de Google no se imprimen: se parten y ensucian el informe). */
+  meta(t: string, linkLabel?: string, url?: string, indent = 0) {
+    const d = this.doc;
+    const w = this.width - indent;
+    const txt = pdfText(t);
+    d.font("R").fontSize(8.5);
+    this.ensure(d.heightOfString(txt + (url ? `  ${linkLabel}` : ""), { width: w }) + 4);
+    const x = this.left + indent;
+    if (url && linkLabel) {
+      d.fillColor(MUTED).text(txt ? `${txt}  ` : "", x, d.y, { width: w, continued: true });
+      d.fillColor(LINK).text(linkLabel, { link: url, underline: true, continued: false });
+    } else {
+      d.fillColor(MUTED).text(txt, x, d.y, { width: w });
+    }
+    d.moveDown(0.3);
+  }
   review(label: string, r: { rating: number; date: string; text: string; link?: string }, color: string) {
     const d = this.doc;
-    const text = pdfText(r.text?.trim() ? `«${r.text}»` : "(sin texto)");
-    const w = this.width - 14;
+    const pad = 10;
+    const w = this.width - pad - 8;
+    const x = this.left + pad;
+    let raw = r.text?.trim() ? r.text.trim() : "";
+    if (raw.length > 1400) raw = `${raw.slice(0, 1400).trimEnd()}…`;
+    const body = pdfText(raw ? `«${raw}»` : "(sin texto)");
+    const head = pdfText(`${label} · ${"★".repeat(Math.max(0, Math.min(5, Math.round(r.rating))))} ${r.rating}/5 · ${fdate(r.date)}`);
+    const linkLabel = "Ver reseña en Google Maps ↗";
+    d.font("B").fontSize(8.5);
+    const hHead = d.heightOfString(head, { width: w });
     d.font("R").fontSize(9);
-    const h = 16 + d.heightOfString(text, { width: w }) + (r.link ? 12 : 0) + 6;
-    this.ensure(h + 4);
+    const hBody = d.heightOfString(body, { width: w, lineGap: 1 });
+    d.font("R").fontSize(8);
+    const hLink = r.link ? d.heightOfString(linkLabel, { width: w }) + 4 : 0;
+    const h = 7 + hHead + 3 + hBody + hLink + 7;
+    this.ensure(h + 6);
     const y0 = d.y;
-    d.rect(this.left, y0, this.width, h).fill("#F7F2E7");
+    d.save();
+    d.rect(this.left, y0, this.width, h).fill(BOX);
     d.rect(this.left, y0, 3, h).fill(color);
-    d.fillColor(INK).font("B").fontSize(8.5).text(pdfText(`${label} · ${r.rating}/5 · ${fdate(r.date)}`), this.left + 10, y0 + 5, { width: w });
-    d.fillColor(INK).font("R").fontSize(9).text(text, this.left + 10, d.y + 2, { width: w, lineGap: 1 });
-    if (r.link) d.fillColor("#8a6414").fontSize(7.5).text(r.link, this.left + 10, d.y + 2, { width: w, link: r.link, underline: true });
-    d.y = y0 + h + 5;
+    d.restore();
+    let y = y0 + 7;
+    d.fillColor(INK).font("B").fontSize(8.5).text(head, x, y, { width: w });
+    y += hHead + 3;
+    d.fillColor(INK).font("R").fontSize(9).text(body, x, y, { width: w, lineGap: 1 });
+    y += hBody;
+    if (r.link) d.fillColor(LINK).font("R").fontSize(8).text(linkLabel, x, y + 4, { width: w, link: r.link, underline: true });
+    d.x = this.left;
+    d.y = y0 + h + 6;
   }
   footer(agency: string) {
     const d = this.doc;
@@ -145,29 +179,43 @@ function authorBlock(w: Writer, a: Author, n: number, res: AnalysisResults) {
   w.ensure(90);
   const levelColor = a.level === "alto" ? RED : a.level === "medio" ? AMBER : MUTED;
   w.h3(`#${n}  ${a.name}  —  riesgo ${a.level} (${a.score}/100)`, levelColor);
-  w.p(`${a.totalReviews} reseñas en total${a.localGuide ? " · Local Guide" : ""}${a.link ? ` · Perfil: ${a.link}` : ""}`, { size: 8.5, color: MUTED });
+  w.meta(`${a.totalReviews} reseñas en total${a.localGuide ? " · Local Guide" : ""}`, "Ver perfil en Google Maps ↗", a.link);
   for (const r of a.clientReviews) w.review(`Reseña a ${res.client.title}`, r, RED);
   for (const c of a.compReviews) w.review(`Reseña a ${res.competitors[c.comp ?? 0]?.title ?? c.title ?? "competidor"}`, c, GOLD);
+  w.doc.moveDown(0.2);
+  w.ensure(18 + 14 * Math.min(a.signals.length, 3));
   w.p("Señales detectadas:", { size: 8.5, bold: true });
   w.bullets(a.signals.map((s) => `${s.points > 0 ? "+" : ""}${s.points}  ${s.label}${s.detail ? ` (${s.detail})` : ""}`), 8.5);
   w.doc.moveDown(0.4);
 }
 
+function policyItem(w: Writer, f: PolicyFinding, n: number) {
+  w.ensure(110);
+  w.h3(`${n}. ${f.author || "Usuario de Google"} — probabilidad de retirada: ${f.likelihood}`, f.likelihood === "alta" ? RED : f.likelihood === "media" ? AMBER : MUTED);
+  w.review("Reseña", f, RED);
+  for (const v of f.violations) {
+    w.p(`${POLICY_CATEGORIES[v.category]?.google ?? v.category}: «${v.evidence}» — ${v.explanation}`, { size: 8.5, indent: 6 });
+  }
+  if (f.authorLink) w.meta("", "Ver perfil del autor ↗", f.authorLink, 6);
+  w.doc.moveDown(0.3);
+}
+
 function policySection(w: Writer, res: AnalysisResults, onlyStrong: boolean) {
   const all = res.policy?.findings ?? [];
-  const list = onlyStrong ? all.filter((f) => f.likelihood !== "baja") : all;
+  const strong = all.filter((f) => f.likelihood !== "baja");
+  const weak = all.filter((f) => f.likelihood === "baja");
+  const how = res.policy?.aiUsed ? "con reglas automáticas e inteligencia artificial" : "con reglas automáticas";
+  const extra = !onlyStrong && weak.length ? ` Otras ${weak.length} contienen expresiones dudosas con pocas probabilidades de retirada; se incluyen al final como referencia.` : "";
   w.p(
-    `Se ha revisado el texto de ${res.policy?.checked ?? 0} reseñas negativas ${res.policy?.aiUsed ? "con reglas automáticas e inteligencia artificial" : "con reglas automáticas"} frente a la política de contenido prohibido y restringido de Google Maps. ${list.length} presentan incumplimientos${onlyStrong ? " claros o con indicios razonables" : ""}.`
+    `Se ha revisado el texto de ${res.policy?.checked ?? 0} reseñas negativas ${how} frente a la política de contenido prohibido y restringido de Google Maps. ${strong.length} ${strong.length === 1 ? "presenta" : "presentan"} incumplimientos claros o indicios razonables.${extra}`
   );
-  list.forEach((f, i) => {
-    w.ensure(80);
-    w.h3(`${i + 1}. ${f.author || "Usuario de Google"} — probabilidad de retirada: ${f.likelihood}`, f.likelihood === "alta" ? RED : AMBER);
-    w.review("Reseña", f, RED);
-    for (const v of f.violations) {
-      w.p(`${POLICY_CATEGORIES[v.category].google}: «${v.evidence}» — ${v.explanation}`, { size: 8.5, indent: 6 });
-    }
-    if (f.authorLink) w.p(`Perfil del autor: ${f.authorLink}`, { size: 8, color: MUTED, indent: 6 });
-  });
+  if (!strong.length) w.p("No se han encontrado reseñas con incumplimientos claros.", { color: MUTED });
+  strong.forEach((f, i) => policyItem(w, f, i + 1));
+  if (!onlyStrong && weak.length) {
+    w.h3("Casos dudosos (probabilidad baja)", MUTED);
+    w.doc.moveDown(0.2);
+    weak.forEach((f, i) => policyItem(w, f, strong.length + i + 1));
+  }
 }
 
 export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, brand: Brand): Promise<Buffer> {
@@ -185,7 +233,7 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
   const period = res.params.dateFrom ? `desde ${fdate(res.params.dateFrom)}` : "todo el histórico";
 
   if (kind === "cliente") {
-    w.cover("Informe de reputación · Google Business Profile", res.mode === "policy" ? "Revisión de reseñas negativas" : "Análisis de reseñas negativas sospechosas", res.client.title, `Fecha: ${today} · Periodo: ${period} · Reseñas negativas: <= ${res.params.negThreshold} estrellas`, brand.agency);
+    w.cover("Informe de reputación · Google Business Profile", res.mode === "policy" ? "Revisión de reseñas negativas" : "Análisis de reseñas negativas sospechosas", res.client.title, `Fecha: ${today} · Periodo: ${period} · Reseñas negativas: ≤ ${res.params.negThreshold}★`, brand.agency);
     w.h2("Resumen");
     const kp: [string, string][] = [["Reseñas negativas analizadas", String(res.stats.clientNeg)]];
     if (res.mode !== "policy") {
@@ -209,7 +257,9 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
         ...res.competitors.map((c, i) => [`Competidor ${i + 1}`, `${c.title} · ${c.address} · ${num(c.rating)} (${c.reviews ?? "?"} reseñas)`] as [string, string])
       ]);
       if (res.discovery?.candidates.length) {
-        w.h2(res.discovery.mode === "auto" ? "Competencia detectada automáticamente" : "Otros negocios con autores en común");
+        const anySel = res.discovery.candidates.some((c) => c.selected || c.sameSector);
+        w.h2(res.discovery.mode === "auto" && anySel ? "Competencia detectada automáticamente" : "Otros negocios con autores en común");
+        if (!anySel) w.p("Ninguno pertenece al mismo sector que el cliente, por lo que no se consideran competencia directa.", { size: 9, color: MUTED });
         w.bullets(
           res.discovery.candidates.slice(0, 12).map((c) => `${c.title}: ${c.count} perfiles en común${c.sameSector ? ", mismo sector" : ""}${c.km != null ? `, ${num(c.km)} km` : ""}${c.selected ? " (analizado)" : ""}`),
           9
@@ -226,7 +276,7 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
     }
     w.h2("Metodología y limitaciones");
     w.p(
-      `Se han analizado las reseñas públicas de Google Maps. Cada perfil recibe una puntuación de 0 a 100 a partir de señales objetivas (valoración positiva a la competencia, proximidad temporal, actividad del perfil, cuenta nueva, textos casi idénticos, ataques a otros negocios del sector…). Riesgo alto: >= ${LEVEL_HIGH}; medio: ${LEVEL_MEDIUM}-${LEVEL_HIGH - 1}.`
+      `Se han analizado las reseñas públicas de Google Maps. Cada perfil recibe una puntuación de 0 a 100 a partir de señales objetivas (valoración positiva a la competencia, proximidad temporal, actividad del perfil, cuenta nueva, textos casi idénticos, ataques a otros negocios del sector…). Riesgo alto: ≥ ${LEVEL_HIGH}; medio: ${LEVEL_MEDIUM}-${LEVEL_HIGH - 1}.`
     );
     w.p(
       "Las señales son indicios estadísticos y patrones compatibles con reseñas no auténticas; no prueban por sí mismas la falsedad de una reseña ni la autoría de terceros. Las fechas relativas de Google son aproximadas. Datos públicos tratados con la finalidad legítima de defensa de la reputación del cliente.",
@@ -265,7 +315,10 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
       policySection(w, res, true);
     }
     w.h2("Anexo · Enlaces de las reseñas cuya retirada se solicita");
-    gc.removals.forEach((r, i) => w.p(`${i + 1}. ${r.author} · ${r.rating}/5 · ${fdate(r.date)} · ${r.policies.join("; ")}${r.link ? `\n    ${r.link}` : ""}`, { size: 8.5 }));
+    gc.removals.forEach((r, i) => {
+      w.p(`${i + 1}. ${r.author} · ${r.rating}/5 · ${fdate(r.date)} · ${r.policies.join("; ")}`, { size: 8.5 });
+      if (r.link) w.p(r.link, { size: 7, color: LINK, indent: 12 });
+    });
   }
 
   if (kind === "carta") {

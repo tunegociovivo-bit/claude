@@ -108,7 +108,7 @@ export default function FakeReviewReport({
 
       {res.policy && (
         <section className="my-8">
-          <H2>Reseñas que incumplen las políticas de Google ({pol.length})</H2>
+          <H2>Reseñas que incumplen las políticas de Google ({polStrong}{pol.length > polStrong ? ` + ${pol.length - polStrong} dudosas` : ""})</H2>
           <p className="text-[13px] mb-3">
             Se ha revisado el texto de {res.policy.checked} reseñas negativas {res.policy.aiUsed ? "con reglas automáticas e inteligencia artificial" : "con reglas automáticas"} frente a
             la política de contenido prohibido y restringido de Google Maps. Probabilidad de retirada: alta = infracción evidente, media = indicios razonables, baja = dudosa.
