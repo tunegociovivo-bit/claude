@@ -44,6 +44,9 @@ const PUBLIC_PATHS = [
   "/api/v1/gmb/widget/",
   "/api/v1/gmb/public/",
   "/gmb-review/",
+  // Informe de reseñas falsas: /informe-resenas/<token> valida su token firmado;
+  // /informe-resenas/i/<id> comprueba la sesión en la propia página.
+  "/informe-resenas/",
   "/gmb-optout/",
   "/api/v1/gmb/buscador/run-scheduled",
   "/api/v1/gmb/reports/monthly-cron",

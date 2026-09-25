@@ -5,6 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import GrowthCenter from "@/components/gmb/GrowthCenter";
 import PortfolioView from "@/components/gmb/PortfolioView";
 import AlertsView from "@/components/gmb/AlertsView";
+import FakeReviewsView from "@/components/gmb/FakeReviewsView";
 import GbpConnectWizard from "@/components/gmb/GbpConnectWizard";
 import {
   Loader2,
@@ -76,7 +77,7 @@ export default function GmbHubClient() {
   const [showImport, setShowImport] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const [connectBanner, setConnectBanner] = useState<string | null>(null);
-  const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento">("fichas");
+  const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento" | "resenas-falsas">("fichas");
 
   async function load() {
     setLoading(true);
@@ -175,7 +176,8 @@ export default function GmbHubClient() {
           ["portfolio", "Portfolio"],
           ["alertas", "Alertas"],
           ["crecimiento", "Crecimiento local"],
-          ["buscador", "Buscador GMB"]
+          ["buscador", "Buscador GMB"],
+          ["resenas-falsas", "Reseñas falsas"]
         ] as const).map(([k, label]) => (
           <button
             key={k}
@@ -197,6 +199,8 @@ export default function GmbHubClient() {
       {view === "alertas" && <AlertsView />}
 
       {view === "crecimiento" && <GrowthCenter />}
+
+      {view === "resenas-falsas" && <FakeReviewsView />}
 
       {view === "fichas" && (
       <>
@@ -1161,6 +1165,7 @@ function GmbSettings({ onClose }: { onClose: () => void }) {
   const [webhookToken, setWebhookToken] = useState("");
   const [replyWebhookUrl, setReplyWebhookUrl] = useState("");
   const [mapsKey, setMapsKey] = useState("");
+  const [serpApiKey, setSerpApiKey] = useState("");
   const [notifyEmail, setNotifyEmail] = useState("");
   const [telegram, setTelegram] = useState("");
   const [make, setMake] = useState({ templateId: "", gmbConn: "", openaiConn: "", gmailAcct: "", sheetsConn: "" });
@@ -1205,6 +1210,7 @@ function GmbSettings({ onClose }: { onClose: () => void }) {
           webhookToken: webhookToken.trim() || undefined,
           replyWebhookUrl,
           mapsKey: mapsKey.trim() || undefined,
+          serpApiKey: serpApiKey.trim() || undefined,
           notifyEmail,
           telegram: telegram.trim() || undefined,
           makeTemplateId: make.templateId,
@@ -1218,6 +1224,7 @@ function GmbSettings({ onClose }: { onClose: () => void }) {
       setMsg("Guardado.");
       setWebhookToken("");
       setMapsKey("");
+      setSerpApiKey("");
       setTelegram("");
       const d = await fetch("/api/v1/admin/gmb-settings").then((x) => x.json());
       setCfg(d);
@@ -1301,6 +1308,19 @@ function GmbSettings({ onClose }: { onClose: () => void }) {
                 value={mapsKey}
                 onChange={(e) => setMapsKey(e.target.value)}
                 placeholder={cfg?.hasMapsKey ? "•••• guardada" : "Para competencia/ranking"}
+                className="w-full px-3 py-2 rounded-lg border text-sm font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                SerpApi key {cfg?.hasSerpApiKey && <span className="text-emerald-600">· configurada</span>}
+              </label>
+              <input
+                type="password"
+                value={serpApiKey}
+                onChange={(e) => setSerpApiKey(e.target.value)}
+                placeholder={cfg?.hasSerpApiKey ? "•••• guardada" : "Para el detector de reseñas falsas (serpapi.com)"}
                 className="w-full px-3 py-2 rounded-lg border text-sm font-mono"
               />
             </div>

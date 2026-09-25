@@ -1,6 +1,6 @@
 /**
  * GET /api/v1/admin/gmb-settings → config de GMB Hub (enmascarada) + URL del webhook entrante
- * PUT /api/v1/admin/gmb-settings → guarda webhookToken, replyWebhookUrl, mapsKey, scraperApiKey
+ * PUT /api/v1/admin/gmb-settings → guarda webhookToken, replyWebhookUrl, mapsKey, scraperApiKey, serpApiKey
  *
  * Todo en Workspace.settings.integrations.gmb. El webhookToken y la mapsKey/
  * scraperApiKey se guardan cifradas; la replyWebhookUrl en claro (es una URL).
@@ -26,6 +26,7 @@ export const GET = withApi({ scope: "admin" }, async (req, { api }) => {
     replyWebhookUrl: g.replyWebhookUrl ?? null,
     hasMapsKey: !!(g.mapsKeyEnc || process.env.GOOGLE_MAPS_API_KEY),
     hasScraperKey: !!g.scraperApiKeyEnc,
+    hasSerpApiKey: !!(g.serpApiKeyEnc || process.env.SERPAPI_KEY),
     notifyEmail: g.notifyEmail ?? null,
     hasTelegram: !!g.telegramEnc,
     make: {
@@ -63,6 +64,9 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
   }
   if (typeof body.scraperApiKey === "string" && body.scraperApiKey.trim()) {
     g.scraperApiKeyEnc = encryptSecret(body.scraperApiKey.trim());
+  }
+  if (typeof body.serpApiKey === "string" && body.serpApiKey.trim()) {
+    g.serpApiKeyEnc = encryptSecret(body.serpApiKey.trim());
   }
   if (typeof body.notifyEmail === "string") {
     g.notifyEmail = body.notifyEmail.trim() || undefined;

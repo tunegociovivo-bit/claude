@@ -6576,3 +6576,43 @@ model SeoBlogLog {
   @@index([postId, createdAt])
   @@index([workspaceId, createdAt])
 }
+
+// ─── GMB Hub · Detector de reseñas falsas ────────────────────────────────────
+// Un análisis cruza las reseñas negativas de una ficha (cliente) con las reseñas
+// de 1–5 competidores vía SerpApi y puntúa cada perfil autor. Se ejecuta por pasos
+// (state = progreso intermedio) desde la UI y desde el gmbTick del scheduler.
+model GmbFakeReviewAnalysis {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  clientId       String? // GmbClient opcional (si el cliente es una ficha del hub)
+  clientName     String
+  label          String    @default("")
+  status         String    @default("running") // running|done|error|cancelled
+  progress       Int       @default(0)
+  stepLabel      String    @default("")
+  params         Json
+  state          Json?
+  results        Json?
+  apiCalls       Int       @default(0)
+  lastError      String?
+  lockedUntil    DateTime?
+  shareTokenHash String?   @unique
+  shareExpiresAt DateTime?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  finishedAt     DateTime?
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+}
+
+// Caché de respuestas de SerpApi (ahorra créditos al repetir análisis). Clave = sha1(params).
+model GmbSerpCache {
+  key       String   @id
+  payload   Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}

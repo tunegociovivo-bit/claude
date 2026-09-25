@@ -37,6 +37,8 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       tone: c.tone,
       accountId: c.accountId,
       locationId: c.locationId,
+      placeId: c.placeId,
+      address: c.address,
       emails: c.emails,
       mainKeyword: c.mainKeyword,
       autoReply: c.autoReply,

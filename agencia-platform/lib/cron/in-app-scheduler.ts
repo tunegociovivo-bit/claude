@@ -280,6 +280,15 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] gmb-alerts:", (e as Error).message);
     }
+    // Detector de reseñas falsas: continúa análisis en curso aunque se cierre la pestaña.
+    try {
+      const { processAllFakeReviewJobs } = await import("@/lib/gmb/fake-reviews/job");
+      await processAllFakeReviewJobs(3);
+      const { purgeSerpCache } = await import("@/lib/integrations/serpapi");
+      await purgeSerpCache();
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-fake-reviews:", (e as Error).message);
+    }
   }
   setTimeout(gmbTick, 120_000);
   setInterval(gmbTick, GMB_TICK_MS);
