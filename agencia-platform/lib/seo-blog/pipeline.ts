@@ -201,10 +201,21 @@ async function stepBrief(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettings): Pro
   b.images = imgs.map((im, i) => ({ ...im, role: i === 0 ? "featured" : "inline" }));
 
   const secondary = [...new Set([...asArray<string>(p.secondaryKeywords), ...asArray<string>(b.secondary_keywords)])];
+  // Red de seguridad: nada de «Keyword: resto del título» — la keyword va integrada en la frase
+  let h1 = String(b.h1 || p.title).slice(0, 250);
+  let metaTitle = String(b.meta_title ?? "").slice(0, 200);
+  if (looksLikeKeywordColon(h1, p.keyword) || looksLikeKeywordColon(metaTitle, p.keyword)) {
+    try {
+      const fixed = await naturalizeTitles(p, s, h1, metaTitle);
+      if (fixed.h1) h1 = fixed.h1;
+      if (fixed.metaTitle) metaTitle = fixed.metaTitle;
+      await seoLog(p.workspaceId, { siteId: p.siteId, postId: p.id }, `Título reformulado para integrar la keyword de forma natural: «${h1}»`);
+    } catch {}
+  }
   return next(p, "draft", {
     brief: b,
-    title: String(b.h1 || p.title).slice(0, 250),
-    metaTitle: String(b.meta_title ?? "").slice(0, 200),
+    title: h1,
+    metaTitle,
     metaDescription: String(b.meta_description ?? "").slice(0, 400),
     slug: slugify(b.slug || p.keyword),
     category: site.defaultCategory || String(b.category ?? ""),
@@ -222,6 +233,35 @@ async function stepDraft(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettings): Pro
   );
   if (wordCount(html) < 300) throw new Error("La redacción ha salido demasiado corta.");
   return next(p, "humanize", { content: html });
+}
+
+/** ¿Empieza por la keyword seguida de ":" "|" "–" "—" "-"? (patrón robótico que no queremos) */
+export function looksLikeKeywordColon(title: string, keyword: string): boolean {
+  const m = /^(.{2,80}?)\s*(?::|\||\u2013|\u2014|\s-\s)\s+\S/.exec(String(title ?? "").trim());
+  if (!m) return false;
+  const head = norm(m[1]).split(/\s+/).filter(Boolean);
+  const kw = norm(keyword).split(/\s+/).filter(Boolean);
+  if (!kw.length || !head.length) return false;
+  const stop = new Set(["de", "del", "en", "la", "el", "los", "las", "un", "una", "y", "a", "para", "con"]);
+  const headWords = head.filter((w) => !stop.has(w));
+  const kwWords = kw.filter((w) => !stop.has(w));
+  const allIn = kwWords.every((w) => headWords.includes(w));
+  return allIn && headWords.length <= kwWords.length + 1;
+}
+
+async function naturalizeTitles(p: SeoBlogPost, s: SeoBlogSettings, h1: string, metaTitle: string): Promise<{ h1: string; metaTitle: string }> {
+  const out = await complete({
+    workspaceId: p.workspaceId,
+    feature: "seo_blog_title",
+    model: s.modelFast,
+    maxTokens: 300,
+    system: "Eres un editor SEO. Reescribes títulos para que la palabra clave quede integrada en una frase natural, como la diría una persona. Nunca uses el patrón «Keyword: resto», «Keyword | resto» ni «Keyword – resto». Mantén el significado y el gancho. Responde SOLO con dos líneas: H1: … y META: …",
+    user: `Palabra clave principal: «${p.keyword}»\nH1 actual: ${h1}\nMeta title actual (máx. 60 caracteres): ${metaTitle}\n\nReescribe ambos. El H1 máx. 70 caracteres. El meta title máx. 60 caracteres con la keyword lo más cerca del inicio posible pero integrada en la frase.`
+  });
+  const mh = /H1:\s*(.+)/i.exec(out);
+  const mm = /META:\s*(.+)/i.exec(out);
+  const clean = (x?: string) => (x ?? "").trim().replace(/^["«]|["»]$/g, "").trim();
+  return { h1: clean(mh?.[1]).slice(0, 250), metaTitle: clean(mm?.[1]).slice(0, 200) };
 }
 
 /* ---------------- 4. Humanización ---------------- */

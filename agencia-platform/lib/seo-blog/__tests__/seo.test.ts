@@ -113,3 +113,17 @@ describe("util", () => {
     expect(wordCount("<p>uno <b>dos</b></p><p>tres</p>")).toBe(3);
   });
 });
+
+import { looksLikeKeywordColon } from "../pipeline";
+describe("looksLikeKeywordColon", () => {
+  it("detecta el patrón «Keyword: resto»", () => {
+    expect(looksLikeKeywordColon("Blefaroplastia: cuánto dura la recuperación semana a semana", "blefaroplastia")).toBe(true);
+    expect(looksLikeKeywordColon("Aumento de pecho Marbella: implantes sobre o bajo el músculo", "aumento de pecho marbella")).toBe(true);
+    expect(looksLikeKeywordColon("Aumento de pecho en Marbella | guía", "aumento de pecho marbella")).toBe(true);
+  });
+  it("acepta títulos con la keyword integrada", () => {
+    expect(looksLikeKeywordColon("Cuánto dura la recuperación de una blefaroplastia semana a semana", "blefaroplastia")).toBe(false);
+    expect(looksLikeKeywordColon("Implantes sobre o bajo el músculo en un aumento de pecho en Marbella", "aumento de pecho marbella")).toBe(false);
+    expect(looksLikeKeywordColon("Qué esperar tras una blefaroplastia: guía por semanas", "blefaroplastia")).toBe(false);
+  });
+});
