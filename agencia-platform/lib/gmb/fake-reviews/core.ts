@@ -61,8 +61,10 @@ export type Contributor = {
 };
 
 export type AnalysisParams = {
-  /** manual = competidores indicados; auto = la herramienta descubre los negocios beneficiados. */
-  mode?: "manual" | "auto";
+  /** manual = competidores indicados; auto = descubre los negocios beneficiados; policy = sólo revisión de contenido. */
+  mode?: "manual" | "auto" | "policy";
+  /** Revisar el contenido de cada reseña negativa frente a las políticas de Google (reglas + IA). */
+  policy?: boolean;
   /** auto: nº mínimo de autores de negativas que valoraron bien el mismo negocio. */
   minOverlap?: number;
   client: Place;

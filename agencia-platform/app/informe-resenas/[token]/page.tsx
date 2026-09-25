@@ -22,7 +22,7 @@ export default async function PublicFakeReviewReport({ params }: { params: { tok
   const ws = await prisma.workspace.findUnique({ where: { id: row.workspaceId }, select: { name: true, settings: true } });
   const branding = (ws?.settings as any)?.branding ?? {};
   return (
-    <FakeReviewPrintShell>
+    <FakeReviewPrintShell pdfUrl={`/api/v1/gmb/public/fake-reviews/${params.token}/pdf`}>
       <FakeReviewReport results={row.results as unknown as AnalysisResults} agencyName={branding.name || ws?.name || "Negocio Vivo"} logoUrl={branding.logoUrl ?? null} />
     </FakeReviewPrintShell>
   );

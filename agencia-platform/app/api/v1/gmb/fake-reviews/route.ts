@@ -43,7 +43,8 @@ const placeSchema = z.object({
 }).refine((p) => !!(p.dataId || p.placeId), "La ficha no tiene identificador de Google (data_id/place_id)");
 
 const createSchema = z.object({
-  mode: z.enum(["manual", "auto"]).default("manual"),
+  mode: z.enum(["manual", "auto", "policy"]).default("manual"),
+  policy: z.boolean().default(true),
   minOverlap: z.number().int().min(2).max(20).default(2),
   clientId: z.string().max(60).optional(),
   client: placeSchema,
@@ -62,7 +63,8 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
   const b = parsed.data;
   const auto = b.mode === "auto";
-  if (!auto && !b.competitors.length) throw new ApiError(400, "validation_error", "Añade al menos un competidor o usa la detección automática.");
+  const onlyPolicy = b.mode === "policy";
+  if (!auto && !onlyPolicy && !b.competitors.length) throw new ApiError(400, "validation_error", "Añade al menos un competidor o usa la detección automática.");
 
   const key = (p: { dataId?: string; placeId?: string }) => p.dataId || p.placeId;
   if (b.competitors.some((c) => key(c) === key(b.client))) {
@@ -79,12 +81,13 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     mode: b.mode,
     minOverlap: b.minOverlap,
     client: placeFrom(b.client),
-    competitors: auto ? [] : b.competitors.map(placeFrom),
+    competitors: auto || onlyPolicy ? [] : b.competitors.map(placeFrom),
+    policy: onlyPolicy ? true : b.policy,
     negThreshold: b.negThreshold,
     posThreshold: b.posThreshold,
     windowDays: b.windowDays,
     dateFrom: b.dateFrom,
-    deep: auto ? true : b.deep, // la detección automática necesita el historial de cada perfil
+    deep: onlyPolicy ? false : auto ? true : b.deep, // la detección automática necesita el historial de cada perfil
     ai: b.ai,
     maxClientPages: 15,
     maxCompPages: 25,
@@ -95,7 +98,12 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       workspaceId: api.workspaceId,
       clientId,
       clientName: params.client.title.slice(0, 250),
-      label: (auto ? "Detección automática de competencia" : `vs ${params.competitors.map((c) => c.title).join(", ")}`).slice(0, 250),
+      label: (onlyPolicy
+        ? "Revisión de contenido (políticas de Google)"
+        : auto
+          ? "Detección automática de competencia"
+          : `vs ${params.competitors.map((c) => c.title).join(", ")}`
+      ).slice(0, 250),
       status: "running",
       stepLabel: "En cola",
       params: params as any,

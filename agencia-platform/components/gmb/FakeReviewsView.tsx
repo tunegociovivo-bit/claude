@@ -5,8 +5,9 @@
  * competencia (SerpApi), puntúa cada perfil autor y genera un informe para el cliente.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, ShieldAlert, Plus, X, Trash2, ExternalLink, Link2, RotateCcw, ArrowLeft, Check } from "lucide-react";
+import { Loader2, Search, ShieldAlert, Plus, X, Trash2, ExternalLink, Link2, RotateCcw, ArrowLeft, Check, Download } from "lucide-react";
 import FakeReviewReport from "@/components/gmb/FakeReviewReport";
+import { GoogleCaseView, LetterView, downloadPdf } from "@/components/gmb/FakeReviewGoogle";
 import type { Place } from "@/lib/gmb/fake-reviews/core";
 import type { AnalysisResults } from "@/lib/gmb/fake-reviews/analyzer";
 
@@ -178,6 +179,8 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
   const [clientId, setClientId] = useState<string | null>(null);
   const [comps, setComps] = useState<(Place | null)[]>([null]);
   const [mode, setMode] = useState<"manual" | "auto">("manual");
+  const [kind, setKind] = useState<"cruce" | "policy">("cruce");
+  const [policy, setPolicy] = useState(true);
   const [minOverlap, setMinOverlap] = useState(2);
   const [negThreshold, setNeg] = useState(2);
   const [posThreshold, setPos] = useState(4);
@@ -199,9 +202,10 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
 
   const chosen = comps.filter(Boolean) as Place[];
 
-  const auto = mode === "auto";
+  const onlyPolicy = kind === "policy";
+  const auto = !onlyPolicy && mode === "auto";
   const estimate = useMemo(() => {
-    if (!client || (!auto && !chosen.length)) return null;
+    if (!client || (!auto && !onlyPolicy && !chosen.length)) return null;
     const share = negThreshold === 1 ? 0.07 : negThreshold === 2 ? 0.11 : 0.16;
     const negN = Math.max(3, Math.round((client.reviews ?? 100) * share));
     let calls = 1 + Math.ceil(negN / 20);
@@ -210,24 +214,26 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
       const months = (Date.now() - Date.parse(dateFrom)) / 2.63e9;
       frac = Math.min(1, Math.max(0.15, months / 48));
     }
+    if (onlyPolicy) return calls;
     if (auto && !history) return calls + 1 + 8 * 6;
     if (auto) return calls + Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1))) + 5;
     for (const c of chosen) calls += Math.min(25, 1 + Math.ceil(((c.reviews ?? 100) * frac) / 20));
     if (deep && history) calls += Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1)));
     return calls;
-  }, [client, chosen, negThreshold, dateFrom, deep, maxDeep, auto, history]);
+  }, [client, chosen, negThreshold, dateFrom, deep, maxDeep, auto, history, onlyPolicy]);
 
   async function start() {
     setErr(null);
     if (!client) return setErr("Busca y selecciona la ficha del cliente.");
-    if (!auto && !chosen.length) return setErr("Busca y selecciona al menos un competidor o usa la detección automática.");
+    if (!auto && !onlyPolicy && !chosen.length) return setErr("Busca y selecciona al menos un competidor o usa la detección automática.");
     setBusy(true);
     try {
       const d = await api<{ id: string }>("/api/v1/gmb/fake-reviews", {
         method: "POST",
         body: JSON.stringify({
-          mode, minOverlap, clientId: clientId ?? undefined, client, competitors: auto ? [] : chosen,
-          negThreshold, posThreshold, windowDays, dateFrom, deep: auto ? true : deep && history, maxDeep, ai
+          mode: onlyPolicy ? "policy" : mode, policy: onlyPolicy || policy, minOverlap, clientId: clientId ?? undefined, client,
+          competitors: auto || onlyPolicy ? [] : chosen,
+          negThreshold, posThreshold, windowDays, dateFrom, deep: onlyPolicy ? false : auto ? true : deep && history, maxDeep, ai
         })
       });
       onCreated(d.id);
@@ -253,6 +259,24 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
             sector cercanos. Con una key de SerpApi en Ajustes el análisis es completo.
           </div>
         )}
+        <div className={`${CARD} space-y-2`}>
+          <div className="text-xs font-semibold text-slate-700">Tipo de análisis</div>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {([
+              ["cruce", "Cruce con la competencia", "Perfiles que ponen negativas al cliente y positivas a la competencia (+ revisión de contenido opcional)."],
+              ["policy", "Revisión de contenido", "La IA revisa cada reseña negativa buscando insultos, lenguaje soez, emojis despectivos, datos personales… que incumplen las políticas de Google."]
+            ] as const).map(([k, t, d]) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={`text-left rounded-lg border p-3 ${kind === k ? "border-amber-400 bg-amber-50/60" : "hover:bg-slate-50"}`}
+              >
+                <div className="text-sm font-medium">{t}</div>
+                <div className="text-xs text-slate-500">{d}</div>
+              </button>
+            ))}
+          </div>
+        </div>
         <div className={CARD}>
           <PlacePicker
             label="1 · Ficha del cliente"
@@ -263,6 +287,7 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
             placeholder="Nombre + ciudad, URL de Google Maps, maps.app.goo.gl o Place ID"
           />
         </div>
+        {!onlyPolicy && (
         <div className={`${CARD} space-y-3`}>
           <div className="text-xs font-semibold text-slate-700">2 · Competencia</div>
           <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
@@ -317,6 +342,7 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
           </div>
           )}
         </div>
+        )}
       </div>
 
       <div className={`${CARD} space-y-3 h-fit`}>
@@ -329,6 +355,7 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
             <option value={3}>1★ a 3★</option>
           </select>
         </label>
+        {!onlyPolicy && (
         <label className="block text-xs text-slate-600">
           «Positiva» en la competencia
           <select value={posThreshold} onChange={(e) => setPos(Number(e.target.value))} className="mt-1 w-full px-2 py-1.5 rounded-lg border text-sm bg-white">
@@ -336,10 +363,12 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
             <option value={5}>Sólo 5★</option>
           </select>
         </label>
+        )}
         <label className="block text-xs text-slate-600">
           Analizar desde (vacío = todo)
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded-lg border text-sm" />
         </label>
+        {!onlyPolicy && (<>
         <label className="block text-xs text-slate-600">
           Ventana entre negativa y positiva (días)
           <input type="number" min={1} max={365} value={windowDays} onChange={(e) => setWindow(Number(e.target.value) || 30)} className="mt-1 w-full px-2 py-1.5 rounded-lg border text-sm" />
@@ -357,6 +386,13 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
           </label>
         )}
         <label className="flex items-start gap-2 text-xs text-slate-700">
+          <input type="checkbox" checked={policy} onChange={(e) => setPolicy(e.target.checked)} className="mt-0.5" />
+          <span>
+            <b>Revisar también el contenido</b> de cada reseña negativa con IA (insultos, lenguaje soez, emojis despectivos, datos personales…).
+          </span>
+        </label>
+        </>)}
+        <label className="flex items-start gap-2 text-xs text-slate-700">
           <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} className="mt-0.5" />
           <span>Resumen ejecutivo redactado con Claude</span>
         </label>
@@ -364,7 +400,7 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
           Consumo estimado: <b className="text-amber-300">{estimate ? `≈ ${estimate}` : "—"}</b> búsquedas SerpApi
         </div>
         {err && <p className="text-xs text-rose-600">{err}</p>}
-        <button onClick={start} disabled={busy || !client || (!auto && !chosen.length)} className={`${BTN_PRIMARY} w-full justify-center`}>
+        <button onClick={start} disabled={busy || !client || (!auto && !onlyPolicy && !chosen.length)} className={`${BTN_PRIMARY} w-full justify-center`}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />} Iniciar análisis
         </button>
       </div>
@@ -379,6 +415,8 @@ function AnalysisDetail({ id, onBack, onDeleted }: { id: string; onBack: () => v
   const [err, setErr] = useState<string | null>(null);
   const [share, setShare] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState<"cliente" | "google" | "carta">("cliente");
+  const [pdfBusy, setPdfBusy] = useState(false);
   const running = useRef(false);
   const alive = useRef(true);
 
@@ -489,8 +527,11 @@ function AnalysisDetail({ id, onBack, onDeleted }: { id: string; onBack: () => v
         <div className="flex flex-wrap gap-2">
           {a.status === "done" && (
             <>
-              <a href={`/informe-resenas/i/${id}`} target="_blank" rel="noopener noreferrer" className={BTN_PRIMARY}>
-                <ExternalLink className="h-4 w-4" /> Informe / PDF
+              <button onClick={() => downloadPdf(id, "cliente", setPdfBusy, setErr)} disabled={pdfBusy} className={BTN_PRIMARY}>
+                {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Descargar informe (PDF)
+              </button>
+              <a href={`/informe-resenas/i/${id}`} target="_blank" rel="noopener noreferrer" className={BTN_SEC}>
+                <ExternalLink className="h-4 w-4" /> Ver / imprimir
               </a>
               <button onClick={makeShare} className={BTN_SEC}>
                 {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Link2 className="h-4 w-4" />} {copied ? "Enlace copiado" : "Enlace para el cliente"}
@@ -528,9 +569,30 @@ function AnalysisDetail({ id, onBack, onDeleted }: { id: string; onBack: () => v
           <p className="text-xs text-slate-500 mt-2">Puedes salir de esta pantalla: el análisis continúa en segundo plano y aparecerá como completado en el historial.</p>
         </div>
       ) : a.results ? (
-        <div className={`${CARD} sm:p-6`}>
-          <FakeReviewReport results={a.results} />
-        </div>
+        <>
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+            {([
+              ["cliente", "Informe para el cliente"],
+              ["google", "Informe para Google"],
+              ["carta", "Escrito a soporte"]
+            ] as const).map(([k, l]) => (
+              <button
+                key={k}
+                onClick={() => setTab(k)}
+                className={"px-3 py-1.5 rounded-md text-sm font-medium " + (tab === k ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-800")}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          {tab === "cliente" && (
+            <div className={`${CARD} sm:p-6`}>
+              <FakeReviewReport results={a.results} />
+            </div>
+          )}
+          {tab === "google" && <GoogleCaseView id={id} results={a.results} />}
+          {tab === "carta" && <LetterView id={id} results={a.results} onSaved={(r) => setA((prev: any) => ({ ...prev, results: r }))} />}
+        </>
       ) : null}
     </div>
   );

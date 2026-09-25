@@ -139,6 +139,10 @@ export type AnalysisResults = {
   warnings?: string[];
   aiSummary?: string;
   discovery?: Discovery;
+  mode?: "manual" | "auto" | "policy";
+  policy?: import("./policy").PolicyResults;
+  /** Escrito a soporte de Google (generado con IA y editable). */
+  letter?: { text: string; generatedAt: string; editedAt?: string };
 };
 
 /* ───────────────────────── utilidades ───────────────────────── */
@@ -310,13 +314,19 @@ export function discoverBeneficiaries(
     negTsBy.set(r.user.contributorId, [...(negTsBy.get(r.user.contributorId) ?? []), r.ts]);
   }
   const excluded = new Set((opts.exclude ?? []).map((p) => placeKey({ dataId: p.dataId, title: p.title })));
+  // Otras sucursales de la misma marca que el cliente no son competencia (p. ej. otra tienda de la cadena).
+  const brand = norm(client.title);
+  const sameBrand = (title: string) => {
+    const t = norm(title);
+    return !!brand && !!t && (t === brand || t.startsWith(`${brand} `) || brand.startsWith(`${t} `));
+  };
 
   const byPlace = new Map<string, DiscoveryCandidate>();
   for (const [cid, list] of Object.entries(positives)) {
     const seen = new Set<string>();
     for (const p of list) {
       const k = placeKey(p);
-      if (seen.has(k) || excluded.has(k)) continue; // un autor cuenta una vez por negocio
+      if (seen.has(k) || excluded.has(k) || sameBrand(p.title)) continue; // un autor cuenta una vez por negocio
       seen.add(k);
       const c =
         byPlace.get(k) ??
@@ -342,8 +352,9 @@ export function discoverBeneficiaries(
 
   if (opts.mode === "auto") {
     // Prioriza negocios del mismo sector; si no hay, sólo los que tienen un solapamiento claro (≥3 autores).
-    const pool = candidates.filter((c) => c.sameSector);
-    const pick = (pool.length ? pool : candidates.filter((c) => c.count >= Math.max(3, opts.minOverlap))).slice(0, opts.maxSelected ?? 5);
+    // Competencia real: mismo sector y en la zona (≤ 50 km si se conoce la ubicación).
+    const pool = candidates.filter((c) => c.sameSector && (c.km == null || c.km <= 50));
+    const pick = (pool.length ? pool : candidates.filter((c) => c.count >= Math.max(3, opts.minOverlap) && (c.km == null || c.km <= 50))).slice(0, opts.maxSelected ?? 5);
     const keys = new Set(pick.map(placeKey));
     for (const c of candidates) c.selected = keys.has(placeKey(c));
   }

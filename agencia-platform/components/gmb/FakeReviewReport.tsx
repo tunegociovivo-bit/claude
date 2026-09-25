@@ -5,6 +5,7 @@
 import type { AnalysisResults, Author } from "@/lib/gmb/fake-reviews/analyzer";
 import { LEVEL_HIGH, LEVEL_MEDIUM } from "@/lib/gmb/fake-reviews/analyzer";
 import type { Place } from "@/lib/gmb/fake-reviews/core";
+import { POLICY_CATEGORIES } from "@/lib/gmb/fake-reviews/policy";
 
 const INK = "#16160F";
 const GOLD = "#C9962E";
@@ -48,6 +49,9 @@ export default function FakeReviewReport({
   const st = res.stats;
   const suspects = res.authors.filter((a) => a.level !== "bajo");
   const comps = res.competitors;
+  const onlyPolicy = res.mode === "policy";
+  const pol = res.policy?.findings ?? [];
+  const polStrong = pol.filter((f) => f.likelihood !== "baja").length;
 
   return (
     <div className="fr-report max-w-5xl mx-auto text-[14px] leading-relaxed text-slate-800">
@@ -62,7 +66,7 @@ export default function FakeReviewReport({
         <p className="mt-6 mb-1 text-xs uppercase tracking-widest" style={{ color: "#D2A039" }}>
           Informe de reputación · Google Business Profile
         </p>
-        <h1 className="text-2xl sm:text-3xl font-bold leading-tight">Análisis de reseñas negativas sospechosas</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{onlyPolicy ? "Revisión de reseñas negativas" : "Análisis de reseñas negativas sospechosas"}</h1>
         <p className="text-xl mt-1 mb-3 font-medium">{res.client.title}</p>
         <p className="text-xs text-[#CFC8B6]">
           Fecha: {fdate(res.generatedAt.slice(0, 10))} · Periodo: {res.params.dateFrom ? `desde ${fdate(res.params.dateFrom)}` : "todo el histórico"} ·
@@ -72,10 +76,11 @@ export default function FakeReviewReport({
 
       <section className="grid grid-cols-2 md:grid-cols-5 gap-3 my-6">
         <Kpi v={st.clientNeg} l="reseñas negativas analizadas" />
-        <Kpi v={st.authorsCrossPos} l="perfiles que valoraron bien a la competencia" />
-        <Kpi v={st.high} l="perfiles de riesgo alto" cls="text-rose-700" />
-        <Kpi v={st.medium} l="perfiles de riesgo medio" cls="text-amber-700" />
-        {res.impact.client && (
+        {!onlyPolicy && <Kpi v={st.authorsCrossPos} l="perfiles que valoraron bien a la competencia" />}
+        {!onlyPolicy && <Kpi v={st.high} l="perfiles de riesgo alto" cls="text-rose-700" />}
+        {!onlyPolicy && <Kpi v={st.medium} l="perfiles de riesgo medio" cls="text-amber-700" />}
+        {res.policy && <Kpi v={polStrong} l="reseñas que incumplen las políticas de Google" cls="text-rose-700" />}
+        {!onlyPolicy && res.impact.client && (
           <div className="rounded-xl p-4 text-white col-span-2 md:col-span-1" style={{ background: INK }}>
             <div className="text-xl font-bold" style={{ color: "#D2A039" }}>
               {num(res.impact.client.current)}★ → {num(res.impact.client.without, 2)}★
@@ -101,6 +106,42 @@ export default function FakeReviewReport({
         </ul>
       </section>
 
+      {res.policy && (
+        <section className="my-8">
+          <H2>Reseñas que incumplen las políticas de Google ({pol.length})</H2>
+          <p className="text-[13px] mb-3">
+            Se ha revisado el texto de {res.policy.checked} reseñas negativas {res.policy.aiUsed ? "con reglas automáticas e inteligencia artificial" : "con reglas automáticas"} frente a
+            la política de contenido prohibido y restringido de Google Maps. Probabilidad de retirada: alta = infracción evidente, media = indicios razonables, baja = dudosa.
+          </p>
+          {!pol.length && <p className="text-sm text-slate-500">No se han encontrado reseñas con contenido prohibido.</p>}
+          <div className="space-y-3">
+            {pol.map((f, i) => (
+              <article key={f.reviewId || i} className="rounded-xl border p-4 bg-white fr-avoid">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-medium">
+                    {f.authorLink ? <a href={f.authorLink} target="_blank" rel="noopener noreferrer" className="underline">{f.author || "Usuario de Google"}</a> : f.author || "Usuario de Google"}{" "}
+                    <Stars n={f.rating} /> <span className="text-slate-500 text-xs">{fdate(f.date)}</span>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${f.likelihood === "alta" ? LEVEL_CLS.alto : f.likelihood === "media" ? LEVEL_CLS.medio : "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                    retirada {f.likelihood}
+                  </span>
+                </div>
+                <p className="text-[13px] my-2">«{f.text}»</p>
+                <ul className="space-y-1">
+                  {f.violations.map((v, j) => (
+                    <li key={j} className="text-xs">
+                      <b>{POLICY_CATEGORIES[v.category].label}</b>: «{v.evidence}» — {v.explanation}
+                    </li>
+                  ))}
+                </ul>
+                {f.link && <a href={f.link} target="_blank" rel="noopener noreferrer" className="text-xs underline">Abrir reseña</a>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!onlyPolicy && (<>
       <section className="my-8">
         <H2>Fichas analizadas</H2>
         <div className="grid sm:grid-cols-2 gap-3">
@@ -256,6 +297,8 @@ export default function FakeReviewReport({
           </table>
         </div>
       </section>
+
+      </>)}
 
       <section className="my-8 text-[13px]">
         <H2>Metodología y próximos pasos</H2>

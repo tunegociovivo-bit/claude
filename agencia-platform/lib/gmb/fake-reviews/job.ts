@@ -7,7 +7,10 @@
  * optimista (lockedUntil) evita que ambos trabajen a la vez.
  */
 import { prisma } from "@/lib/db/prisma";
-import { complete } from "@/lib/ai/anthropic";
+import { complete, completeJson } from "@/lib/ai/anthropic";
+import { mergeFinding, POLICY_SCHEMA, POLICY_SYSTEM, policyUserPrompt, ruleViolations, type PolicyFinding } from "./policy";
+
+const POLICY_MODEL = "claude-sonnet-4-6";
 import type { ReviewSource } from "@/lib/integrations/serpapi";
 import { getReviewSource } from "./provider";
 import {
@@ -37,7 +40,10 @@ import {
 } from "./analyzer";
 
 export type JobState = {
-  phase: "client" | "comp" | "deep" | "discover" | "compinfo" | "nearby" | "sweepselect" | "analyze" | "ai" | "done";
+  phase: "client" | "comp" | "deep" | "discover" | "compinfo" | "nearby" | "sweepselect" | "analyze" | "policy" | "ai" | "done";
+  policyI?: number;
+  policyFindings?: PolicyFinding[];
+  policyAi?: boolean;
   /** Auto sin historial de perfiles (Serper): barrido de negocios cercanos del mismo sector. */
   sweep?: boolean;
   client: { token: string; pages: number; reviews: Review[] };
@@ -82,7 +88,9 @@ export function initState(params: AnalysisParams): JobState {
   };
 }
 
-type Deps = { api: ReviewSource; summarize?: (r: AnalysisResults) => Promise<string> };
+type PolicyClassifier = (business: string, items: { id: string; rating: number; date: string; text: string }[]) => Promise<{ results: any[] }>;
+type Deps = { api: ReviewSource; summarize?: (r: AnalysisResults) => Promise<string>; classify?: PolicyClassifier | null };
+const POLICY_BATCH = 20;
 
 /** Una unidad de trabajo (normalmente 1 llamada a SerpApi). Muta `state`. */
 export async function tick(params: AnalysisParams, state: JobState, deps: Deps): Promise<AnalysisResults | null> {
@@ -109,7 +117,7 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
       c.token = nextToken(data);
       if (stop || !c.token || c.pages >= params.maxClientPages) {
         if (!stop && c.token) state.warnings.push("Se alcanzó el límite de páginas del cliente; puede haber más reseñas negativas sin analizar.");
-        state.phase = isAuto(params) ? (deps.api.supportsContributor ? "deep" : "nearby") : "comp";
+        state.phase = params.mode === "policy" ? "analyze" : isAuto(params) ? (deps.api.supportsContributor ? "deep" : "nearby") : "comp";
       }
       return null;
     }
@@ -272,6 +280,61 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
         results.findings = [...discoveryFindings(state.discovery), ...results.findings];
       }
       results.warnings = [...new Set(state.warnings)];
+      results.mode = params.mode ?? "manual";
+      const wantPolicy = params.mode === "policy" || !!params.policy;
+      state.phase = wantPolicy ? "policy" : params.ai && deps.summarize ? "ai" : "done";
+      state.resultsTmp = state.phase === "done" ? null : results;
+      state.policyI = 0;
+      state.policyFindings = [];
+      state.policyAi = false;
+      return results;
+    }
+
+    case "policy": {
+      const results = state.resultsTmp as AnalysisResults;
+      const withText = state.client.reviews.filter((r) => r.text.trim());
+      const i = state.policyI ?? 0;
+      const batch = withText.slice(i, i + POLICY_BATCH);
+      let ai: Map<string, any> | null = null;
+      if (batch.length && deps.classify) {
+        try {
+          const res = await deps.classify(
+            `${params.client.title}${params.client.address ? ` (${params.client.address})` : ""}${params.client.type ? ` — ${params.client.type}` : ""}`,
+            batch.map((r) => ({ id: r.reviewId, rating: r.rating, date: r.date, text: r.text.slice(0, 1500) }))
+          );
+          ai = new Map((res?.results ?? []).map((x: any) => [String(x.id), x]));
+          state.policyAi = true;
+        } catch (e) {
+          state.warnings.push(`Revisión de contenido con IA no disponible (se usan solo reglas): ${(e as Error).message}`);
+          deps.classify = null;
+        }
+      }
+      for (const r of batch) {
+        const f = mergeFinding(
+          { reviewId: r.reviewId, author: r.user.name, authorLink: r.user.link, rating: r.rating, date: r.date, text: r.text, link: r.link },
+          ruleViolations(r.text),
+          ai?.get(r.reviewId) ?? null
+        );
+        if (f) (state.policyFindings ??= []).push(f);
+      }
+      state.policyI = i + POLICY_BATCH;
+      if (state.policyI < withText.length) return null;
+      const order = { alta: 0, media: 1, baja: 2 } as const;
+      results.policy = {
+        checked: withText.length,
+        aiUsed: !!state.policyAi,
+        findings: (state.policyFindings ?? []).sort((a, b) => order[a.likelihood] - order[b.likelihood])
+      };
+      const hi = results.policy.findings.filter((f) => f.likelihood !== "baja").length;
+      results.findings = [
+        ...results.findings,
+        hi
+          ? `${hi} de las ${withText.length} reseñas negativas con texto incumplen claramente o con indicios razonables la política de contenido de Google (insultos, lenguaje soez, datos personales, conflicto de intereses…).`
+          : `Ninguna de las ${withText.length} reseñas negativas con texto incumple de forma clara la política de contenido de Google.`
+      ];
+      if (params.mode === "policy") results.findings = results.findings.filter((f) => !/perfiles que han dejado reseñas negativas|riesgo ALTO/.test(f));
+      results.warnings = [...new Set([...(results.warnings ?? []), ...state.warnings])];
+      state.policyFindings = [];
       state.phase = params.ai && deps.summarize ? "ai" : "done";
       state.resultsTmp = state.phase === "ai" ? results : null;
       return results;
@@ -333,6 +396,8 @@ export function progressOf(params: AnalysisParams, s: JobState): number {
       return 93;
     case "analyze":
       return 94;
+    case "policy":
+      return 95;
     case "ai":
       return 97;
   }
@@ -360,6 +425,8 @@ export function labelOf(params: AnalysisParams, s: JobState): string {
       return "Leyendo las fichas de la competencia detectada";
     case "analyze":
       return "Calculando riesgo y cruces";
+    case "policy":
+      return `Revisando el contenido de las reseñas frente a las políticas de Google (${s.policyI ?? 0}/${s.client.reviews.filter((r) => r.text.trim()).length})`;
     case "ai":
       return "Redactando resumen ejecutivo con IA";
   }
@@ -385,6 +452,13 @@ export async function summarizeWithClaude(workspaceId: string, userId: string | 
       reseñas_competencia: a.compReviews.map((r) => `${r.rating}★ ${r.date} ${r.title ?? ""}`)
     })),
     textos_similares: res.similar.slice(0, 5),
+    revision_contenido: res.policy
+      ? {
+          revisadas: res.policy.checked,
+          incumplen: res.policy.findings.filter((f) => f.likelihood !== "baja").length,
+          ejemplos: res.policy.findings.slice(0, 5).map((f) => ({ probabilidad: f.likelihood, motivos: f.violations.map((v) => v.category), texto: f.text.slice(0, 160) }))
+        }
+      : null,
     negocios_beneficiados: res.discovery
       ? {
           modo: res.discovery.mode === "auto" ? "detección automática de competencia" : "otros negocios además de los competidores indicados",
@@ -429,9 +503,24 @@ export async function runAnalysisJob(workspaceId: string, id: string, budgetMs =
   try {
     if (!api) api = await getReviewSource(workspaceId);
     const summarize = deps?.summarize ?? ((r: AnalysisResults) => summarizeWithClaude(workspaceId, row.createdById, r));
+    const classify: PolicyClassifier | null =
+      deps?.classify !== undefined
+        ? deps.classify
+        : (business, items) =>
+            completeJson<{ results: any[] }>({
+              workspaceId,
+              userId: row.createdById,
+              feature: "gmb_fake_reviews_policy",
+              model: POLICY_MODEL,
+              maxTokens: 8000,
+              schema: POLICY_SCHEMA,
+              system: POLICY_SYSTEM,
+              user: policyUserPrompt(business, items)
+            });
+    const tickDeps: Deps = { api, summarize, classify };
     const start = Date.now();
     while (state.phase !== "done" && Date.now() - start < budgetMs) {
-      const r = await tick(params, state, { api, summarize });
+      const r = await tick(params, state, tickDeps);
       if (r) results = r;
     }
   } catch (e) {
