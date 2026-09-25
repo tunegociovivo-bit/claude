@@ -113,7 +113,7 @@ export function ideasPrompt(s: SiteCtx, kwBlock: string, siteTitles: string, pla
     `PROPUESTAS YA PLANIFICADAS O PENDIENTES (no repetir):\n${planned || "(ninguna)"}\n\n` +
     (focus ? `INDICACIONES DEL EQUIPO PARA ESTA TANDA: ${focus}\n\n` : "") +
     `Propón ${n} artículos de blog. Reglas:\n` +
-    "- Cada propuesta se asigna a UNA palabra clave objetivo (keyword_id exacto del listado) y su título debe contenerla de forma natural, preferiblemente al principio.\n" +
+    "- Cada propuesta se asigna a UNA palabra clave objetivo (keyword_id exacto del listado) y su título debe contenerla INTEGRADA en la frase, como la diría una persona. PROHIBIDO el patrón «Keyword: resto del título» o «Keyword | resto» o «Keyword – resto». La keyword puede ir en cualquier posición y admite preposiciones o artículos entre sus palabras si así suena natural. Ejemplo correcto: «Cuánto dura la recuperación de una blefaroplastia semana a semana». Ejemplo incorrecto: «Blefaroplastia: cuánto dura la recuperación».\n" +
     "- Títulos específicos y con gancho (números concretos, año si procede, beneficio claro, localidad si la intención es local). Nada de títulos genéricos tipo 'Todo lo que necesitas saber'.\n" +
     "- Mezcla formatos: guía completa, comparativa, lista, cómo hacer, precios/costes, errores comunes, casos prácticos, preguntas frecuentes, mitos.\n" +
     "- Aprovecha las preguntas 'People Also Ask' y búsquedas relacionadas para long-tails.\n" +
@@ -227,7 +227,8 @@ export function briefPrompt(s: SiteCtx, p: PostLike, research: any) {
     `PÁGINAS DE LA WEB DEL CLIENTE (candidatas a enlace interno):\n${internal || "(ninguna)"}\n\n` +
     `FUENTES EXTERNAS CANDIDATAS (solo puedes usar estas URLs exactas; si ninguna es fiable, deja la lista vacía):\n${external || "(ninguna)"}\n\n` +
     "Genera el brief. Reglas:\n" +
-    "- meta_title: máx. 60 caracteres, keyword principal al inicio, con gancho de CTR. Puede diferir del H1.\n" +
+    "- h1: el título definitivo del artículo. Debe contener la keyword principal integrada en una frase natural (puede ir en cualquier posición, con preposiciones o artículos entre sus palabras si suena mejor). PROHIBIDO «Keyword: resto», «Keyword | resto» o «Keyword – resto». Máx. 70 caracteres, con gancho.\n" +
+    "- meta_title: máx. 60 caracteres, con la keyword principal lo más cerca del inicio posible pero integrada en una frase natural (misma prohibición del patrón «Keyword: …»). Puede diferir del H1.\n" +
     "- meta_description: 140–155 caracteres, incluye la keyword, beneficio concreto y llamada a la acción implícita.\n" +
     "- slug: corto (3–6 palabras), en minúsculas, sin stopwords, con la keyword.\n" +
     "- outline: 5–9 H2 que cubran la intención completa y los gaps detectados; H3 donde aporten. El primer H2 debe responder directamente la búsqueda (bloque 'snippet' de 40–60 palabras).\n" +
