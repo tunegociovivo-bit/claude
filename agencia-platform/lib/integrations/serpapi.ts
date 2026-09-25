@@ -20,11 +20,29 @@ export class SerpApiKeyMissingError extends Error {
 
 export class SerpApiError extends Error {}
 
+/** Limpia una key pegada: espacios, saltos de línea, comillas, caracteres invisibles y prefijos «api_key=». */
+export function cleanSerpApiKey(raw: string): string {
+  return String(raw ?? "")
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, "")
+    .replace(/^.*api_key=/i, "")
+    .replace(/[\s"'`]/g, "")
+    .replace(/&.*$/, "");
+}
+
+/** Las keys de SerpApi son 64 caracteres hexadecimales. */
+export function looksLikeSerpApiKey(k: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(k);
+}
+
+export function maskKey(k: string): string {
+  return k ? `${k.length} caracteres, termina en …${k.slice(-4)}` : "";
+}
+
 export async function getSerpApiKey(workspaceId: string): Promise<string | null> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
   const g = (ws?.settings as any)?.integrations?.gmb ?? {};
   if (g.serpApiKeyEnc) {
-    const k = decryptSecret(g.serpApiKeyEnc);
+    const k = cleanSerpApiKey(decryptSecret(g.serpApiKeyEnc) ?? "");
     if (k) return k;
   }
   return process.env.SERPAPI_KEY ?? null;
@@ -88,7 +106,10 @@ export class SerpApiClient implements ReviewSource {
       if (/hasn't returned any results/i.test(String(data.error))) {
         data = { reviews: [], local_results: [] };
       } else {
-        throw new SerpApiError(`SerpApi: ${data.error}`);
+        const hint = /invalid api key/i.test(String(data.error))
+          ? " → La key guardada no es válida: vuelve a pegarla en GMB Hub → Ajustes (ahora se comprueba al guardar)."
+          : "";
+        throw new SerpApiError(`SerpApi: ${data.error}${hint}`);
       }
     }
 

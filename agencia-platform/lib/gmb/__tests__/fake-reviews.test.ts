@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/db/prisma", () => ({ prisma: {} }));
 vi.mock("@/lib/ai/anthropic", () => ({ complete: vi.fn(), DEFAULT_MODEL: "test-model" }));
 
-import { SerpApiClient } from "@/lib/integrations/serpapi";
+import { SerpApiClient, type ReviewSource } from "@/lib/integrations/serpapi";
 import { SerperReviewsClient, serperReviewToSerpApi } from "@/lib/integrations/serper-reviews";
 import { initState, tick, type JobState } from "@/lib/gmb/fake-reviews/job";
 import { parsePlaceInput, relativeToTs, normalizeReview, type AnalysisParams, type Place } from "@/lib/gmb/fake-reviews/core";
@@ -114,7 +114,7 @@ function scenario() {
   return { transport, serperTransport };
 }
 
-async function runAll(params: AnalysisParams, api: SerpApiClient, summarize?: (r: AnalysisResults) => Promise<string>) {
+async function runAll(params: AnalysisParams, api: ReviewSource, summarize?: (r: AnalysisResults) => Promise<string>) {
   const state: JobState = initState(params);
   let results: AnalysisResults | null = null;
   for (let i = 0; i < 200 && state.phase !== "done"; i++) {

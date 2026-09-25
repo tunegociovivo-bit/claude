@@ -9,6 +9,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { encryptSecret, decryptSecret, maskSecret } from "@/lib/ai/crypto";
+import { ApiError } from "@/lib/api/auth";
+import { cleanSerpApiKey, looksLikeSerpApiKey, maskKey, serpApiAccount } from "@/lib/integrations/serpapi";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,7 @@ export const GET = withApi({ scope: "admin" }, async (req, { api }) => {
     hasMapsKey: !!(g.mapsKeyEnc || process.env.GOOGLE_MAPS_API_KEY),
     hasScraperKey: !!g.scraperApiKeyEnc,
     hasSerpApiKey: !!(g.serpApiKeyEnc || process.env.SERPAPI_KEY),
+    serpApiKeyInfo: g.serpApiKeyEnc ? maskKey(cleanSerpApiKey(decryptSecret(g.serpApiKeyEnc) ?? "")) : null,
     notifyEmail: g.notifyEmail ?? null,
     hasTelegram: !!g.telegramEnc,
     make: {
@@ -66,7 +69,17 @@ export const PUT = withApi({ scope: "admin" }, async (req, { api }) => {
     g.scraperApiKeyEnc = encryptSecret(body.scraperApiKey.trim());
   }
   if (typeof body.serpApiKey === "string" && body.serpApiKey.trim()) {
-    g.serpApiKeyEnc = encryptSecret(body.serpApiKey.trim());
+    // Se valida contra SerpApi ANTES de guardar para no dejar una key rota.
+    const k = cleanSerpApiKey(body.serpApiKey);
+    if (!looksLikeSerpApiKey(k)) {
+      throw new ApiError(400, "invalid_serpapi_key", `La key de SerpApi no tiene el formato esperado (64 caracteres hexadecimales; has pegado ${k.length}). Cópiala desde serpapi.com/manage-api-key con el botón de copiar.`);
+    }
+    try {
+      await serpApiAccount(k);
+    } catch (e) {
+      throw new ApiError(400, "invalid_serpapi_key", `SerpApi rechaza la key (${(e as Error).message}). Comprueba en serpapi.com que la cuenta está verificada (email) y que copias la «Private API Key».`);
+    }
+    g.serpApiKeyEnc = encryptSecret(k);
   }
   if (typeof body.notifyEmail === "string") {
     g.notifyEmail = body.notifyEmail.trim() || undefined;

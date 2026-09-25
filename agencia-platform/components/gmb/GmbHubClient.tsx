@@ -1314,7 +1314,7 @@ function GmbSettings({ onClose }: { onClose: () => void }) {
 
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                SerpApi key {cfg?.hasSerpApiKey && <span className="text-emerald-600">· configurada</span>}
+                SerpApi key {cfg?.hasSerpApiKey && <span className="text-emerald-600">· configurada{cfg?.serpApiKeyInfo ? ` (${cfg.serpApiKeyInfo})` : ""}</span>}
               </label>
               <input
                 type="password"
