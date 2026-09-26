@@ -20,7 +20,8 @@ export const MOBILE_AUTOMATION_SOURCE_KINDS = [
   "GROUP_JOIN_REQUEST",
   "COMMENT_DISCOVERY",
   "COMMENT_REPLY",
-  "PAGE_FOLLOW"
+  "PAGE_FOLLOW",
+  "COMMENT_THREAD"
 ] as const;
 
 export const MOBILE_AUTOMATION_ACTIONS = [
@@ -32,7 +33,8 @@ export const MOBILE_AUTOMATION_ACTIONS = [
   "JOIN_FACEBOOK_GROUP_BATCH",
   "DISCOVER_FACEBOOK_CONVERSATIONS",
   "REPLY_FACEBOOK_CONVERSATIONS",
-  "FOLLOW_PAGES"
+  "FOLLOW_PAGES",
+  "POST_THREAD_MESSAGE"
 ] as const;
 
 export type MobileAutomationPlatform = (typeof MOBILE_AUTOMATION_PLATFORMS)[number];
@@ -156,6 +158,10 @@ export const mobileAutomationDraftSchema = z
           message: "Las reseñas reales del MVP solo se preparan para Google Maps."
         });
       }
+    }
+    if (value.sourceKind === "COMMENT_THREAD") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["sourceKind"], message: "Las conversaciones se crean desde el encargo común, con la simulación y la revisión de cada mensaje." });
+      return;
     }
     if (value.sourceKind === "PAGE_FOLLOW") {
       let urls: string[] = [];

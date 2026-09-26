@@ -40,6 +40,13 @@ import {
 } from "@/lib/mobile/facebook-group-batch";
 
 import FacebookConversationBatchView from "@/components/mobile/FacebookConversationBatchView";
+import CommentThreadComposer, { type ThreadTarget } from "@/components/mobile/CommentThreadComposer";
+import { parseCommentThreadMessage, serializeCommentThreadMessage, type CommentThreadMessage } from "@/lib/mobile/comment-thread";
+
+function readThreadMessage(action: string, text: string | null | undefined): CommentThreadMessage | null {
+  if (action !== "POST_THREAD_MESSAGE" || !text) return null;
+  try { return parseCommentThreadMessage(text); } catch { return null; }
+}
 import { MAX_PAGE_FOLLOW_TARGETS, pageFollowSummary, parsePageFollowBatch, type PageFollowBatch } from "@/lib/mobile/page-follow-batch";
 
 function readPageFollow(action: string, text: string | null | undefined): PageFollowBatch | null {
@@ -101,7 +108,7 @@ type Props = {
   deviceSerial: string;
   phoneKey: string;
   ready: boolean;
-  composer?: { allowed: boolean; submitLabel: string; create: (body: Record<string, unknown>) => Promise<void> };
+  composer?: { allowed: boolean; submitLabel: string; create: (body: Record<string, unknown>) => Promise<void>; targets?: ThreadTarget[]; onOpen?: (serials: string[]) => void };
   onEnsureReady?: () => Promise<boolean>;
   onExecuteJob: (job: MobileAutomationExecutableJob) => Promise<MobileAutomationExecutionResult>;
   onPasteText: (text: string) => Promise<void>;
@@ -173,6 +180,13 @@ function statusLabel(job: AutomationJob): string {
     if (job.status === "PENDING_APPROVAL") return "Respuestas listas para revisar";
     if (job.status === "RUNNING") return "Enviando respuestas seleccionadas";
     if (job.status === "WAITING_USER") return "Envío parcial · revisar";
+  }
+  if (job.action === "POST_THREAD_MESSAGE") {
+    if (job.status === "PENDING_APPROVAL") return "Mensaje de conversación · revisar y aprobar";
+    if (job.status === "QUEUED") return "Aprobado · esperando su turno";
+    if (job.status === "RUNNING") return "Publicando en Facebook";
+    if (job.status === "WAITING_USER") return "Comprobar si se publicó";
+    if (job.status === "COMPLETED") return "Publicado";
   }
   if (job.action === "FOLLOW_PAGES") {
     if (job.status === "RUNNING") return "Siguiendo páginas en el móvil";
@@ -306,6 +320,7 @@ export default function MobileAutomationPanel({
   const [showHistory, setShowHistory] = useState(false);
   const conversationScan = platform === "facebook" && sourceKind === "COMMENT_DISCOVERY";
   const pageFollow = sourceKind === "PAGE_FOLLOW";
+  const threadMode = sourceKind === "COMMENT_THREAD" && Boolean(composer);
   const pageEntries = pagesText.split(/[\n,;]+/).map((entry) => entry.trim()).filter(Boolean);
   const [tone, setTone] = useState("natural y concreto");
   const [experienceConfirmed, setExperienceConfirmed] = useState(false);
@@ -314,7 +329,7 @@ export default function MobileAutomationPanel({
   const [membershipAnswerEdits, setMembershipAnswerEdits] = useState<Record<string, string>>({});
   const workerBusyRef = useRef(false);
   const draftRequestIdRef = useRef<string | null>(null);
-  const platformWorkflows = getAutomationWorkflows(platform);
+  const platformWorkflows = getAutomationWorkflows(platform).filter((workflow) => !workflow.fleetOnly || Boolean(composer));
   const selectedWorkflow = platformWorkflows.find((item) => item.sourceKind === sourceKind)
     ?? platformWorkflows[0]!;
   const hasRunnableJob = jobs.some((job) => (
@@ -348,7 +363,7 @@ export default function MobileAutomationPanel({
       });
       const job = payload.job as AutomationJob | null;
       if (!job) return;
-      setWorkerMessage(job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
+      setWorkerMessage(job.action === "POST_THREAD_MESSAGE" ? "Publicando el mensaje aprobado de la conversación…" : job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
         ? `Analizando varios resultados sobre «${job.sourceRef}» en Facebook…`
         : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
           ? "Procesando en Facebook todos los grupos aprobados…"
@@ -473,6 +488,11 @@ export default function MobileAutomationPanel({
     setError(null);
     try {
       let decisionText = edits[job.id] ?? job.text ?? "";
+      if (job.action === "POST_THREAD_MESSAGE") {
+        const message = readThreadMessage(job.action, job.text);
+        if (!message) throw new Error("El mensaje de la conversación no es válido.");
+        decisionText = serializeCommentThreadMessage({ ...message, text: (edits[job.id] ?? message.text).trim() });
+      }
       if (job.action === "JOIN_FACEBOOK_GROUP_BATCH" && membershipAnswerEdits[job.id] !== undefined) {
         const batch = readFacebookGroupBatch(job.action, decisionText);
         if (!batch) throw new Error("El lote de grupos ya no es válido. Actualiza la lista.");
@@ -575,7 +595,7 @@ export default function MobileAutomationPanel({
         </span>}
       </div>
 
-      <form onSubmit={event => { if (reviewMode) event.preventDefault(); else void createDraft(event); }} className="mt-3 space-y-2">
+      <form onSubmit={event => { if (reviewMode || threadMode) event.preventDefault(); else void createDraft(event); }} className="mt-3 space-y-2">
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs font-semibold text-slate-700">
             Plataforma
@@ -596,7 +616,10 @@ export default function MobileAutomationPanel({
           workerBusyRef.current = true;
           try { const result = await onExecuteJob({ action: "OPEN_URL", targetUrl: url, text: null }); return result.summary; }
           finally { workerBusyRef.current = false; }
-        }} /> : <>
+        }} /> : threadMode ? <>
+          <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900"><span className="font-semibold">{selectedWorkflow.label}.</span> {selectedWorkflow.description}</div>
+          <CommentThreadComposer targets={composer?.targets ?? []} allowed={Boolean(composer?.allowed)} onOpen={composer?.onOpen} />
+        </> : <>
         <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900">
           <span className="font-semibold">{selectedWorkflow.label}.</span> {conversationScan ? "Busca comentarios en los grupos de tu cuenta o en un destino concreto y prepara respuestas editables con tu texto base." : selectedWorkflow.description}
         </div>
@@ -767,6 +790,17 @@ export default function MobileAutomationPanel({
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClasses(job.status)}`}>{statusLabel(job)}</span>
                 </summary>
                 {(() => {
+                  const threadMessage = readThreadMessage(job.action, job.text);
+                  if (threadMessage) return (
+                    <div className="mt-2 space-y-1.5 text-xs">
+                      <p className="text-[11px] text-slate-500">Mensaje {threadMessage.order}/{threadMessage.total} · cuenta de {threadMessage.author} · <a href={threadMessage.postUrl} target="_blank" rel="noreferrer" className="underline">publicación</a></p>
+                      {threadMessage.replyToText && <p className="rounded border-l-4 border-indigo-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">Responde a {threadMessage.replyToAuthor}: «{threadMessage.replyToText}»</p>}
+                      {job.status === "PENDING_APPROVAL"
+                        ? <textarea value={edits[job.id] ?? threadMessage.text} onChange={(event) => setEdits((current) => ({ ...current, [job.id]: event.target.value }))} rows={3} maxLength={1200} className="w-full rounded-lg border px-2.5 py-2 leading-5" />
+                        : <p className="whitespace-pre-wrap leading-5 text-slate-700">{threadMessage.text}</p>}
+                      {threadMessage.detail && <p className="text-[11px] text-slate-500">{threadMessage.detail}</p>}
+                    </div>
+                  );
                   const follow = readPageFollow(job.action, job.text);
                   if (follow) return <PageFollowBatchView batch={follow} />;
                   const conversations = readConversations(job.action, edits[job.id] ?? job.text);
@@ -826,13 +860,13 @@ export default function MobileAutomationPanel({
                   )}
                   {job.status === "WAITING_USER" && (
                     <>
-                      {!isNavigationAction(job.action) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action) && job.text && (
+                      {!isNavigationAction(job.action) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action) && job.text && (
                         <button type="button" onClick={() => void onPasteText(job.text!)} disabled={!ready || busy} className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Clipboard className="h-3.5 w-3.5" /> Pegar en el campo enfocado</button>
                       )}
                       {["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action) && (
                         <button type="button" onClick={() => void decide(job, "RETRY")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" /> Reintentar pendientes</button>
                       )}
-                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action) ? "Cerrar lote" : isNavigationAction(job.action) ? "Revisión terminada" : "Ya lo publiqué"}</button>
+                      <button type="button" onClick={() => void decide(job, "COMPLETE")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white"><Check className="h-3.5 w-3.5" /> {job.action === "POST_THREAD_MESSAGE" ? "Confirmo que está publicado" : ["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action) ? "Cerrar lote" : isNavigationAction(job.action) ? "Revisión terminada" : "Ya lo publiqué"}</button>
                     </>
                   )}
                   {job.status === "FAILED" && <button type="button" onClick={() => void decide(job, "RETRY")} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white"><RefreshCw className="h-3.5 w-3.5" /> Reintentar</button>}

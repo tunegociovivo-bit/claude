@@ -13,7 +13,8 @@ describe("catálogo de automatizaciones por plataforma", () => {
       "COMMENT_REPLY",
       "OWNED_POST",
       "LINK_SHARE",
-      "PAGE_FOLLOW"
+      "PAGE_FOLLOW",
+      "COMMENT_THREAD"
     ]);
   });
 

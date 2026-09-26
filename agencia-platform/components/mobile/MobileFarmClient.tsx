@@ -87,6 +87,8 @@ import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-
 import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
+import { postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
+import { serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import { discardMobileClipboard, readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
@@ -1299,6 +1301,17 @@ function MobileDeviceCard({
           outcome: "DISCOVERED",
           resultText: serializeFacebookGroupBatch(analyzed),
           summary: `${analyzed.candidates.length} grupos analizados.`
+        };
+      },
+      postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
+        const deps = conversationDependencies({} as FacebookConversationBatch);
+        const result = await postCommentThreadMessage(message, {
+          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, paste: deps.paste, wait: deps.wait
+        });
+        return {
+          outcome: result.outcome === "sent" ? "COMPLETED" : "PARTIAL",
+          resultText: serializeCommentThreadMessage(result),
+          summary: result.detail ?? undefined
         };
       },
       followPages: async (batch): Promise<MobileAutomationExecutionResult> => {

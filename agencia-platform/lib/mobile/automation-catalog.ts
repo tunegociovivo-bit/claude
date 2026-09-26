@@ -14,6 +14,8 @@ export type MobileAutomationWorkflow = {
   factsLabel: string;
   factsPlaceholder: string;
   submitLabel: string;
+  /** Solo disponible en el encargo común (necesita varios móviles). */
+  fleetOnly?: boolean;
 };
 
 const COMMON_POST: MobileAutomationWorkflow = {
@@ -81,6 +83,20 @@ const PAGE_FOLLOW: MobileAutomationWorkflow = {
   submitLabel: "Seguir páginas"
 };
 
+const COMMENT_THREAD: MobileAutomationWorkflow = {
+  sourceKind: "COMMENT_THREAD",
+  label: "Conversación entre varias cuentas (con revisión)",
+  description: "La IA simula un hilo de comentarios y respuestas entre los móviles seleccionados usando solo los datos reales de cada persona. Revisas el guion y cada titular aprueba su mensaje antes de publicarlo.",
+  targetNameLabel: "Publicación o anuncio",
+  targetNamePlaceholder: "https://www.facebook.com/…",
+  targetUrlLabel: null,
+  targetUrlPlaceholder: null,
+  factsLabel: "Sobre qué deben tratar los comentarios y respuestas",
+  factsPlaceholder: "Ej. Franquicias rentables: dudas sobre en qué sector invertir; la experiencia real de la familia con franquicias de alimentación.",
+  submitLabel: "Simular conversación",
+  fleetOnly: true
+};
+
 const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkflow[]> = {
   facebook: [
     {
@@ -111,7 +127,8 @@ const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkf
     { ...COMMENT_REPLY, label: "Responder a un enlace concreto" },
     COMMON_POST,
     COMMON_LINK,
-    PAGE_FOLLOW
+    PAGE_FOLLOW,
+    COMMENT_THREAD
   ],
   instagram: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK, PAGE_FOLLOW],
   tiktok: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK, PAGE_FOLLOW],

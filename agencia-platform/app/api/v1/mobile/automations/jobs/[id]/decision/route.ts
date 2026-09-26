@@ -1,3 +1,4 @@
+import { parseCommentThreadMessage, sameThreadSlot, serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch, serializeConversationBatch, validateConversationApproval } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -70,6 +71,16 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
     if (["APPROVE", "RETRY"].includes(parsed.data.action) && job.action === "REPLY_FACEBOOK_CONVERSATIONS") {
       try { text = serializeConversationBatch(validateConversationApproval(parseConversationBatch(job.text ?? ""), parseConversationBatch(text))); }
       catch (error) { throw new ApiError(400, "invalid_conversation_batch", error instanceof Error ? error.message : "Lote no válido"); }
+    }
+    if (parsed.data.action === "APPROVE" && job.action === "POST_THREAD_MESSAGE") {
+      try {
+        const original = parseCommentThreadMessage(job.text ?? "");
+        const edited = parseCommentThreadMessage(text);
+        if (!sameThreadSlot(original, edited)) throw new Error("Solo se puede cambiar el texto del mensaje.");
+        text = serializeCommentThreadMessage({ ...original, text: edited.text });
+      } catch (error) {
+        throw new ApiError(400, "invalid_thread_message", error instanceof Error ? error.message : "Mensaje no válido");
+      }
     }
     const data: Record<string, unknown> = {
       status: statusByAction[parsed.data.action],
