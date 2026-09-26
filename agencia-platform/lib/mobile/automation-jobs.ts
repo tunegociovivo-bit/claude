@@ -169,7 +169,7 @@ export async function claimNextMobileAutomationJob(input: {
 }
 
 const THREAD_PENDING = ["PENDING_APPROVAL", "QUEUED", "RUNNING", "WAITING_USER"];
-const THREAD_DEAD = ["REJECTED", "CANCELLED", "FAILED"];
+const THREAD_DEAD = ["REJECTED", "CANCELLED"];
 
 /**
  * Orden de la conversación: un mensaje espera a que el anterior termine y, si es
@@ -193,6 +193,7 @@ export async function threadMessageGate(
   if (previous && THREAD_PENDING.includes(previous.status)) return { state: "wait" };
   if (!message.parentJobId) return { state: "ready", text: null };
   const parent = related.find((job) => job.id === message.parentJobId);
+  // Un padre FAILED puede reintentarse o marcarse como publicado: la respuesta espera.
   if (!parent || THREAD_DEAD.includes(parent.status)) {
     return { state: "cancel", reason: "El mensaje al que responde no se ha publicado; esta respuesta se ha cancelado." };
   }
