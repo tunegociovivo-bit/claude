@@ -44,6 +44,7 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
   const [error, setError] = useState<string | null>(null);
   const [threadId, setThreadId] = useState(() => crypto.randomUUID());
   const [jobs, setJobs] = useState<TrackedJob[] | null>(null);
+  const [approveNote, setApproveNote] = useState<string | null>(null);
 
   const participants = useMemo(() => targets
     .filter((target) => !excluded.includes(target.deviceSerial))
@@ -96,6 +97,21 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
     } finally { setBusy(false); }
   }
 
+  async function approveAll() {
+    if (!jobs) return;
+    const pending = jobs.filter((job) => job.status === "PENDING_APPROVAL");
+    setBusy(true); setApproveNote(null);
+    let ok = 0;
+    const failed: string[] = [];
+    for (const job of pending) {
+      try { await postJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/decision`, { action: "APPROVE" }); ok += 1; }
+      catch (approveError) { failed.push(approveError instanceof Error ? approveError.message : "Error"); }
+    }
+    setJobs((current) => current?.map((job) => pending.some((item) => item.id === job.id) && !failed.length ? { ...job, status: "QUEUED" } : job) ?? null);
+    setApproveNote(`${ok} de ${pending.length} mensajes aprobados.${failed.length ? ` Errores: ${failed[0]}` : " Se publicarán en orden cuando las pantallas estén abiertas."}`);
+    setBusy(false);
+  }
+
   function reset() {
     setMessages(null); setJobs(null); setError(null); setThreadId(crypto.randomUUID());
   }
@@ -119,7 +135,9 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
             </div>
           );
         })}
+        {approveNote && <p role="status" className="text-emerald-800">{approveNote}</p>}
         <div className="flex flex-wrap gap-2">
+          {jobs.some((job) => job.status === "PENDING_APPROVAL") && <button type="button" disabled={busy} onClick={() => void approveAll()} className="rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white disabled:opacity-50">Aprobar todos los mensajes</button>}
           {onOpen && <button type="button" onClick={() => onOpen([...new Set(jobs.map((job) => job.deviceSerial))])} className="rounded-lg border px-3 py-2">Abrir pantallas de estos móviles</button>}
           <button type="button" onClick={reset} className="rounded-lg border px-3 py-2">Nueva conversación</button>
         </div>

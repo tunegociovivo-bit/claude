@@ -4,11 +4,26 @@ import MobileAutomationPanel from "./MobileAutomationPanel";
 import { createFleetPlan, dispatchFleetPlan, type FleetPlan, type FleetTarget } from "./mobile-fleet-dispatch";
 const labels: Record<string,string> = { QUEUED: "En cola", RUNNING: "En ejecución", PENDING_APPROVAL: "Pendiente de aprobación", WAITING_USER: "Necesita revisión", COMPLETED: "Completado", FAILED: "Ha fallado", CANCELLED: "Cancelado", REJECTED: "Rechazado" };
 type Device = Omit<FleetTarget, 'phoneKey'> & { phoneKey?: string };
+async function approvePending(jobIds: string[]): Promise<{ ok: number; errors: Record<string, string> }> {
+  let ok = 0;
+  const errors: Record<string, string> = {};
+  for (const id of jobIds) {
+    try {
+      const response = await fetch(`/api/v1/mobile/automations/jobs/${encodeURIComponent(id)}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'APPROVE' }) });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error?.message ?? data?.message ?? 'No se pudo aprobar');
+      ok += 1;
+    } catch (error) { errors[id] = error instanceof Error ? error.message : 'No se pudo aprobar'; }
+  }
+  return { ok, errors };
+}
+
 export default function MobileFleetAutomationPanel({ devices, canManage, onOpen }: { devices: Device[]; canManage: boolean; onOpen: (serials: string[]) => void }) {
   const [excluded, setExcluded] = useState<string[]>([]);
   const [plan, setPlan] = useState<FleetPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
+  const [approveNote, setApproveNote] = useState<string | null>(null);
   const lock = useRef(false);
   const selected = devices.filter(d => d.phoneKey && !excluded.includes(d.deviceSerial));
   const ids = plan?.entries.flatMap(e => e.job ? [e.job.id] : []).join(',') ?? '';
@@ -58,7 +73,10 @@ export default function MobileFleetAutomationPanel({ devices, canManage, onOpen 
       <p className="text-sm text-slate-600">{busy ? 'Creando los trabajos…' : 'Cada móvil conserva su cola y sus aprobaciones. Mantén esta página abierta para ejecutar.'}</p>
       {plan.entries.map(e => <div key={e.deviceSerial} className="rounded-lg border p-3 text-sm"><div className="flex justify-between gap-3"><strong>{e.label}</strong><span>{e.job ? labels[e.job.status] ?? e.job.status : e.error ? 'No creado' : 'Pendiente de crear'}</span></div>{(e.error || e.job?.lastError) && <p className="mt-1 text-rose-700">{e.error || e.job?.lastError}</p>}<a className="mt-2 inline-block text-indigo-700 underline" href={`#mobile-device-${encodeURIComponent(e.deviceSerial)}`}>Ver móvil y revisar su cola</a></div>)}
       {pollError && <p role="alert" className="text-sm text-rose-700">{pollError}</p>}
+      {approveNote && <p role="status" className="text-sm text-emerald-800">{approveNote}</p>}
+      {plan.entries.some(e=>e.job?.status==='PENDING_APPROVAL') && <p className="text-xs text-slate-500">«Aprobar en todos los móviles» aprueba los borradores tal como están. Si quieres editar alguno antes, hazlo en la cola de ese móvil.</p>}
       <div className="flex flex-wrap gap-3 text-sm">
+        {plan.entries.some(e=>e.job?.status==='PENDING_APPROVAL') && <button disabled={busy || !canManage} onClick={async()=>{ setBusy(true); setApproveNote(null); try { const pending = plan.entries.filter(e=>e.job?.status==='PENDING_APPROVAL').map(e=>e.job!.id); const result = await approvePending(pending); setPlan(p => p ? { ...p, entries: p.entries.map(e => e.job && result.errors[e.job.id] ? { ...e, error: result.errors[e.job.id] } : e.job && pending.includes(e.job.id) ? { ...e, error: undefined, job: { ...e.job, status: 'QUEUED' } } : e) } : p); setApproveNote(`${result.ok} de ${pending.length} encargos aprobados.${result.ok ? ' Abre las pantallas para que se ejecuten.' : ''}`); } finally { setBusy(false); } }} className="rounded-lg bg-emerald-600 px-3 py-2 text-white disabled:opacity-50">Aprobar en todos los móviles</button>}
         {plan.entries.some(e=>!e.job) && <button disabled={busy || !canManage} onClick={()=>void dispatch(plan)} className="rounded-lg bg-indigo-700 px-3 py-2 text-white disabled:opacity-50">Reintentar solo los no creados</button>}
         <button disabled={busy || !canManage} onClick={()=>onOpen(plan.entries.filter(e=>e.job).map(e=>e.deviceSerial))} className="rounded-lg border px-3 py-2">Abrir pantallas de este encargo</button>
         <button disabled={busy} onClick={()=>{setPlan(null);setPollError(null);}} className="rounded-lg border px-3 py-2">Nuevo encargo</button>
