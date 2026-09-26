@@ -1,4 +1,6 @@
 import { parseConversationBatch } from "@/lib/mobile/facebook-conversations";
+import { isPageFollowBatchText, parsePageFollowBatch, samePageFollowTargets } from "@/lib/mobile/page-follow-batch";
+import { isCommentThreadText, parseCommentThreadMessage, sameThreadSlot, serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
@@ -85,7 +87,7 @@ export async function claimNextMobileAutomationJob(input: {
         ]
       },
       orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
-      take: 5
+      take: 20
     });
 
     for (const candidate of candidates) {
@@ -104,11 +106,29 @@ export async function claimNextMobileAutomationJob(input: {
         });
         continue;
       }
+      let refreshedText: string | null = null;
+      if (candidate.action === "POST_THREAD_MESSAGE") {
+        const gate = await threadMessageGate(tx, input.workspaceId, candidate.text);
+        if (gate.state === "wait") continue;
+        if (gate.state === "cancel") {
+          await tx.mobileAutomationJob.update({
+            where: { id: candidate.id },
+            data: { status: "CANCELLED", leaseOwner: null, leaseUntil: null, lastErrorCode: "thread_parent_missing", lastError: gate.reason }
+          });
+          await tx.mobileAutomationJobEvent.create({
+            data: { workspaceId: input.workspaceId, jobId: candidate.id, event: "CANCEL", actorType: "SYSTEM", metadata: { reason: gate.reason } }
+          });
+          continue;
+        }
+        refreshedText = gate.text;
+      }
       const isFacebookGroupBatch = [
         "DISCOVER_FACEBOOK_GROUPS",
         "JOIN_FACEBOOK_GROUP_BATCH",
         "DISCOVER_FACEBOOK_CONVERSATIONS",
-        "REPLY_FACEBOOK_CONVERSATIONS"
+        "REPLY_FACEBOOK_CONVERSATIONS",
+        "FOLLOW_PAGES",
+        "POST_THREAD_MESSAGE"
       ].includes(candidate.action);
       const leaseUntil = new Date(now.getTime() + (isFacebookGroupBatch ? 10 * 60_000 : 60_000));
       const claimed = await tx.mobileAutomationJob.updateMany({
@@ -127,7 +147,8 @@ export async function claimNextMobileAutomationJob(input: {
           leaseUntil,
           attempts: { increment: 1 },
           lastError: null,
-          lastErrorCode: null
+          lastErrorCode: null,
+          ...(refreshedText ? { text: refreshedText } : {})
         }
       });
       if (claimed.count !== 1) continue;
@@ -141,10 +162,49 @@ export async function claimNextMobileAutomationJob(input: {
           metadata: { leaseUntil: leaseUntil.toISOString() }
         }
       });
-      return { ...candidate, status: "RUNNING", leaseOwner: input.executorSessionId, leaseUntil };
+      return { ...candidate, ...(refreshedText ? { text: refreshedText } : {}), status: "RUNNING", leaseOwner: input.executorSessionId, leaseUntil };
     }
     return null;
   }, { isolationLevel: "Serializable" });
+}
+
+const THREAD_PENDING = ["PENDING_APPROVAL", "QUEUED", "RUNNING", "WAITING_USER"];
+const THREAD_DEAD = ["REJECTED", "CANCELLED", "FAILED"];
+
+/**
+ * Orden de la conversación: un mensaje espera a que el anterior termine y, si es
+ * una respuesta, a que el mensaje al que responde esté publicado (COMPLETED).
+ * Si ese mensaje se rechazó o falló, la respuesta se cancela.
+ */
+export async function threadMessageGate(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  text: string | null
+): Promise<{ state: "ready"; text: string | null } | { state: "wait" } | { state: "cancel"; reason: string }> {
+  let message;
+  try { message = parseCommentThreadMessage(text ?? ""); }
+  catch { return { state: "cancel", reason: "El mensaje de la conversación no es válido." }; }
+  const ids = [message.previousJobId, message.parentJobId].filter((id): id is string => Boolean(id));
+  const related = ids.length ? await tx.mobileAutomationJob.findMany({
+    where: { workspaceId, id: { in: ids } },
+    select: { id: true, status: true, text: true }
+  }) : [];
+  const previous = related.find((job) => job.id === message.previousJobId);
+  if (previous && THREAD_PENDING.includes(previous.status)) return { state: "wait" };
+  if (!message.parentJobId) return { state: "ready", text: null };
+  const parent = related.find((job) => job.id === message.parentJobId);
+  if (!parent || THREAD_DEAD.includes(parent.status)) {
+    return { state: "cancel", reason: "El mensaje al que responde no se ha publicado; esta respuesta se ha cancelado." };
+  }
+  if (parent.status !== "COMPLETED") return { state: "wait" };
+  // El texto del padre pudo editarse al aprobarlo: la respuesta debe buscar el texto publicado.
+  try {
+    const parentText = parseCommentThreadMessage(parent.text ?? "").text;
+    if (parentText === message.replyToText) return { state: "ready", text: null };
+    return { state: "ready", text: serializeCommentThreadMessage({ ...message, replyToText: parentText }) };
+  } catch {
+    return { state: "ready", text: null };
+  }
 }
 
 export async function reportMobileAutomationResult(input: {
@@ -170,14 +230,27 @@ export async function reportMobileAutomationResult(input: {
     if (input.outcome === "DISCOVERED" && !["DISCOVER_FACEBOOK_GROUPS", "DISCOVER_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba resultados de grupos");
     }
-    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
+    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba solicitudes de grupos");
     }
     if (["DISCOVERED", "COMPLETED", "PARTIAL"].includes(input.outcome) && !input.resultText) {
       throw new ApiError(400, "missing_result", "Falta el resultado del lote de grupos");
     }
 
-    if (input.resultText && job.action.endsWith("FACEBOOK_CONVERSATIONS")) {
+    if (job.action === "POST_THREAD_MESSAGE" && input.resultText) {
+      let same = false;
+      try { same = sameThreadSlot(parseCommentThreadMessage(job.text ?? ""), parseCommentThreadMessage(input.resultText)) && parseCommentThreadMessage(job.text ?? "").text === parseCommentThreadMessage(input.resultText).text; } catch { same = false; }
+      if (!same) throw new ApiError(400, "invalid_result", "El resultado no corresponde al mensaje aprobado.");
+    } else if (input.resultText && isCommentThreadText(input.resultText)) {
+      throw new ApiError(400, "invalid_result", "Este trabajo no esperaba un mensaje de conversación.");
+    } else if (job.action === "FOLLOW_PAGES" && input.resultText) {
+      let result, original;
+      try { result = parsePageFollowBatch(input.resultText); original = parsePageFollowBatch(job.text ?? ""); }
+      catch { throw new ApiError(400, "invalid_result", "El lote de páginas no es válido."); }
+      if (!samePageFollowTargets(original, result)) throw new ApiError(400, "invalid_result", "El resultado no corresponde a las páginas del encargo.");
+    } else if (input.resultText && isPageFollowBatchText(input.resultText)) {
+      throw new ApiError(400, "invalid_result", "Este trabajo no esperaba un lote de páginas.");
+    } else if (input.resultText && job.action.endsWith("FACEBOOK_CONVERSATIONS")) {
       const result = parseConversationBatch(input.resultText);
       const original = parseConversationBatch(job.text ?? "");
       if (JSON.stringify(result.config) !== JSON.stringify(original.config)) throw new ApiError(400, "invalid_result", "El alcance de la búsqueda ha cambiado.");
@@ -250,7 +323,7 @@ export async function reportMobileAutomationResult(input: {
         data: {
           workspaceId: input.workspaceId,
           jobId: job.id,
-          event: partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
+          event: job.action === "POST_THREAD_MESSAGE" ? (partial ? "THREAD_MESSAGE_REVIEW" : "THREAD_MESSAGE_SENT") : job.action === "FOLLOW_PAGES" ? (partial ? "PAGE_FOLLOW_PARTIAL" : "PAGE_FOLLOW_COMPLETED") : partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
           actorType: "BROWSER",
           actorId: input.executorSessionId
         }

@@ -10,6 +10,7 @@ import {
   mobileAutomationDraftSchema,
   validateAutomationTargetUrl
 } from "@/lib/mobile/automation-policy";
+import { createPageFollowBatch, normalizePageFollowEntries, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import {
   createInitialFacebookGroupBatch,
   serializeFacebookGroupBatch
@@ -50,7 +51,11 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
   }
   requireLinkedMobile(phones, parsed.data.phoneKey, parsed.data.deviceSerial);
   const conversationScan = parsed.data.platform === "facebook" && parsed.data.sourceKind === "COMMENT_DISCOVERY";
-  const destination = conversationScan ? conversationDestination(parsed.data.targetUrl, parsed.data.searchTerm) : { targetUrl: parsed.data.targetUrl, searchTerm: "" };
+  const pageFollow = parsed.data.sourceKind === "PAGE_FOLLOW";
+  const followUrls = pageFollow
+    ? normalizePageFollowEntries(parsed.data.platform as PageFollowPlatform, parsed.data.pages ?? []).map((url) => validateAutomationTargetUrl(parsed.data.platform, url))
+    : [];
+  const destination = conversationScan ? conversationDestination(parsed.data.targetUrl, parsed.data.searchTerm) : { targetUrl: pageFollow ? followUrls[0]! : parsed.data.targetUrl, searchTerm: "" };
   const targetUrl = conversationScan && !destination.targetUrl ? "https://www.facebook.com/groups/?category=membership" : validateAutomationTargetUrl(parsed.data.platform, destination.targetUrl);
   const existing = await prisma.mobileAutomationJob.findUnique({
     where: {
@@ -64,7 +69,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
     return NextResponse.json({ ok: true, job: existing, replayed: true });
   }
   const directGroupSearch = parsed.data.sourceKind === "GROUP_DISCOVERY";
-  const text = conversationScan ? serializeConversationBatch(createConversationBatch({
+  const text = pageFollow ? serializePageFollowBatch(createPageFollowBatch(parsed.data.platform as PageFollowPlatform, followUrls)) : conversationScan ? serializeConversationBatch(createConversationBatch({
     targetUrl: destination.targetUrl, searchTerm: destination.searchTerm, searchMode: parsed.data.searchMode,
     dateFrom: parsed.data.dateFrom, dateTo: parsed.data.dateTo, niche: parsed.data.niche ?? "", criteria: parsed.data.facts,
     replyGuidance: parsed.data.replyGuidance!, postsPerGroup: parsed.data.postsPerGroup ?? 5,
@@ -103,7 +108,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         phoneKey: parsed.data.phoneKey,
         deviceSerial: parsed.data.deviceSerial,
         platform: parsed.data.platform,
-        action: conversationScan ? "DISCOVER_FACEBOOK_CONVERSATIONS" : directGroupSearch
+        action: pageFollow ? "FOLLOW_PAGES" : conversationScan ? "DISCOVER_FACEBOOK_CONVERSATIONS" : directGroupSearch
           ? "DISCOVER_FACEBOOK_GROUPS"
           : navigationOnly
             ? "OPEN_URL"
@@ -112,8 +117,9 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         text,
         facts: parsed.data.facts,
         sourceKind: parsed.data.sourceKind,
-        sourceRef: parsed.data.targetName || null,
-        status: (directGroupSearch || conversationScan) ? "QUEUED" : "PENDING_APPROVAL",
+        sourceRef: parsed.data.targetName || (pageFollow ? (followUrls.length === 1 ? followUrls[0]!.slice(0, 180) : `${followUrls.length} páginas`) : null),
+        // Seguir páginas no genera texto con IA: la lista escrita por el usuario ya es la aprobación.
+        status: (directGroupSearch || conversationScan || pageFollow) ? "QUEUED" : "PENDING_APPROVAL",
         scheduledAt,
         expiresAt: new Date(scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
         idempotencyKey: parsed.data.idempotencyKey,
@@ -127,7 +133,7 @@ export const POST = withApi({ scope: "*", rate: "ai" }, async (req, { api }) => 
         event: "DRAFT_CREATED",
         actorType: "USER",
         actorId: api.userId,
-        metadata: { platform: parsed.data.platform, sourceKind: parsed.data.sourceKind }
+        metadata: { platform: parsed.data.platform, sourceKind: parsed.data.sourceKind, ...(pageFollow ? { pages: followUrls.length } : {}) }
       }
     });
     return created;

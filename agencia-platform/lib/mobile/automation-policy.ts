@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { conversationDestination, validCalendarDate } from "./conversation-search";
 import { isAutomationWorkflowAllowed } from "@/lib/mobile/automation-catalog";
+import { MAX_PAGE_FOLLOW_TARGETS, normalizePageFollowEntries, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 
 export const MOBILE_AUTOMATION_PLATFORMS = [
   "google_maps",
@@ -18,7 +19,9 @@ export const MOBILE_AUTOMATION_SOURCE_KINDS = [
   "GROUP_DISCOVERY",
   "GROUP_JOIN_REQUEST",
   "COMMENT_DISCOVERY",
-  "COMMENT_REPLY"
+  "COMMENT_REPLY",
+  "PAGE_FOLLOW",
+  "COMMENT_THREAD"
 ] as const;
 
 export const MOBILE_AUTOMATION_ACTIONS = [
@@ -29,7 +32,9 @@ export const MOBILE_AUTOMATION_ACTIONS = [
   "DISCOVER_FACEBOOK_GROUPS",
   "JOIN_FACEBOOK_GROUP_BATCH",
   "DISCOVER_FACEBOOK_CONVERSATIONS",
-  "REPLY_FACEBOOK_CONVERSATIONS"
+  "REPLY_FACEBOOK_CONVERSATIONS",
+  "FOLLOW_PAGES",
+  "POST_THREAD_MESSAGE"
 ] as const;
 
 export type MobileAutomationPlatform = (typeof MOBILE_AUTOMATION_PLATFORMS)[number];
@@ -117,6 +122,7 @@ export const mobileAutomationDraftSchema = z
     tone: z.string().trim().max(120).optional(),
     membershipAnswers: z.string().trim().max(2000).optional().default(""),
     maxGroups: z.number().int().min(1).max(15).optional().default(10),
+    pages: z.array(z.string().trim().max(2048)).max(MAX_PAGE_FOLLOW_TARGETS * 2).optional(),
     scheduledAt: z.string().datetime({ offset: true }).optional()
   })
   .strict()
@@ -152,6 +158,22 @@ export const mobileAutomationDraftSchema = z
           message: "Las reseñas reales del MVP solo se preparan para Google Maps."
         });
       }
+    }
+    if (value.sourceKind === "COMMENT_THREAD") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["sourceKind"], message: "Las conversaciones se crean desde el encargo común, con la simulación y la revisión de cada mensaje." });
+      return;
+    }
+    if (value.sourceKind === "PAGE_FOLLOW") {
+      let urls: string[] = [];
+      try { urls = normalizePageFollowEntries(value.platform as PageFollowPlatform, value.pages ?? []); }
+      catch (error) { context.addIssue({ code: z.ZodIssueCode.custom, path: ["pages"], message: error instanceof Error ? error.message : "Lista de páginas no válida." }); return; }
+      if (urls.length === 0) context.addIssue({ code: z.ZodIssueCode.custom, path: ["pages"], message: "Añade al menos una página para seguir." });
+      if (urls.length > MAX_PAGE_FOLLOW_TARGETS) context.addIssue({ code: z.ZodIssueCode.custom, path: ["pages"], message: `El máximo es de ${MAX_PAGE_FOLLOW_TARGETS} páginas por encargo.` });
+      for (const url of urls) {
+        try { validateAutomationTargetUrl(value.platform, url); }
+        catch (error) { context.addIssue({ code: z.ZodIssueCode.custom, path: ["pages"], message: `${url}: ${error instanceof Error ? error.message : "URL no permitida."}` }); return; }
+      }
+      return;
     }
     const conversationScan = value.platform === "facebook" && value.sourceKind === "COMMENT_DISCOVERY";
     if (conversationScan && (!value.replyGuidance || value.replyGuidance.length < 3)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["replyGuidance"], message: "Indica el texto base para las respuestas." });

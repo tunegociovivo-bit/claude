@@ -1,3 +1,5 @@
+import { parseCommentThreadMessage } from "@/lib/mobile/comment-thread";
+import { parsePageFollowBatch } from "@/lib/mobile/page-follow-batch";
 import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -23,7 +25,10 @@ const resultSchema = z.object({
     return;
   }
   try {
-    if (JSON.parse(value.resultText)?.kind === "facebook_conversations") parseConversationBatch(value.resultText);
+    const kind = JSON.parse(value.resultText)?.kind;
+    if (kind === "facebook_conversations") parseConversationBatch(value.resultText);
+    else if (kind === "page_follow") parsePageFollowBatch(value.resultText);
+    else if (kind === "comment_thread") parseCommentThreadMessage(value.resultText);
     else parseFacebookGroupBatch(value.resultText);
   } catch (error) {
     context.addIssue({

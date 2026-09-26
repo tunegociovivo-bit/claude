@@ -14,6 +14,8 @@ export type MobileAutomationWorkflow = {
   factsLabel: string;
   factsPlaceholder: string;
   submitLabel: string;
+  /** Solo disponible en el encargo común (necesita varios móviles). */
+  fleetOnly?: boolean;
 };
 
 const COMMON_POST: MobileAutomationWorkflow = {
@@ -68,6 +70,33 @@ const COMMENT_REPLY: MobileAutomationWorkflow = {
   submitLabel: "Generar respuesta"
 };
 
+const PAGE_FOLLOW: MobileAutomationWorkflow = {
+  sourceKind: "PAGE_FOLLOW",
+  label: "Seguir páginas o perfiles",
+  description: "Abre cada página de la lista en la app y pulsa «Seguir». Las que ya sigues se marcan y se omiten.",
+  targetNameLabel: "Nombre del encargo (opcional)",
+  targetNamePlaceholder: "Ej. páginas del sector franquicias",
+  targetUrlLabel: null,
+  targetUrlPlaceholder: null,
+  factsLabel: "Páginas a seguir",
+  factsPlaceholder: "Una por línea: URL completa o @usuario.",
+  submitLabel: "Seguir páginas"
+};
+
+const COMMENT_THREAD: MobileAutomationWorkflow = {
+  sourceKind: "COMMENT_THREAD",
+  label: "Conversación entre varias cuentas (con revisión)",
+  description: "La IA simula un hilo de comentarios y respuestas entre los móviles seleccionados usando solo los datos reales de cada persona. Revisas el guion y cada titular aprueba su mensaje antes de publicarlo.",
+  targetNameLabel: "Publicación o anuncio",
+  targetNamePlaceholder: "https://www.facebook.com/…",
+  targetUrlLabel: null,
+  targetUrlPlaceholder: null,
+  factsLabel: "Sobre qué deben tratar los comentarios y respuestas",
+  factsPlaceholder: "Ej. Franquicias rentables: dudas sobre en qué sector invertir; la experiencia real de la familia con franquicias de alimentación.",
+  submitLabel: "Simular conversación",
+  fleetOnly: true
+};
+
 const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkflow[]> = {
   facebook: [
     {
@@ -97,10 +126,12 @@ const WORKFLOWS: Record<MobileAutomationPlatform, readonly MobileAutomationWorkf
     { ...COMMENT_DISCOVERY, description: "Busca por palabra clave en tus grupos y prepara respuestas revisables, sin necesidad de URL." },
     { ...COMMENT_REPLY, label: "Responder a un enlace concreto" },
     COMMON_POST,
-    COMMON_LINK
+    COMMON_LINK,
+    PAGE_FOLLOW,
+    COMMENT_THREAD
   ],
-  instagram: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK],
-  tiktok: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK],
+  instagram: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK, PAGE_FOLLOW],
+  tiktok: [COMMENT_DISCOVERY, COMMENT_REPLY, COMMON_POST, COMMON_LINK, PAGE_FOLLOW],
   google_maps: [{
     sourceKind: "REAL_REVIEW",
     label: "Reseñar una experiencia real",
