@@ -24,9 +24,10 @@ export async function describeReviewSource(workspaceId: string): Promise<SourceI
   return { provider: null, origin: "", supportsContributor: false, key: null };
 }
 
-export async function getReviewSource(workspaceId: string): Promise<ReviewSource> {
+/** `cacheDays: 0` para lecturas que deben ser frescas (vigilancia diaria, comprobación de retiradas). */
+export async function getReviewSource(workspaceId: string, opts: { cacheDays?: number } = {}): Promise<ReviewSource> {
   const d = await describeReviewSource(workspaceId);
-  if (d.provider === "serpapi" && d.key) return new SerpApiClient(d.key);
-  if (d.provider === "serper" && d.key) return new SerperReviewsClient(d.key);
+  if (d.provider === "serpapi" && d.key) return new SerpApiClient(d.key, { cacheDays: opts.cacheDays });
+  if (d.provider === "serper" && d.key) return new SerperReviewsClient(d.key, { cacheDays: opts.cacheDays });
   throw new NoReviewSourceError();
 }

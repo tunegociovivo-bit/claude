@@ -6616,3 +6616,125 @@ model GmbSerpCache {
 
   @@index([expiresAt])
 }
+
+// === GMB Hub · Escudo de reputación (vigilancia, retiradas, perfiles, pruebas) ===
+
+// Base propia de perfiles sospechosos: cada análisis/vigilancia alimenta la ficha del perfil.
+model GmbReviewerProfile {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  contributorId String
+  name          String    @default("")
+  link          String    @default("")
+  maxScore      Int       @default(0)
+  level         String    @default("bajo") // alto|medio|bajo
+  status        String    @default("sospechoso") // sospechoso|confirmado|descartado
+  timesFlagged  Int       @default(0)
+  places        Json? // [{key,title,analysisId,at,score}]
+  networks      Json? // ids de red en los que ha aparecido
+  signals       Json? // últimas señales
+  removedCount  Int       @default(0) // reseñas suyas retiradas por Google
+  notes         String?   @db.Text
+  firstSeenAt   DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, contributorId])
+  @@index([workspaceId, level])
+}
+
+// Vigilancia diaria de una ficha (y opcionalmente de su competencia).
+model GmbReviewWatch {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  gmbClientId     String? // ficha del hub (permite usar la API oficial de Google)
+  name            String
+  place           Json // Place del cliente
+  competitors     Json? // Place[] a vigilar (positivas sospechosas)
+  enabled         Boolean   @default(true)
+  frequencyHours  Int       @default(24)
+  deepCheck       Boolean   @default(true) // leer el perfil de cada nueva negativa (1 búsqueda)
+  aiCheck         Boolean   @default(true) // revisar el contenido con IA
+  emails          String    @default("")
+  whatsapp        String    @default("")
+  monthlyReport   Boolean   @default(true)
+  knownIds        Json? // ids de reseñas ya vistas
+  history         Json? // [{d, rating, reviews, neg, newNeg}]
+  compState       Json? // {placeKey: {knownIds, weeks}}
+  lastRunAt       DateTime?
+  nextRunAt       DateTime  @default(now())
+  lastCompRunAt   DateTime?
+  lastReportMonth String    @default("")
+  lastError       String?
+  lockedUntil     DateTime?
+  apiCalls        Int       @default(0)
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([enabled, nextRunAt])
+}
+
+// Centro de retiradas: una reseña a denunciar y todo su ciclo (denuncia → decisión → apelación).
+model GmbReviewCase {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  analysisId    String?
+  watchId       String?
+  target        String    @default("cliente") // cliente|competidor
+  placeKey      String
+  placeTitle    String    @default("")
+  placeUrl      String    @default("")
+  reviewId      String
+  reviewLink    String    @default("")
+  author        String    @default("")
+  authorLink    String    @default("")
+  contributorId String    @default("")
+  rating        Int       @default(0)
+  reviewDate    String    @default("")
+  text          String?   @db.Text
+  reasons       Json? // [{kind:"policy"|"fake"|"network"|"known", category, label, policy, detail}]
+  score         Int       @default(0)
+  likelihood    String    @default("media") // alta|media|baja
+  googleOption  String    @default("") // opción a marcar en el formulario de Google
+  status        String    @default("preparada") // preparada|denunciada|rechazada|apelada|retirada|legal|descartada
+  channel       String    @default("") // tool|maps|legal
+  reportText    String?   @db.Text
+  appealText    String?   @db.Text
+  legalText     String?   @db.Text
+  replyDraft    String?   @db.Text
+  replyPublishedAt DateTime?
+  appealBatch   String?
+  reportedAt    DateTime?
+  rejectedAt    DateTime?
+  appealedAt    DateTime?
+  removedAt     DateTime?
+  lastCheckedAt DateTime?
+  nextCheckAt   DateTime?
+  checkMisses   Int       @default(0)
+  checkLog      Json?
+  notes         String?   @db.Text
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([workspaceId, placeKey, reviewId])
+  @@index([workspaceId, status])
+  @@index([status, nextCheckAt])
+}
+
+// Pruebas: copia fechada e inalterable (hash SHA-256) de la reseña y del perfil en el momento de detectarla.
+model GmbEvidence {
+  id          String   @id @default(cuid())
+  workspaceId String
+  caseId      String
+  kind        String // review|profile|check
+  source      String   @default("") // serpapi|serper|gbp|analysis
+  url         String   @default("")
+  payload     Json
+  sha256      String
+  capturedAt  DateTime @default(now())
+
+  @@index([workspaceId, caseId])
+}

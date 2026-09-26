@@ -78,6 +78,11 @@ export default function GmbHubClient() {
   const [showConnect, setShowConnect] = useState(false);
   const [connectBanner, setConnectBanner] = useState<string | null>(null);
   const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento" | "resenas-falsas">("fichas");
+  useEffect(() => {
+    // Enlaces profundos (p. ej. desde las alertas): /gmb-hub?view=resenas-falsas&sub=retiradas
+    const v = new URLSearchParams(window.location.search).get("view");
+    if (v === "resenas-falsas" || v === "alertas" || v === "portfolio" || v === "buscador" || v === "crecimiento") setView(v);
+  }, []);
 
   async function load() {
     setLoading(true);

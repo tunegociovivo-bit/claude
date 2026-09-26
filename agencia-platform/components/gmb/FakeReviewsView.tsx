@@ -5,9 +5,11 @@
  * competencia (SerpApi), puntúa cada perfil autor y genera un informe para el cliente.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, ShieldAlert, Plus, X, Trash2, ExternalLink, Link2, RotateCcw, ArrowLeft, Check, Download } from "lucide-react";
+import { Loader2, ShieldAlert, Plus, X, Trash2, ExternalLink, Link2, RotateCcw, ArrowLeft, Check, Download } from "lucide-react";
 import FakeReviewReport from "@/components/gmb/FakeReviewReport";
 import { GoogleCaseView, LetterView, downloadPdf } from "@/components/gmb/FakeReviewGoogle";
+import { CasesView, ProfilesView, StatsView, WatchesView } from "@/components/gmb/ShieldViews";
+import { estimateAnalysis } from "@/lib/gmb/fake-reviews/estimate";
 import type { Place } from "@/lib/gmb/fake-reviews/core";
 import type { AnalysisResults } from "@/lib/gmb/fake-reviews/analyzer";
 
@@ -22,150 +24,7 @@ type Row = {
   lastError: string | null;
   createdAt: string;
 };
-type Ficha = { id: string; name: string; placeId?: string; address?: string };
-
-const CARD = "bg-white rounded-xl border p-4";
-const BTN = "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium";
-const BTN_PRIMARY = `${BTN} bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50`;
-const BTN_SEC = `${BTN} border bg-white hover:bg-slate-50`;
-
-async function api<T = any>(url: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d?.error?.message ?? d?.message ?? `Error ${r.status}`);
-  return d as T;
-}
-
-function Stars({ n }: { n: number | null }) {
-  const r = Math.round(n ?? 0);
-  return (
-    <span className="whitespace-nowrap">
-      <span className="text-amber-400">{"★".repeat(r)}</span>
-      <span className="text-slate-300">{"★".repeat(Math.max(0, 5 - r))}</span>
-    </span>
-  );
-}
-
-function PlaceChip({ p, onClear, onPick }: { p: Place; onClear?: () => void; onPick?: () => void }) {
-  return (
-    <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${onClear ? "border-amber-400 bg-amber-50/50" : "bg-slate-50"}`}>
-      {p.thumbnail ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={p.thumbnail} alt="" referrerPolicy="no-referrer" className="h-11 w-11 rounded-md object-cover" />
-      ) : (
-        <div className="h-11 w-11 rounded-md bg-slate-200" />
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm truncate">{p.title}</div>
-        <div className="text-xs text-slate-500 truncate">{p.address}{p.type ? ` · ${p.type}` : ""}</div>
-        <div className="text-xs">
-          {p.rating != null && <><b>{p.rating.toFixed(1).replace(".", ",")}</b> <Stars n={p.rating} /> </>}
-          {p.reviews != null && <span className="text-slate-500">{p.reviews} reseñas</span>}
-        </div>
-      </div>
-      {onPick && <button onClick={onPick} className={BTN_SEC}>Elegir</button>}
-      {onClear && (
-        <button onClick={onClear} className="text-xs text-slate-500 hover:text-slate-800 underline">Cambiar</button>
-      )}
-    </div>
-  );
-}
-
-function PlacePicker({
-  label,
-  value,
-  onChange,
-  fichas,
-  onFicha,
-  placeholder,
-  onRemove
-}: {
-  label: string;
-  value: Place | null;
-  onChange: (p: Place | null) => void;
-  fichas?: Ficha[];
-  onFicha?: (id: string | null) => void;
-  placeholder: string;
-  onRemove?: () => void;
-}) {
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [cands, setCands] = useState<Place[]>([]);
-
-  async function find(query = q) {
-    if (!query.trim()) return;
-    setBusy(true);
-    setErr(null);
-    setCands([]);
-    try {
-      const d = await api<{ place?: Place; candidates?: Place[] }>("/api/v1/gmb/fake-reviews/resolve", { method: "POST", body: JSON.stringify({ q: query.trim() }) });
-      if (d.place) onChange(d.place);
-      else setCands(d.candidates ?? []);
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-slate-700">{label}</label>
-        {onRemove && (
-          <button onClick={onRemove} className="text-xs text-rose-600 hover:underline">Quitar</button>
-        )}
-      </div>
-      {value ? (
-        <PlaceChip p={value} onClear={() => { onChange(null); onFicha?.(null); }} />
-      ) : (
-        <>
-          {fichas && fichas.length > 0 && (
-            <select
-              className="w-full px-3 py-2 rounded-lg border text-sm bg-white"
-              defaultValue=""
-              onChange={(e) => {
-                const f = fichas.find((x) => x.id === e.target.value);
-                if (!f) return;
-                onFicha?.(f.id);
-                const query = f.placeId ? `place_id:${f.placeId}` : `${f.name} ${f.address ?? ""}`.trim();
-                setQ(f.placeId ? f.name : query);
-                find(query);
-              }}
-            >
-              <option value="" disabled>Elegir una ficha del GMB Hub…</option>
-              {fichas.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
-              ))}
-            </select>
-          )}
-          <div className="flex gap-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), find())}
-              placeholder={placeholder}
-              className="flex-1 px-3 py-2 rounded-lg border text-sm"
-            />
-            <button onClick={() => find()} disabled={busy || !q.trim()} className={BTN_SEC}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Buscar
-            </button>
-          </div>
-          {err && <p className="text-xs text-rose-600">{err}</p>}
-          {cands.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs text-slate-500">Varias coincidencias, elige la correcta:</p>
-              {cands.map((c, i) => (
-                <PlaceChip key={i} p={c} onPick={() => { onChange(c); setCands([]); }} />
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+import { api, BTN_PRIMARY, BTN_SEC, CARD, PlacePicker, type Ficha } from "@/components/gmb/fr-ui";
 
 /* ───────────────────────── Formulario ───────────────────────── */
 
@@ -206,21 +65,20 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
   const auto = !onlyPolicy && mode === "auto";
   const estimate = useMemo(() => {
     if (!client || (!auto && !onlyPolicy && !chosen.length)) return null;
-    const share = negThreshold === 1 ? 0.07 : negThreshold === 2 ? 0.11 : 0.16;
-    const negN = Math.max(3, Math.round((client.reviews ?? 100) * share));
-    let calls = 1 + Math.ceil(negN / 20);
-    let frac = 1;
-    if (dateFrom) {
-      const months = (Date.now() - Date.parse(dateFrom)) / 2.63e9;
-      frac = Math.min(1, Math.max(0.15, months / 48));
-    }
-    if (onlyPolicy) return calls;
-    if (auto && !history) return calls + 1 + 8 * 6;
-    if (auto) return calls + Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1))) + 5;
-    for (const c of chosen) calls += Math.min(25, 1 + Math.ceil(((c.reviews ?? 100) * frac) / 20));
-    if (deep && history) calls += Math.min(maxDeep, Math.round(negN * (dateFrom ? frac * 1.5 : 1)));
-    return calls;
-  }, [client, chosen, negThreshold, dateFrom, deep, maxDeep, auto, history, onlyPolicy]);
+    return estimateAnalysis({
+      provider: source?.provider ?? (hasKey === false ? null : "serpapi"),
+      kind: onlyPolicy ? "policy" : "cruce",
+      mode: auto ? "auto" : "manual",
+      client: { reviews: client.reviews, rating: client.rating },
+      comps: chosen.map((c) => ({ reviews: c.reviews })),
+      negThreshold,
+      dateFrom,
+      deep: deep && history,
+      maxDeep,
+      policy: onlyPolicy || policy,
+      ai
+    });
+  }, [client, chosen, negThreshold, dateFrom, deep, maxDeep, auto, history, onlyPolicy, policy, ai, source, hasKey]);
 
   async function start() {
     setErr(null);
@@ -396,8 +254,25 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
           <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} className="mt-0.5" />
           <span>Resumen ejecutivo redactado con Claude</span>
         </label>
-        <div className="rounded-lg bg-slate-900 text-white text-xs px-3 py-2">
-          Consumo estimado: <b className="text-amber-300">{estimate ? `≈ ${estimate}` : "—"}</b> búsquedas SerpApi
+        <div className="rounded-lg bg-slate-900 text-white text-xs px-3 py-2 space-y-1">
+          <div>
+            Coste estimado:{" "}
+            <b className="text-amber-300">
+              {estimate ? `${estimate.min === estimate.max ? estimate.max : `${estimate.min}–${estimate.max}`} búsquedas${estimate.ai ? ` + ${estimate.ai} IA` : ""}` : "—"}
+            </b>
+            {estimate && <span className="text-slate-300"> · ≈ {estimate.eurMin === estimate.eurMax ? estimate.eurMax.toFixed(2) : `${estimate.eurMin.toFixed(2)}–${estimate.eurMax.toFixed(2)}`} €</span>}
+          </div>
+          {estimate && (
+            <ul className="text-[11px] text-slate-400 space-y-0.5">
+              {estimate.lines.map((l) => <li key={l.label} className="flex justify-between gap-2"><span>{l.label}</span><span>{l.n}</span></li>)}
+            </ul>
+          )}
+          {estimate && source?.left != null && (
+            <div className={estimate.max > source.left ? "text-rose-300" : "text-emerald-300"}>
+              {estimate.max > source.left ? `Te quedan ${source.left} búsquedas: puede no completarse.` : `Te quedan ${source.left} búsquedas.`}
+            </div>
+          )}
+          <div className="text-[10px] text-slate-500">Estimación orientativa (SerpApi Developer ≈ 0,014 €/búsqueda). Lo repetido se sirve de caché y no consume.</div>
         </div>
         {err && <p className="text-xs text-rose-600">{err}</p>}
         <button onClick={start} disabled={busy || !client || (!auto && !onlyPolicy && !chosen.length)} className={`${BTN_PRIMARY} w-full justify-center`}>
@@ -410,7 +285,7 @@ function NewAnalysis({ onCreated, source }: { onCreated: (id: string) => void; s
 
 /* ───────────────────────── Detalle ───────────────────────── */
 
-function AnalysisDetail({ id, onBack, onDeleted }: { id: string; onBack: () => void; onDeleted: () => void }) {
+function AnalysisDetail({ id, onBack, onDeleted, onCases }: { id: string; onBack: () => void; onDeleted: () => void; onCases?: () => void }) {
   const [a, setA] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [share, setShare] = useState<string | null>(null);
@@ -558,6 +433,17 @@ function AnalysisDetail({ id, onBack, onDeleted }: { id: string; onBack: () => v
         </div>
       )}
       {err && <p className="text-sm text-rose-600">{err}</p>}
+      {a.status === "done" && (a.results?.casesCreated > 0 || a.results?.networks?.length > 0 || a.results?.compFakes?.length > 0) && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm flex flex-wrap items-center gap-3">
+          <ShieldAlert className="h-4 w-4 text-amber-600" />
+          <span className="flex-1">
+            {a.results.casesCreated > 0 && <><b>{a.results.casesCreated}</b> reseñas denunciables enviadas al centro de retiradas con sus pruebas. </>}
+            {a.results.networks?.length > 0 && <><b>{a.results.networks.length}</b> red(es) de perfiles coordinados. </>}
+            {a.results.compFakes?.length > 0 && <>Positivas sospechosas en <b>{a.results.compFakes.map((c: any) => c.title).join(", ")}</b>.</>}
+          </span>
+          {onCases && a.results.casesCreated > 0 && <button onClick={onCases} className={BTN_SEC}>Ir al centro de retiradas</button>}
+        </div>
+      )}
 
       {a.status !== "done" ? (
         <div className={CARD}>
@@ -600,11 +486,60 @@ function AnalysisDetail({ id, onBack, onDeleted }: { id: string; onBack: () => v
 
 /* ───────────────────────── Vista principal ───────────────────────── */
 
+type Sub = "analisis" | "vigilancia" | "retiradas" | "perfiles" | "resultados";
+
 export default function FakeReviewsView() {
+  const [sub, setSub] = useState<Sub>(() => {
+    if (typeof window === "undefined") return "analisis";
+    const s = new URLSearchParams(window.location.search).get("sub");
+    return (["analisis", "vigilancia", "retiradas", "perfiles", "resultados"].includes(s ?? "") ? s : "analisis") as Sub;
+  });
+  const [credits, setCredits] = useState<SourceInfo | null>(null);
+  useEffect(() => {
+    api("/api/v1/gmb/fake-reviews/credits").then(setCredits).catch(() => setCredits(null));
+  }, []);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-amber-500" /> Escudo de reputación</h2>
+          <p className="text-xs text-slate-500">
+            Detecta reseñas falsas y redes de perfiles, vigila las fichas a diario y lleva cada denuncia a Google hasta su retirada.
+            {credits?.configured && <> · Fuente: <b>{credits.provider === "serpapi" ? "SerpApi" : "Serper.dev"}</b></>}
+            {credits?.configured && credits.left != null && <> ({credits.left} búsquedas disponibles)</>}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1 border-b">
+        {([
+          ["analisis", "Análisis"],
+          ["vigilancia", "Vigilancia diaria"],
+          ["retiradas", "Centro de retiradas"],
+          ["perfiles", "Perfiles sospechosos"],
+          ["resultados", "Qué funciona"]
+        ] as const).map(([k, l]) => (
+          <button
+            key={k}
+            onClick={() => setSub(k)}
+            className={`px-3 py-2 text-sm font-medium -mb-px border-b-2 ${sub === k ? "border-amber-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      {sub === "analisis" && <AnalysesView credits={credits} onCases={() => setSub("retiradas")} />}
+      {sub === "vigilancia" && <WatchesView source={credits} />}
+      {sub === "retiradas" && <CasesView />}
+      {sub === "perfiles" && <ProfilesView />}
+      {sub === "resultados" && <StatsView />}
+    </div>
+  );
+}
+
+function AnalysesView({ credits, onCases }: { credits: SourceInfo | null; onCases: () => void }) {
   const [mode, setMode] = useState<"list" | "new">("list");
   const [sel, setSel] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [credits, setCredits] = useState<SourceInfo | null>(null);
 
   const loadList = useCallback(async () => {
     const d = await api<{ analyses: Row[] }>("/api/v1/gmb/fake-reviews").catch(() => ({ analyses: [] as Row[] }));
@@ -614,13 +549,13 @@ export default function FakeReviewsView() {
 
   useEffect(() => {
     loadList();
-    api("/api/v1/gmb/fake-reviews/credits").then(setCredits).catch(() => setCredits(null));
   }, [loadList]);
 
   if (sel) {
     return (
       <AnalysisDetail
         id={sel}
+        onCases={onCases}
         onBack={() => { setSel(null); loadList(); }}
         onDeleted={() => { setSel(null); loadList(); }}
       />
@@ -630,14 +565,10 @@ export default function FakeReviewsView() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-amber-500" /> Detector de reseñas falsas</h2>
-          <p className="text-xs text-slate-500">
-            Cruza los autores de las reseñas negativas de un cliente con las reseñas de su competencia y genera un informe con evidencias.
-            {credits?.configured && <> · Fuente: <b>{credits.provider === "serpapi" ? "SerpApi" : "Serper.dev"}</b></>}
-            {credits?.configured && credits.left != null && <> ({credits.left} búsquedas disponibles)</>}
-          </p>
-        </div>
+        <p className="text-xs text-slate-500 max-w-2xl">
+          Cruza los autores de las reseñas negativas de un cliente con su competencia, detecta redes de perfiles y positivas falsas en la
+          competencia, y envía las reseñas denunciables al centro de retiradas.
+        </p>
         <div className="flex gap-2">
           {mode === "new" ? (
             rows && rows.length > 0 && (

@@ -4,6 +4,8 @@
  * defendible ante el cliente y útil al denunciar reseñas a Google.
  */
 import { DAY, tsDate, type AnalysisParams, type Contributor, type ContributorReview, type Place, type Review } from "./core";
+import type { Network } from "./network";
+import type { CompFake, KnownProfile } from "./compfakes";
 
 export const LEVEL_HIGH = 60;
 export const LEVEL_MEDIUM = 35;
@@ -35,6 +37,8 @@ export type ProfileFeatures = {
   avgRating: number | null;
   extremePct: number | null;
   firstTs: number;
+  /** Días entre la primera y la última reseña leídas del perfil. */
+  spanDays?: number;
   burst: number;
   medianKm: number | null;
   nearPct: number | null;
@@ -141,6 +145,12 @@ export type AnalysisResults = {
   discovery?: Discovery;
   mode?: "manual" | "auto" | "policy";
   policy?: import("./policy").PolicyResults;
+  /** Redes de perfiles que reseñan los mismos negocios en fechas próximas. */
+  networks?: Network[];
+  /** Positivas sospechosas en la competencia (picos, cuentas nuevas, perfiles fichados…). */
+  compFakes?: CompFake[];
+  /** Perfiles de este análisis que ya estaban en la base de perfiles sospechosos. */
+  knownMatches?: number;
   /** Escrito a soporte de Google (generado con IA y editable). */
   letter?: { text: string; generatedAt: string; editedAt?: string };
 };
@@ -272,6 +282,7 @@ export function profileFeatures(contrib: Contributor, client: Place, comps: Plac
     avgRating: n ? Math.round((sum / n) * 100) / 100 : null,
     extremePct: n ? Math.round((extremes / n) * 100) / 100 : null,
     firstTs: dates.length ? Math.min(...dates) : 0,
+    spanDays: dates.length ? Math.round((Math.max(...dates) - Math.min(...dates)) / DAY) : 0,
     burst,
     medianKm: median != null ? Math.round(median * 10) / 10 : null,
     nearPct: near != null ? Math.round(near * 100) / 100 : null,
@@ -401,11 +412,18 @@ export function attachCompHits(profiles: Record<string, ProfileFeatures>, positi
 
 /* ───────────────────────── análisis global ───────────────────────── */
 
+export type AnalysisExtra = {
+  networks?: Network[];
+  /** Perfiles ya fichados en otros análisis (fuera de esta ficha). */
+  known?: Record<string, KnownProfile>;
+};
+
 export function runAnalysis(
   params: AnalysisParams,
   clientNeg: Review[],
   compReviews: Review[][],
-  profiles: Record<string, ProfileFeatures>
+  profiles: Record<string, ProfileFeatures>,
+  extra: AnalysisExtra = {}
 ): AnalysisResults {
   const { client, competitors: comps } = params;
 
@@ -448,9 +466,11 @@ export function runAnalysis(
     }
   }
 
+  const netBy = new Map<string, Network>();
+  for (const n of extra.networks ?? []) for (const c of n.members) netBy.set(c, n);
   const authors: Author[] = [];
   byAuthor.forEach((a, cid) => {
-    authors.push(scoreAuthor(cid, a.user, a.reviews, compIndex[cid] ?? [], profiles[cid] ?? null, params, similarIds));
+    authors.push(scoreAuthor(cid, a.user, a.reviews, compIndex[cid] ?? [], profiles[cid] ?? null, params, similarIds, extra, netBy));
   });
   authors.sort((x, y) => y.score - x.score || y.crossPos - x.crossPos);
 
@@ -481,7 +501,9 @@ export function runAnalysis(
     authors,
     similar: similar.slice(0, 30),
     timeline,
-    findings: buildFindings(stats, authors, impact, comps, similar)
+    findings: [...buildFindings(stats, authors, impact, comps, similar), ...extraFindings(authors, extra)],
+    ...(extra.networks?.length ? { networks: extra.networks } : {}),
+    knownMatches: authors.filter((a) => a.signals.some((s) => s.code === "known_profile")).length
   };
 }
 
@@ -492,7 +514,9 @@ function scoreAuthor(
   compDirect: EvidenceReview[],
   profile: ProfileFeatures | null,
   params: AnalysisParams,
-  similarIds: Set<string>
+  similarIds: Set<string>,
+  extra: AnalysisExtra = {},
+  netBy: Map<string, Network> = new Map()
 ): Author {
   const comps = params.competitors;
   const posTh = params.posThreshold;
@@ -550,6 +574,31 @@ function scoreAuthor(
       add("far", 3, "Su actividad habitual está lejos del negocio", `mediana ${Math.round(profile.medianKm)} km`);
     }
   }
+
+  const realId = cid.startsWith("anon_") ? "" : cid;
+  const net = realId ? netBy.get(realId) : undefined;
+  if (net) {
+    add(
+      "network",
+      net.members.length >= 3 ? 15 : 10,
+      `Forma parte de una red de ${net.members.length} perfiles que reseñan los mismos negocios (${net.id})`,
+      net.shared.slice(0, 3).map((x) => x.title).filter(Boolean).join(", ")
+    );
+  }
+  const known = realId ? extra.known?.[realId] : undefined;
+  if (known && known.status !== "descartado") {
+    if (known.status === "confirmado") add("known_profile", 25, "Google ya retiró reseñas de este perfil en otro caso", known.places.slice(0, 3).join(", "));
+    else add("known_profile", 20, `Perfil ya marcado como sospechoso en otro análisis (${known.timesFlagged} vez/veces)`, known.places.slice(0, 3).join(", "));
+  }
+  if (profile && profile.fetched >= 3 && profile.spanDays != null && profile.spanDays <= 2) {
+    add("concentrated", 8, "Toda su actividad se concentra en muy pocos días", `${profile.fetched} reseñas en ${profile.spanDays + 1} día(s)`);
+  }
+  const nm = (user.name || profile?.name || "").trim();
+  if (nm && (/\d{3,}/.test(nm) || /^[a-z]{1,2}$/i.test(nm))) add("name_pattern", 4, "Nombre de perfil atípico (números o iniciales)", nm);
+  if (neg.some((r) => {
+    const t = r.text.trim();
+    return t.length > 0 && t.length < 25 && /^(malo|muy malo|fatal|horrible|pésimo|pesimo|no recomiendo|nada recomendable|terrible|asco|bad|very bad|worst|awful|horrible service)[.!\s]*$/i.test(t);
+  })) add("generic_text", 3, "Texto negativo genérico y muy corto");
 
   if (localGuide && level >= 5 && total >= 50) add("credible", -12, `Local Guide consolidado (nivel ${level}, ${total} reseñas)`);
   else if (total >= 100) add("credible", -8, `Perfil con mucha actividad (${total} reseñas)`);
@@ -654,6 +703,24 @@ function buildTimeline(clientNeg: Review[], authors: Author[]): AnalysisResults[
     filled[k] = months[k] ?? { neg: 0, suspect: 0, compPos: 0 };
   }
   return filled;
+}
+
+function extraFindings(authors: Author[], extra: AnalysisExtra): string[] {
+  const f: string[] = [];
+  const nets = extra.networks ?? [];
+  if (nets.length) {
+    const inNeg = new Set(authors.map((a) => a.cid).filter(Boolean));
+    const big = nets.filter((n) => n.members.filter((m) => inNeg.has(m)).length >= 2);
+    if (big.length) {
+      const top = big[0];
+      f.push(
+        `Se han detectado ${big.length} red(es) de perfiles coordinados: la mayor (${top.id}) agrupa ${top.members.length} perfiles que han reseñado los mismos negocios en fechas próximas${top.shared.length ? ` (${top.shared.slice(0, 3).map((x) => x.title).join(", ")})` : ""}.`
+      );
+    }
+  }
+  const known = authors.filter((a) => a.signals.some((s) => s.code === "known_profile"));
+  if (known.length) f.push(`${known.length} de los perfiles ya estaban fichados como sospechosos en análisis anteriores de otros negocios.`);
+  return f;
 }
 
 function buildFindings(

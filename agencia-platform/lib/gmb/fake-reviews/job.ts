@@ -25,6 +25,9 @@ import {
   type Place,
   type Review
 } from "./core";
+import { buildFootprint, detectNetworks, placeKeyOf, type Footprint } from "./network";
+import { afterAnalysis, lookupKnown } from "./shield";
+import { analyzeCompetitorPositives, type KnownProfile } from "./compfakes";
 import {
   attachCompHits,
   discoverBeneficiaries,
@@ -40,7 +43,11 @@ import {
 } from "./analyzer";
 
 export type JobState = {
-  phase: "client" | "comp" | "deep" | "discover" | "compinfo" | "nearby" | "sweepselect" | "analyze" | "policy" | "ai" | "done";
+  phase: "client" | "comp" | "deep" | "discover" | "compinfo" | "comppos" | "nearby" | "sweepselect" | "analyze" | "policy" | "ai" | "done";
+  /** Huella del historial de cada perfil (para detectar redes). */
+  footprints?: Record<string, Footprint>;
+  /** Perfiles ya fichados en la base propia (se consulta una vez antes de puntuar). */
+  known?: Record<string, KnownProfile>;
   policyI?: number;
   policyFindings?: PolicyFinding[];
   policyAi?: boolean;
@@ -89,7 +96,15 @@ export function initState(params: AnalysisParams): JobState {
 }
 
 type PolicyClassifier = (business: string, items: { id: string; rating: number; date: string; text: string }[]) => Promise<{ results: any[] }>;
-type Deps = { api: ReviewSource; summarize?: (r: AnalysisResults) => Promise<string>; classify?: PolicyClassifier | null };
+type Deps = {
+  api: ReviewSource;
+  summarize?: (r: AnalysisResults) => Promise<string>;
+  classify?: PolicyClassifier | null;
+  /** Consulta la base de perfiles sospechosos (excluye los fichados sólo en esta misma ficha). */
+  lookupKnown?: (cids: string[]) => Promise<Record<string, KnownProfile>>;
+};
+/** Páginas de reseñas recientes por competidor detectado para buscar positivas falsas. */
+const COMPPOS_PAGES = 2;
 const POLICY_BATCH = 20;
 
 /** Una unidad de trabajo (normalmente 1 llamada a SerpApi). Muta `state`. */
@@ -217,6 +232,7 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
         const contrib = normalizeContributor(data);
         const negTs = state.client.reviews.filter((r) => r.user.contributorId === cid).map((r) => r.ts);
         state.profiles[cid] = profileFeatures(contrib, params.client, isAuto(params) ? [] : params.competitors, negTs);
+        (state.footprints ??= {})[cid] = buildFootprint(contrib, params.client);
         (state.positives ??= {})[cid] = positivesElsewhere(contrib, params.client, params.posThreshold)
           .slice(0, 150)
           .map((x) => ({ ...x, text: x.text.slice(0, 200) }));
@@ -255,7 +271,8 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
       const comps = state.autoComps ?? [];
       const i = state.infoI ?? 0;
       if (i >= comps.length) {
-        state.phase = "analyze";
+        state.compI = 0;
+        state.phase = params.compFakes !== false && comps.length ? "comppos" : "analyze";
         return null;
       }
       state.infoI = i + 1;
@@ -272,9 +289,63 @@ export async function tick(params: AnalysisParams, state: JobState, deps: Deps):
       return null;
     }
 
+    case "comppos": {
+      // Reseñas recientes de la competencia detectada: cruce directo + positivas sospechosas.
+      const comps = effectiveComps(params, state);
+      const i = state.compI;
+      if (!comps[i]) {
+        state.phase = "analyze";
+        return null;
+      }
+      const cs = (state.comps[i] ??= { token: "", pages: 0, reviews: [] });
+      const data = await deps.api.reviews(idParam(comps[i]), "newestFirst", cs.token || undefined);
+      cs.pages++;
+      for (const raw of data.reviews ?? []) {
+        const r = normalizeReview(raw);
+        r.text = r.text.slice(0, 400);
+        r.user.thumbnail = "";
+        cs.reviews.push(r);
+      }
+      cs.token = nextToken(data);
+      if (!cs.token || cs.pages >= COMPPOS_PAGES) state.compI++;
+      return null;
+    }
+
     case "analyze": {
       const comps = effectiveComps(params, state);
-      const results = runAnalysis({ ...params, competitors: comps }, state.client.reviews, state.comps.map((c) => c.reviews), state.profiles);
+      if (state.known === undefined) {
+        const cids = [...new Set(state.client.reviews.map((r) => r.user.contributorId).filter(Boolean))];
+        for (const cs of state.comps) for (const r of cs.reviews) if (r.user.contributorId && r.rating >= params.posThreshold) cids.push(r.user.contributorId);
+        try {
+          state.known = deps.lookupKnown && cids.length ? await deps.lookupKnown([...new Set(cids)]) : {};
+        } catch (e) {
+          state.known = {};
+          state.warnings.push(`No se pudo consultar la base de perfiles sospechosos: ${(e as Error).message}`);
+        }
+      }
+      const names: Record<string, string> = {};
+      for (const r of state.client.reviews) if (r.user.contributorId) names[r.user.contributorId] = r.user.name;
+      const networks = detectNetworks(state.footprints ?? {}, names, { windowDays: Math.max(30, params.windowDays * 2) });
+      const results = runAnalysis({ ...params, competitors: comps }, state.client.reviews, state.comps.map((c) => c.reviews), state.profiles, {
+        networks,
+        known: state.known
+      });
+      if (comps.length && params.compFakes !== false && params.mode !== "policy") {
+        const netBy = new Map(networks.flatMap((n) => n.members.map((m) => [m, n] as const)));
+        const cf = analyzeCompetitorPositives(comps, state.comps.map((c) => c.reviews), {
+          posThreshold: Math.max(4, params.posThreshold),
+          clientNegAuthors: new Set(state.client.reviews.map((r) => r.user.contributorId).filter(Boolean)),
+          known: state.known,
+          networks: netBy
+        });
+        if (cf.length) {
+          results.compFakes = cf;
+          const n = cf.reduce((s, c) => s + c.suspicious.length, 0);
+          const sp = cf.filter((c) => c.spikes.length);
+          if (n) results.findings.push(`Se han detectado ${n} valoraciones positivas sospechosas en la competencia (${cf.filter((c) => c.suspicious.length).map((c) => `${c.title}: ${c.suspicious.length}`).join("; ")}).`);
+          if (sp.length) results.findings.push(`${sp.map((c) => c.title).join(", ")} ${sp.length === 1 ? "presenta" : "presentan"} semanas con un pico anómalo de valoraciones de 5★.`);
+        }
+      }
       if (state.discovery) {
         results.discovery = state.discovery;
         results.findings = [...discoveryFindings(state.discovery), ...results.findings];
@@ -374,6 +445,10 @@ export function progressOf(params: AnalysisParams, s: JobState): number {
   switch (s.phase) {
     case "client":
       return Math.min(14, 2 + s.client.pages * 2);
+    case "comppos": {
+      const n = Math.max(1, effectiveComps(params, s).length);
+      return Math.min(94, Math.floor(93 + s.compI / n));
+    }
     case "comp": {
       const n = Math.max(1, effectiveComps(params, s).length);
       const pages = s.comps[s.compI]?.pages ?? 0;
@@ -423,6 +498,10 @@ export function labelOf(params: AnalysisParams, s: JobState): string {
       return "Buscando negocios con autores en común";
     case "compinfo":
       return "Leyendo las fichas de la competencia detectada";
+    case "comppos": {
+      const c = effectiveComps(params, s)[s.compI];
+      return c ? `Buscando positivas sospechosas en ${c.title}` : "Buscando positivas sospechosas en la competencia";
+    }
     case "analyze":
       return "Calculando riesgo y cruces";
     case "policy":
@@ -517,7 +596,13 @@ export async function runAnalysisJob(workspaceId: string, id: string, budgetMs =
               system: POLICY_SYSTEM,
               user: policyUserPrompt(business, items)
             });
-    const tickDeps: Deps = { api, summarize, classify };
+    const placeKey = placeKeyOf(params.client.dataId || params.client.placeId, params.client.title);
+    const tickDeps: Deps = {
+      api,
+      summarize,
+      classify,
+      lookupKnown: deps?.lookupKnown ?? ((cids) => lookupKnown(workspaceId, cids, placeKey))
+    };
     const start = Date.now();
     while (state.phase !== "done" && Date.now() - start < budgetMs) {
       const r = await tick(params, state, tickDeps);
@@ -528,6 +613,11 @@ export async function runAnalysisJob(workspaceId: string, id: string, budgetMs =
   }
 
   const done = !error && state.phase === "done";
+  if (done && results && !deps?.api) {
+    // Perfiles a la base propia y reseñas denunciables al centro de retiradas.
+    const created = await afterAnalysis(workspaceId, id, results, row.createdById);
+    (results as any).casesCreated = created;
+  }
   await prisma.gmbFakeReviewAnalysis.updateMany({
     where: { id, workspaceId },
     data: {

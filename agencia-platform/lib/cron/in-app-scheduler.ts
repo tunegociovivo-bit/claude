@@ -289,6 +289,25 @@ export function startInAppScheduler(): void {
     } catch (e) {
       console.warn("[in-app-cron] gmb-fake-reviews:", (e as Error).message);
     }
+    // Escudo de reputación: vigilancia diaria, comprobación de retiradas e informe mensual.
+    try {
+      const { processDueWatches } = await import("@/lib/gmb/fake-reviews/watch");
+      await processDueWatches(3);
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-shield-watch:", (e as Error).message);
+    }
+    try {
+      const { verifyDueCases } = await import("@/lib/gmb/fake-reviews/cases");
+      await verifyDueCases(3);
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-shield-verify:", (e as Error).message);
+    }
+    try {
+      const { processMonthlyReports } = await import("@/lib/gmb/fake-reviews/monthly");
+      await processMonthlyReports(5);
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-shield-monthly:", (e as Error).message);
+    }
   }
   setTimeout(gmbTick, 120_000);
   setInterval(gmbTick, GMB_TICK_MS);

@@ -218,6 +218,39 @@ function policySection(w: Writer, res: AnalysisResults, onlyStrong: boolean) {
   }
 }
 
+function networksSection(w: Writer, res: AnalysisResults) {
+  const nets = res.networks ?? [];
+  if (!nets.length) return;
+  w.h2(`Redes de perfiles coordinados (${nets.length})`);
+  w.p(
+    "Grupos de perfiles que han reseñado los mismos negocios con pocos días de diferencia. Es el patrón típico de las granjas de reseñas o de grupos que actúan de forma coordinada.",
+    { size: 9, color: MUTED }
+  );
+  for (const n of nets.slice(0, 8)) {
+    w.h3(`${n.id} · ${n.members.length} perfiles · fuerza ${n.strength}/100`, n.strength >= 60 ? RED : AMBER);
+    w.p(`Perfiles: ${n.names.filter(Boolean).join(", ") || n.members.join(", ")}`, { size: 8.5 });
+    if (n.shared.length) w.p(`Negocios reseñados en común: ${n.shared.map((x) => `${x.title || "negocio"} (${x.members})`).join(", ")}`, { size: 8.5, color: MUTED });
+  }
+}
+
+function compFakesSection(w: Writer, res: AnalysisResults, title: string) {
+  const cf = (res.compFakes ?? []).filter((c) => c.suspicious.length || c.spikes.length);
+  if (!cf.length) return;
+  w.h2(title);
+  w.p(
+    "Valoraciones positivas recientes en la competencia con indicios de no ser auténticas: picos anómalos de volumen, cuentas de 1-2 reseñas, textos vacíos o genéricos, perfiles que también atacaron al cliente o que ya estaban fichados.",
+    { size: 9, color: MUTED }
+  );
+  for (const c of cf) {
+    w.h3(`${c.title} — ${c.suspicious.length} ${c.suspicious.length === 1 ? "positiva sospechosa" : "positivas sospechosas"} de ${c.positives} leídas`, AMBER);
+    for (const sp of c.spikes.slice(0, 3)) w.p(`Pico: ${sp.count} positivas la semana del ${fdate(sp.week)} (lo habitual: ${num(sp.baseline)})`, { size: 8.5, indent: 6 });
+    for (const r of c.suspicious.slice(0, 12)) {
+      w.review(`${r.author || "Usuario de Google"} · riesgo ${r.score}/100`, { rating: r.rating, date: r.date, text: r.text, link: r.link }, GOLD);
+      w.p(r.reasons.join(" · "), { size: 8, color: MUTED, indent: 6 });
+    }
+  }
+}
+
 export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, brand: Brand): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margin: 48, bufferPages: true, info: { Title: `Reseñas — ${res.client.title}` } });
   const chunks: Buffer[] = [];
@@ -269,6 +302,8 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
       w.h2(`Perfiles sospechosos (${sus.length})`);
       if (!sus.length) w.p("No se han encontrado perfiles con riesgo medio o alto.");
       sus.forEach((a, i) => authorBlock(w, a, i + 1, res));
+      networksSection(w, res);
+      compFakesSection(w, res, "Positivas sospechosas en la competencia");
     }
     if (res.policy) {
       w.h2("Reseñas que incumplen las políticas de Google");
@@ -309,11 +344,13 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
         { size: 9 }
       );
       gc.fakeProfiles.forEach((a, i) => authorBlock(w, a, i + 1, res));
+      networksSection(w, res);
     }
     if (gc.policyReviews.length) {
       w.h2("B. Reseñas con contenido prohibido o restringido");
       policySection(w, res, true);
     }
+    compFakesSection(w, res, "C. Valoraciones positivas sospechosas en negocios competidores");
     w.h2("Anexo · Enlaces de las reseñas cuya retirada se solicita");
     gc.removals.forEach((r, i) => {
       w.p(`${i + 1}. ${r.author} · ${r.rating}/5 · ${fdate(r.date)} · ${r.policies.join("; ")}`, { size: 8.5 });
@@ -335,6 +372,125 @@ export async function buildFakeReviewPdf(kind: PdfKind, res: AnalysisResults, br
     }
   }
 
+  w.footer(brand.agency);
+  doc.end();
+  return done;
+}
+
+/* ───────────────────────── Informe mensual ───────────────────────── */
+
+async function newDoc(title: string) {
+  const doc = new PDFDocument({ size: "A4", margin: 48, bufferPages: true, info: { Title: title } });
+  const chunks: Buffer[] = [];
+  doc.on("data", (c) => chunks.push(Buffer.from(c)));
+  const done = new Promise<Buffer>((resolve, reject) => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+  fonts(doc);
+  return { doc, w: new Writer(doc), done };
+}
+
+const OPTION_LABEL: Record<string, string> = {
+  conflicto: "Conflicto de intereses", spam: "Spam", soez: "Lenguaje soez", acoso: "Acoso o intimidación",
+  odio: "Discriminación o incitación al odio", personal: "Información personal", tema: "Fuera de tema"
+};
+const STATUS_TXT: Record<string, string> = {
+  preparada: "Preparada", denunciada: "Denunciada", rechazada: "Rechazada · apelar", apelada: "Apelada",
+  rechazada_final: "Rechazada tras apelar", legal: "Vía legal", retirada: "Retirada", descartada: "Descartada"
+};
+
+export async function buildMonthlyPdf(d: import("./monthly").MonthlyData, brand: Brand): Promise<Buffer> {
+  const { doc, w, done } = await newDoc(`Informe mensual — ${d.name}`);
+  w.cover("Escudo de reputación · Informe mensual", `Reputación en Google · ${d.label}`, d.name, `${d.place.address || ""}${d.competitors.length ? ` · Competencia vigilada: ${d.competitors.join(", ")}` : ""}`, brand.agency);
+  w.h2("Resumen del mes");
+  const delta = d.rating.start != null && d.rating.end != null ? d.rating.end - d.rating.start : null;
+  w.kv([
+    ["Nota en Google", d.rating.end != null ? `${num(d.rating.end)}★${delta != null && Math.abs(delta) >= 0.05 ? ` (${delta > 0 ? "+" : ""}${num(delta)} en el mes)` : ""}` : "—"],
+    ["Reseñas totales", d.reviews.end != null ? `${d.reviews.end}${d.reviews.start != null ? ` (+${Math.max(0, d.reviews.end - d.reviews.start)})` : ""}` : "—"],
+    ["Reseñas nuevas detectadas", String(d.newReviews)],
+    ["Negativas nuevas", String(d.newNeg)],
+    ["Negativas sospechosas o que incumplen políticas", String(d.flagged)],
+    ["Posibles ataques de reseñas", String(d.alerts.attack)],
+    ["Perfiles reincidentes detectados", String(d.alerts.known)],
+    ["Picos sospechosos en la competencia", String(d.alerts.competitor)]
+  ]);
+  w.h2("Retirada de reseñas");
+  w.kv([
+    ["Casos abiertos este mes", String(d.cases.created)],
+    ["Denuncias enviadas a Google", String(d.cases.reported)],
+    ["Reseñas retiradas por Google", String(d.cases.removed)],
+    ["Casos en curso", String(d.cases.open)]
+  ]);
+  if (d.removed.length) {
+    w.h3("Retiradas este mes", GOLD);
+    w.bullets(d.removed.map((r) => `${r.author} · ${r.rating}★ · ${fdate(r.date)} · ${r.target === "competidor" ? `positiva falsa en ${r.place}` : OPTION_LABEL[r.option] ?? r.option}`), 9);
+  }
+  if (d.open.length) {
+    w.h3("En curso", AMBER);
+    w.bullets(d.open.slice(0, 15).map((r) => `${r.author} · ${r.rating}★ · ${fdate(r.date)} · ${STATUS_TXT[r.status] ?? r.status}${r.target === "competidor" ? ` · competencia (${r.place})` : ""}`), 9);
+  }
+  const l = d.learning;
+  if (l && l.removed + Object.values(l.byOption).reduce((s, b) => s + (b?.decided ?? 0), 0) > 0) {
+    w.h2("Qué está funcionando");
+    const rows = Object.entries(l.byOption)
+      .filter(([, b]) => b && b.decided > 0)
+      .sort((a, b) => (b[1]?.rate ?? 0) - (a[1]?.rate ?? 0))
+      .map(([k, b]) => `${OPTION_LABEL[k] ?? k}: ${Math.round((b?.rate ?? 0) * 100)}% retiradas (${b?.removed}/${b?.decided})${b?.avgDays != null ? ` · ${num(b.avgDays)} días de media` : ""}`);
+    w.bullets(rows.length ? rows : ["Aún no hay suficientes decisiones de Google para medir la tasa de éxito."], 9);
+  }
+  w.h2("Cómo trabajamos");
+  w.p(
+    "Cada día se revisan las reseñas nuevas de la ficha. Las negativas se analizan al momento (perfil del autor, vínculos con la competencia, redes de perfiles, reincidencia y contenido frente a las políticas de Google) y, si hay motivos, se prepara la denuncia con sus pruebas fechadas. El sistema comprueba solo si Google retira cada reseña y prepara la apelación cuando no lo hace.",
+    { size: 9, color: MUTED }
+  );
+  w.footer(brand.agency);
+  doc.end();
+  return done;
+}
+
+/* ───────────────────────── Acta de evidencias ───────────────────────── */
+
+export type EvidenceCase = {
+  placeTitle: string;
+  placeUrl: string;
+  author: string;
+  authorLink: string;
+  rating: number;
+  reviewDate: string;
+  text: string | null;
+  reviewLink: string;
+  status: string;
+  googleOption: string;
+  reasons: { label: string; policy: string; detail: string }[];
+};
+
+export async function buildEvidencePdf(c: EvidenceCase, evidences: { kind: string; source: string; url: string; sha256: string; capturedAt: Date; payload: any }[], brand: Brand): Promise<Buffer> {
+  const { doc, w, done } = await newDoc(`Acta de evidencias — ${c.placeTitle}`);
+  w.cover("Acta de evidencias · Google Maps", "Registro fechado de la reseña y su contexto", c.placeTitle, `Generada el ${new Date().toLocaleString("es-ES", { timeZone: "Europe/Madrid" })} · ${evidences.length} registro(s)`, brand.agency);
+  w.h2("Reseña");
+  w.review(`${c.author || "Usuario de Google"}`, { rating: c.rating, date: c.reviewDate, text: c.text ?? "", link: c.reviewLink }, RED);
+  w.kv([
+    ["Ficha", c.placeTitle],
+    ["Estado", STATUS_TXT[c.status] ?? c.status],
+    ["Motivo de denuncia", OPTION_LABEL[c.googleOption] ?? c.googleOption]
+  ]);
+  if (c.authorLink) w.meta("", "Ver perfil del autor ↗", c.authorLink);
+  if (c.reasons.length) {
+    w.h2("Motivos");
+    w.bullets(c.reasons.map((r) => `${r.label}${r.policy ? ` [${r.policy}]` : ""}: ${r.detail}`), 9);
+  }
+  w.h2("Registros");
+  w.p(
+    "Cada registro guarda los datos públicos tal y como estaban en el momento de la captura. La huella SHA-256 se calcula sobre el contenido del registro: cualquier modificación posterior produciría una huella distinta.",
+    { size: 8.5, color: MUTED }
+  );
+  evidences.forEach((e, i) => {
+    w.h3(`${i + 1}. ${{ review: "Reseña", profile: "Perfil del autor", check: "Comprobación" }[e.kind] ?? e.kind} · ${new Date(e.capturedAt).toLocaleString("es-ES", { timeZone: "Europe/Madrid" })}`, INK);
+    w.p(`Fuente: ${e.source || "—"} · SHA-256: ${e.sha256}`, { size: 7.5, color: MUTED });
+    const body = JSON.stringify(e.payload, null, 1).slice(0, 3500);
+    w.p(body, { size: 7 });
+  });
   w.footer(brand.agency);
   doc.end();
   return done;

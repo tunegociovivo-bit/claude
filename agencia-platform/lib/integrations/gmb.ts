@@ -303,6 +303,49 @@ export async function gmbListReviews(opts: {
   }));
 }
 
+/** Ruta v4 de una ubicación a partir de lo guardado en GmbClient ("accounts/X" + "accounts/X/locations/Y" o "Y"). */
+export function gmbLocationPath(accountId: string, locationId: string): string | null {
+  const loc = String(locationId ?? "").trim();
+  if (/^accounts\/[^/]+\/locations\/[^/]+$/.test(loc)) return loc;
+  const acc = String(accountId ?? "").trim().replace(/^accounts\//, "");
+  const l = loc.replace(/^locations\//, "");
+  return acc && l ? `accounts/${acc}/locations/${l}` : null;
+}
+
+export type GmbFullReview = GmbReview & { profilePhotoUrl: string; isAnonymous: boolean; updateTime: string };
+
+/**
+ * Todas las reseñas de una ficha propia por la API oficial (gratis y completa), paginando.
+ * `maxPages` × 50 reseñas. Lanza si la conexión con Google no está disponible.
+ */
+export async function gmbListAllReviews(opts: { workspaceId: string; locationPath: string; maxPages?: number; orderBy?: string }): Promise<GmbFullReview[]> {
+  const token = await getAccessToken(opts.workspaceId);
+  const out: GmbFullReview[] = [];
+  let pageToken = "";
+  for (let i = 0; i < (opts.maxPages ?? 20); i++) {
+    const qs = new URLSearchParams({ pageSize: "50", orderBy: opts.orderBy ?? "updateTime desc" });
+    if (pageToken) qs.set("pageToken", pageToken);
+    const data = await gFetch(token, `${V4_BASE}/${opts.locationPath}/reviews?${qs}`);
+    for (const r of data.reviews ?? []) {
+      out.push({
+        reviewName: r.name,
+        reviewId: String(r.name ?? "").split("/").pop() ?? "",
+        reviewer: r.reviewer?.displayName ?? "Anónimo",
+        profilePhotoUrl: r.reviewer?.profilePhotoUrl ?? "",
+        isAnonymous: !!r.reviewer?.isAnonymous,
+        rating: STAR_MAP[r.starRating] ?? 0,
+        comment: r.comment ?? null,
+        createTime: r.createTime,
+        updateTime: r.updateTime ?? r.createTime,
+        reply: r.reviewReply ? { comment: r.reviewReply.comment, updateTime: r.reviewReply.updateTime } : null
+      });
+    }
+    pageToken = data.nextPageToken ?? "";
+    if (!pageToken) break;
+  }
+  return out;
+}
+
 export async function gmbReplyReview(opts: {
   workspaceId: string;
   /** reviewName completo "accounts/X/locations/Y/reviews/Z" o solo reviewId si pasas account+location */

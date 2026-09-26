@@ -65,6 +65,8 @@ export type AnalysisParams = {
   mode?: "manual" | "auto" | "policy";
   /** Revisar el contenido de cada reseña negativa frente a las políticas de Google (reglas + IA). */
   policy?: boolean;
+  /** Buscar positivas sospechosas en la competencia (picos, cuentas nuevas…). Por defecto sí. */
+  compFakes?: boolean;
   /** auto: nº mínimo de autores de negativas que valoraron bien el mismo negocio. */
   minOverlap?: number;
   client: Place;

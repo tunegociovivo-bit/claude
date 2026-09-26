@@ -234,6 +234,51 @@ export default function FakeReviewReport({
         </div>
       </section>
 
+      {(res.networks?.length ?? 0) > 0 && (
+        <section className="my-8">
+          <H2>Redes de perfiles coordinados ({res.networks!.length})</H2>
+          <p className="text-[13px] text-slate-600 mb-3">
+            Grupos de perfiles que han reseñado los mismos negocios con pocos días de diferencia: el patrón típico de las granjas de reseñas o de grupos que actúan de forma coordinada.
+          </p>
+          <div className="space-y-2">
+            {res.networks!.slice(0, 10).map((n) => (
+              <div key={n.id} className="rounded-lg border p-3 fr-avoid">
+                <div className="text-sm font-semibold" style={{ color: n.strength >= 60 ? "#B3261E" : "#B26A00" }}>
+                  {n.id} · {n.members.length} perfiles · fuerza {n.strength}/100
+                </div>
+                <div className="text-[13px]">{n.names.filter(Boolean).join(", ") || n.members.join(", ")}</div>
+                {n.shared.length > 0 && <div className="text-xs text-slate-500 mt-1">Negocios en común: {n.shared.map((x) => `${x.title || "negocio"} (${x.members})`).join(", ")}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(res.compFakes?.length ?? 0) > 0 && (
+        <section className="my-8">
+          <H2>Positivas sospechosas en la competencia</H2>
+          <p className="text-[13px] text-slate-600 mb-3">
+            Valoraciones de 4-5★ recientes en la competencia con indicios de no ser auténticas (picos de volumen, cuentas de 1-2 reseñas, textos vacíos o genéricos, perfiles que también atacaron al cliente o ya fichados).
+          </p>
+          {res.compFakes!.map((c) => (
+            <div key={c.comp} className="mb-5">
+              <h3 className="font-semibold text-sm mb-1">{c.title} — {c.suspicious.length} sospechosas de {c.positives} positivas leídas</h3>
+              {c.spikes.map((sp) => (
+                <p key={sp.week} className="text-xs text-rose-700">Pico: {sp.count} positivas la semana del {fdate(sp.week)} (lo habitual: {String(sp.baseline).replace(".", ",")})</p>
+              ))}
+              <div className="mt-2">
+                {c.suspicious.slice(0, 15).map((r) => (
+                  <div key={r.reviewId || r.link} className="fr-avoid">
+                    <Rev r={{ rating: r.rating, date: r.date, ts: 0, text: r.text, link: r.link }} border="border-amber-500" title={`${r.author} · riesgo ${r.score}/100`} />
+                    <p className="text-[11px] text-slate-500 -mt-1 mb-2 ml-1">{r.reasons.join(" · ")}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       {res.similar.length > 0 && (
         <section className="my-8">
           <H2>Reseñas con redacción casi idéntica</H2>

@@ -13,6 +13,6 @@ export async function reportBrand(workspaceId: string, userId?: string | null): 
 }
 
 export function pdfFilename(kind: string, client: string): string {
-  const base = { cliente: "informe-resenas", google: "evidencias-google", carta: "escrito-soporte-google" }[kind] ?? "informe";
+  const base = { cliente: "informe-resenas", google: "evidencias-google", carta: "escrito-soporte-google", mensual: "informe-mensual", evidencias: "acta-evidencias", apelacion: "apelacion-google" }[kind] ?? "informe";
   return `${base}-${client}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 90) + ".pdf";
 }
