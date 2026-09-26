@@ -31,7 +31,7 @@ export async function readAndroidUiHierarchySafely(
       const hierarchy = String(await runCommand([
     "sh",
     "-c",
-    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout 10 uiautomator dump ${ANDROID_UI_DUMP_PATH} >/dev/null && cat ${ANDROID_UI_DUMP_PATH}`
+    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout 25 uiautomator dump ${ANDROID_UI_DUMP_PATH} >/dev/null && cat ${ANDROID_UI_DUMP_PATH}`
   ]));
       if (hierarchy.includes("<hierarchy") && hierarchy.includes("</hierarchy>")) return hierarchy;
     } catch {

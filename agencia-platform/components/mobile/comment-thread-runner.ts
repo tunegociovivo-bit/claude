@@ -27,7 +27,7 @@ function snippet(text: string): string {
  * uiautomator falla si la pantalla no está quieta (vídeos en reproducción de anuncios,
  * animaciones). Reintentamos con pausas antes de rendirnos.
  */
-async function readStable(deps: CommentThreadRunnerDependencies, attempts = 4): Promise<string> {
+async function readStable(deps: CommentThreadRunnerDependencies, attempts = 5): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try { return await deps.read(); }
@@ -131,7 +131,7 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
   try { await deps.tap(send.center); }
   catch { return { ...message, outcome: "review", detail: "No se pudo confirmar la pulsación de Enviar. Revisa la publicación y marca el mensaje como publicado si aparece." }; }
   let shown = false;
-  for (let attempt = 0; attempt < 3 && !shown; attempt++) {
+  for (let attempt = 0; attempt < 5 && !shown; attempt++) {
     await deps.wait(1_800);
     try {
       const after = await deps.read();

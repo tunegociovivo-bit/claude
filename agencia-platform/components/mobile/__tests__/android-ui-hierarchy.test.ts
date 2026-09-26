@@ -36,7 +36,7 @@ describe("jerarquía accesible de Android", () => {
       [[
         "sh",
         "-c",
-        "rm -f /sdcard/nv-mobile-window.xml && timeout 10 uiautomator dump /sdcard/nv-mobile-window.xml >/dev/null && cat /sdcard/nv-mobile-window.xml"
+        "rm -f /sdcard/nv-mobile-window.xml && timeout 25 uiautomator dump /sdcard/nv-mobile-window.xml >/dev/null && cat /sdcard/nv-mobile-window.xml"
       ]]
     ]);
   });
