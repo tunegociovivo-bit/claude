@@ -13,8 +13,11 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", "Progreso no válido.");
   const job = await prisma.mobileAutomationJob.findFirst({ where: { id: params.id, workspaceId: api.workspaceId } });
-  if (!job || job.status !== "RUNNING" || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES"].includes(job.action)) {
+  if (!job || job.status !== "RUNNING" || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action)) {
     throw new ApiError(409, "lease_lost", "La ejecución se ha detenido o está en otra pestaña.");
+  }
+  if (parsed.data.text && job.action === "POST_THREAD_MESSAGE") {
+    throw new ApiError(400, "invalid_progress", "Los mensajes de conversación no admiten progreso parcial.");
   }
   if (parsed.data.text && job.action === "FOLLOW_PAGES") {
     let same = false;
@@ -31,7 +34,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
   }
   const changed = await prisma.mobileAutomationJob.updateMany({
     where: { id: job.id, workspaceId: api.workspaceId, status: "RUNNING", leaseOwner: parsed.data.executorSessionId },
-    data: { leaseUntil: new Date(Date.now() + 10 * 60_000), ...(parsed.data.text ? { text: parsed.data.text } : {}) }
+    data: { leaseUntil: new Date(Date.now() + (job.action === "POST_THREAD_MESSAGE" ? 3 : 10) * 60_000), ...(parsed.data.text ? { text: parsed.data.text } : {}) }
   });
   if (changed.count !== 1) throw new ApiError(409, "lease_lost", "La ejecución se ha detenido.");
   return NextResponse.json({ ok: true });
