@@ -89,7 +89,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
           status: "PENDING_APPROVAL",
           scheduledAt,
           expiresAt: new Date(scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
-          maxAttempts: 1, // publicar es irreversible: nunca reintento automático
+          maxAttempts: 4, // reintentos seguros: el ejecutor no reescribe un texto ya publicado
           idempotencyKey: `thread:${threadId}:${message.order}`,
           createdById: api.userId
         }
@@ -114,7 +114,8 @@ const TERMINAL = ["COMPLETED", "REJECTED", "CANCELLED"];
  * Permite recuperar el seguimiento tras recargar la página.
  */
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
-  await loadMobileAutomationAccess(api.workspaceId, api.userId);
+  const { phones } = await loadMobileAutomationAccess(api.workspaceId, api.userId);
+  const phoneBySerial = new Map(phones.filter((phone) => phone.deviceSerial).map((phone) => [phone.deviceSerial!, phone.phone]));
   const threadFilter = new URL(req.url).searchParams.get("threadId");
   if (threadFilter && !/^[0-9a-f-]{36}$/i.test(threadFilter)) throw new ApiError(400, "invalid_thread", "Conversación no válida");
   const days = Math.min(365, Math.max(1, Number(new URL(req.url).searchParams.get("days") ?? 90) || 90));
@@ -137,12 +138,17 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     const thread = threads.get(message.threadId) ?? { threadId: message.threadId, guide: message.guide, postUrl: message.postUrl, createdAt: row.createdAt, jobs: [] };
     thread.jobs.push({
       id: row.id, deviceSerial: row.deviceSerial, status: row.status, lastError: row.lastError,
-      order: message.order, replyToOrder: message.replyToOrder, author: message.author,
+      order: message.order, replyToOrder: message.replyToOrder, author: phoneBySerial.get(row.deviceSerial) || message.author,
       text: message.text, replyToAuthor: message.replyToAuthor, completedAt: row.completedAt, detail: message.detail
     });
     threads.set(message.threadId, thread);
   }
   const list = [...threads.values()]
+    .map((thread) => {
+      const byOrder = new Map(thread.jobs.map((job) => [Number(job.order), job]));
+      for (const job of thread.jobs) if (job.replyToOrder) job.replyToAuthor = byOrder.get(Number(job.replyToOrder))?.author ?? job.replyToAuthor;
+      return thread;
+    })
     .map((thread) => ({ ...thread, jobs: thread.jobs.sort((a, b) => Number(a.order) - Number(b.order)), active: thread.jobs.some((job) => !TERMINAL.includes(String(job.status))) }))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   return NextResponse.json({ ok: true, threads: list });

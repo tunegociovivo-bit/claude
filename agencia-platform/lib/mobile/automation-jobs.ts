@@ -107,20 +107,10 @@ export async function claimNextMobileAutomationJob(input: {
         continue;
       }
       let refreshedText: string | null = null;
-      if (candidate.action === "POST_THREAD_MESSAGE" && candidate.status === "RUNNING") {
-        // Un mensaje que ya empezó a publicarse NUNCA se vuelve a ejecutar solo:
-        // puede estar publicado. Se deja para que una persona lo compruebe.
-        await tx.mobileAutomationJob.update({
-          where: { id: candidate.id },
-          data: {
-            status: "WAITING_USER", leaseOwner: null, leaseUntil: null, preparedAt: now,
-            lastErrorCode: "thread_interrupted",
-            lastError: "La publicación se interrumpió antes de confirmarse. Comprueba en Facebook si el mensaje aparece: si está, pulsa «Confirmo que está publicado»; si no, cancélalo y vuelve a crearlo."
-          }
-        });
-        await tx.mobileAutomationJobEvent.create({
-          data: { workspaceId: input.workspaceId, jobId: candidate.id, event: "THREAD_MESSAGE_INTERRUPTED", actorType: "SYSTEM" }
-        });
+      if (candidate.action === "POST_THREAD_MESSAGE" && candidate.status === "RUNNING" && candidate.leaseUntil && candidate.leaseUntil > now) {
+        // Otra instancia del panel puede estar publicándolo ahora mismo (su latido
+        // renueva el lease): no se toca. Si el lease caduca, se reanuda de forma segura
+        // porque el ejecutor comprueba primero si el texto ya está publicado.
         continue;
       }
       if (candidate.action === "POST_THREAD_MESSAGE") {
@@ -146,7 +136,7 @@ export async function claimNextMobileAutomationJob(input: {
         "FOLLOW_PAGES",
         "POST_THREAD_MESSAGE"
       ].includes(candidate.action);
-      const leaseUntil = new Date(now.getTime() + (isFacebookGroupBatch ? 10 * 60_000 : 60_000));
+      const leaseUntil = new Date(now.getTime() + (candidate.action === "POST_THREAD_MESSAGE" ? 3 * 60_000 : isFacebookGroupBatch ? 10 * 60_000 : 60_000));
       const claimed = await tx.mobileAutomationJob.updateMany({
         where: {
           id: candidate.id,
@@ -312,6 +302,19 @@ export async function reportMobileAutomationResult(input: {
       return { ...job, ...data };
     }
 
+    if (input.outcome === "PARTIAL" && job.action === "POST_THREAD_MESSAGE" && job.attempts < job.maxAttempts) {
+      // Envío pulsado pero sin confirmar: se vuelve a comprobar solo en 90 s. Si el
+      // comentario aparece, se marca publicado; si no, se escribe de nuevo.
+      const data = {
+        status: "QUEUED", text: input.resultText ?? job.text, scheduledAt: new Date(now.getTime() + 90_000),
+        leaseOwner: null, leaseUntil: null, lastErrorCode: "thread_verify", lastError: "Enviado sin confirmar: se volverá a comprobar automáticamente."
+      };
+      const changed = await tx.mobileAutomationJob.updateMany({ where: { id: job.id, workspaceId: input.workspaceId, status: "RUNNING", leaseOwner: input.executorSessionId }, data });
+      if (changed.count !== 1) throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
+      await tx.mobileAutomationJobEvent.create({ data: { workspaceId: input.workspaceId, jobId: job.id, event: "THREAD_MESSAGE_VERIFY", actorType: "BROWSER", actorId: input.executorSessionId } });
+      return { ...job, ...data };
+    }
+
     if (input.outcome === "COMPLETED" || input.outcome === "PARTIAL") {
       const partial = input.outcome === "PARTIAL";
       const data = {
@@ -381,7 +384,9 @@ export async function reportMobileAutomationResult(input: {
       return { ...job, ...data };
     }
 
-    const canRetry = input.errorCode !== "facebook_navigation_failed" && job.action !== "POST_THREAD_MESSAGE" && job.attempts < job.maxAttempts;
+    // Los mensajes de conversación sí se reintentan: el ejecutor comprueba antes de
+    // escribir si el texto ya está publicado, así que reintentar no duplica.
+    const canRetry = (input.errorCode !== "facebook_navigation_failed" || job.action === "POST_THREAD_MESSAGE") && job.attempts < job.maxAttempts;
     const retryDelay = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
     const data = {
       status: canRetry ? "QUEUED" : "FAILED",

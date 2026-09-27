@@ -106,14 +106,8 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
   throw new Error(`No se encuentra en la publicación el comentario de ${message.replyToAuthor ?? "la otra cuenta"} al que hay que responder. No se ha publicado nada. ${screenSummary(xml)}`);
 }
 
-/**
- * Publica un único mensaje aprobado: comentario nuevo o respuesta a un comentario
- * ya publicado. Todo lo que ocurre ANTES de pulsar Enviar puede fallar y reintentarse
- * sin riesgo. Lo que ocurre DESPUÉS nunca lanza error: si no se puede confirmar,
- * se deja «en revisión» para no duplicar el comentario.
- */
-export async function postCommentThreadMessage(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
-  await deps.openUrl(message.postUrl);
+async function openPost(url: string, deps: CommentThreadRunnerDependencies) {
+  await deps.openUrl(url);
   await deps.wait(3_000);
   // Móviles con Facebook duplicado (app dual): elegir la app principal en «Abrir con».
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -122,6 +116,48 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
     await deps.tap(chooser);
     await deps.wait(3_000);
   }
+}
+
+/** Recorre los comentarios de la publicación buscando el texto exacto del mensaje. */
+async function findPublished(text: string, deps: CommentThreadRunnerDependencies): Promise<boolean> {
+  let xml = await readStable(deps);
+  if (textAlreadyVisible(xml, text)) return true;
+  if (!visibleComments(xml).length) {
+    const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
+    if (!button) return false;
+    await deps.tap(button.center);
+    await deps.wait(1_500);
+    xml = await readStable(deps);
+  }
+  let previous = "";
+  for (let screen = 0; screen < 8; screen++) {
+    if (textAlreadyVisible(xml, text)) return true;
+    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|Ver \d+ respuestas?|Ver respuestas|View more comments|View previous comments|View \d+ repl(y|ies))/i);
+    if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
+    const signature = screenSignature(xml);
+    if (signature === previous) break;
+    previous = signature;
+    await deps.scroll(xml, "down");
+    xml = await readStable(deps);
+  }
+  return textAlreadyVisible(xml, text);
+}
+
+/**
+ * Publica un único mensaje aprobado: comentario nuevo o respuesta a un comentario
+ * ya publicado. Todo lo que ocurre ANTES de pulsar Enviar puede fallar y reintentarse
+ * sin riesgo. Lo que ocurre DESPUÉS nunca lanza error: si no se puede confirmar,
+ * se deja «en revisión» para no duplicar el comentario.
+ */
+export async function postCommentThreadMessage(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
+  // 1) ¿Ya está publicado? (reintentos, recargas, envíos sin confirmar). Si aparece,
+  //    no se vuelve a escribir.
+  await openPost(message.postUrl, deps);
+  if (await findPublished(message.text, deps)) {
+    return { ...message, outcome: "sent", detail: "El mensaje ya estaba publicado; no se ha vuelto a escribir." };
+  }
+  // 2) Publicar desde una pantalla limpia de la publicación.
+  await openPost(message.postUrl, deps);
   let xml: string;
   if (message.mode === "reply") {
     const parent = await locateParent(message, deps);

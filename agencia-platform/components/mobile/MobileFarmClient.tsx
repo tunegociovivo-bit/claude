@@ -723,7 +723,7 @@ export default function MobileFarmClient() {
 
       <details className="rounded-2xl border border-indigo-200 bg-white shadow-sm">
         <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-indigo-900">Configurar encargo común <span className="ml-2 font-normal text-slate-500">· Automatización en varios móviles</span></summary>
-      <MobileFleetAutomationPanel devices={devices.map(d => ({ deviceSerial: d.serial, label: d.name || "Android", phoneKey: sharedPhones.find(p => p.deviceSerial === d.serial)?.key }))} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
+      <MobileFleetAutomationPanel devices={devices.map(d => { const shared = sharedPhones.find(p => p.deviceSerial === d.serial); return { deviceSerial: d.serial, label: shared?.phone ? `${shared.phone}${d.name ? ` · ${d.name}` : ""}` : d.name || "Android", phoneKey: shared?.key }; })} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
       </details>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
