@@ -37,6 +37,13 @@ async function readStable(deps: CommentThreadRunnerDependencies, attempts = 5): 
   throw lastError instanceof Error ? lastError : new Error("Android no ha devuelto la estructura de la pantalla.");
 }
 
+/** ¿Aparece ya este mismo texto publicado (fuera del campo de escribir)? */
+function textAlreadyVisible(xml: string, text: string): boolean {
+  const wanted = snippet(text).slice(0, 40);
+  if (wanted.length < 8) return false;
+  return facebookNodes(xml).some((node) => !COMPOSER.test(node.className) && normalizeFacebookText(nodeText(node)).includes(wanted));
+}
+
 function composerNode(xml: string, reply: boolean) {
   const editors = facebookNodes(xml).filter((node) => COMPOSER.test(node.className));
   return editors.find((node) => (reply ? /respon|respu|reply/i : /coment|comment|respon|reply/i).test(`${node.text} ${node.contentDescription}`))
@@ -123,6 +130,11 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
     xml = await readStable(deps);
   } else {
     xml = await revealComposer(deps);
+  }
+  // Protección anti-duplicados: si el texto ya está publicado (p. ej. un intento
+  // anterior sí se envió), no se vuelve a escribir.
+  if (textAlreadyVisible(xml, message.text)) {
+    return { ...message, outcome: "sent", detail: "El mensaje ya estaba publicado; no se ha vuelto a escribir." };
   }
   const composer = composerNode(xml, message.mode === "reply");
   if (!composer) throw new Error(`Facebook no ha mostrado el campo para escribir el comentario. No se ha publicado nada. ${screenSummary(xml)}`);

@@ -88,7 +88,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
           status: "PENDING_APPROVAL",
           scheduledAt,
           expiresAt: new Date(scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
-          maxAttempts: 2,
+          maxAttempts: 1, // publicar es irreversible: nunca reintento automático
           idempotencyKey: `thread:${threadId}:${message.order}`,
           createdById: api.userId
         }

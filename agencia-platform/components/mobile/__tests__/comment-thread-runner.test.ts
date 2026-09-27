@@ -68,3 +68,16 @@ describe("selector «Abrir con» de app dual", () => {
     expect(result.outcome).toBe("sent");
   });
 });
+
+describe("anti-duplicados", () => {
+  it("no vuelve a escribir un comentario que ya está publicado", async () => {
+    const { deps: d, taps } = deps([
+      screen([{ text: "Inicio", y: 100 }]),
+      screen([{ text: message.text, cls: "android.widget.TextView", y: 900 }, { text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }])
+    ]);
+    const result = await postCommentThreadMessage(message, d);
+    expect(result.outcome).toBe("sent");
+    expect(result.detail).toContain("ya estaba publicado");
+    expect(taps).toEqual([]);
+  });
+});
