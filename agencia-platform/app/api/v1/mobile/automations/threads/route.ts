@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { loadMobileAutomationAccess, requireLinkedMobile } from "@/lib/mobile/automation-access";
 import { validateAutomationTargetUrl } from "@/lib/mobile/automation-policy";
 import {
+  parseCommentThreadMessage,
   MAX_THREAD_MESSAGES,
   MAX_THREAD_PARTICIPANTS,
   serializeCommentThreadMessage,
@@ -88,7 +89,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
           status: "PENDING_APPROVAL",
           scheduledAt,
           expiresAt: new Date(scheduledAt.getTime() + 7 * 24 * 60 * 60 * 1000),
-          maxAttempts: 2,
+          maxAttempts: 1, // publicar es irreversible: nunca reintento automático
           idempotencyKey: `thread:${threadId}:${message.order}`,
           createdById: api.userId
         }
@@ -104,4 +105,40 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     return created;
   });
   return NextResponse.json({ ok: true, jobs }, { status: 201 });
+});
+
+const TERMINAL = ["COMPLETED", "REJECTED", "CANCELLED"];
+
+/**
+ * Conversaciones de los últimos 14 días, reconstruidas desde la base de datos.
+ * Permite recuperar el seguimiento tras recargar la página.
+ */
+export const GET = withApi({ scope: "*" }, async (req, { api }) => {
+  await loadMobileAutomationAccess(api.workspaceId, api.userId);
+  const threadFilter = new URL(req.url).searchParams.get("threadId");
+  if (threadFilter && !/^[0-9a-f-]{36}$/i.test(threadFilter)) throw new ApiError(400, "invalid_thread", "Conversación no válida");
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const rows = await prisma.mobileAutomationJob.findMany({
+    where: {
+      workspaceId: api.workspaceId,
+      action: "POST_THREAD_MESSAGE",
+      createdAt: { gte: since },
+      ...(threadFilter ? { idempotencyKey: { startsWith: `thread:${threadFilter}:` } } : {})
+    },
+    orderBy: { createdAt: "asc" },
+    take: 400,
+    select: { id: true, deviceSerial: true, status: true, lastError: true, text: true, idempotencyKey: true, createdAt: true }
+  });
+  const threads = new Map<string, { threadId: string; guide: string; postUrl: string; createdAt: Date; jobs: Array<Record<string, unknown>> }>();
+  for (const row of rows) {
+    let message;
+    try { message = parseCommentThreadMessage(row.text ?? ""); } catch { continue; }
+    const thread = threads.get(message.threadId) ?? { threadId: message.threadId, guide: message.guide, postUrl: message.postUrl, createdAt: row.createdAt, jobs: [] };
+    thread.jobs.push({ id: row.id, deviceSerial: row.deviceSerial, status: row.status, lastError: row.lastError, order: message.order, replyToOrder: message.replyToOrder, author: message.author });
+    threads.set(message.threadId, thread);
+  }
+  const list = [...threads.values()]
+    .map((thread) => ({ ...thread, jobs: thread.jobs.sort((a, b) => Number(a.order) - Number(b.order)), active: thread.jobs.some((job) => !TERMINAL.includes(String(job.status))) }))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return NextResponse.json({ ok: true, threads: list });
 });

@@ -25,6 +25,13 @@ export default function MobileFleetAutomationPanel({ devices, canManage, onOpen 
   const [pollError, setPollError] = useState<string | null>(null);
   const [approveNote, setApproveNote] = useState<string | null>(null);
   const lock = useRef(false);
+  // Recuperar el encargo que se estaba siguiendo tras recargar la página.
+  useEffect(() => {
+    try { const saved = window.localStorage.getItem('nv-fleet-plan'); if (saved) setPlan(JSON.parse(saved)); } catch { /* opcional */ }
+  }, []);
+  useEffect(() => {
+    try { if (plan) window.localStorage.setItem('nv-fleet-plan', JSON.stringify(plan)); } catch { /* opcional */ }
+  }, [plan]);
   const selected = devices.filter(d => d.phoneKey && !excluded.includes(d.deviceSerial));
   const ids = plan?.entries.flatMap(e => e.job ? [e.job.id] : []).join(',') ?? '';
   useEffect(() => {
@@ -79,7 +86,7 @@ export default function MobileFleetAutomationPanel({ devices, canManage, onOpen 
         {plan.entries.some(e=>e.job?.status==='PENDING_APPROVAL') && <button disabled={busy || !canManage} onClick={async()=>{ setBusy(true); setApproveNote(null); try { const pending = plan.entries.filter(e=>e.job?.status==='PENDING_APPROVAL').map(e=>e.job!.id); const result = await approvePending(pending); setPlan(p => p ? { ...p, entries: p.entries.map(e => e.job && result.errors[e.job.id] ? { ...e, error: result.errors[e.job.id] } : e.job && pending.includes(e.job.id) ? { ...e, error: undefined, job: { ...e.job, status: 'QUEUED' } } : e) } : p); setApproveNote(`${result.ok} de ${pending.length} encargos aprobados.${result.ok ? ' Abre las pantallas para que se ejecuten.' : ''}`); } finally { setBusy(false); } }} className="rounded-lg bg-emerald-600 px-3 py-2 text-white disabled:opacity-50">Aprobar en todos los móviles</button>}
         {plan.entries.some(e=>!e.job) && <button disabled={busy || !canManage} onClick={()=>void dispatch(plan)} className="rounded-lg bg-indigo-700 px-3 py-2 text-white disabled:opacity-50">Reintentar solo los no creados</button>}
         <button disabled={busy || !canManage} onClick={()=>onOpen(plan.entries.filter(e=>e.job).map(e=>e.deviceSerial))} className="rounded-lg border px-3 py-2">Abrir pantallas de este encargo</button>
-        <button disabled={busy} onClick={()=>{setPlan(null);setPollError(null);}} className="rounded-lg border px-3 py-2">Nuevo encargo</button>
+        <button disabled={busy} onClick={()=>{setPlan(null);setPollError(null);try{window.localStorage.removeItem('nv-fleet-plan');}catch{/* opcional */}}} className="rounded-lg border px-3 py-2">Nuevo encargo</button>
       </div><p className="text-xs text-slate-500">Nuevo encargo no cancela los trabajos anteriores. Puedes consultarlos en la cola de cada móvil.</p>
     </div>}
   </section>;

@@ -380,10 +380,7 @@ export default function MobileAutomationPanel({
         let execution: MobileAutomationExecutionResult;
         try { execution = await onExecuteJob({ ...job, executorSessionId }); }
         finally { if (heartbeat !== undefined) window.clearInterval(heartbeat); }
-        await apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/result`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const resultBody = JSON.stringify({
             executorSessionId,
             outcome: execution.outcome,
             ...(execution.resultText ? { resultText: execution.resultText } : {}),
@@ -391,8 +388,23 @@ export default function MobileAutomationPanel({
               errorCode: "partial_group_batch",
               error: execution.summary ?? "Parte del lote necesita revisión manual."
             } : {})
-          })
-        });
+          });
+        // La acción ya se hizo en el móvil: guardar el resultado con reintentos y, si
+        // aun así falla, NO marcarlo como fallo de ejecución (evita repetir la acción).
+        let saved = false;
+        for (let attempt = 0; attempt < 4 && !saved; attempt++) {
+          try {
+            await apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/result`, { method: "POST", headers: { "Content-Type": "application/json" }, body: resultBody });
+            saved = true;
+          } catch (saveError) {
+            if (attempt === 3) {
+              setError(`La acción se hizo en el móvil pero no se pudo guardar el resultado: ${saveError instanceof Error ? saveError.message : "error"}. Revisa la publicación antes de reintentar.`);
+              await loadJobs();
+              return;
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 3_000));
+          }
+        }
         setWorkerMessage(execution.outcome === "DISCOVERED"
           ? job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Búsqueda terminada. Revisa, edita y selecciona las respuestas que quieres enviar." : "Análisis terminado. Revisa la selección y aprueba todo el lote con un solo clic."
           : execution.outcome === "COMPLETED"

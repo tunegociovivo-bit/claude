@@ -130,6 +130,22 @@ describe("mobile automation job leases", () => {
     }));
   });
 
+  it("never re-runs a conversation message that already started (avoids duplicate comments)", async () => {
+    tx.mobileAutomationJob.findMany.mockResolvedValue([{
+      ...candidate,
+      action: "POST_THREAD_MESSAGE",
+      status: "RUNNING",
+      leaseOwner: "browser-1",
+      leaseUntil: new Date("2026-09-12T12:08:00.000Z")
+    }]);
+    const result = await claimNextMobileAutomationJob({ workspaceId: "w1", deviceSerial: "usb-1", executorSessionId: "browser-1", now });
+    expect(result).toBeNull();
+    expect(tx.mobileAutomationJob.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "WAITING_USER", lastErrorCode: "thread_interrupted" })
+    }));
+    expect(tx.mobileAutomationJob.updateMany).not.toHaveBeenCalled();
+  });
+
   it("enforces the persistent daily limit before reading the queue", async () => {
     tx.mobileAutomationJob.count.mockResolvedValue(20);
     const result = await claimNextMobileAutomationJob({

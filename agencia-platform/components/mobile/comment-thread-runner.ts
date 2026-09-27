@@ -2,6 +2,7 @@ import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/an
 import { facebookNodes, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments } from "@/components/mobile/facebook-conversation-ui";
 import { normalizeFacebookText } from "@/lib/mobile/facebook-conversations";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
+import { APP_LABELS, findAppChooserTarget } from "@/components/mobile/android-app-chooser";
 
 export type CommentThreadRunnerDependencies = {
   openUrl: (url: string) => Promise<void>;
@@ -34,6 +35,13 @@ async function readStable(deps: CommentThreadRunnerDependencies, attempts = 5): 
     catch (error) { lastError = error; await deps.wait(1_200 + attempt * 600); }
   }
   throw lastError instanceof Error ? lastError : new Error("Android no ha devuelto la estructura de la pantalla.");
+}
+
+/** ¿Aparece ya este mismo texto publicado (fuera del campo de escribir)? */
+function textAlreadyVisible(xml: string, text: string): boolean {
+  const wanted = snippet(text).slice(0, 40);
+  if (wanted.length < 8) return false;
+  return facebookNodes(xml).some((node) => !COMPOSER.test(node.className) && normalizeFacebookText(nodeText(node)).includes(wanted));
 }
 
 function composerNode(xml: string, reply: boolean) {
@@ -107,6 +115,13 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
 export async function postCommentThreadMessage(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
   await deps.openUrl(message.postUrl);
   await deps.wait(3_000);
+  // Móviles con Facebook duplicado (app dual): elegir la app principal en «Abrir con».
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const chooser = findAppChooserTarget(await readStable(deps), APP_LABELS.facebook);
+    if (!chooser) break;
+    await deps.tap(chooser);
+    await deps.wait(3_000);
+  }
   let xml: string;
   if (message.mode === "reply") {
     const parent = await locateParent(message, deps);
@@ -115,6 +130,11 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
     xml = await readStable(deps);
   } else {
     xml = await revealComposer(deps);
+  }
+  // Protección anti-duplicados: si el texto ya está publicado (p. ej. un intento
+  // anterior sí se envió), no se vuelve a escribir.
+  if (textAlreadyVisible(xml, message.text)) {
+    return { ...message, outcome: "sent", detail: "El mensaje ya estaba publicado; no se ha vuelto a escribir." };
   }
   const composer = composerNode(xml, message.mode === "reply");
   if (!composer) throw new Error(`Facebook no ha mostrado el campo para escribir el comentario. No se ha publicado nada. ${screenSummary(xml)}`);
