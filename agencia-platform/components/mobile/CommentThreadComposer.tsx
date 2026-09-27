@@ -243,6 +243,22 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
     } finally { setBusy(false); }
   }
 
+  async function resumeThread() {
+    if (!jobs) return;
+    setBusy(true); setError(null); setApproveNote(null);
+    try {
+      const result = await postJson("/api/v1/mobile/automations/threads/resume", { threadId });
+      const refreshed = await loadThreads();
+      setRecent(refreshed);
+      const current = refreshed.find((thread) => thread.threadId === threadId);
+      if (current) track(current);
+      if (onOpen && result.deviceSerials?.length) onOpen(result.deviceSerials);
+      setApproveNote(`${result.reactivated} mensajes reactivados.${result.pendingApproval ? ` ${result.pendingApproval} siguen pendientes de aprobación.` : ""} Se están abriendo las pantallas de ${result.deviceSerials?.length ?? 0} móviles: déjalas abiertas hasta que termine.`);
+    } catch (resumeError) {
+      setError(resumeError instanceof Error ? resumeError.message : "No se pudo reactivar la conversación");
+    } finally { setBusy(false); }
+  }
+
   async function approveAll() {
     if (!jobs) return;
     const pending = jobs.filter((job) => job.status === "PENDING_APPROVAL");
@@ -270,6 +286,8 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
         {finished && <p className="rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">Conversación terminada. Queda guardada en «Histórico de conversaciones» (pulsa «Nueva conversación» para verlo).</p>}
         <p className="font-semibold text-slate-800">Conversación {finished ? "terminada" : "en curso"} · {jobs.length} mensajes · {jobs.filter((job) => job.status === "COMPLETED").length} publicados</p>
         {trackedGuide && <p className="text-slate-500">{trackedGuide.slice(0, 160)}</p>}
+        {!finished && <button type="button" disabled={busy} onClick={() => void resumeThread()} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Reactivar y continuar</button>}
+        {!finished && <p className="text-[11px] text-slate-500">Vuelve a poner en marcha los mensajes parados (pendientes de comprobar, fallidos o interrumpidos) y abre las pantallas de los móviles. No duplica: si un mensaje ya está publicado, lo detecta y sigue con el siguiente.</p>}
         <p className="rounded bg-sky-50 px-2 py-1 text-sky-800">El progreso se guarda en el Hub: si recargas la página, vuelve aquí y pulsa «Abrir pantallas de estos móviles» para que continúe por donde iba.</p>
         <p className="text-slate-600">Cada mensaje está en la cola de su móvil, pendiente de aprobación. Se publicarán en orden: una respuesta solo sale cuando el comentario al que responde ya está publicado. Si se rechaza un comentario, sus respuestas se cancelan.</p>
         {jobs.map((job, index) => {
