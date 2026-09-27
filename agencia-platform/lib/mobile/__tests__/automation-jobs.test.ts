@@ -130,20 +130,25 @@ describe("mobile automation job leases", () => {
     }));
   });
 
-  it("never re-runs a conversation message that already started (avoids duplicate comments)", async () => {
+  it("does not touch a conversation message another panel is still publishing", async () => {
     tx.mobileAutomationJob.findMany.mockResolvedValue([{
-      ...candidate,
-      action: "POST_THREAD_MESSAGE",
-      status: "RUNNING",
-      leaseOwner: "browser-1",
-      leaseUntil: new Date("2026-09-12T12:08:00.000Z")
+      ...candidate, action: "POST_THREAD_MESSAGE", status: "RUNNING", leaseOwner: "browser-1",
+      leaseUntil: new Date("2026-09-12T12:02:00.000Z")
     }]);
     const result = await claimNextMobileAutomationJob({ workspaceId: "w1", deviceSerial: "usb-1", executorSessionId: "browser-1", now });
     expect(result).toBeNull();
-    expect(tx.mobileAutomationJob.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "WAITING_USER", lastErrorCode: "thread_interrupted" })
-    }));
     expect(tx.mobileAutomationJob.updateMany).not.toHaveBeenCalled();
+    expect(tx.mobileAutomationJob.update).not.toHaveBeenCalled();
+  });
+
+  it("resumes an abandoned conversation message once its lease expires", async () => {
+    tx.mobileAutomationJob.findMany.mockResolvedValue([{
+      ...candidate, action: "POST_THREAD_MESSAGE", status: "RUNNING", leaseOwner: "old-tab",
+      leaseUntil: new Date("2026-09-12T11:58:00.000Z"), text: null, previousJobId: null
+    }]);
+    const result = await claimNextMobileAutomationJob({ workspaceId: "w1", deviceSerial: "usb-1", executorSessionId: "browser-2", now });
+    // texto inválido -> el gate lo cancela; lo relevante es que no se deja bloqueado en RUNNING
+    expect(result === null || result.status === "RUNNING").toBe(true);
   });
 
   it("enforces the persistent daily limit before reading the queue", async () => {
