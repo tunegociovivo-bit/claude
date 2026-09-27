@@ -11,9 +11,75 @@ import {
 
 export type ThreadTarget = { deviceSerial: string; phoneKey: string; label: string };
 
-type TrackedJob = { id: string; deviceSerial: string; status: string; lastError?: string | null; text?: string | null };
+type TrackedJob = { id: string; deviceSerial: string; status: string; lastError?: string | null; text?: string | null; completedAt?: string | null };
 type TrackedMeta = { order: number; replyToOrder: number | null; author: string };
-type ThreadSummary = { threadId: string; guide: string; postUrl: string; createdAt: string; active: boolean; jobs: Array<TrackedJob & TrackedMeta> };
+type ThreadSummary = { threadId: string; guide: string; postUrl: string; createdAt: string; active: boolean; jobs: Array<TrackedJob & TrackedMeta & { replyToAuthor?: string | null; completedAt?: string | null }> };
+
+function formatDate(value?: string | null): string {
+  if (!value) return "";
+  try { return new Date(value).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); } catch { return value; }
+}
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  return /[;"\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** Exporta el histórico (una fila por mensaje) a CSV compatible con Excel en español. */
+function downloadHistoryCsv(threads: ThreadSummary[]) {
+  const header = ["Fecha conversación", "Publicación", "Tema", "Nº", "Cuenta", "Responde a", "Texto", "Estado", "Publicado el"];
+  const rows = threads.flatMap((thread) => thread.jobs.map((job) => [
+    formatDate(thread.createdAt), thread.postUrl, thread.guide, job.order, job.author,
+    job.replyToOrder ? `#${job.replyToOrder} ${job.replyToAuthor ?? ""}` : "", job.text ?? "", STATUS[job.status] ?? job.status, formatDate(job.completedAt)
+  ]));
+  const csv = "\ufeff" + [header, ...rows].map((row) => row.map(csvCell).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = `historico-conversaciones-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+function ThreadHistory({ threads, onTrack }: { threads: ThreadSummary[]; onTrack: (thread: ThreadSummary) => void }) {
+  const [query, setQuery] = useState("");
+  const filtered = threads.filter((thread) => !query.trim() || `${thread.guide} ${thread.postUrl} ${thread.jobs.map((job) => `${job.author} ${job.text ?? ""}`).join(" ")}`.toLowerCase().includes(query.trim().toLowerCase()));
+  if (!threads.length) return null;
+  return (
+    <details className="rounded-lg border bg-slate-50 p-2 text-xs">
+      <summary className="cursor-pointer font-semibold text-slate-800">Histórico de conversaciones · {threads.length}</summary>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por tema, cuenta, texto o URL" className="min-w-0 flex-1 rounded border bg-white px-2 py-1" />
+        <button type="button" onClick={() => downloadHistoryCsv(filtered)} className="rounded border bg-white px-2 py-1 font-semibold">Descargar CSV</button>
+      </div>
+      <div className="mt-2 max-h-[32rem] space-y-2 overflow-y-auto pr-1">
+        {filtered.map((thread) => {
+          const published = thread.jobs.filter((job) => job.status === "COMPLETED").length;
+          return (
+            <details key={thread.threadId} className="rounded-lg border bg-white p-2">
+              <summary className="cursor-pointer">
+                <span className="font-semibold">{formatDate(thread.createdAt)}</span> · {thread.guide.slice(0, 90)}
+                <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${thread.active ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800"}`}>{thread.active ? "En curso" : "Terminada"} · {published}/{thread.jobs.length} publicados</span>
+              </summary>
+              <a href={thread.postUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-indigo-700 underline">Abrir la publicación en Facebook</a>
+              <ol className="mt-2 space-y-1.5">
+                {thread.jobs.map((job) => (
+                  <li key={job.id} className={`rounded border px-2 py-1 ${job.replyToOrder ? "ml-5 border-indigo-100 bg-indigo-50/40" : "bg-slate-50"}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-1">
+                      <span className="font-semibold">#{job.order} · {job.author}{job.replyToOrder ? ` → responde a #${job.replyToOrder}${job.replyToAuthor ? ` (${job.replyToAuthor})` : ""}` : ""}</span>
+                      <span className="text-[10px] text-slate-500">{STATUS[job.status] ?? job.status}{job.completedAt ? ` · ${formatDate(job.completedAt)}` : ""}</span>
+                    </div>
+                    {job.text && <p className="mt-0.5 whitespace-pre-wrap text-slate-700">{job.text}</p>}
+                  </li>
+                ))}
+              </ol>
+              {thread.active && <button type="button" onClick={() => onTrack(thread)} className="mt-2 rounded border px-2 py-1 font-semibold text-sky-800">Ver seguimiento</button>}
+            </details>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
 
 const ACTIVE_KEY = "nv-thread-active";
 const DRAFT_KEY = "nv-thread-draft";
@@ -110,6 +176,13 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
     .map((target) => ({ ...target, facts: (facts[target.deviceSerial] ?? "").trim() })), [targets, excluded, facts]);
 
   const ids = jobs?.map((job) => job.id).join(",") ?? "";
+  const finished = Boolean(jobs?.length) && jobs!.every((job) => ["COMPLETED", "REJECTED", "CANCELLED"].includes(job.status));
+  useEffect(() => {
+    if (!finished) return;
+    storageSet(ACTIVE_KEY, null);
+    void loadThreads().then(setRecent).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished]);
   useEffect(() => {
     if (!ids) return;
     let disposed = false;
@@ -194,7 +267,8 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
   if (jobs && meta) {
     return (
       <div className="space-y-3 rounded-xl border border-indigo-100 bg-white p-3 text-xs">
-        <p className="font-semibold text-slate-800">Conversación en curso · {jobs.length} mensajes · {jobs.filter((job) => job.status === "COMPLETED").length} publicados</p>
+        {finished && <p className="rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">Conversación terminada. Queda guardada en «Histórico de conversaciones» (pulsa «Nueva conversación» para verlo).</p>}
+        <p className="font-semibold text-slate-800">Conversación {finished ? "terminada" : "en curso"} · {jobs.length} mensajes · {jobs.filter((job) => job.status === "COMPLETED").length} publicados</p>
         {trackedGuide && <p className="text-slate-500">{trackedGuide.slice(0, 160)}</p>}
         <p className="rounded bg-sky-50 px-2 py-1 text-sky-800">El progreso se guarda en el Hub: si recargas la página, vuelve aquí y pulsa «Abrir pantallas de estos móviles» para que continúe por donde iba.</p>
         <p className="text-slate-600">Cada mensaje está en la cola de su móvil, pendiente de aprobación. Se publicarán en orden: una respuesta solo sale cuando el comentario al que responde ya está publicado. Si se rechaza un comentario, sus respuestas se cancelan.</p>
@@ -249,6 +323,7 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
           </div>
         ))}
       </div>}
+      <ThreadHistory threads={recent} onTrack={track} />
       <label className="block text-xs font-semibold text-slate-700">Publicación o anuncio de Facebook
         <input value={postUrl} onChange={(event) => setPostUrl(event.target.value)} placeholder="https://www.facebook.com/…" inputMode="url" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-normal" />
       </label>

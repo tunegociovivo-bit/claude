@@ -117,7 +117,8 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   await loadMobileAutomationAccess(api.workspaceId, api.userId);
   const threadFilter = new URL(req.url).searchParams.get("threadId");
   if (threadFilter && !/^[0-9a-f-]{36}$/i.test(threadFilter)) throw new ApiError(400, "invalid_thread", "Conversación no válida");
-  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const days = Math.min(365, Math.max(1, Number(new URL(req.url).searchParams.get("days") ?? 90) || 90));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const rows = await prisma.mobileAutomationJob.findMany({
     where: {
       workspaceId: api.workspaceId,
@@ -126,15 +127,19 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
       ...(threadFilter ? { idempotencyKey: { startsWith: `thread:${threadFilter}:` } } : {})
     },
     orderBy: { createdAt: "asc" },
-    take: 400,
-    select: { id: true, deviceSerial: true, status: true, lastError: true, text: true, idempotencyKey: true, createdAt: true }
+    take: 2000,
+    select: { id: true, deviceSerial: true, status: true, lastError: true, text: true, idempotencyKey: true, createdAt: true, completedAt: true, approvedAt: true }
   });
   const threads = new Map<string, { threadId: string; guide: string; postUrl: string; createdAt: Date; jobs: Array<Record<string, unknown>> }>();
   for (const row of rows) {
     let message;
     try { message = parseCommentThreadMessage(row.text ?? ""); } catch { continue; }
     const thread = threads.get(message.threadId) ?? { threadId: message.threadId, guide: message.guide, postUrl: message.postUrl, createdAt: row.createdAt, jobs: [] };
-    thread.jobs.push({ id: row.id, deviceSerial: row.deviceSerial, status: row.status, lastError: row.lastError, order: message.order, replyToOrder: message.replyToOrder, author: message.author });
+    thread.jobs.push({
+      id: row.id, deviceSerial: row.deviceSerial, status: row.status, lastError: row.lastError,
+      order: message.order, replyToOrder: message.replyToOrder, author: message.author,
+      text: message.text, replyToAuthor: message.replyToAuthor, completedAt: row.completedAt, detail: message.detail
+    });
     threads.set(message.threadId, thread);
   }
   const list = [...threads.values()]
