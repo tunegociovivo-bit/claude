@@ -97,6 +97,16 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
     } finally { setBusy(false); }
   }
 
+  async function decideJob(id: string, action: "RETRY" | "COMPLETE") {
+    setBusy(true); setError(null);
+    try {
+      await postJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(id)}/decision`, { action });
+      setJobs((current) => current?.map((job) => job.id === id ? { ...job, status: action === "RETRY" ? "QUEUED" : "COMPLETED", lastError: null } : job) ?? null);
+    } catch (decideError) {
+      setError(decideError instanceof Error ? decideError.message : "No se pudo actualizar el mensaje");
+    } finally { setBusy(false); }
+  }
+
   async function approveAll() {
     if (!jobs) return;
     const pending = jobs.filter((job) => job.status === "PENDING_APPROVAL");
@@ -131,11 +141,17 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
                 <span className="rounded-full bg-white px-2 py-0.5 font-semibold">{STATUS[job.status] ?? job.status}</span>
               </div>
               {job.lastError && <p className="mt-1 text-rose-700">{job.lastError}</p>}
+              {job.status === "FAILED" && <div className="mt-1 flex flex-wrap gap-2">
+                <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "RETRY")} className="rounded border bg-white px-2 py-1 font-semibold">Reintentar</button>
+                <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE")} className="rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Ya está publicado</button>
+              </div>}
+              {job.status === "WAITING_USER" && <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE")} className="mt-1 rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Confirmo que está publicado</button>}
               <a className="mt-1 inline-block text-indigo-700 underline" href={`#mobile-device-${encodeURIComponent(job.deviceSerial)}`}>Revisar en la cola de este móvil</a>
             </div>
           );
         })}
         {approveNote && <p role="status" className="text-emerald-800">{approveNote}</p>}
+        {error && <p role="alert" className="text-rose-700">{error}</p>}
         <div className="flex flex-wrap gap-2">
           {jobs.some((job) => job.status === "PENDING_APPROVAL") && <button type="button" disabled={busy} onClick={() => void approveAll()} className="rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white disabled:opacity-50">Aprobar todos los mensajes</button>}
           {onOpen && <button type="button" onClick={() => onOpen([...new Set(jobs.map((job) => job.deviceSerial))])} className="rounded-lg border px-3 py-2">Abrir pantallas de estos móviles</button>}

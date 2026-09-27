@@ -46,7 +46,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
     });
     if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
     const transition = parsed.data.action as MobileAutomationTransition;
-    if (!canTransitionMobileAutomation(job.status as MobileAutomationStatus, transition)) {
+    const threadManualConfirm = job.action === "POST_THREAD_MESSAGE" && job.status === "FAILED" && transition === "COMPLETE";
+    if (!threadManualConfirm && !canTransitionMobileAutomation(job.status as MobileAutomationStatus, transition)) {
       throw new ApiError(409, "invalid_transition", "El trabajo ya cambió de estado; actualiza la lista");
     }
 
