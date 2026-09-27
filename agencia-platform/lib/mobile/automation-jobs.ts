@@ -107,6 +107,22 @@ export async function claimNextMobileAutomationJob(input: {
         continue;
       }
       let refreshedText: string | null = null;
+      if (candidate.action === "POST_THREAD_MESSAGE" && candidate.status === "RUNNING") {
+        // Un mensaje que ya empezó a publicarse NUNCA se vuelve a ejecutar solo:
+        // puede estar publicado. Se deja para que una persona lo compruebe.
+        await tx.mobileAutomationJob.update({
+          where: { id: candidate.id },
+          data: {
+            status: "WAITING_USER", leaseOwner: null, leaseUntil: null, preparedAt: now,
+            lastErrorCode: "thread_interrupted",
+            lastError: "La publicación se interrumpió antes de confirmarse. Comprueba en Facebook si el mensaje aparece: si está, pulsa «Confirmo que está publicado»; si no, cancélalo y vuelve a crearlo."
+          }
+        });
+        await tx.mobileAutomationJobEvent.create({
+          data: { workspaceId: input.workspaceId, jobId: candidate.id, event: "THREAD_MESSAGE_INTERRUPTED", actorType: "SYSTEM" }
+        });
+        continue;
+      }
       if (candidate.action === "POST_THREAD_MESSAGE") {
         const gate = await threadMessageGate(tx, input.workspaceId, candidate.text);
         if (gate.state === "wait") continue;
@@ -365,7 +381,7 @@ export async function reportMobileAutomationResult(input: {
       return { ...job, ...data };
     }
 
-    const canRetry = input.errorCode !== "facebook_navigation_failed" && job.attempts < job.maxAttempts;
+    const canRetry = input.errorCode !== "facebook_navigation_failed" && job.action !== "POST_THREAD_MESSAGE" && job.attempts < job.maxAttempts;
     const retryDelay = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
     const data = {
       status: canRetry ? "QUEUED" : "FAILED",

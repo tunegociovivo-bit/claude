@@ -12,6 +12,13 @@ import {
 export type ThreadTarget = { deviceSerial: string; phoneKey: string; label: string };
 
 type TrackedJob = { id: string; deviceSerial: string; status: string; lastError?: string | null; text?: string | null };
+type TrackedMeta = { order: number; replyToOrder: number | null; author: string };
+type ThreadSummary = { threadId: string; guide: string; postUrl: string; createdAt: string; active: boolean; jobs: Array<TrackedJob & TrackedMeta> };
+
+const ACTIVE_KEY = "nv-thread-active";
+const DRAFT_KEY = "nv-thread-draft";
+function storageGet(key: string): string | null { try { return window.localStorage.getItem(key); } catch { return null; } }
+function storageSet(key: string, value: string | null) { try { if (value === null) window.localStorage.removeItem(key); else window.localStorage.setItem(key, value); } catch { /* opcional */ } }
 
 const STATUS: Record<string, string> = {
   PENDING_APPROVAL: "Pendiente de aprobación",
@@ -45,6 +52,58 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
   const [threadId, setThreadId] = useState(() => crypto.randomUUID());
   const [jobs, setJobs] = useState<TrackedJob[] | null>(null);
   const [approveNote, setApproveNote] = useState<string | null>(null);
+  const [meta, setMeta] = useState<TrackedMeta[] | null>(null);
+  const [trackedGuide, setTrackedGuide] = useState<string>("");
+  const [recent, setRecent] = useState<ThreadSummary[]>([]);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  async function loadThreads(): Promise<ThreadSummary[]> {
+    const response = await fetch("/api/v1/mobile/automations/threads", { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error?.message ?? "No se pudieron cargar las conversaciones");
+    return Array.isArray(data?.threads) ? data.threads : [];
+  }
+
+  function track(thread: ThreadSummary) {
+    setJobs(thread.jobs.map(({ id, deviceSerial, status, lastError }) => ({ id, deviceSerial, status, lastError })));
+    setMeta(thread.jobs.map(({ order, replyToOrder, author }) => ({ order, replyToOrder, author })));
+    setTrackedGuide(thread.guide);
+    setThreadId(thread.threadId);
+    storageSet(ACTIVE_KEY, thread.threadId);
+  }
+
+  // Al cargar la página: recuperar la conversación que se estaba siguiendo y el borrador sin enviar.
+  useEffect(() => {
+    let disposed = false;
+    const draft = storageGet(DRAFT_KEY);
+    if (draft) {
+      try {
+        const saved = JSON.parse(draft);
+        setPostUrl(saved.postUrl ?? ""); setPostContext(saved.postContext ?? ""); setGuide(saved.guide ?? "");
+        if (saved.turns) setTurns(saved.turns);
+        setFacts(saved.facts ?? {}); setExcluded(saved.excluded ?? []);
+        if (Array.isArray(saved.messages)) setMessages(saved.messages);
+        if (saved.gapMinutes) setGapMinutes(saved.gapMinutes);
+        if (saved.threadId) setThreadId(saved.threadId);
+      } catch { /* borrador dañado: se ignora */ }
+    }
+    setDraftLoaded(true);
+    void loadThreads().then((threads) => {
+      if (disposed) return;
+      setRecent(threads);
+      const activeId = storageGet(ACTIVE_KEY);
+      const current = threads.find((thread) => thread.threadId === activeId);
+      if (current) track(current);
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Guardar el borrador (configuración y simulación) mientras no se ha enviado.
+  useEffect(() => {
+    if (!draftLoaded || jobs) return;
+    storageSet(DRAFT_KEY, JSON.stringify({ postUrl, postContext, guide, turns, facts, excluded, messages, gapMinutes, threadId }));
+  }, [draftLoaded, jobs, postUrl, postContext, guide, turns, facts, excluded, messages, gapMinutes, threadId]);
 
   const participants = useMemo(() => targets
     .filter((target) => !excluded.includes(target.deviceSerial))
@@ -92,6 +151,10 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
       validateThreadScript(messages, participants.length);
       const payload = await postJson("/api/v1/mobile/automations/threads", { threadId, postUrl, guide, participants, messages, gapMinutes });
       setJobs(payload.jobs);
+      setMeta(messages.map((message) => ({ order: message.order, replyToOrder: message.replyToOrder, author: participants[message.participant]?.label ?? "" })));
+      setTrackedGuide(guide);
+      storageSet(ACTIVE_KEY, threadId);
+      storageSet(DRAFT_KEY, null);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "No se pudo crear la conversación");
     } finally { setBusy(false); }
@@ -123,24 +186,36 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
   }
 
   function reset() {
-    setMessages(null); setJobs(null); setError(null); setThreadId(crypto.randomUUID());
+    setMessages(null); setJobs(null); setMeta(null); setError(null); setThreadId(crypto.randomUUID());
+    storageSet(ACTIVE_KEY, null);
+    void loadThreads().then(setRecent).catch(() => undefined);
   }
 
-  if (jobs && messages) {
+  if (jobs && meta) {
     return (
       <div className="space-y-3 rounded-xl border border-indigo-100 bg-white p-3 text-xs">
-        <p className="font-semibold text-slate-800">Conversación enviada a revisión · {jobs.length} mensajes</p>
+        <p className="font-semibold text-slate-800">Conversación en curso · {jobs.length} mensajes · {jobs.filter((job) => job.status === "COMPLETED").length} publicados</p>
+        {trackedGuide && <p className="text-slate-500">{trackedGuide.slice(0, 160)}</p>}
+        <p className="rounded bg-sky-50 px-2 py-1 text-sky-800">El progreso se guarda en el Hub: si recargas la página, vuelve aquí y pulsa «Abrir pantallas de estos móviles» para que continúe por donde iba.</p>
         <p className="text-slate-600">Cada mensaje está en la cola de su móvil, pendiente de aprobación. Se publicarán en orden: una respuesta solo sale cuando el comentario al que responde ya está publicado. Si se rechaza un comentario, sus respuestas se cancelan.</p>
         {jobs.map((job, index) => {
-          const message = messages[index];
-          const participant = message ? participants[message.participant] : undefined;
+          const message = meta[index];
           return (
             <div key={job.id} className="rounded-lg border bg-slate-50 p-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold">#{index + 1} · {participant?.label ?? job.deviceSerial}{message?.replyToOrder ? ` → responde a #${message.replyToOrder}` : ""}</span>
+                <span className="font-semibold">#{index + 1} · {message?.author || job.deviceSerial}{message?.replyToOrder ? ` → responde a #${message.replyToOrder}` : ""}</span>
                 <span className="rounded-full bg-white px-2 py-0.5 font-semibold">{STATUS[job.status] ?? job.status}</span>
               </div>
               {job.lastError && <p className="mt-1 text-rose-700">{job.lastError}</p>}
+              {job.status === "QUEUED" && (() => {
+                const blockers = jobs.slice(0, index).map((other, i) => ({ other, order: i + 1 })).filter(({ other }) => ["PENDING_APPROVAL", "QUEUED", "RUNNING", "WAITING_USER", "FAILED"].includes(other.status));
+                const parentOrder = message?.replyToOrder;
+                const parent = parentOrder ? jobs[parentOrder - 1] : undefined;
+                if (parent && parent.status === "FAILED") return <p className="mt-1 text-amber-700">Bloqueado: el mensaje #{parentOrder} al que responde ha fallado. Reinténtalo o márcalo como publicado.</p>;
+                const previous = blockers.at(-1);
+                if (previous) return <p className="mt-1 text-slate-500">Esperando a que termine el mensaje #{previous.order}.</p>;
+                return <p className="mt-1 text-slate-500">Listo para publicarse: la pantalla de este móvil debe estar abierta en el Hub.</p>;
+              })()}
               {job.status === "FAILED" && <div className="mt-1 flex flex-wrap gap-2">
                 <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "RETRY")} className="rounded border bg-white px-2 py-1 font-semibold">Reintentar</button>
                 <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE")} className="rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Ya está publicado</button>
@@ -156,13 +231,24 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
           {jobs.some((job) => job.status === "PENDING_APPROVAL") && <button type="button" disabled={busy} onClick={() => void approveAll()} className="rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white disabled:opacity-50">Aprobar todos los mensajes</button>}
           {onOpen && <button type="button" onClick={() => onOpen([...new Set(jobs.map((job) => job.deviceSerial))])} className="rounded-lg border px-3 py-2">Abrir pantallas de estos móviles</button>}
           <button type="button" onClick={reset} className="rounded-lg border px-3 py-2">Nueva conversación</button>
+          <p className="w-full text-[11px] text-slate-500">«Nueva conversación» no cancela esta: seguirá publicándose y podrás recuperarla en «Conversaciones en curso».</p>
         </div>
       </div>
     );
   }
 
+  const activeThreads = recent.filter((thread) => thread.active);
   return (
     <div className="space-y-3 rounded-xl border border-indigo-100 bg-white p-3">
+      {activeThreads.length > 0 && <div className="rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs">
+        <p className="font-semibold text-sky-900">Conversaciones en curso · {activeThreads.length}</p>
+        {activeThreads.map((thread) => (
+          <div key={thread.threadId} className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded bg-white px-2 py-1">
+            <span className="min-w-0 flex-1 truncate">{thread.guide.slice(0, 80)} · {thread.jobs.filter((job) => job.status === "COMPLETED").length}/{thread.jobs.length} publicados</span>
+            <button type="button" onClick={() => track(thread)} className="rounded border px-2 py-0.5 font-semibold text-sky-800">Ver seguimiento</button>
+          </div>
+        ))}
+      </div>}
       <label className="block text-xs font-semibold text-slate-700">Publicación o anuncio de Facebook
         <input value={postUrl} onChange={(event) => setPostUrl(event.target.value)} placeholder="https://www.facebook.com/…" inputMode="url" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-normal" />
       </label>
