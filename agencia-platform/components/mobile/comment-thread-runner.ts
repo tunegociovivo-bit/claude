@@ -2,6 +2,7 @@ import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/an
 import { facebookNodes, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments } from "@/components/mobile/facebook-conversation-ui";
 import { normalizeFacebookText } from "@/lib/mobile/facebook-conversations";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
+import { APP_LABELS, findAppChooserTarget } from "@/components/mobile/android-app-chooser";
 
 export type CommentThreadRunnerDependencies = {
   openUrl: (url: string) => Promise<void>;
@@ -107,6 +108,13 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
 export async function postCommentThreadMessage(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
   await deps.openUrl(message.postUrl);
   await deps.wait(3_000);
+  // Móviles con Facebook duplicado (app dual): elegir la app principal en «Abrir con».
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const chooser = findAppChooserTarget(await readStable(deps), APP_LABELS.facebook);
+    if (!chooser) break;
+    await deps.tap(chooser);
+    await deps.wait(3_000);
+  }
   let xml: string;
   if (message.mode === "reply") {
     const parent = await locateParent(message, deps);

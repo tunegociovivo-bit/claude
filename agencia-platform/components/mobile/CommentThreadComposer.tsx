@@ -141,6 +141,15 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
                 <span className="rounded-full bg-white px-2 py-0.5 font-semibold">{STATUS[job.status] ?? job.status}</span>
               </div>
               {job.lastError && <p className="mt-1 text-rose-700">{job.lastError}</p>}
+              {job.status === "QUEUED" && (() => {
+                const blockers = jobs.slice(0, index).map((other, i) => ({ other, order: i + 1 })).filter(({ other }) => ["PENDING_APPROVAL", "QUEUED", "RUNNING", "WAITING_USER", "FAILED"].includes(other.status));
+                const parentOrder = message?.replyToOrder;
+                const parent = parentOrder ? jobs[parentOrder - 1] : undefined;
+                if (parent && parent.status === "FAILED") return <p className="mt-1 text-amber-700">Bloqueado: el mensaje #{parentOrder} al que responde ha fallado. Reinténtalo o márcalo como publicado.</p>;
+                const previous = blockers.at(-1);
+                if (previous) return <p className="mt-1 text-slate-500">Esperando a que termine el mensaje #{previous.order}.</p>;
+                return <p className="mt-1 text-slate-500">Listo para publicarse: la pantalla de este móvil debe estar abierta en el Hub.</p>;
+              })()}
               {job.status === "FAILED" && <div className="mt-1 flex flex-wrap gap-2">
                 <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "RETRY")} className="rounded border bg-white px-2 py-1 font-semibold">Reintentar</button>
                 <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE")} className="rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Ya está publicado</button>

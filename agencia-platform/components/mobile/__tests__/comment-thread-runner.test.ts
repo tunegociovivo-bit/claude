@@ -30,6 +30,7 @@ describe("publicar mensaje de conversación", () => {
     const posted = screen([{ text: message.text, cls: "android.widget.TextView", y: 900 }]);
     const { deps: d, taps } = deps([
       new Error("uiautomator ocupado"),
+      screen([{ text: "Inicio", y: 100 }]),
       screen([{ desc: "Comentar, botón", y: 1500 }]),
       screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }]),
       screen([{ text: message.text, cls: "android.widget.EditText", y: 2000 }, { desc: "Enviar", y: 2000 }]),
@@ -42,11 +43,28 @@ describe("publicar mensaje de conversación", () => {
 
   it("si la comprobación tras enviar falla, queda en revisión y no lanza error (no duplica)", async () => {
     const { deps: d } = deps([
+      screen([{ text: "Inicio", y: 100 }]),
       screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }]),
       screen([{ text: message.text, cls: "android.widget.EditText", y: 2000 }, { text: "Publicar", y: 2000 }]),
       new Error("x"), new Error("x"), new Error("x")
     ]);
     const result = await postCommentThreadMessage(message, d);
     expect(result.outcome).toBe("review");
+  });
+});
+
+describe("selector «Abrir con» de app dual", () => {
+  it("elige la primera app Facebook y continúa", async () => {
+    const chooser = `<hierarchy><node text="Abrir con" content-desc="" package="android" resource-id="" class="android.widget.TextView" clickable="false" focused="false" checked="false" bounds="[0,1200][1080,1260]" /><node text="Facebook" content-desc="" package="android" resource-id="" class="android.widget.TextView" clickable="true" focused="false" checked="false" bounds="[100,1400][300,1450]" /><node text="Facebook" content-desc="" package="android" resource-id="" class="android.widget.TextView" clickable="true" focused="false" checked="false" bounds="[700,1400][900,1450]" /></hierarchy>`;
+    const { deps: d, taps } = deps([
+      chooser,
+      screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }]),
+      screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 2000 }, { desc: "Enviar", y: 2000 }]),
+      screen([{ text: message.text, cls: "android.widget.TextView", y: 900 }])
+    ]);
+    const result = await postCommentThreadMessage(message, d);
+    expect(taps[0]).toBe(1425);
+    expect(result.outcome).toBe("sent");
   });
 });

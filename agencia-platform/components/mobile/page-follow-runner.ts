@@ -1,5 +1,6 @@
 import { parseAndroidUiNodes, type AndroidUiNode, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
 import type { PageFollowBatch, PageFollowPlatform, PageFollowTarget } from "@/lib/mobile/page-follow-batch";
+import { APP_LABELS, findAppChooserTarget } from "@/components/mobile/android-app-chooser";
 
 export type FollowControlState =
   | { state: "follow"; point: AndroidUiPoint; label: string }
@@ -76,6 +77,12 @@ async function followOne(page: PageFollowTarget, platform: PageFollowPlatform, d
   await deps.openUrl(page.url);
   await deps.wait(2_500);
   let hierarchy = await deps.read();
+  const chooser = findAppChooserTarget(hierarchy, APP_LABELS[platform]);
+  if (chooser) {
+    await deps.tap(chooser);
+    await deps.wait(3_000);
+    hierarchy = await deps.read();
+  }
   let control = findFollowControl(hierarchy, platform);
   if (control.state === "missing") {
     // La cabecera puede tardar en cargar o quedar debajo de la portada.
