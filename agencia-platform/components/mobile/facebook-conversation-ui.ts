@@ -21,6 +21,24 @@ export function joinedGroupRows(xml: string) {
 }
 
 export type NativeComment = { id: string; author: string; text: string; sourceLabel: string; point: AndroidUiPoint; dateLabel?: string };
+/** Facebook folds replies into a clickable row containing an author and body preview. */
+export function collapsedReplyPreviews(xml: string) {
+  const nodes = facebookNodes(xml);
+  return nodes.flatMap((row) => {
+    if (!row.clickable || row.text || row.className !== "android.view.ViewGroup") return [];
+    const children = nodes.filter(node => node !== row && node.text && node.className === "android.view.ViewGroup"
+      && node.bounds.left >= row.bounds.left && node.bounds.right <= row.bounds.right
+      && node.bounds.top >= row.bounds.top && node.bounds.bottom <= row.bounds.bottom);
+    for (const author of children) {
+      const body = children.find(node => node !== author && node.bounds.left >= author.bounds.right
+        && node.bounds.top < author.bounds.bottom && node.bounds.bottom > author.bounds.top
+        && row.contentDescription === `${author.text}, ${node.text}`);
+      if (body) return [{ text: body.text, label: row.contentDescription, point: row.center }];
+    }
+    return [];
+  });
+}
+
 export function visibleComments(xml: string): NativeComment[] {
   const nodes = facebookNodes(xml);
   const replyButtons = nodes.filter((node) => /^(Responder al comentario de |Reply to .*comment)/i.test(nodeText(node)));
