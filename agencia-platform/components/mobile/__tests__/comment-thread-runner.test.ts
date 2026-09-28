@@ -40,6 +40,21 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("espera la foto vacía y abre comentarios cuando su botón aparece después", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([]), screen([]), screen([]),
+      screen([{ text: "Comentar", y: 100 }]),
+      screen([{ text: "Más pertinentes", y: 200 }]),
+      screen([{ text: "Todos los comentarios", y: 300 }]), expandedReply,
+      screen([{ text: "Ana", cls: "android.widget.EditText", y: 700 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 700 }, { text: "Enviar", y: 900 }]),
+      screen([{ text: message.text, y: 500 }])
+    ]);
+    d.scroll = async () => { throw new Error("No debe desplazar una pantalla todavía vacía"); };
+    expect((await postCommentThreadMessage({ ...message, mode: "reply", replyToText: parentText }, d)).outcome).toBe("sent");
+    expect(taps).toEqual([140, 240, 340, 293, 740, 940]);
+  });
+
   it("abre Ver una respuesta y prefiere Todos los comentarios a Más recientes", async () => {
     const { deps: d, taps } = deps([
       screen([]), screen([]), screen([]),

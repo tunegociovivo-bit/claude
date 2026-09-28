@@ -234,10 +234,11 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
     } finally { setBusy(false); }
   }
 
-  async function decideJob(id: string, action: "RETRY" | "COMPLETE") {
+  async function decideJob(id: string, action: "RETRY" | "COMPLETE", verifiedPublished = false) {
+    if (verifiedPublished && !window.confirm("¿Has comprobado en Facebook que este texto ya está publicado desde la cuenta correcta? Se cerrará este mensaje y no se volverá a enviar.")) return;
     setBusy(true); setError(null);
     try {
-      await postJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(id)}/decision`, { action });
+      await postJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(id)}/decision`, { action, ...(verifiedPublished ? { verifiedPublished: true } : {}) });
       setJobs((current) => current?.map((job) => job.id === id ? { ...job, status: action === "RETRY" ? "QUEUED" : "COMPLETED", lastError: null } : job) ?? null);
     } catch (decideError) {
       setError(decideError instanceof Error ? decideError.message : "No se pudo actualizar el mensaje");
@@ -316,6 +317,7 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
                 <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE")} className="rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Ya está publicado</button>
               </div>}
               {job.status === "WAITING_USER" && <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE")} className="mt-1 rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Confirmo que está publicado</button>}
+              {job.status === "QUEUED" && <button type="button" disabled={busy} onClick={() => void decideJob(job.id, "COMPLETE", true)} className="mt-1 rounded border bg-white px-2 py-1 font-semibold text-emerald-700">Confirmar publicación manual</button>}
               <a className="mt-1 inline-block text-indigo-700 underline" href={`#mobile-device-${encodeURIComponent(job.deviceSerial)}`}>Revisar en la cola de este móvil</a>
             </div>
           );
