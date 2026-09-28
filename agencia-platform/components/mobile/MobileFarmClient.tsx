@@ -562,6 +562,11 @@ type DeviceColumns = keyof typeof DEVICE_GRID_CLASSES;
 const DEVICE_COLUMNS_KEY = "nv-mobile-device-columns";
 
 export default function MobileFarmClient() {
+  const [runnerMode, setRunnerMode] = useState<"loading" | "browser" | "desktop" | "diagnostic">("loading");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setRunnerMode(params.get("diagnostic") === "1" ? "diagnostic" : params.get("runner") === "desktop" ? "desktop" : "browser");
+  }, []);
   const managerRef = useRef<AdbDaemonWebUsbDeviceManager>();
   const [devices, setDevices] = useState<readonly UsbDevice[]>([]);
   const [deviceColumns, setDeviceColumns] = useState<DeviceColumns>(2);
@@ -609,6 +614,12 @@ export default function MobileFarmClient() {
   }, []);
 
   useEffect(() => { void loadSharedPhones(); }, [loadSharedPhones]);
+
+  useEffect(() => {
+    if (runnerMode !== "desktop") return;
+    const timer = window.setInterval(() => { void loadSharedPhones(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [loadSharedPhones, runnerMode]);
 
   useEffect(() => {
     const refreshOnFocus = () => { void loadSharedPhones(); };
@@ -667,6 +678,8 @@ export default function MobileFarmClient() {
 
   return (
     <div className={`mx-auto space-y-6 pb-12 ${deviceColumns >= 3 ? "max-w-[1920px]" : "max-w-7xl"}`}>
+      {runnerMode === "desktop" && <Notice tone="warning" icon={Smartphone}>Agente local activo. Los móviles autorizados se reconectan automáticamente. Cerrar la ventana lo deja en segundo plano; «Salir» en el icono de la bandeja detiene la ejecución.</Notice>}
+      {runnerMode === "diagnostic" && <Notice tone="warning" icon={AlertTriangle}>Modo de diagnóstico: puedes abrir pantallas y comprobar su lectura. Esta ventana no ejecuta trabajos de la cola.</Notice>}
       <PageHeader
         title="F - Móviles"
         description="Pantallas Android reales dentro del Hub, conectadas directamente por USB a este ordenador."
@@ -750,6 +763,8 @@ export default function MobileFarmClient() {
               canManage={canManagePhones}
               linkedPhone={sharedPhones.find((phone) => phone.deviceSerial === device.serial) ?? null}
               clientStorageScope={clientStorageScope}
+              autoReconnect={runnerMode === "desktop"}
+              workerEnabled={runnerMode === "browser" || runnerMode === "desktop"}
             />
           ))}
         </section>
@@ -802,14 +817,20 @@ function MobileDeviceCard({
   fleetOpen,
   device,
   linkedPhone,
-  clientStorageScope
+  clientStorageScope,
+  autoReconnect,
+  workerEnabled
 }: {
   canManage: boolean;
   fleetOpen: { id: string; serials: string[] } | null;
   device: UsbDevice;
   linkedPhone: SharedMobilePhone | null;
   clientStorageScope: string;
+  autoReconnect: boolean;
+  workerEnabled: boolean;
 }) {
+  const autoPaused = useRef(false);
+  const reconnectAttempts = useRef(0);
   const unlockPendingRef = useRef<Promise<void> | null>(null);
   const [hierarchyDiagnostic, setHierarchyDiagnostic] = useState<string | null>(null);
   const [diagnosingHierarchy, setDiagnosingHierarchy] = useState(false);
@@ -1143,6 +1164,7 @@ function MobileDeviceCard({
   }
 
   async function stopMirroring() {
+    autoPaused.current = true;
     if (status === "stopping") return;
     setStatus("stopping");
     await closeSession();
@@ -1534,8 +1556,18 @@ function MobileDeviceCard({
   const startForFleetRef = useRef(startMirroring);
   startForFleetRef.current = startMirroring;
   useEffect(() => {
-    if (fleetOpen?.serials.includes(device.serial)) void startForFleetRef.current();
+    if (fleetOpen?.serials.includes(device.serial)) { autoPaused.current = false; void startForFleetRef.current(); }
   }, [fleetOpen, device.serial]);
+
+  useEffect(() => {
+    if (status === "mirroring") { reconnectAttempts.current = 0; return; }
+    if (!autoReconnect || !canManage || !linkedPhone?.active || autoPaused.current || unlockBlockedRef.current) return;
+    if (status !== "idle" && status !== "error") return;
+    const stagger = [...device.serial].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 10 * 1_000;
+    const delay = reconnectAttempts.current === 0 ? 2_000 + stagger : Math.min(120_000, 15_000 * 2 ** Math.min(reconnectAttempts.current, 3));
+    const timer = window.setTimeout(() => { reconnectAttempts.current += 1; void startForFleetRef.current(); }, delay);
+    return () => window.clearTimeout(timer);
+  }, [autoReconnect, canManage, device.serial, linkedPhone?.active, status]);
 
   const busy = ["connecting", "authorizing", "preparing", "stopping"].includes(status);
   const configuredProxy = linkedPhone?.androidProxy ?? null;
@@ -1791,7 +1823,7 @@ function MobileDeviceCard({
               reviewStorageScope={clientStorageScope}
               deviceSerial={device.serial}
               phoneKey={linkedPhone.key}
-              ready={status === "mirroring"}
+              ready={status === "mirroring" && workerEnabled}
               onEnsureReady={startMirroring}
               onExecuteJob={executeApprovedAutomation}
               onPasteText={pasteApprovedAutomation}
@@ -1827,7 +1859,7 @@ function MobileDeviceCard({
             <Unplug className="h-4 w-4" /> Cerrar pantalla
           </button>
         ) : (
-          <button type="button" onClick={startMirroring} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+          <button type="button" onClick={() => { autoPaused.current = false; void startMirroring(); }} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : status === "error" ? <RefreshCw className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             {status === "error" ? "Reintentar" : busy ? statusLabel(status) : "Abrir y controlar pantalla"}
           </button>

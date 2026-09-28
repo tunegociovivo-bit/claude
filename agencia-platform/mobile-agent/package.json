@@ -1,0 +1,9 @@
+{
+  "name": "negocio-vivo-mobile-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ejecutor local de móviles de Negocio Vivo",
+  "main": "main.cjs",
+  "scripts": { "start": "electron .", "test": "node --test access-policy.check.cjs" },
+  "devDependencies": { "electron": "44.4.5" }
+}
