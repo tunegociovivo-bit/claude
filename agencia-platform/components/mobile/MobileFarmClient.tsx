@@ -830,6 +830,7 @@ function MobileDeviceCard({
   workerEnabled: boolean;
 }) {
   const autoPaused = useRef(false);
+  const [working, setWorking] = useState(false);
   const reconnectAttempts = useRef(0);
   const unlockPendingRef = useRef<Promise<void> | null>(null);
   const [hierarchyDiagnostic, setHierarchyDiagnostic] = useState<string | null>(null);
@@ -1596,7 +1597,7 @@ function MobileDeviceCard({
               <Globe2 className="h-3.5 w-3.5" /> Proxy · {formatAndroidProxy(appliedProxy)}
             </span>
           )}
-          <StatusBadge status={status} />
+          <StatusBadge status={status} working={working} />
         </div>
       </header>
 
@@ -1826,6 +1827,7 @@ function MobileDeviceCard({
               ready={status === "mirroring" && workerEnabled}
               onEnsureReady={startMirroring}
               onExecuteJob={executeApprovedAutomation}
+              onWorkingChange={setWorking}
               onPasteText={pasteApprovedAutomation}
             />
             <details className="rounded-xl border border-slate-200 bg-white">
@@ -1881,15 +1883,16 @@ function statusLabel(status: SessionStatus) {
   }
 }
 
-function StatusBadge({ status }: { status: SessionStatus }) {
+function StatusBadge({ status, working }: { status: SessionStatus; working: boolean }) {
   const live = status === "mirroring";
+  const executing = live && working;
   const error = status === "error";
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-      live ? "bg-emerald-100 text-emerald-800" : error ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
+    <span role="status" className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+      executing ? "bg-amber-100 text-amber-800" : live ? "bg-emerald-100 text-emerald-800" : error ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
     }`}>
-      {live ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className={`h-2 w-2 rounded-full ${error ? "bg-rose-500" : "bg-slate-400"}`} />}
-      {statusLabel(status)}
+      {executing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : live ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className={`h-2 w-2 rounded-full ${error ? "bg-rose-500" : "bg-slate-400"}`} />}
+      {executing ? "Trabajando" : statusLabel(status)}
     </span>
   );
 }

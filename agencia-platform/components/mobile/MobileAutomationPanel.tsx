@@ -111,6 +111,7 @@ type Props = {
   ready: boolean;
   composer?: { allowed: boolean; submitLabel: string; create: (body: Record<string, unknown>) => Promise<void>; targets?: ThreadTarget[]; onOpen?: (serials: string[]) => void };
   onEnsureReady?: () => Promise<boolean>;
+  onWorkingChange?: (working: boolean) => void;
   onExecuteJob: (job: MobileAutomationExecutableJob) => Promise<MobileAutomationExecutionResult>;
   onPasteText: (text: string) => Promise<void>;
 };
@@ -278,6 +279,7 @@ export default function MobileAutomationPanel({
   phoneKey,
   ready,
   onEnsureReady,
+  onWorkingChange,
   onExecuteJob,
   onPasteText,
   composer
@@ -354,6 +356,7 @@ export default function MobileAutomationPanel({
       });
       const job = payload.job as AutomationJob | null;
       if (!job) { setWorkerMessage(payload.blockedReason ?? null); return; }
+      onWorkingChange?.(true);
       setWorkerMessage(job.action === "POST_THREAD_MESSAGE" ? "Publicando el mensaje aprobado de la conversación…" : job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
         ? `Analizando varios resultados sobre «${job.sourceRef}» en Facebook…`
         : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
@@ -434,8 +437,11 @@ export default function MobileAutomationPanel({
       setError(claimError instanceof Error ? claimError.message : "El worker móvil se ha detenido");
     } finally {
       workerBusyRef.current = false;
+      onWorkingChange?.(false);
     }
-  }, [canManage, composer, deviceSerial, loadJobs, onExecuteJob, ready]);
+  }, [canManage, composer, deviceSerial, loadJobs, onExecuteJob, onWorkingChange, ready]);
+
+  useEffect(() => () => { onWorkingChange?.(false); }, [onWorkingChange]);
 
   useEffect(() => { void loadJobs(); }, [loadJobs]);
 
@@ -631,8 +637,9 @@ export default function MobileAutomationPanel({
         {reviewMode && reviewStorageScope ? <FacebookReviewQueue key={`${reviewStorageScope}:${deviceSerial}`} storageKey={`nv-facebook-review:${reviewStorageScope}:${deviceSerial}`} ready={ready && canManage && !jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))} onOpen={async url => {
           if (!ready || !canManage || workerBusyRef.current || jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))) throw new Error("Espera a que terminen los encargos y abre la pantalla del móvil.");
           workerBusyRef.current = true;
+          onWorkingChange?.(true);
           try { const result = await onExecuteJob({ action: "OPEN_URL", targetUrl: url, text: null }); return result.summary; }
-          finally { workerBusyRef.current = false; }
+          finally { workerBusyRef.current = false; onWorkingChange?.(false); }
         }} /> : threadMode ? <>
           <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900"><span className="font-semibold">{selectedWorkflow.label}.</span> {selectedWorkflow.description}</div>
           <CommentThreadComposer targets={composer?.targets ?? []} allowed={Boolean(composer?.allowed)} onOpen={composer?.onOpen} />
