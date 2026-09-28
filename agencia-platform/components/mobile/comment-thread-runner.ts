@@ -88,12 +88,13 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
     const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
     if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); }
   }
-  const sort = namedControl(xml, /^(Más pertinentes|Most relevant|Showing Most relevant comments(?:[.]|$))/i);
+  const sort = namedControl(xml, /^(Más pertinentes|Más recientes|Most relevant|Newest|Se muestran (?:Más pertinentes|Más recientes) comentarios|Showing Most relevant comments(?:[.]|$))/i);
   if (sort) {
     await deps.tap(sort.center);
     await deps.wait(800);
     const choices = await readStable(deps);
-    const all = namedControl(choices, /^(Todos los comentarios|All comments|Más recientes|Newest)(\b|$)/i);
+    const all = namedControl(choices, /^(Todos los comentarios|All comments)(\b|$)/i)
+      ?? namedControl(choices, /^(Más recientes|Newest)(\b|$)/i);
     if (!all) throw new Error("Facebook no permite mostrar todos los comentarios. No se ha publicado nada.");
     await deps.tap(all.center);
     await deps.wait(1_200);
@@ -114,7 +115,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
       xml = await readStable(deps);
       continue;
     }
-    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments|Ver \d+ respuestas?|Ver respuestas|View \d+ repl(?:y|ies)|View replies)/i);
+    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments|Ver (?:\d+|una) respuestas?|Ver respuestas|View \d+ repl(?:y|ies)|View replies)/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
     if (signature === previous) break;
@@ -160,7 +161,7 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
       xml = await readStable(deps);
       continue;
     }
-    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|Ver \d+ respuestas?|Ver respuestas|View more comments|View previous comments|View \d+ repl(y|ies))/i);
+    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|Ver (?:\d+|una) respuestas?|Ver respuestas|View more comments|View previous comments|View \d+ repl(y|ies))/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
     if (signature === previous) break;

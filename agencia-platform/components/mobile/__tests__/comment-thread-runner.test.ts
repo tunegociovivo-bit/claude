@@ -40,6 +40,29 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("abre Ver una respuesta y prefiere Todos los comentarios a Más recientes", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([]), screen([]),
+      screen([{ text: "Más pertinentes", y: 100 }]),
+      screen([{ text: "Más recientes", y: 200 }, { text: "Todos los comentarios", y: 300 }]),
+      screen([{ text: "Ver una respuesta", y: 400 }]), expandedReply,
+      screen([{ text: "Ana", cls: "android.widget.EditText", y: 700 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 700 }, { text: "Enviar", y: 900 }]),
+      screen([{ text: message.text, y: 500 }])
+    ]);
+    expect((await postCommentThreadMessage({ ...message, mode: "reply", replyToText: parentText }, d)).outcome).toBe("sent");
+    expect(taps).toEqual([140, 340, 440, 293, 740, 940]);
+  });
+
+  it("comprueba un envío incierto detrás de Ver una respuesta sin reenviar", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([{ text: "Comentar", y: 100 }]),
+      screen([{ text: "Ver una respuesta", y: 400 }]), screen([{ text: message.text, y: 500 }])
+    ]);
+    expect((await postCommentThreadMessage({ ...message, outcome: "review" }, d)).outcome).toBe("sent");
+    expect(taps).toEqual([140, 440]);
+  });
+
   it("abre la vista previa y después usa el botón de responder del comentario exacto", async () => {
     const { deps: d, taps } = deps([
       screen([]), screen([]), screen([]), collapsedReply, expandedReply,
