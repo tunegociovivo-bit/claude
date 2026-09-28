@@ -1261,7 +1261,8 @@ function MobileDeviceCard({
       dismissKeyboard: dismissConversationKeyboard,
       tap: async (point) => { await runAdbCommand(adb, ["timeout", "-k", "1", "10", "input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
       scroll: async (xml, direction) => {
-        await dismissConversationKeyboard();
+        // The XML supplies the current list bounds, including when the keyboard
+        // is open. Back can close Facebook's comment drawer instead of the IME.
         await runAdbCommand(adb, facebookScrollCommand(xml, direction));
         await waitForAndroidUi(700);
       },
