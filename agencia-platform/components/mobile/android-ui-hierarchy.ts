@@ -7,6 +7,7 @@ export type AndroidUiNode = {
   resourceId: string;
   className: string;
   clickable: boolean;
+  scrollable?: boolean;
   focused: boolean;
   checked: boolean;
   bounds: { left: number; top: number; right: number; bottom: number };
@@ -104,6 +105,7 @@ export function parseAndroidUiNodes(hierarchy: string): AndroidUiNode[] {
       resourceId: attributes.get("resource-id") ?? "",
       className: attributes.get("class") ?? "",
       clickable: attributes.get("clickable") === "true",
+      scrollable: attributes.get("scrollable") === "true",
       focused: attributes.get("focused") === "true",
       checked: attributes.get("checked") === "true",
       bounds: { left, top, right, bottom },

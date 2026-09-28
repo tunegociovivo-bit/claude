@@ -95,6 +95,7 @@ import { guardDependencies } from "@/components/mobile/mobile-job-guard";
 import { serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
+import { facebookScrollCommand } from "@/components/mobile/facebook-scroll";
 import { discardMobileClipboard, readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
 import {
   closeMobileSessionResources,
@@ -1261,14 +1262,7 @@ function MobileDeviceCard({
       tap: async (point) => { await runAdbCommand(adb, ["timeout", "-k", "1", "10", "input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
       scroll: async (xml, direction) => {
         await dismissConversationKeyboard();
-        const nodes = parseAndroidUiNodes(xml);
-        const width = Math.max(...nodes.map((node) => node.bounds.right));
-        const height = Math.max(...nodes.map((node) => node.bounds.bottom));
-        if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error("No se conoce el tamaño de la pantalla.");
-        const x = String(Math.round(width * 0.5));
-        const start = String(Math.round(height * (direction === "down" ? 0.82 : 0.3)));
-        const end = String(Math.round(height * (direction === "down" ? 0.3 : 0.82)));
-        await runAdbCommand(adb, ["input", "swipe", x, start, x, end, "450"]);
+        await runAdbCommand(adb, facebookScrollCommand(xml, direction));
         await waitForAndroidUi(700);
       },
       back: async () => { await runAdbCommand(adb, ["input", "keyevent", "KEYCODE_BACK"]); await waitForAndroidUi(500); },
@@ -1853,6 +1847,22 @@ function MobileDeviceCard({
                 } catch (error) { setHierarchyDiagnostic(error instanceof Error ? error.message : "No se pudo leer la pantalla."); }
                 finally { setDiagnosingHierarchy(false); }
               }}>Comprobar lectura de pantalla</button>
+              {!workerEnabled && <button type="button" disabled={status !== "mirroring" || diagnosingHierarchy} className="ml-2 rounded border bg-white px-3 py-2 font-semibold disabled:opacity-50" onClick={async () => {
+                const adb = adbRef.current;
+                if (!adb) return;
+                setDiagnosingHierarchy(true);
+                setHierarchyDiagnostic("Comprobando desplazamiento de lectura…");
+                try {
+                  const before = await readAndroidUiHierarchy(adb);
+                  await runAdbCommand(adb, facebookScrollCommand(before, "down"));
+                  await waitForAndroidUi(1000);
+                  const after = await readAndroidUiHierarchy(adb);
+                  setHierarchySnapshot(after);
+                  const labels = (xml: string) => parseAndroidUiNodes(xml).map(node => node.text || node.contentDescription).join("|");
+                  setHierarchyDiagnostic(labels(before) === labels(after) ? "La lectura no ha cambiado después del desplazamiento." : "Desplazamiento comprobado: la lectura de la pantalla ha cambiado.");
+                } catch (error) { setHierarchyDiagnostic(error instanceof Error ? error.message : "No se pudo comprobar el desplazamiento."); }
+                finally { setDiagnosingHierarchy(false); }
+              }}>Desplazar comentarios y comprobar</button>}
               {hierarchyDiagnostic && <p role="status" className="mt-2">{hierarchyDiagnostic}</p>}
               {!workerEnabled && hierarchySnapshot && <details className="mt-2">
                 <summary>Detalle técnico de la lectura</summary>
