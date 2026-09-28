@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { postCommentThreadMessage } from "../comment-thread-runner";
+import { collapsedReplyPreviews } from "../facebook-conversation-ui";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
 
 const message: CommentThreadMessage = {
@@ -24,6 +25,50 @@ function deps(screens: Array<string | Error>) {
     }
   };
 }
+
+const parentText = "Esta es la respuesta original.";
+const collapsedReply = `<hierarchy>
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="" content-desc="Ana, ${parentText}" clickable="true" bounds="[0,605][480,659]" />
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="Ana" content-desc="Ana" bounds="[135,614][262,650]" />
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="${parentText}" content-desc="${parentText}" bounds="[262,620][462,644]" />
+</hierarchy>`;
+const expandedReply = `<hierarchy>
+<node package="com.facebook.katana" class="android.widget.ImageView" text="" content-desc="Foto de perfil de Ana" bounds="[18,117][78,177]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="Ana" bounds="[84,117][182,145]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="${parentText}" bounds="[90,149][462,267]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="Responder al comentario de Ana" bounds="[78,270][147,315]" />
+</hierarchy>`;
+
+describe("respuestas plegadas de Facebook", () => {
+  it("abre la vista previa y después usa el botón de responder del comentario exacto", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([]), screen([]), collapsedReply, expandedReply,
+      screen([{ text: "Ana", cls: "android.widget.EditText", y: 700 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 700 }, { text: "Enviar", y: 900 }]),
+      screen([{ text: message.text, y: 500 }])
+    ]);
+    expect((await postCommentThreadMessage({ ...message, mode: "reply", replyToText: parentText }, d)).outcome).toBe("sent");
+    expect(taps).toEqual([632, 293, 740, 940]);
+  });
+
+  it("no convierte texto genérico o una fila no pulsable en vista previa", () => {
+    expect(collapsedReplyPreviews(collapsedReply)).toHaveLength(1);
+    expect(collapsedReplyPreviews(collapsedReply.replace('clickable="true"', 'clickable="false"'))).toEqual([]);
+    expect(collapsedReplyPreviews(collapsedReply.replace(`Ana, ${parentText}`, "Otra descripción"))).toEqual([]);
+  });
+
+  it("encuentra un envío anterior oculto dentro de una respuesta plegada sin reenviarlo", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([{ text: "Comentar", y: 100 }]), collapsedReply,
+      screen([{ text: message.text, y: 500 }])
+    ]);
+    let pasted = false;
+    d.paste = async () => { pasted = true; };
+    expect((await postCommentThreadMessage({ ...message, outcome: "review" }, d)).outcome).toBe("sent");
+    expect(taps).toEqual([140, 632]);
+    expect(pasted).toBe(false);
+  });
+});
 
 describe("publicar mensaje de conversación", () => {
   it("toca «Comentar», reintenta lecturas fallidas y publica", async () => {

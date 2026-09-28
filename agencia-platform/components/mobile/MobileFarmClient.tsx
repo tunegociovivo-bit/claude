@@ -1357,7 +1357,16 @@ function MobileDeviceCard({
       postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
         const deps = conversationDependencies({} as FacebookConversationBatch);
         const result = await postCommentThreadMessage(message, createPacedDependencies(guardDependencies(job.id, {
-          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, paste: deps.paste, wait: deps.wait,
+          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, wait: deps.wait,
+          paste: async (content: string) => {
+            // Reply composers may already contain an automatic author mention or
+            // an unsent draft. Replace it; the runner verifies the exact result.
+            for (const action of [AndroidKeyEventAction.Down, AndroidKeyEventAction.Up]) {
+              await controller.injectKeyCode({ action, keyCode: AndroidKeyCode.KeyA, repeat: 0, metaState: AndroidKeyEventMeta.Ctrl });
+            }
+            await deps.wait(150);
+            await deps.paste(content);
+          },
           beforeSend: async () => {
             if (!job.id || !job.executorSessionId) throw new Error("La ejecución no tiene sesión activa.");
             await mobileApiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {

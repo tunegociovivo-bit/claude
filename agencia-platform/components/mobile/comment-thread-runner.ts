@@ -1,5 +1,5 @@
 import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/android-ui-hierarchy";
-import { facebookNodes, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments } from "@/components/mobile/facebook-conversation-ui";
+import { collapsedReplyPreviews, facebookNodes, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments } from "@/components/mobile/facebook-conversation-ui";
 import { normalizeFacebookText } from "@/lib/mobile/facebook-conversations";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { APP_LABELS, findAppChooserTarget } from "@/components/mobile/android-app-chooser";
@@ -100,10 +100,20 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
     xml = await readStable(deps);
   }
   let previous = "";
+  const expandedPreviews = new Set<string>();
   for (let screen = 0; screen < 12; screen++) {
     const matches = visibleComments(xml).filter((comment) => normalizeFacebookText(comment.text) === wanted);
     if (matches.length > 1) throw new Error("Hay varios comentarios con el mismo texto. Comprueba el destinatario antes de responder.");
     if (matches[0]) return matches[0];
+    const previews = collapsedReplyPreviews(xml).filter(preview => !expandedPreviews.has(preview.label));
+    const preview = previews.find(item => normalizeFacebookText(item.text) === wanted) ?? previews[0];
+    if (preview) {
+      expandedPreviews.add(preview.label);
+      await deps.tap(preview.point);
+      await deps.wait(1_200);
+      xml = await readStable(deps);
+      continue;
+    }
     const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments|Ver \d+ respuestas?|Ver respuestas|View \d+ repl(?:y|ies)|View replies)/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
@@ -139,8 +149,17 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
     xml = await readStable(deps);
   }
   let previous = "";
+  const expandedPreviews = new Set<string>();
   for (let screen = 0; screen < 8; screen++) {
     if (textAlreadyVisible(xml, text)) return true;
+    const preview = collapsedReplyPreviews(xml).find(item => !expandedPreviews.has(item.label));
+    if (preview) {
+      expandedPreviews.add(preview.label);
+      await deps.tap(preview.point);
+      await deps.wait(1_200);
+      xml = await readStable(deps);
+      continue;
+    }
     const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|Ver \d+ respuestas?|Ver respuestas|View more comments|View previous comments|View \d+ repl(y|ies))/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
