@@ -21,6 +21,7 @@ import {
 
 const decisionSchema = z.object({
   action: z.enum(["APPROVE", "REJECT", "COMPLETE", "RETRY", "CANCEL"]),
+  verifiedPublished: z.boolean().optional(),
   text: z.string().trim().min(1).max(MAX_CONVERSATION_BATCH_TEXT).optional(),
   targetUrl: z.string().trim().min(1).max(2048).optional(),
   scheduledAt: z.string().datetime({ offset: true }).optional()
@@ -46,7 +47,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
     });
     if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
     const transition = parsed.data.action as MobileAutomationTransition;
-    const threadManualConfirm = job.action === "POST_THREAD_MESSAGE" && job.status === "FAILED" && transition === "COMPLETE";
+    const threadManualConfirm = job.action === "POST_THREAD_MESSAGE" && transition === "COMPLETE"
+      && (job.status === "FAILED" || (job.status === "QUEUED" && Boolean(job.approvedAt) && parsed.data.verifiedPublished === true));
     if (!threadManualConfirm && !canTransitionMobileAutomation(job.status as MobileAutomationStatus, transition)) {
       throw new ApiError(409, "invalid_transition", "El trabajo ya cambió de estado; actualiza la lista");
     }
@@ -96,6 +98,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       data.approvedById = api.userId;
     } else if (parsed.data.action === "COMPLETE") {
       data.completedAt = now;
+      data.lastError = null;
+      data.lastErrorCode = null;
     } else if (parsed.data.action === "RETRY") {
       data.scheduledAt = now;
       data.lastError = null;
@@ -118,7 +122,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
         event: parsed.data.action === "APPROVE" ? "APPROVED" : parsed.data.action,
         actorType: "USER",
         actorId: api.userId,
-        metadata: { fromStatus: job.status, toStatus: statusByAction[parsed.data.action] }
+        metadata: { fromStatus: job.status, toStatus: statusByAction[parsed.data.action], ...(parsed.data.verifiedPublished === true ? { verifiedPublished: true } : {}) }
       }
     });
     return { ...job, ...data };

@@ -84,25 +84,31 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
   const wanted = normalizeFacebookText(message.replyToText ?? "");
   if (!wanted) throw new Error("La respuesta no conoce el texto del comentario original.");
   let xml = await readStable(deps);
+  let openedComments = false;
   if (!visibleComments(xml).length) {
     const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
-    if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); }
-  }
-  const sort = namedControl(xml, /^(Más pertinentes|Más recientes|Most relevant|Newest|Se muestran (?:Más pertinentes|Más recientes) comentarios|Showing Most relevant comments(?:[.]|$))/i);
-  if (sort) {
-    await deps.tap(sort.center);
-    await deps.wait(800);
-    const choices = await readStable(deps);
-    const all = namedControl(choices, /^(Todos los comentarios|All comments)(\b|$)/i)
-      ?? namedControl(choices, /^(Más recientes|Newest)(\b|$)/i);
-    if (!all) throw new Error("Facebook no permite mostrar todos los comentarios. No se ha publicado nada.");
-    await deps.tap(all.center);
-    await deps.wait(1_200);
-    xml = await readStable(deps);
+    if (button) { openedComments = true; await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); }
   }
   let previous = "";
+  let sorted = false;
+  let loadingReads = 0;
   const expandedPreviews = new Set<string>();
   for (let screen = 0; screen < 12; screen++) {
+    // The photo and then the comments can each finish loading after the first read.
+    // Re-evaluate their controls instead of scrolling the photo for the entire search.
+    const sort = !sorted && namedControl(xml, /^(Más pertinentes|Más recientes|Most relevant|Newest|Se muestran (?:Más pertinentes|Más recientes) comentarios|Showing Most relevant comments(?:[.]|$))/i);
+    if (sort) {
+      await deps.tap(sort.center);
+      await deps.wait(800);
+      const choices = await readStable(deps);
+      const all = namedControl(choices, /^(Todos los comentarios|All comments)(\b|$)/i)
+        ?? namedControl(choices, /^(Más recientes|Newest)(\b|$)/i);
+      if (!all) throw new Error("Facebook no permite mostrar todos los comentarios. No se ha publicado nada.");
+      await deps.tap(all.center);
+      await deps.wait(1_200);
+      xml = await readStable(deps);
+      sorted = true;
+    }
     const matches = visibleComments(xml).filter((comment) => normalizeFacebookText(comment.text) === wanted);
     if (matches.length > 1) throw new Error("Hay varios comentarios con el mismo texto. Comprueba el destinatario antes de responder.");
     if (matches[0]) return matches[0];
@@ -117,7 +123,22 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
     }
     const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments|Ver (?:\d+|una) respuestas?|Ver respuestas|View \d+ repl(?:y|ies)|View replies)/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
+    if (!openedComments && !visibleComments(xml).length && !placeholderNode(xml) && !composerNode(xml, false)) {
+      const entry = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
+      if (entry) {
+        openedComments = true;
+        await deps.tap(entry.center);
+        await deps.wait(1_500);
+        xml = await readStable(deps);
+        continue;
+      }
+    }
     const signature = screenSignature(xml);
+    if (!signature && loadingReads++ < 2) {
+      await deps.wait(1_500);
+      xml = await readStable(deps);
+      continue;
+    }
     if (signature === previous) break;
     previous = signature;
     await deps.scroll(xml, "down");
