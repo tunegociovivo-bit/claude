@@ -848,6 +848,7 @@ function MobileDeviceCard({
   const reconnectAttempts = useRef(0);
   const unlockPendingRef = useRef<Promise<void> | null>(null);
   const [hierarchyDiagnostic, setHierarchyDiagnostic] = useState<string | null>(null);
+  const [hierarchySnapshot, setHierarchySnapshot] = useState<string | null>(null);
   const [diagnosingHierarchy, setDiagnosingHierarchy] = useState(false);
   const unlockBlockedRef = useRef(false);
   const unlockStorageKey = 'nv-mobile-unlock-blocked:' + clientStorageScope + ':' + device.serial;
@@ -1842,15 +1843,21 @@ function MobileDeviceCard({
                 const adb = adbRef.current;
                 if (!adb) return;
                 setDiagnosingHierarchy(true);
+                setHierarchySnapshot(null);
                 setHierarchyDiagnostic("Leyendo la pantalla; puede tardar hasta 90 segundos…");
                 const started = Date.now();
                 try {
                   const xml = await readAndroidUiHierarchy(adb);
+                  if (!workerEnabled) setHierarchySnapshot(xml);
                   setHierarchyDiagnostic(`Lectura correcta: ${parseAndroidUiNodes(xml).length} elementos en ${Math.round((Date.now() - started) / 1000)} segundos.`);
                 } catch (error) { setHierarchyDiagnostic(error instanceof Error ? error.message : "No se pudo leer la pantalla."); }
                 finally { setDiagnosingHierarchy(false); }
               }}>Comprobar lectura de pantalla</button>
               {hierarchyDiagnostic && <p role="status" className="mt-2">{hierarchyDiagnostic}</p>}
+              {!workerEnabled && hierarchySnapshot && <details className="mt-2">
+                <summary>Detalle técnico de la lectura</summary>
+                <pre aria-label="Estructura de pantalla Android" className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap">{hierarchySnapshot}</pre>
+              </details>}
             </div>}
             <MobileAutomationPanel
               reviewStorageScope={clientStorageScope}
