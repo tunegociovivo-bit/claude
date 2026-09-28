@@ -40,6 +40,14 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("no confunde dos desplazamientos sin efecto con el final del hilo", async () => {
+    const stalled = expandedReply.replaceAll(parentText, "Otro comentario");
+    const { deps: d } = deps([screen([]), stalled, stalled, stalled, expandedReply]);
+    let scrolls = 0;
+    d.scroll = async () => { scrolls++; };
+    expect(await inspectCommentThreadNavigation({ ...message, mode: "reply", replyToText: parentText }, d)).toContain(parentText);
+    expect(scrolls).toBe(3);
+  });
   it("comprueba el destinatario sin escribir, preparar el envío ni pulsar Responder", async () => {
     const { deps: d, taps } = deps([screen([]), collapsedReply, expandedReply]);
     d.paste = async () => { throw new Error("No debe escribir"); };
@@ -169,6 +177,19 @@ describe("selector «Abrir con» de app dual", () => {
 });
 
 describe("anti-duplicados", () => {
+  it("verifica un envío oculto por el filtro de Facebook sin volver a escribir", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([{ text: "Comentar", y: 100 }]),
+      screen([{ text: "Más pertinentes", y: 200 }]),
+      screen([{ text: "Todos los comentarios", y: 300 }]),
+      screen([{ text: "Ver 5 respuestas", y: 400 }]),
+      screen([{ text: message.text, y: 500 }])
+    ]);
+    d.paste = async () => { throw new Error("No debe volver a escribir"); };
+    d.beforeSend = async () => { throw new Error("No debe volver a enviar"); };
+    expect((await postCommentThreadMessage({ ...message, sendProtocol: "checkpoint-v1", outcome: "review" }, d)).outcome).toBe("sent");
+    expect(taps).toEqual([140, 240, 340, 440]);
+  });
   it("nunca vuelve a enviar un resultado incierto aunque no encuentre el texto", async () => {
     const { deps: d, taps } = deps([screen([]), screen([])]);
     let pasted = false;
