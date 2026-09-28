@@ -2,6 +2,7 @@
 
 import { FacebookNavigationError } from "@/components/mobile/facebook-android-launch";
 import FacebookReviewQueue from "./FacebookReviewQueue";
+import { mobileWorkerActivity, runWhileConnected, type MobileWorkerActivity } from "./mobile-worker-activity";
 import { abortMobileJob, clearMobileJob, withTimeout } from "@/components/mobile/mobile-job-guard";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
@@ -111,7 +112,7 @@ type Props = {
   ready: boolean;
   composer?: { allowed: boolean; submitLabel: string; create: (body: Record<string, unknown>) => Promise<void>; targets?: ThreadTarget[]; onOpen?: (serials: string[]) => void };
   onEnsureReady?: () => Promise<boolean>;
-  onWorkingChange?: (working: boolean) => void;
+  onWorkingChange?: (activity: MobileWorkerActivity) => void;
   onExecuteJob: (job: MobileAutomationExecutableJob) => Promise<MobileAutomationExecutionResult>;
   onPasteText: (text: string) => Promise<void>;
 };
@@ -321,6 +322,8 @@ export default function MobileAutomationPanel({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [membershipAnswerEdits, setMembershipAnswerEdits] = useState<Record<string, string>>({});
   const workerBusyRef = useRef(false);
+  const [executing, setExecuting] = useState(false);
+  const connectionRunRef = useRef<AbortController | null>(null);
   const draftRequestIdRef = useRef<string | null>(null);
   const platformWorkflows = getAutomationWorkflows(platform).filter((workflow) => !workflow.fleetOnly || Boolean(composer));
   const selectedWorkflow = platformWorkflows.find((item) => item.sourceKind === sourceKind)
@@ -347,6 +350,8 @@ export default function MobileAutomationPanel({
   const claimAndExecute = useCallback(async () => {
     if (composer || !ready || !canManage || workerBusyRef.current) return;
     workerBusyRef.current = true;
+    const connectionRun = new AbortController();
+    connectionRunRef.current = connectionRun;
     const executorSessionId = crypto.randomUUID();
     try {
       const payload = await apiJson("/api/v1/mobile/automations/claim", {
@@ -356,7 +361,7 @@ export default function MobileAutomationPanel({
       });
       const job = payload.job as AutomationJob | null;
       if (!job) { setWorkerMessage(payload.blockedReason ?? null); return; }
-      onWorkingChange?.(true);
+      setExecuting(true);
       setWorkerMessage(job.action === "POST_THREAD_MESSAGE" ? "Publicando el mensaje aprobado de la conversación…" : job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
         ? `Analizando varios resultados sobre «${job.sourceRef}» en Facebook…`
         : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
@@ -367,6 +372,9 @@ export default function MobileAutomationPanel({
         try {
           const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS") || job.action === "FOLLOW_PAGES" || job.action === "POST_THREAD_MESSAGE";
           clearMobileJob(job.id);
+          const abortDisconnectedJob = () => abortMobileJob(job.id);
+          connectionRun.signal.addEventListener("abort", abortDisconnectedJob, { once: true });
+          if (connectionRun.signal.aborted) abortDisconnectedJob();
           let leaseConfirmedAt = Date.now();
           const heartbeat = isConversation ? window.setInterval(() => {
           if (job.action === "POST_THREAD_MESSAGE" && Date.now() - leaseConfirmedAt >= 120_000) { abortMobileJob(job.id); return; }
@@ -382,12 +390,15 @@ export default function MobileAutomationPanel({
         // Tiempo máximo por mensaje de conversación: nunca se queda «Publicando» indefinidamente.
         const watchdogMs = job.action === "POST_THREAD_MESSAGE" ? 8 * 60_000 : 0;
         try {
-          const run = onExecuteJob({ ...job, executorSessionId });
+          const run = runWhileConnected(connectionRun.signal, () => onExecuteJob({ ...job, executorSessionId }));
           execution = watchdogMs
             ? await withTimeout(run, watchdogMs, "La publicación superó el tiempo máximo (8 min). Se reintentará automáticamente.").catch((timeoutError) => { abortMobileJob(job.id); throw timeoutError; })
             : await run;
         }
-        finally { if (heartbeat !== undefined) window.clearInterval(heartbeat); }
+        finally {
+          if (heartbeat !== undefined) window.clearInterval(heartbeat);
+          connectionRun.signal.removeEventListener("abort", abortDisconnectedJob);
+        }
         const resultBody = JSON.stringify({
             executorSessionId,
             outcome: execution.outcome,
@@ -437,13 +448,17 @@ export default function MobileAutomationPanel({
       setError(claimError instanceof Error ? claimError.message : "El worker móvil se ha detenido");
     } finally {
       workerBusyRef.current = false;
-      onWorkingChange?.(false);
+      setExecuting(false);
+      if (connectionRunRef.current === connectionRun) connectionRunRef.current = null;
     }
   }, [canManage, composer, deviceSerial, loadJobs, onExecuteJob, onWorkingChange, ready]);
 
-  useEffect(() => () => { onWorkingChange?.(false); }, [onWorkingChange]);
-
-  useEffect(() => { void loadJobs(); }, [loadJobs]);
+  useEffect(() => { onWorkingChange?.(mobileWorkerActivity(executing, jobs)); }, [executing, jobs, onWorkingChange]);
+  useEffect(() => () => { connectionRunRef.current?.abort(); }, []);
+  useEffect(() => {
+    if (!ready) connectionRunRef.current?.abort();
+    void loadJobs();
+  }, [ready, loadJobs]);
 
   useEffect(() => {
     const timer = window.setInterval(() => { void loadJobs(); }, 30_000);
@@ -637,9 +652,9 @@ export default function MobileAutomationPanel({
         {reviewMode && reviewStorageScope ? <FacebookReviewQueue key={`${reviewStorageScope}:${deviceSerial}`} storageKey={`nv-facebook-review:${reviewStorageScope}:${deviceSerial}`} ready={ready && canManage && !jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))} onOpen={async url => {
           if (!ready || !canManage || workerBusyRef.current || jobs.some(job => ["RUNNING", "QUEUED"].includes(job.status))) throw new Error("Espera a que terminen los encargos y abre la pantalla del móvil.");
           workerBusyRef.current = true;
-          onWorkingChange?.(true);
+          setExecuting(true);
           try { const result = await onExecuteJob({ action: "OPEN_URL", targetUrl: url, text: null }); return result.summary; }
-          finally { workerBusyRef.current = false; onWorkingChange?.(false); }
+          finally { workerBusyRef.current = false; setExecuting(false); }
         }} /> : threadMode ? <>
           <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs leading-5 text-violet-900"><span className="font-semibold">{selectedWorkflow.label}.</span> {selectedWorkflow.description}</div>
           <CommentThreadComposer targets={composer?.targets ?? []} allowed={Boolean(composer?.allowed)} onOpen={composer?.onOpen} />

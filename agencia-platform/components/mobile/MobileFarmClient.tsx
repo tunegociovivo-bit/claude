@@ -49,6 +49,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
+import type { MobileWorkerActivity } from "@/components/mobile/mobile-worker-activity";
 import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
 import MobileUnlockPinField, { mobileUnlockPinRequest } from "@/components/mobile/MobileUnlockPinField";
 import { unlockAndroidForAutomation } from "@/components/mobile/android-unlock";
@@ -562,6 +563,15 @@ type DeviceColumns = keyof typeof DEVICE_GRID_CLASSES;
 const DEVICE_COLUMNS_KEY = "nv-mobile-device-columns";
 
 export default function MobileFarmClient() {
+  const [resumeSerials, setResumeSerials] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const rememberConnection = useCallback((serial: string, resume: boolean) => {
+    setResumeSerials(current => {
+      if (current.get(serial) === resume) return current;
+      const next = new Map(current);
+      next.set(serial, resume);
+      return next;
+    });
+  }, []);
   const [runnerMode, setRunnerMode] = useState<"loading" | "browser" | "desktop" | "diagnostic">("loading");
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -763,7 +773,8 @@ export default function MobileFarmClient() {
               canManage={canManagePhones}
               linkedPhone={sharedPhones.find((phone) => phone.deviceSerial === device.serial) ?? null}
               clientStorageScope={clientStorageScope}
-              autoReconnect={runnerMode === "desktop"}
+              autoReconnect={resumeSerials.get(device.serial) ?? runnerMode === "desktop"}
+              onRememberConnection={rememberConnection}
               workerEnabled={runnerMode === "browser" || runnerMode === "desktop"}
             />
           ))}
@@ -819,6 +830,7 @@ function MobileDeviceCard({
   linkedPhone,
   clientStorageScope,
   autoReconnect,
+  onRememberConnection,
   workerEnabled
 }: {
   canManage: boolean;
@@ -827,10 +839,11 @@ function MobileDeviceCard({
   linkedPhone: SharedMobilePhone | null;
   clientStorageScope: string;
   autoReconnect: boolean;
+  onRememberConnection: (serial: string, resume: boolean) => void;
   workerEnabled: boolean;
 }) {
   const autoPaused = useRef(false);
-  const [working, setWorking] = useState(false);
+  const [working, setWorking] = useState<MobileWorkerActivity>("idle");
   const reconnectAttempts = useRef(0);
   const unlockPendingRef = useRef<Promise<void> | null>(null);
   const [hierarchyDiagnostic, setHierarchyDiagnostic] = useState<string | null>(null);
@@ -1144,6 +1157,7 @@ function MobileDeviceCard({
       }
       assertCurrentSessionAttempt();
       setStatus("mirroring");
+      onRememberConnection(device.serial, true);
       return true;
     } catch (startError) {
       const cancelled = startError instanceof MobileSessionAttemptCancelledError || !sessionAttempt.isCurrent();
@@ -1166,6 +1180,7 @@ function MobileDeviceCard({
 
   async function stopMirroring() {
     autoPaused.current = true;
+    onRememberConnection(device.serial, false);
     if (status === "stopping") return;
     setStatus("stopping");
     await closeSession();
@@ -1883,16 +1898,17 @@ function statusLabel(status: SessionStatus) {
   }
 }
 
-function StatusBadge({ status, working }: { status: SessionStatus; working: boolean }) {
+function StatusBadge({ status, working }: { status: SessionStatus; working: MobileWorkerActivity }) {
   const live = status === "mirroring";
-  const executing = live && working;
+  const executing = live && working === "working";
+  const pending = live && (working === "recovering" || working === "queued");
   const error = status === "error";
   return (
     <span role="status" className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-      executing ? "bg-amber-100 text-amber-800" : live ? "bg-emerald-100 text-emerald-800" : error ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
+      executing || pending ? "bg-amber-100 text-amber-800" : live ? "bg-emerald-100 text-emerald-800" : error ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
     }`}>
       {executing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : live ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className={`h-2 w-2 rounded-full ${error ? "bg-rose-500" : "bg-slate-400"}`} />}
-      {executing ? "Trabajando" : statusLabel(status)}
+      {executing ? "Trabajando" : pending ? working === "recovering" ? "Recuperando tarea" : "Tarea en espera" : statusLabel(status)}
     </span>
   );
 }
