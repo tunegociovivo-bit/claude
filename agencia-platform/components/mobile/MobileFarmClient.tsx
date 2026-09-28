@@ -89,9 +89,9 @@ import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-
 import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
-import { postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
+import { inspectCommentThreadNavigation, postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
 import { createPacedDependencies } from "@/components/mobile/mobile-pace";
-import { guardDependencies } from "@/components/mobile/mobile-job-guard";
+import { abortMobileJob, clearMobileJob, guardDependencies, withTimeout } from "@/components/mobile/mobile-job-guard";
 import { serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
@@ -147,7 +147,7 @@ async function runAdbCommand(adb: Adb, command: readonly string[]): Promise<stri
   if (shell) {
     const result = await shell.spawnWaitText(escapedCommand);
     if (result.exitCode !== 0) {
-      throw new Error((result.stderr.trim() || result.stdout.trim()).slice(0, 600) || `Android ha terminado el comando con código ${result.exitCode}.`);
+      throw new Error([result.stdout.trim(), result.stderr.trim()].filter(Boolean).join(" | ").slice(0, 600) || `Android ha terminado el comando con código ${result.exitCode}.`);
     }
     return result.stdout.trim();
   }
@@ -1235,7 +1235,8 @@ function MobileDeviceCard({
     }
   }
 
-  const executeApprovedAutomation = useCallback(async (job: MobileAutomationExecutableJob) => {
+  const executeApprovedAutomation = useCallback(async (job: MobileAutomationExecutableJob, inspectOnly = false) => {
+    if (inspectOnly && (workerEnabled || job.action !== "POST_THREAD_MESSAGE")) throw new Error("La comprobación sin envío solo está disponible para conversaciones en modo diagnóstico.");
     const adb = adbRef.current;
     const controller = clientRef.current?.controller;
     if (!adb || !controller || status !== "mirroring") {
@@ -1356,7 +1357,7 @@ function MobileDeviceCard({
       },
       postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
         const deps = conversationDependencies({} as FacebookConversationBatch);
-        const result = await postCommentThreadMessage(message, createPacedDependencies(guardDependencies(job.id, {
+        const threadDeps = createPacedDependencies(guardDependencies(job.id, {
           openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, wait: deps.wait,
           paste: async (content: string) => {
             // Reply composers may already contain an automatic author mention or
@@ -1375,7 +1376,9 @@ function MobileDeviceCard({
               signal: AbortSignal.timeout(20_000)
             });
           }
-        })));
+        }));
+        if (inspectOnly) return { outcome: "PREPARED", summary: await inspectCommentThreadNavigation(message, threadDeps) };
+        const result = await postCommentThreadMessage(message, threadDeps);
         return {
           outcome: result.outcome === "sent" ? "COMPLETED" : "PARTIAL",
           resultText: serializeCommentThreadMessage(result),
@@ -1442,7 +1445,7 @@ function MobileDeviceCard({
         };
       }
     });
-  }, [status, unlockDevice]);
+  }, [status, unlockDevice, workerEnabled]);
 
   const pasteApprovedAutomation = useCallback(async (content: string) => {
     const controller = clientRef.current?.controller;
@@ -1888,6 +1891,15 @@ function MobileDeviceCard({
               onExecuteJob={executeApprovedAutomation}
               onWorkingChange={setWorking}
               onPasteText={pasteApprovedAutomation}
+              onInspectJob={!workerEnabled && status === "mirroring" && !diagnosingHierarchy ? async (job) => {
+                const probeId = `diagnostic-${crypto.randomUUID()}`;
+                clearMobileJob(probeId);
+                setDiagnosingHierarchy(true);
+                try {
+                  const result = await withTimeout(executeApprovedAutomation({ ...job, id: probeId }, true), 8 * 60_000, "La comprobación de navegación agotó el tiempo.");
+                  return result.summary ?? "Comprobación terminada sin enviar.";
+                } finally { abortMobileJob(probeId); setDiagnosingHierarchy(false); }
+              } : undefined}
             />
             <details className="rounded-xl border border-slate-200 bg-white">
               <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-slate-700">Análisis manual de una pantalla</summary>

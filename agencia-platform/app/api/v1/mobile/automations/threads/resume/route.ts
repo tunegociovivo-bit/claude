@@ -33,8 +33,9 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
         || (job.status === "RUNNING" && (!job.leaseUntil || job.leaseUntil <= now))
         || (job.status === "QUEUED" && job.scheduledAt > now);
       if (!stuck) continue;
-      const recoveryText = job.status === "RUNNING" ? serializeCommentThreadMessage({
-        ...parseCommentThreadMessage(job.text ?? ""), outcome: "review", detail: "Ejecución interrumpida: verificar antes de volver a enviar."
+      const message = job.status === "RUNNING" ? parseCommentThreadMessage(job.text ?? "") : null;
+      const recoveryText = message && message.sendProtocol !== "checkpoint-v1" ? serializeCommentThreadMessage({
+        ...message, outcome: "review", detail: "Ejecución interrumpida: verificar antes de volver a enviar."
       }) : null;
       await tx.mobileAutomationJob.update({
         where: { id: job.id },

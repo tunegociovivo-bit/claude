@@ -70,6 +70,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
           text: serializeCommentThreadMessage({
             kind: "comment_thread",
             version: 1,
+            sendProtocol: "checkpoint-v1",
             threadId,
             order: message.order,
             total: messages.length,

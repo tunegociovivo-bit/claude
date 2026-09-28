@@ -15,6 +15,7 @@ export const threadMessageOutcomeSchema = z.enum(["pending", "sent", "review", "
 export const commentThreadMessageSchema = z.object({
   kind: z.literal("comment_thread"),
   version: z.literal(1),
+  sendProtocol: z.literal("checkpoint-v1").optional(),
   threadId: z.string().uuid(),
   order: z.number().int().min(1).max(MAX_THREAD_MESSAGES),
   total: z.number().int().min(1).max(MAX_THREAD_MESSAGES),

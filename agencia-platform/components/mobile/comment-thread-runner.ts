@@ -193,6 +193,18 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
   return textAlreadyVisible(xml, text);
 }
 
+/** Runs the production navigation against a real phone without editing or sending. */
+export async function inspectCommentThreadNavigation(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<string> {
+  await openPost(message.postUrl, deps);
+  if (message.mode === "reply") {
+    const parent = await locateParent(message, deps);
+    return `Destinatario localizado automáticamente: ${parent.author}. Texto: ${parent.text}`;
+  }
+  const xml = await revealComposer(deps);
+  if (!composerNode(xml, false)) throw new Error(`No se ha localizado el campo de comentario. ${screenSummary(xml)}`);
+  return "Campo de comentario localizado automáticamente. No se ha escrito ni enviado nada.";
+}
+
 /**
  * Publica un único mensaje aprobado: comentario nuevo o respuesta a un comentario
  * ya publicado. Todo lo que ocurre ANTES de pulsar Enviar puede fallar y reintentarse
