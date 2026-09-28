@@ -49,3 +49,6 @@ jobs:
 
       - name: Tests unitarios (vitest)
         run: npx vitest run
+
+      - name: Política de acceso del agente de móviles
+        run: node --test mobile-agent/access-policy.check.cjs
