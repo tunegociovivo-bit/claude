@@ -24,7 +24,7 @@ export type NativeComment = { id: string; author: string; text: string; sourceLa
 export function visibleComments(xml: string): NativeComment[] {
   const nodes = facebookNodes(xml);
   const replyButtons = nodes.filter((node) => /^(Responder al comentario de |Reply to .*comment)/i.test(nodeText(node)));
-  const profiles = nodes.filter((node) => /^(Foto de perfil de |Profile picture of )/.test(node.contentDescription)).sort((a, b) => a.bounds.top - b.bounds.top);
+  const profiles = nodes.filter((node) => /^(Foto de perfil de |Profile picture of )|^.+ profile picture(?:[,.]|$)/i.test(node.contentDescription)).sort((a, b) => a.bounds.top - b.bounds.top);
   return replyButtons.flatMap((reply) => {
     const profile = profiles.filter((node) => node.bounds.top < reply.bounds.top).at(-1);
     if (!profile) return [];
@@ -53,7 +53,7 @@ export function visiblePostComments(xml: string): NativePost[] {
   const nodes = facebookNodes(xml);
   // The generic "Comentar" button is present even on empty posts. Only a
   // positive explicit counter is evidence that a thread is worth opening.
-  const buttons = nodes.filter((node) => /^(?:Ver (?:los )?)?[1-9]\d*[\d., mil]* comentarios?(?:[.,].*)?$/i.test(nodeText(node))
+  const buttons = nodes.filter((node) => /^(?:(?:Ver (?:los )?|View )?[1-9]\d*[\d., milk]* (?:comentarios?|comments?))(?:[.,].*)?$/i.test(nodeText(node))
     && (node.clickable || node.className === "android.widget.Button"));
   return buttons.flatMap((button) => {
     const previous = nodes.filter((node) => node.bounds.bottom <= button.bounds.top && node.bounds.top > 210

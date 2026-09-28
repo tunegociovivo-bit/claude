@@ -88,7 +88,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
     const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
     if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); }
   }
-  const sort = namedControl(xml, /^(Más pertinentes|Most relevant)$/i);
+  const sort = namedControl(xml, /^(Más pertinentes|Most relevant|Showing Most relevant comments(?:[.]|$))/i);
   if (sort) {
     await deps.tap(sort.center);
     await deps.wait(800);
@@ -104,7 +104,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
     const matches = visibleComments(xml).filter((comment) => normalizeFacebookText(comment.text) === wanted);
     if (matches.length > 1) throw new Error("Hay varios comentarios con el mismo texto. Comprueba el destinatario antes de responder.");
     if (matches[0]) return matches[0];
-    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments)/i);
+    const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments|Ver \d+ respuestas?|Ver respuestas|View \d+ repl(?:y|ies)|View replies)/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
     if (signature === previous) break;

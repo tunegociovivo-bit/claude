@@ -13,6 +13,12 @@ describe("native Facebook conversation matching", () => {
   it("extracts the comment body and binds its exact reply control", () => {
     expect(visibleComments(commentScreen)).toEqual([expect.objectContaining({ author: "Ana", text: "¿Qué franquicia de supermercado recomiendas?", point: { x: 246, y: 1092 } })]);
   });
+  it.each(["Ana profile picture", "Ana profile picture, button", "Profile picture of Ana"])("recognizes the English profile label %s", profileLabel => {
+    const xml = commentScreen.replace("Foto de perfil de Ana", profileLabel)
+      .replace("Responder al comentario de Ana, botón. Toca dos veces para responder al comentario.", "Reply to Ana's comment, button. Double tap to reply to the comment.");
+    expect(visibleComments(xml)).toEqual([expect.objectContaining({ author: "Ana", text: "¿Qué franquicia de supermercado recomiendas?", point: { x: 246, y: 1092 } })]);
+    expect(findExactComment(xml, "Pedro", "¿Qué franquicia de supermercado recomiendas?")).toBeNull();
+  });
   it("does not target another author's identical text", () => {
     expect(findExactComment(commentScreen, "Pedro", "¿Qué franquicia de supermercado recomiendas?")).toBeNull();
   });
@@ -33,6 +39,7 @@ describe("native Facebook conversation matching", () => {
   it("only opens a comments counter with a readable post anchor", () => {
     const xml = node("Una pregunta sobre abrir un supermercado de franquicia", "TextView", "[30,700][1000,900]") + node("12 comentarios", "Button", "[600,920][1000,1000]");
     expect(visiblePostComments(xml)[0].anchor).toContain("supermercado");
+    expect(visiblePostComments(xml.replace("12 comentarios", "12 comments"))[0].anchor).toContain("supermercado");
     expect(visiblePostComments(xml.replace("12 comentarios", "Comentar"))).toEqual([]);
     expect(visiblePostComments(xml.replace("12 comentarios", "0 comentarios"))).toEqual([]);
     expect(visiblePostComments(node("Comentar", "Button", "[600,920][1000,1000]"))).toEqual([]);
