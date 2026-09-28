@@ -3,6 +3,7 @@ import { facebookNodes, namedControl, nodeText, screenSignature, visibleComments
 import { normalizeFacebookText } from "@/lib/mobile/facebook-conversations";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { APP_LABELS, findAppChooserTarget } from "@/components/mobile/android-app-chooser";
+import { MobileJobAbortedError } from "@/components/mobile/mobile-job-guard";
 
 export type CommentThreadRunnerDependencies = {
   openUrl: (url: string) => Promise<void>;
@@ -11,6 +12,7 @@ export type CommentThreadRunnerDependencies = {
   scroll: (xml: string, direction: "up" | "down") => Promise<void>;
   paste: (text: string) => Promise<void>;
   wait: (ms: number) => Promise<void>;
+  beforeSend: () => Promise<void>;
 };
 
 const COMPOSER = /EditText|AutoCompleteTextView/;
@@ -20,28 +22,23 @@ const COMMENT_BUTTON = /^(Comentar|Comment)(\b|[,.])/i;
 /** Barra «Escribe un comentario…» que aún no es un EditText hasta que se toca. */
 const COMPOSER_PLACEHOLDER = /^(Escribe un comentario|Escribe una respuesta|Write a comment|Write a reply|Comentar como|Comment as|Responder como|Reply as)/i;
 
-function snippet(text: string): string {
-  return normalizeFacebookText(text).slice(0, 60);
-}
-
 /**
  * uiautomator falla si la pantalla no está quieta (vídeos en reproducción de anuncios,
  * animaciones). Reintentamos con pausas antes de rendirnos.
  */
-async function readStable(deps: CommentThreadRunnerDependencies, attempts = 5): Promise<string> {
+async function readStable(deps: CommentThreadRunnerDependencies, attempts = 2): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try { return await deps.read(); }
-    catch (error) { lastError = error; await deps.wait(1_200 + attempt * 600); }
+    catch (error) { if (error instanceof MobileJobAbortedError) throw error; lastError = error; if (attempt + 1 < attempts) await deps.wait(1_200 + attempt * 600); }
   }
   throw lastError instanceof Error ? lastError : new Error("Android no ha devuelto la estructura de la pantalla.");
 }
 
 /** ¿Aparece ya este mismo texto publicado (fuera del campo de escribir)? */
 function textAlreadyVisible(xml: string, text: string): boolean {
-  const wanted = snippet(text).slice(0, 40);
-  if (wanted.length < 8) return false;
-  return facebookNodes(xml).some((node) => !COMPOSER.test(node.className) && normalizeFacebookText(nodeText(node)).includes(wanted));
+  const wanted = normalizeFacebookText(text);
+  return facebookNodes(xml).some((node) => !COMPOSER.test(node.className) && normalizeFacebookText(node.text) === wanted);
 }
 
 function composerNode(xml: string, reply: boolean) {
@@ -84,17 +81,29 @@ async function revealComposer(deps: CommentThreadRunnerDependencies): Promise<st
 }
 
 async function locateParent(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies) {
-  const wanted = snippet(message.replyToText ?? "");
+  const wanted = normalizeFacebookText(message.replyToText ?? "");
   if (!wanted) throw new Error("La respuesta no conoce el texto del comentario original.");
   let xml = await readStable(deps);
   if (!visibleComments(xml).length) {
     const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
     if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); }
   }
+  const sort = namedControl(xml, /^(Más pertinentes|Most relevant)$/i);
+  if (sort) {
+    await deps.tap(sort.center);
+    await deps.wait(800);
+    const choices = await readStable(deps);
+    const all = namedControl(choices, /^(Todos los comentarios|All comments|Más recientes|Newest)(\b|$)/i);
+    if (!all) throw new Error("Facebook no permite mostrar todos los comentarios. No se ha publicado nada.");
+    await deps.tap(all.center);
+    await deps.wait(1_200);
+    xml = await readStable(deps);
+  }
   let previous = "";
   for (let screen = 0; screen < 12; screen++) {
-    const match = visibleComments(xml).find((comment) => normalizeFacebookText(comment.text).includes(wanted.slice(0, 40)));
-    if (match) return match;
+    const matches = visibleComments(xml).filter((comment) => normalizeFacebookText(comment.text) === wanted);
+    if (matches.length > 1) throw new Error("Hay varios comentarios con el mismo texto. Comprueba el destinatario antes de responder.");
+    if (matches[0]) return matches[0];
     const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments)/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
@@ -156,6 +165,9 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
   if (await findPublished(message.text, deps)) {
     return { ...message, outcome: "sent", detail: "El mensaje ya estaba publicado; no se ha vuelto a escribir." };
   }
+  if (message.outcome === "review" || message.outcome === "sent") {
+    return { ...message, outcome: "review", detail: "El envío anterior sigue sin confirmarse. No se volverá a enviar automáticamente; comprueba la publicación." };
+  }
   // 2) Publicar desde una pantalla limpia de la publicación.
   await openPost(message.postUrl, deps);
   let xml: string;
@@ -179,19 +191,21 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
   await deps.paste(message.text);
   await deps.wait(700);
   xml = await readStable(deps);
-  const filled = facebookNodes(xml).some((node) => COMPOSER.test(node.className) && normalizeFacebookText(node.text).includes(snippet(message.text).slice(0, 30)));
+  const filled = facebookNodes(xml).some((node) => COMPOSER.test(node.className) && normalizeFacebookText(node.text) === normalizeFacebookText(message.text));
   const send = namedControl(xml, SEND);
   if (!filled || !send) throw new Error(`No se ha podido verificar el texto escrito o el botón de enviar. No se ha publicado nada. ${screenSummary(xml)}`);
 
+  // Persistir la intención ANTES del efecto externo. Un reinicio solo verificará.
+  await deps.beforeSend();
   // A partir de aquí el comentario puede estar publicado: nada puede lanzar error.
   try { await deps.tap(send.center); }
   catch { return { ...message, outcome: "review", detail: "No se pudo confirmar la pulsación de Enviar. Revisa la publicación y marca el mensaje como publicado si aparece." }; }
   let shown = false;
   for (let attempt = 0; attempt < 5 && !shown; attempt++) {
-    await deps.wait(1_800);
     try {
+      await deps.wait(1_800);
       const after = await deps.read();
-      shown = facebookNodes(after).some((node) => !COMPOSER.test(node.className) && normalizeFacebookText(nodeText(node)).includes(snippet(message.text).slice(0, 30)));
+      shown = textAlreadyVisible(after, message.text);
     } catch { /* pantalla en movimiento: se reintenta la comprobación */ }
   }
   return shown

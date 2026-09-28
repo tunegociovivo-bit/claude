@@ -144,7 +144,7 @@ async function runAdbCommand(adb: Adb, command: readonly string[]): Promise<stri
   if (shell) {
     const result = await shell.spawnWaitText(escapedCommand);
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || "Android no ha aceptado el cambio de red.");
+      throw new Error((result.stderr.trim() || result.stdout.trim()).slice(0, 600) || `Android ha terminado el comando con código ${result.exitCode}.`);
     }
     return result.stdout.trim();
   }
@@ -811,6 +811,8 @@ function MobileDeviceCard({
   clientStorageScope: string;
 }) {
   const unlockPendingRef = useRef<Promise<void> | null>(null);
+  const [hierarchyDiagnostic, setHierarchyDiagnostic] = useState<string | null>(null);
+  const [diagnosingHierarchy, setDiagnosingHierarchy] = useState(false);
   const unlockBlockedRef = useRef(false);
   const unlockStorageKey = 'nv-mobile-unlock-blocked:' + clientStorageScope + ':' + device.serial;
   const clearUnlockBlock = useCallback(() => {
@@ -1205,7 +1207,7 @@ function MobileDeviceCard({
         runCommand: command => runAdbCommand(adb, command), readHierarchy: () => readAndroidUiHierarchy(adb), wait: waitForAndroidUi
       }),
       dismissKeyboard: dismissConversationKeyboard,
-      tap: async (point) => { await runAdbCommand(adb, ["input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
+      tap: async (point) => { await runAdbCommand(adb, ["timeout", "-k", "1", "10", "input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
       scroll: async (xml, direction) => {
         await dismissConversationKeyboard();
         const nodes = parseAndroidUiNodes(xml);
@@ -1223,7 +1225,7 @@ function MobileDeviceCard({
         const pkg = await resolveFacebookPackage(adb);
         await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
         // «timeout» evita que am start -W se quede esperando para siempre (selector de app, MIUI…).
-        await runAdbCommand(adb, ["timeout", "25", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, "-p", pkg]).catch(() => undefined);
+        await runAdbCommand(adb, ["timeout", "-k", "3", "25", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, "-p", pkg]);
         await waitForAndroidUi(1200);
       },
       paste: async (content) => { await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content }); await waitForAndroidUi(400); },
@@ -1309,7 +1311,15 @@ function MobileDeviceCard({
       postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
         const deps = conversationDependencies({} as FacebookConversationBatch);
         const result = await postCommentThreadMessage(message, createPacedDependencies(guardDependencies(job.id, {
-          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, paste: deps.paste, wait: deps.wait
+          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, paste: deps.paste, wait: deps.wait,
+          beforeSend: async () => {
+            if (!job.id || !job.executorSessionId) throw new Error("La ejecución no tiene sesión activa.");
+            await mobileApiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ executorSessionId: job.executorSessionId, sendIntent: true }),
+              signal: AbortSignal.timeout(20_000)
+            });
+          }
         })));
         return {
           outcome: result.outcome === "sent" ? "COMPLETED" : "PARTIAL",
@@ -1539,7 +1549,7 @@ function MobileDeviceCard({
             <Smartphone className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-bold text-slate-900">{model}</h2>
+            <h2 className="truncate text-sm font-bold text-slate-900">{linkedPhone?.phone || model}</h2>
             <p className="truncate text-xs text-slate-500">
               {device.serial}{androidVersion ? ` · Android ${androidVersion}` : ""}{resolution ? ` · ${resolution}` : ""}
             </p>
@@ -1762,6 +1772,21 @@ function MobileDeviceCard({
           <>
             {canManage && <MobileUnlockPinField deviceSerial={device.serial} ready={status === "mirroring"} onSaved={clearUnlockBlock} onUnlock={async () => { const adb = adbRef.current; if (!adb) throw new Error("Abre la pantalla del móvil."); clearUnlockBlock(); await unlockDevice(adb); setError(null); }} />}
             {canManage && <MobileFacebookAccountsPanel deviceSerial={device.serial} />}
+            {canManage && <div className="rounded-xl border bg-slate-50 p-3 text-xs">
+              <button type="button" disabled={status !== "mirroring" || diagnosingHierarchy} className="rounded border bg-white px-3 py-2 font-semibold disabled:opacity-50" onClick={async () => {
+                const adb = adbRef.current;
+                if (!adb) return;
+                setDiagnosingHierarchy(true);
+                setHierarchyDiagnostic("Leyendo la pantalla; puede tardar hasta 90 segundos…");
+                const started = Date.now();
+                try {
+                  const xml = await readAndroidUiHierarchy(adb);
+                  setHierarchyDiagnostic(`Lectura correcta: ${parseAndroidUiNodes(xml).length} elementos en ${Math.round((Date.now() - started) / 1000)} segundos.`);
+                } catch (error) { setHierarchyDiagnostic(error instanceof Error ? error.message : "No se pudo leer la pantalla."); }
+                finally { setDiagnosingHierarchy(false); }
+              }}>Comprobar lectura de pantalla</button>
+              {hierarchyDiagnostic && <p role="status" className="mt-2">{hierarchyDiagnostic}</p>}
+            </div>}
             <MobileAutomationPanel
               reviewStorageScope={clientStorageScope}
               deviceSerial={device.serial}

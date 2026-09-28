@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { isStoppedThreadBranch } from "@/lib/mobile/thread-dependencies";
 import { Loader2, MessageSquareReply, MessagesSquare, RefreshCw, Send, Trash2 } from "lucide-react";
 import {
   MAX_THREAD_MESSAGES,
@@ -287,9 +288,9 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
         <p className="font-semibold text-slate-800">Conversación {finished ? "terminada" : "en curso"} · {jobs.length} mensajes · {jobs.filter((job) => job.status === "COMPLETED").length} publicados</p>
         {trackedGuide && <p className="text-slate-500">{trackedGuide.slice(0, 160)}</p>}
         {!finished && <button type="button" disabled={busy} onClick={() => void resumeThread()} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Reactivar y continuar</button>}
-        {!finished && <p className="text-[11px] text-slate-500">Vuelve a poner en marcha los mensajes parados (pendientes de comprobar, fallidos o interrumpidos) y abre las pantallas de los móviles. No duplica: si un mensaje ya está publicado, lo detecta y sigue con el siguiente.</p>}
+        {!finished && <p className="text-[11px] text-slate-500">Reactiva los mensajes parados y abre sus pantallas sin interrumpir los trabajos activos. Si un envío quedó sin confirmar, solo se comprueba; no se vuelve a enviar automáticamente.</p>}
         <p className="rounded bg-sky-50 px-2 py-1 text-sky-800">El progreso se guarda en el Hub: si recargas la página, vuelve aquí y pulsa «Abrir pantallas de estos móviles» para que continúe por donde iba.</p>
-        <p className="text-slate-600">Cada mensaje está en la cola de su móvil, pendiente de aprobación. Se publicarán en orden: una respuesta solo sale cuando el comentario al que responde ya está publicado. Si se rechaza un comentario, sus respuestas se cancelan.</p>
+        <p className="text-slate-600">Cada mensaje necesita aprobación. Se respeta el orden mientras los mensajes avanzan; si una rama queda parada, continúan los mensajes independientes. Una respuesta siempre espera a que se publique su comentario original.</p>
         {jobs.map((job, index) => {
           const message = meta[index];
           return (
@@ -300,10 +301,12 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
               </div>
               {job.lastError && <p className="mt-1 text-rose-700">{job.lastError}</p>}
               {job.status === "QUEUED" && (() => {
-                const blockers = jobs.slice(0, index).map((other, i) => ({ other, order: i + 1 })).filter(({ other }) => ["PENDING_APPROVAL", "QUEUED", "RUNNING", "WAITING_USER", "FAILED"].includes(other.status));
+                const dependencyJobs = jobs.map((item) => ({ ...item, text: item.text ?? null }));
+                const blockers = jobs.slice(Math.max(0, index - 1), index).map((other) => ({ other, order: index })).filter(({ other }) => ["PENDING_APPROVAL", "QUEUED", "RUNNING"].includes(other.status) && !isStoppedThreadBranch({ ...other, text: other.text ?? null }, dependencyJobs));
                 const parentOrder = message?.replyToOrder;
                 const parent = parentOrder ? jobs[parentOrder - 1] : undefined;
                 if (parent && parent.status === "FAILED") return <p className="mt-1 text-amber-700">Bloqueado: el mensaje #{parentOrder} al que responde ha fallado. Reinténtalo o márcalo como publicado.</p>;
+                if (parent && parent.status !== "COMPLETED") return <p className="mt-1 text-amber-700">Esperando la publicación confirmada del mensaje #{parentOrder}.</p>;
                 const previous = blockers.at(-1);
                 if (previous) return <p className="mt-1 text-slate-500">Esperando a que termine el mensaje #{previous.order}.</p>;
                 return <p className="mt-1 text-slate-500">Listo para publicarse: la pantalla de este móvil debe estar abierta en el Hub.</p>;

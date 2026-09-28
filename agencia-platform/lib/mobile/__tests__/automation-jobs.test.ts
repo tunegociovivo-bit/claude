@@ -103,7 +103,7 @@ describe("mobile automation job leases", () => {
     expect(result?.leaseUntil).toEqual(new Date("2026-09-12T12:10:00.000Z"));
   });
 
-  it("lets the same browser tab resume its own batch immediately after a reload", async () => {
+  it("does not reclaim an active batch even in the same browser session", async () => {
     tx.mobileAutomationJob.findMany.mockResolvedValue([{
       ...candidate,
       action: "JOIN_FACEBOOK_GROUP_BATCH",
@@ -119,12 +119,12 @@ describe("mobile automation job leases", () => {
       now
     });
 
-    expect(result).toMatchObject({ status: "RUNNING", leaseOwner: "browser-1" });
+    expect(result).toBeNull();
     expect(tx.mobileAutomationJob.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         OR: expect.arrayContaining([{
           status: "RUNNING",
-          leaseOwner: "browser-1"
+          leaseUntil: null
         }])
       })
     }));

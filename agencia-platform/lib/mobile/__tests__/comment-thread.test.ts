@@ -50,7 +50,7 @@ describe("conversación entre cuentas", () => {
   });
 
   function tx(jobs: Array<{ id: string; status: string; text?: string }>) {
-    return { mobileAutomationJob: { findMany: async ({ where }: { where: { id: { in: string[] } } }) => jobs.filter((job) => where.id.in.includes(job.id)) } } as never;
+    return { mobileAutomationJob: { findMany: async () => jobs } } as never;
   }
 
   it("espera al mensaje anterior y cancela si el padre fue rechazado", async () => {
@@ -64,5 +64,12 @@ describe("conversación entre cuentas", () => {
     const gate = await threadMessageGate(tx([{ id: "job1", status: "COMPLETED", text: parentText }]), "w", serializeCommentThreadMessage(base));
     expect(gate.state).toBe("ready");
     expect(gate.state === "ready" && gate.text && parseCommentThreadMessage(gate.text).replyToText).toBe("¿Qué franquicia me recomendáis? (editado)");
+  });
+
+  it("continúa un comentario independiente cuando la respuesta anterior depende de un fallo", async () => {
+    const independent = serializeCommentThreadMessage({ ...base, order: 3, mode: "comment", parentJobId: null, previousJobId: "job2", replyToOrder: null });
+    const jobs = [{ id: "job1", status: "FAILED" }, { id: "job2", status: "QUEUED", text: serializeCommentThreadMessage(base) }];
+    expect((await threadMessageGate(tx(jobs), "w", independent)).state).toBe("ready");
+    expect((await threadMessageGate(tx(jobs), "w", serializeCommentThreadMessage(base))).state).toBe("wait");
   });
 });

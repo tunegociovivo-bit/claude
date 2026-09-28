@@ -26,20 +26,25 @@ const ANDROID_UI_DUMP_PATH = "/sdcard/nv-mobile-window.xml";
 export async function readAndroidUiHierarchySafely(
   runCommand: AndroidUiCommandRunner
 ): Promise<string> {
+  const diagnostics: string[] = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const hierarchy = String(await runCommand([
     "sh",
     "-c",
-    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout 25 uiautomator dump ${ANDROID_UI_DUMP_PATH} >/dev/null && cat ${ANDROID_UI_DUMP_PATH}`
+    `rm -f ${ANDROID_UI_DUMP_PATH} && timeout -k 3 ${attempt === 0 ? 30 : 45} uiautomator dump ${attempt === 0 ? "--compressed " : ""}${ANDROID_UI_DUMP_PATH} 2>&1 && cat ${ANDROID_UI_DUMP_PATH}`
   ]));
-      if (hierarchy.includes("<hierarchy") && hierarchy.includes("</hierarchy>")) return hierarchy;
-    } catch {
+      const start = hierarchy.indexOf("<hierarchy");
+      const end = hierarchy.indexOf("</hierarchy>", start);
+      if (start >= 0 && end >= start) return hierarchy.slice(start, end + "</hierarchy>".length);
+      diagnostics.push(hierarchy.trim().slice(0, 250) || "Volcado vacío");
+    } catch (error) {
+      diagnostics.push(error instanceof Error ? error.message.slice(0, 250) : "Fallo de conexión USB");
       // MIUI may fail the first accessibility process during a screen transition.
       // Each attempt removes the old dump and remains bounded on the device.
     }
   }
-  throw new Error("Android no ha devuelto la estructura accesible de Facebook tras dos intentos. Espera a que termine de cargar la pantalla y reintenta.");
+  throw new Error(`Android no ha devuelto la estructura accesible tras dos intentos. ${diagnostics.join(" | ")}`);
 }
 
 function decodeXmlAttribute(value: string): string {

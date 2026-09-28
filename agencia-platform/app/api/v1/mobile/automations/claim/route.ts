@@ -10,18 +10,20 @@ const claimSchema = z.object({
   executorSessionId: z.string().uuid()
 }).strict();
 
-export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
+export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, { api }) => {
   const { phones } = await loadMobileAutomationAccess(api.workspaceId, api.userId, { manager: true });
   const parsed = claimSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     throw new ApiError(400, "validation_error", parsed.error.issues[0]?.message ?? "Claim no válido");
   }
   requireSerialLinkedToWorkspace(phones, parsed.data.deviceSerial);
+  let blockedReason: string | null = null;
   const job = await claimNextMobileAutomationJob({
     workspaceId: api.workspaceId,
     deviceSerial: parsed.data.deviceSerial,
-    executorSessionId: parsed.data.executorSessionId
+    executorSessionId: parsed.data.executorSessionId,
+    onBlocked: (reason) => { blockedReason = reason; }
   });
-  return NextResponse.json({ job });
+  return NextResponse.json({ job, blockedReason });
 });
 

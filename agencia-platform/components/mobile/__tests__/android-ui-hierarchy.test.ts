@@ -31,19 +31,19 @@ describe("jerarquía accesible de Android", () => {
   it("limita dentro de Android el volcado de accesibilidad para que no bloquee el worker", async () => {
     const runCommand = vi.fn(async () => hierarchy);
 
-    await expect(readAndroidUiHierarchySafely(runCommand)).resolves.toBe(hierarchy);
+    await expect(readAndroidUiHierarchySafely(runCommand)).resolves.toBe(hierarchy.slice(hierarchy.indexOf("<hierarchy")));
     expect(runCommand.mock.calls).toEqual([
       [[
         "sh",
         "-c",
-        "rm -f /sdcard/nv-mobile-window.xml && timeout 25 uiautomator dump /sdcard/nv-mobile-window.xml >/dev/null && cat /sdcard/nv-mobile-window.xml"
+        "rm -f /sdcard/nv-mobile-window.xml && timeout -k 3 30 uiautomator dump --compressed /sdcard/nv-mobile-window.xml 2>&1 && cat /sdcard/nv-mobile-window.xml"
       ]]
     ]);
   });
 
   it("no reutiliza un XML anterior cuando el nuevo volcado agota el tiempo", async () => {
     const runCommand = vi.fn(async (command: readonly string[]) => {
-      expect(command[2]).toContain("rm -f /sdcard/nv-mobile-window.xml && timeout 10");
+      expect(command[2]).toContain("rm -f /sdcard/nv-mobile-window.xml && timeout -k 3");
       expect(command[2]).toContain("&& cat /sdcard/nv-mobile-window.xml");
       return "";
     });
@@ -60,7 +60,7 @@ describe("jerarquía accesible de Android", () => {
   });
   it("recovers from a transient MIUI accessibility failure", async () => {
     const runCommand = vi.fn().mockRejectedValueOnce(new Error("MIUI accessibility failed")).mockResolvedValueOnce(hierarchy);
-    await expect(readAndroidUiHierarchySafely(runCommand)).resolves.toBe(hierarchy);
+    await expect(readAndroidUiHierarchySafely(runCommand)).resolves.toBe(hierarchy.slice(hierarchy.indexOf("<hierarchy")));
     expect(runCommand).toHaveBeenCalledTimes(2);
   });
 });
