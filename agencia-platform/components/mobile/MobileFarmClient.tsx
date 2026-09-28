@@ -89,6 +89,7 @@ import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/compone
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
 import { postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
 import { createPacedDependencies } from "@/components/mobile/mobile-pace";
+import { guardDependencies } from "@/components/mobile/mobile-job-guard";
 import { serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
@@ -1221,7 +1222,8 @@ function MobileDeviceCard({
       openUrl: async (url) => {
         const pkg = await resolveFacebookPackage(adb);
         await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
-        await runAdbCommand(adb, ["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, "-p", pkg]);
+        // «timeout» evita que am start -W se quede esperando para siempre (selector de app, MIUI…).
+        await runAdbCommand(adb, ["timeout", "25", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, "-p", pkg]).catch(() => undefined);
         await waitForAndroidUi(1200);
       },
       paste: async (content) => { await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content }); await waitForAndroidUi(400); },
@@ -1306,9 +1308,9 @@ function MobileDeviceCard({
       },
       postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
         const deps = conversationDependencies({} as FacebookConversationBatch);
-        const result = await postCommentThreadMessage(message, createPacedDependencies({
+        const result = await postCommentThreadMessage(message, createPacedDependencies(guardDependencies(job.id, {
           openUrl: deps.openUrl, read: deps.read, tap: deps.tap, scroll: deps.scroll, paste: deps.paste, wait: deps.wait
-        }));
+        })));
         return {
           outcome: result.outcome === "sent" ? "COMPLETED" : "PARTIAL",
           resultText: serializeCommentThreadMessage(result),
