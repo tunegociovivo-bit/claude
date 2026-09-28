@@ -24,10 +24,11 @@ const LIMITS = {
 const CATEGORY_LIMITS: Record<NonNullable<RateCategory>, { user: number; apikey: number }> = {
   ai: { user: 15, apikey: 30 },           // ~ 1 llamada cada 4s
   admin: { user: 30, apikey: 60 },        // operaciones sensibles, evita scripts
+  mobile_worker: { user: 360, apikey: 600 }, // 20 móviles: claim/8s + latido/30s + resultados
   destructive: { user: 10, apikey: 20 }   // borrados / purgas: a mano sí, en bucle no
 };
 
-export type RateCategory = "ai" | "admin" | "destructive" | undefined;
+export type RateCategory = "ai" | "admin" | "destructive" | "mobile_worker" | undefined;
 
 export type WithApiOpts = {
   scope?: string;

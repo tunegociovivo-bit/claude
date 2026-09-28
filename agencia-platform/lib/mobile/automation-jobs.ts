@@ -4,6 +4,7 @@ import { isCommentThreadText, parseCommentThreadMessage, sameThreadSlot, seriali
 import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
+import { isStoppedThreadBranch } from "@/lib/mobile/thread-dependencies";
 
 const DEFAULT_POLICY = {
   enabled: true,
@@ -37,6 +38,7 @@ export async function claimNextMobileAutomationJob(input: {
   deviceSerial: string;
   executorSessionId: string;
   now?: Date;
+  onBlocked?: (reason: string) => void;
 }) {
   const now = input.now ?? new Date();
   return prisma.$transaction(async (tx) => {
@@ -44,12 +46,12 @@ export async function claimNextMobileAutomationJob(input: {
       where: { workspaceId: input.workspaceId }
     });
     const policy = storedPolicy ?? DEFAULT_POLICY;
-    if (!policy.enabled) return null;
+    if (!policy.enabled) { input.onBlocked?.("La automatización está pausada en la política del Hub."); return null; }
     if (!insideAllowedHours(
       localHour(now, policy.timezone),
       policy.allowedStartHour,
       policy.allowedEndHour
-    )) return null;
+    )) { input.onBlocked?.(`Fuera del horario permitido: ${policy.allowedStartHour}:00–${policy.allowedEndHour}:00 (${policy.timezone}).`); return null; }
 
     const preparedSince = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const preparedCount = await tx.mobileAutomationJob.count({
@@ -59,7 +61,7 @@ export async function claimNextMobileAutomationJob(input: {
         preparedAt: { gte: preparedSince }
       }
     });
-    if (preparedCount >= policy.maxDailyPerDevice) return null;
+    if (preparedCount >= policy.maxDailyPerDevice) { input.onBlocked?.(`Límite de ${policy.maxDailyPerDevice} acciones por móvil en 24 horas alcanzado.`); return null; }
 
     const lastPrepared = await tx.mobileAutomationJob.findFirst({
       where: {
@@ -73,7 +75,13 @@ export async function claimNextMobileAutomationJob(input: {
     if (
       lastPrepared?.preparedAt
       && now.getTime() - lastPrepared.preparedAt.getTime() < policy.minIntervalSeconds * 1000
-    ) return null;
+    ) { input.onBlocked?.(`Esperando el intervalo mínimo de ${policy.minIntervalSeconds} segundos entre acciones.`); return null; }
+
+    const active = await tx.mobileAutomationJob.findFirst({
+      where: { workspaceId: input.workspaceId, deviceSerial: input.deviceSerial, status: "RUNNING", leaseUntil: { gt: now } },
+      select: { id: true }
+    });
+    if (active) { input.onBlocked?.("Este móvil está ejecutando otro trabajo."); return null; }
 
     const candidates = await tx.mobileAutomationJob.findMany({
       where: {
@@ -83,7 +91,7 @@ export async function claimNextMobileAutomationJob(input: {
         OR: [
           { status: "QUEUED" },
           { status: "RUNNING", leaseUntil: { lt: now } },
-          { status: "RUNNING", leaseOwner: input.executorSessionId }
+          { status: "RUNNING", leaseUntil: null }
         ]
       },
       orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
@@ -107,7 +115,7 @@ export async function claimNextMobileAutomationJob(input: {
         continue;
       }
       let refreshedText: string | null = null;
-      if (candidate.action === "POST_THREAD_MESSAGE" && candidate.status === "RUNNING" && candidate.leaseUntil && candidate.leaseUntil > now) {
+      if (candidate.status === "RUNNING" && candidate.leaseUntil && candidate.leaseUntil > now) {
         // Otra instancia del panel puede estar publicándolo ahora mismo (su latido
         // renueva el lease): no se toca. Si el lease caduca, se reanuda de forma segura
         // porque el ejecutor comprueba primero si el texto ya está publicado.
@@ -127,6 +135,10 @@ export async function claimNextMobileAutomationJob(input: {
           continue;
         }
         refreshedText = gate.text;
+        if (candidate.status === "RUNNING") {
+          const message = parseCommentThreadMessage(refreshedText ?? candidate.text ?? "");
+          refreshedText = serializeCommentThreadMessage({ ...message, outcome: "review", detail: "Ejecución interrumpida: comprobar la publicación antes de reenviar." });
+        }
       }
       const isFacebookGroupBatch = [
         "DISCOVER_FACEBOOK_GROUPS",
@@ -144,7 +156,7 @@ export async function claimNextMobileAutomationJob(input: {
           OR: [
             { status: "QUEUED" },
             { status: "RUNNING", leaseUntil: { lt: now } },
-            { status: "RUNNING", leaseOwner: input.executorSessionId }
+            { status: "RUNNING", leaseUntil: null }
           ]
         },
         data: {
@@ -168,19 +180,19 @@ export async function claimNextMobileAutomationJob(input: {
           metadata: { leaseUntil: leaseUntil.toISOString() }
         }
       });
-      return { ...candidate, ...(refreshedText ? { text: refreshedText } : {}), status: "RUNNING", leaseOwner: input.executorSessionId, leaseUntil };
+      return { ...candidate, attempts: candidate.attempts + 1, ...(refreshedText ? { text: refreshedText } : {}), status: "RUNNING", leaseOwner: input.executorSessionId, leaseUntil };
     }
     return null;
   }, { isolationLevel: "Serializable" });
 }
 
-const THREAD_PENDING = ["PENDING_APPROVAL", "QUEUED", "RUNNING", "WAITING_USER"];
+const THREAD_PENDING = ["PENDING_APPROVAL", "QUEUED", "RUNNING"];
 const THREAD_DEAD = ["REJECTED", "CANCELLED"];
 
 /**
- * Orden de la conversación: un mensaje espera a que el anterior termine y, si es
- * una respuesta, a que el mensaje al que responde esté publicado (COMPLETED).
- * Si ese mensaje se rechazó o falló, la respuesta se cancela.
+ * Conserva el orden de las ramas en marcha; permite avanzar a las independientes
+ * de una rama parada. Una respuesta exige padre COMPLETED; FAILED espera revisión,
+ * y REJECTED/CANCELLED cancela sus respuestas.
  */
 export async function threadMessageGate(
   tx: Prisma.TransactionClient,
@@ -192,11 +204,11 @@ export async function threadMessageGate(
   catch { return { state: "cancel", reason: "El mensaje de la conversación no es válido." }; }
   const ids = [message.previousJobId, message.parentJobId].filter((id): id is string => Boolean(id));
   const related = ids.length ? await tx.mobileAutomationJob.findMany({
-    where: { workspaceId, id: { in: ids } },
+    where: { workspaceId, action: "POST_THREAD_MESSAGE", idempotencyKey: { startsWith: `thread:${message.threadId}:` } },
     select: { id: true, status: true, text: true }
   }) : [];
   const previous = related.find((job) => job.id === message.previousJobId);
-  if (previous && THREAD_PENDING.includes(previous.status)) return { state: "wait" };
+  if (previous && THREAD_PENDING.includes(previous.status) && !isStoppedThreadBranch(previous, related)) return { state: "wait" };
   if (!message.parentJobId) return { state: "ready", text: null };
   const parent = related.find((job) => job.id === message.parentJobId);
   // Un padre FAILED puede reintentarse o marcarse como publicado: la respuesta espera.
@@ -230,6 +242,7 @@ export async function reportMobileAutomationResult(input: {
       where: { id: input.jobId, workspaceId: input.workspaceId }
     });
     if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
+    if (job.status === "COMPLETED" && input.outcome === "COMPLETED" && input.resultText === job.text) return job;
     if (job.status !== "RUNNING" || job.leaseOwner !== input.executorSessionId) {
       throw new ApiError(409, "lease_lost", "Esta pestaña ya no posee el trabajo");
     }
@@ -303,8 +316,7 @@ export async function reportMobileAutomationResult(input: {
     }
 
     if (input.outcome === "PARTIAL" && job.action === "POST_THREAD_MESSAGE" && job.attempts < job.maxAttempts) {
-      // Envío pulsado pero sin confirmar: se vuelve a comprobar solo en 90 s. Si el
-      // comentario aparece, se marca publicado; si no, se escribe de nuevo.
+      // La intención persistida impide reenviar: solo se comprobará si aparece.
       const data = {
         status: "QUEUED", text: input.resultText ?? job.text, scheduledAt: new Date(now.getTime() + 90_000),
         leaseOwner: null, leaseUntil: null, lastErrorCode: "thread_verify", lastError: "Enviado sin confirmar: se volverá a comprobar automáticamente."
@@ -384,8 +396,8 @@ export async function reportMobileAutomationResult(input: {
       return { ...job, ...data };
     }
 
-    // Los mensajes de conversación sí se reintentan: el ejecutor comprueba antes de
-    // escribir si el texto ya está publicado, así que reintentar no duplica.
+    // Antes del envío se puede reintentar. Tras guardar la intención, el estado
+    // review permanece en job.text y el ejecutor solo verifica, nunca reenvía.
     const canRetry = (input.errorCode !== "facebook_navigation_failed" || job.action === "POST_THREAD_MESSAGE") && job.attempts < job.maxAttempts;
     const retryDelay = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
     const data = {

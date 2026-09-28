@@ -6,15 +6,24 @@ import { prisma } from "@/lib/db/prisma";
 import { loadMobileAutomationAccess } from "@/lib/mobile/automation-access";
 import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { parsePageFollowBatch, samePageFollowTargets } from "@/lib/mobile/page-follow-batch";
+import { parseCommentThreadMessage, serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 
-const schema = z.object({ executorSessionId: z.string().uuid(), text: z.string().max(MAX_CONVERSATION_BATCH_TEXT).optional() }).strict();
-export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, params }) => {
+const schema = z.object({ executorSessionId: z.string().uuid(), text: z.string().max(MAX_CONVERSATION_BATCH_TEXT).optional(), sendIntent: z.literal(true).optional() }).strict();
+export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, { api, params }) => {
   await loadMobileAutomationAccess(api.workspaceId, api.userId, { manager: true });
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", "Progreso no válido.");
   const job = await prisma.mobileAutomationJob.findFirst({ where: { id: params.id, workspaceId: api.workspaceId } });
-  if (!job || job.status !== "RUNNING" || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action)) {
+  const now = new Date();
+  if (!job || job.status !== "RUNNING" || !job.leaseUntil || job.leaseUntil <= now || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action)) {
     throw new ApiError(409, "lease_lost", "La ejecución se ha detenido o está en otra pestaña.");
+  }
+  let intentText: string | undefined;
+  if (parsed.data.sendIntent) {
+    if (job.action !== "POST_THREAD_MESSAGE" || parsed.data.text) throw new ApiError(400, "invalid_progress", "Intención de envío no válida.");
+    const message = parseCommentThreadMessage(job.text ?? "");
+    if (["review", "sent"].includes(message.outcome)) throw new ApiError(409, "send_already_started", "Este mensaje ya tiene un envío pendiente de confirmar.");
+    intentText = serializeCommentThreadMessage({ ...message, outcome: "review", detail: "Envío iniciado; comprobar antes de volver a publicar." });
   }
   if (parsed.data.text && job.action === "POST_THREAD_MESSAGE") {
     throw new ApiError(400, "invalid_progress", "Los mensajes de conversación no admiten progreso parcial.");
@@ -33,8 +42,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
     }
   }
   const changed = await prisma.mobileAutomationJob.updateMany({
-    where: { id: job.id, workspaceId: api.workspaceId, status: "RUNNING", leaseOwner: parsed.data.executorSessionId },
-    data: { leaseUntil: new Date(Date.now() + (job.action === "POST_THREAD_MESSAGE" ? 3 : 10) * 60_000), ...(parsed.data.text ? { text: parsed.data.text } : {}) }
+    where: { id: job.id, workspaceId: api.workspaceId, status: "RUNNING", leaseOwner: parsed.data.executorSessionId, leaseUntil: { gt: now }, ...(intentText ? { text: job.text } : {}) },
+    data: { leaseUntil: new Date(now.getTime() + (job.action === "POST_THREAD_MESSAGE" ? 3 : 10) * 60_000), ...(intentText ? { text: intentText, preparedAt: now } : parsed.data.text ? { text: parsed.data.text } : {}) }
   });
   if (changed.count !== 1) throw new ApiError(409, "lease_lost", "La ejecución se ha detenido.");
   return NextResponse.json({ ok: true });

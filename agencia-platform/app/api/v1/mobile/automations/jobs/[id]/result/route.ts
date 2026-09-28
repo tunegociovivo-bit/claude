@@ -39,7 +39,7 @@ const resultSchema = z.object({
   }
 });
 
-export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, params }) => {
+export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, { api, params }) => {
   await loadMobileAutomationAccess(api.workspaceId, api.userId, { manager: true });
   const parsed = resultSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

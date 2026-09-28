@@ -18,7 +18,7 @@ function deps(screens: Array<string | Error>) {
   return {
     taps,
     deps: {
-      openUrl: async () => {}, wait: async () => {}, paste: async () => {}, scroll: async () => {},
+      openUrl: async () => {}, wait: async () => {}, paste: async () => {}, scroll: async () => {}, beforeSend: async () => {},
       tap: async (point: { y: number }) => { taps.push(point.y); },
       read: async () => { const next = screens.shift(); if (next instanceof Error) throw next; return next ?? screen([]); }
     }
@@ -78,6 +78,30 @@ describe("selector «Abrir con» de app dual", () => {
 });
 
 describe("anti-duplicados", () => {
+  it("nunca vuelve a enviar un resultado incierto aunque no encuentre el texto", async () => {
+    const { deps: d, taps } = deps([screen([]), screen([])]);
+    let pasted = false;
+    d.paste = async () => { pasted = true; };
+    expect((await postCommentThreadMessage({ ...message, outcome: "review" }, d)).outcome).toBe("review");
+    expect(pasted).toBe(false);
+    expect(taps).toEqual([]);
+  });
+
+  it("no confunde un texto que solo comparte el prefijo con el mensaje completo", async () => {
+    const { deps: d } = deps([screen([]), screen([{ text: message.text + " pero no ahora", y: 900 }])]);
+    expect((await postCommentThreadMessage({ ...message, outcome: "review" }, d)).outcome).toBe("review");
+  });
+
+  it("no pulsa Enviar si no puede guardar antes la intención", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([]), screen([]),
+      screen([{ text: "Escribe un comentario", cls: "android.widget.EditText", y: 1000 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 1000 }, { text: "Enviar", y: 1500 }])
+    ]);
+    d.beforeSend = async () => { throw new Error("Sin conexión al servidor"); };
+    await expect(postCommentThreadMessage(message, d)).rejects.toThrow("Sin conexión");
+    expect(taps).not.toContain(1540);
+  });
   it("no vuelve a escribir un comentario que ya está publicado", async () => {
     const { deps: d, taps } = deps([
       screen([{ text: "Inicio", y: 100 }]),

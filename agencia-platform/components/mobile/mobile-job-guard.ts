@@ -5,6 +5,7 @@
  *   abortado o una acción se cuelga, fallen en vez de quedarse esperando para siempre.
  */
 const aborted = new Set<string>();
+const generations = new Map<string, number>();
 
 export class MobileJobAbortedError extends Error {}
 
@@ -13,7 +14,7 @@ export function abortMobileJob(jobId: string | undefined) {
 }
 
 export function clearMobileJob(jobId: string | undefined) {
-  if (jobId) aborted.delete(jobId);
+  if (jobId) { aborted.delete(jobId); generations.set(jobId, (generations.get(jobId) ?? 0) + 1); }
 }
 
 export function isMobileJobAborted(jobId: string | undefined): boolean {
@@ -28,13 +29,15 @@ export function withTimeout<T>(promise: Promise<T>, milliseconds: number, messag
 
 /** Envuelve cada función de dependencias: comprueba el aborto y limita su duración. */
 export function guardDependencies<T extends Record<string, unknown>>(jobId: string | undefined, deps: T, stepTimeoutMs = 90_000): T {
+  const generation = jobId ? generations.get(jobId) ?? 0 : 0;
+  const stopped = () => isMobileJobAborted(jobId) || Boolean(jobId && (generations.get(jobId) ?? 0) !== generation);
   const guarded: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(deps)) {
     if (typeof value !== "function") { guarded[key] = value; continue; }
     guarded[key] = async (...args: unknown[]) => {
-      if (isMobileJobAborted(jobId)) throw new MobileJobAbortedError("La publicación se ha detenido (tiempo agotado o reactivada en otra pantalla).");
+      if (stopped()) throw new MobileJobAbortedError("La publicación se ha detenido (tiempo agotado o reactivada en otra pantalla).");
       const result = await withTimeout(Promise.resolve((value as (...a: unknown[]) => unknown)(...args)), stepTimeoutMs, `El móvil no ha respondido a tiempo (${key}). Se reintentará.`);
-      if (isMobileJobAborted(jobId)) throw new MobileJobAbortedError("La publicación se ha detenido (tiempo agotado o reactivada en otra pantalla).");
+      if (stopped()) throw new MobileJobAbortedError("La publicación se ha detenido (tiempo agotado o reactivada en otra pantalla).");
       return result;
     };
   }

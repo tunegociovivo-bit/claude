@@ -147,16 +147,6 @@ function statusClasses(status: string) {
   return "bg-amber-100 text-amber-800";
 }
 
-function sessionIdFor(deviceSerial: string) {
-  const key = `nv-mobile-automation-session:${deviceSerial}`;
-  let value = sessionStorage.getItem(key);
-  if (!value) {
-    value = crypto.randomUUID();
-    sessionStorage.setItem(key, value);
-  }
-  return value;
-}
-
 function isNavigationAction(action: string): boolean {
   return action === "OPEN_URL" || action === "SEARCH_FACEBOOK_GROUPS";
 }
@@ -274,7 +264,7 @@ function FacebookGroupBatchView({
 }
 
 async function apiJson(url: string, init?: RequestInit) {
-  const response = await fetch(url, { cache: "no-store", ...init });
+  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(25_000), ...init });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(payload?.error?.message || payload?.message || "La automatización no ha podido continuar");
@@ -355,7 +345,7 @@ export default function MobileAutomationPanel({
   const claimAndExecute = useCallback(async () => {
     if (composer || !ready || !canManage || workerBusyRef.current) return;
     workerBusyRef.current = true;
-    const executorSessionId = sessionIdFor(deviceSerial);
+    const executorSessionId = crypto.randomUUID();
     try {
       const payload = await apiJson("/api/v1/mobile/automations/claim", {
         method: "POST",
@@ -363,7 +353,7 @@ export default function MobileAutomationPanel({
         body: JSON.stringify({ deviceSerial, executorSessionId })
       });
       const job = payload.job as AutomationJob | null;
-      if (!job) return;
+      if (!job) { setWorkerMessage(payload.blockedReason ?? null); return; }
       setWorkerMessage(job.action === "POST_THREAD_MESSAGE" ? "Publicando el mensaje aprobado de la conversación…" : job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
         ? `Analizando varios resultados sobre «${job.sourceRef}» en Facebook…`
         : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
@@ -374,12 +364,15 @@ export default function MobileAutomationPanel({
         try {
           const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS") || job.action === "FOLLOW_PAGES" || job.action === "POST_THREAD_MESSAGE";
           clearMobileJob(job.id);
+          let leaseConfirmedAt = Date.now();
           const heartbeat = isConversation ? window.setInterval(() => {
+          if (job.action === "POST_THREAD_MESSAGE" && Date.now() - leaseConfirmedAt >= 120_000) { abortMobileJob(job.id); return; }
           void fetch(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executorSessionId }), cache: "no-store"
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executorSessionId }), cache: "no-store", signal: AbortSignal.timeout(20_000)
           }).then((response) => {
             // Si el trabajo se reactivó o lo tomó otra pantalla, esta ejecución se detiene.
             if (response.status === 409) abortMobileJob(job.id);
+            if (response.ok) leaseConfirmedAt = Date.now();
           }).catch(() => undefined);
         }, 30_000) : undefined;
         let execution: MobileAutomationExecutionResult;
