@@ -50,6 +50,7 @@ import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import type { MobileWorkerActivity } from "@/components/mobile/mobile-worker-activity";
+import { createMobileSessionMonitor } from "./mobile-session-monitor";
 import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
 import MobileUnlockPinField, { mobileUnlockPinRequest } from "@/components/mobile/MobileUnlockPinField";
 import { unlockAndroidForAutomation } from "@/components/mobile/android-unlock";
@@ -1045,6 +1046,23 @@ function MobileDeviceCard({
       if (authenticationAbortRef.current === authenticationAbort) authenticationAbortRef.current = undefined;
       const adb = new Adb(transport);
       adbRef.current = adb;
+      const sessionMonitor = createMobileSessionMonitor(
+        () => !closingRef.current && adbRef.current === adb && sessionAttempt.isCurrent(),
+        (connectionError) => {
+          // Stop the worker immediately, including when video has not rejected.
+          setStatus("stopping");
+          setError(friendlyError(connectionError));
+          void closeSession().then(() => {
+            closingRef.current = false;
+            setStatus("error");
+          }, (closeError) => {
+            closingRef.current = false;
+            setError(friendlyError(closeError));
+            setStatus("error");
+          });
+        }
+      );
+      sessionMonitor.observe(adb.disconnected, "Se ha cerrado la conexión USB del móvil.");
       assertCurrentSessionAttempt();
       const awakeSession = createAndroidAwakeSession(
         (command) => runAdbCommand(adb, command)
@@ -1144,13 +1162,7 @@ function MobileDeviceCard({
         sizeRef.current = { width, height };
         setResolution(`${width} × ${height}`);
       });
-      video.stream.pipeTo(decoder.writable).catch(async (pipeError) => {
-        if (closingRef.current || clientRef.current !== client || !sessionAttempt.isCurrent()) return;
-        await closeSession();
-        closingRef.current = false;
-        setError(friendlyError(pipeError));
-        setStatus("error");
-      });
+      sessionMonitor.observe(video.stream.pipeTo(decoder.writable), "Se ha detenido la pantalla del móvil.");
       assertCurrentSessionAttempt();
       if (canManage && linkedPhone) {
         try { await unlockDevice(adb); } catch (unlockError) { setError(unlockError instanceof Error ? unlockError.message : "No se pudo desbloquear el móvil."); }
@@ -1576,7 +1588,12 @@ function MobileDeviceCard({
   }, [fleetOpen, device.serial]);
 
   useEffect(() => {
-    if (status === "mirroring") { reconnectAttempts.current = 0; return; }
+    if (status === "mirroring") {
+      // A brief successful connection must not reset the backoff and cause a
+      // rapid reconnect loop on a flapping USB link.
+      const stableTimer = window.setTimeout(() => { reconnectAttempts.current = 0; }, 60_000);
+      return () => window.clearTimeout(stableTimer);
+    }
     if (!autoReconnect || !canManage || !linkedPhone?.active || autoPaused.current || unlockBlockedRef.current) return;
     if (status !== "idle" && status !== "error") return;
     const stagger = [...device.serial].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 10 * 1_000;
