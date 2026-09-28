@@ -29,7 +29,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     let reactivated = 0;
     for (const job of jobs) {
       const stuck = job.status === "WAITING_USER" || job.status === "FAILED"
-        || (job.status === "RUNNING" && (!job.leaseUntil || job.leaseUntil <= now))
+        || job.status === "RUNNING" // si lleva colgado, la pantalla que lo tenía se detiene al perder el lease
         || (job.status === "QUEUED" && job.scheduledAt > now);
       if (!stuck) continue;
       await tx.mobileAutomationJob.update({
