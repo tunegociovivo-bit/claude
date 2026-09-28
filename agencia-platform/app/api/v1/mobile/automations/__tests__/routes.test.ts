@@ -202,6 +202,28 @@ describe("mobile automation draft API", () => {
 });
 
 describe("mobile automation decision API", () => {
+  it("queues automatic verification of an approved legacy comment without claiming it was published", async () => {
+    const message = { kind: "comment_thread", version: 1, threadId: "7f1c1a52-6a55-4e38-9b44-1b0b2a8a3c11", order: 1, total: 2, postUrl: "https://www.facebook.com/post/1", guide: "g", author: "A", mode: "comment", replyToOrder: null, replyToAuthor: null, replyToText: null, parentJobId: null, previousJobId: null, text: "Opinión aprobada", outcome: "pending", detail: null };
+    prisma.mobileAutomationJob.findFirst.mockResolvedValue({ id: "job-1", workspaceId: "w1", status: "FAILED", action: "POST_THREAD_MESSAGE", approvedAt: new Date(), text: JSON.stringify(message) });
+    const response = await decideJob(request("https://hub.example/api/v1/mobile/automations/jobs/job-1/decision", { action: "VERIFY" }), { params: { id: "job-1" } });
+    expect(response.status).toBe(200);
+    const data = prisma.mobileAutomationJob.updateMany.mock.calls[0][0].data;
+    expect(data.status).toBe("QUEUED");
+    expect(data).not.toHaveProperty("completedAt");
+    expect(JSON.parse(data.text)).toMatchObject({ text: message.text, outcome: "review", sendProtocol: "checkpoint-v1" });
+  });
+  it.each([
+    { status: "RUNNING", approvedAt: new Date(), action: "POST_THREAD_MESSAGE" },
+    { status: "PENDING_APPROVAL", approvedAt: null, action: "POST_THREAD_MESSAGE" },
+    { status: "QUEUED", approvedAt: null, action: "POST_THREAD_MESSAGE" },
+    { status: "QUEUED", approvedAt: new Date(), action: "FOLLOW_PAGES" },
+    { status: "COMPLETED", approvedAt: new Date(), action: "POST_THREAD_MESSAGE" }
+  ])("rejects verification that could interrupt or bypass approval: %j", async job => {
+    prisma.mobileAutomationJob.findFirst.mockResolvedValue({ id: "job-1", workspaceId: "w1", ...job });
+    const response = await decideJob(request("https://hub.example/api/v1/mobile/automations/jobs/job-1/decision", { action: "VERIFY" }), { params: { id: "job-1" } });
+    expect(response.status).toBe(409);
+    expect(prisma.mobileAutomationJob.updateMany).not.toHaveBeenCalled();
+  });
   it("records an explicitly verified manual publication without re-running its approved queued job", async () => {
     prisma.mobileAutomationJob.findFirst.mockResolvedValue({
       id: "job-1", workspaceId: "w1", status: "QUEUED", action: "POST_THREAD_MESSAGE",

@@ -525,7 +525,7 @@ export default function MobileAutomationPanel({
     }
   }
 
-  async function decide(job: AutomationJob, action: "APPROVE" | "REJECT" | "COMPLETE" | "RETRY" | "CANCEL") {
+  async function decide(job: AutomationJob, action: "APPROVE" | "REJECT" | "COMPLETE" | "RETRY" | "VERIFY" | "CANCEL") {
     setBusy(true);
     setError(null);
     try {
@@ -886,6 +886,7 @@ export default function MobileAutomationPanel({
                 {job.lastError && <p className="mt-2 rounded bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">{job.lastError}</p>}
                 {inspection?.jobId === job.id && <p role="status" className="mt-2 text-xs text-slate-700">{inspection.message}</p>}
                 <div className="mt-2 flex flex-wrap gap-1.5">
+                  {job.action === "POST_THREAD_MESSAGE" && ["QUEUED", "FAILED", "WAITING_USER"].includes(job.status) && <button type="button" disabled={busy} onClick={() => void decide(job, "VERIFY")} className="rounded-md border px-2.5 py-1.5 text-xs font-semibold">Comprobar publicación sin reenviar</button>}
                   {onInspectJob && job.action === "POST_THREAD_MESSAGE" && <button type="button" disabled={busy} className="rounded-md border px-2.5 py-1.5 text-xs font-semibold" onClick={async () => {
                     setBusy(true);
                     setInspection({ jobId: job.id, message: "Comprobando navegación sin escribir ni enviar…" });
