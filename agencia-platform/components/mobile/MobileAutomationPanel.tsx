@@ -381,6 +381,7 @@ export default function MobileAutomationPanel({
           void fetch(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executorSessionId }), cache: "no-store", signal: AbortSignal.timeout(20_000)
           }).then((response) => {
+            if (connectionRun.signal.aborted) return;
             // Si el trabajo se reactivó o lo tomó otra pantalla, esta ejecución se detiene.
             if (response.status === 409) abortMobileJob(job.id);
             if (response.ok) leaseConfirmedAt = Date.now();
