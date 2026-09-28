@@ -25,6 +25,15 @@ import {
   claimNextMobileAutomationJob,
   reportMobileAutomationResult
 } from "@/lib/mobile/automation-jobs";
+import { parseCommentThreadMessage, serializeCommentThreadMessage, type CommentThreadMessage } from "../comment-thread";
+
+const recoveryMessage: CommentThreadMessage = {
+  kind: "comment_thread", version: 1, sendProtocol: "checkpoint-v1",
+  threadId: "7f1c1a52-6a55-4e38-9b44-1b0b2a8a3c11", order: 1, total: 2,
+  postUrl: "https://www.facebook.com/post/1", guide: "opinión real", author: "Móvil 1",
+  mode: "comment", replyToOrder: null, replyToAuthor: null, replyToText: null,
+  parentJobId: null, previousJobId: null, text: "Mi opinión aprobada", outcome: "pending", detail: null
+};
 
 const now = new Date("2026-09-12T12:00:00.000Z");
 const candidate = {
@@ -57,6 +66,20 @@ beforeEach(() => {
 });
 
 describe("mobile automation job leases", () => {
+  it.each([
+    ["checkpoint-v1", "pending", "pending"],
+    ["checkpoint-v1", "review", "review"],
+    [undefined, "pending", "review"]
+  ] as const)("recovers abandoned %s / %s as %s without inventing a send", async (sendProtocol, outcome, expected) => {
+    tx.mobileAutomationJob.findMany.mockResolvedValue([{
+      ...candidate, action: "POST_THREAD_MESSAGE", status: "RUNNING", leaseOwner: "old-tab",
+      leaseUntil: new Date(now.getTime() - 1000),
+      text: serializeCommentThreadMessage({ ...recoveryMessage, sendProtocol, outcome })
+    }]);
+    const result = await claimNextMobileAutomationJob({ workspaceId: "w1", deviceSerial: "usb-1", executorSessionId: "new-tab", now });
+    expect(result?.status).toBe("RUNNING");
+    expect(parseCommentThreadMessage(result!.text ?? "").outcome).toBe(expected);
+  });
   it("atomically claims a queued job for one browser session", async () => {
     const result = await claimNextMobileAutomationJob({
       workspaceId: "w1",
@@ -165,6 +188,26 @@ describe("mobile automation job leases", () => {
 });
 
 describe("mobile automation result reporting", () => {
+  it("rejects a partial result that would erase a persisted send intent", async () => {
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({ ...candidate, action: "POST_THREAD_MESSAGE", status: "RUNNING", leaseOwner: "browser-1", text: serializeCommentThreadMessage({ ...recoveryMessage, outcome: "review" }) });
+    await expect(reportMobileAutomationResult({ workspaceId: "w1", jobId: "job-1", executorSessionId: "browser-1", outcome: "PARTIAL", resultText: serializeCommentThreadMessage(recoveryMessage), now })).rejects.toMatchObject({ code: "invalid_result" });
+    expect(tx.mobileAutomationJob.updateMany).not.toHaveBeenCalled();
+  });
+  it("automatically recovers a pre-send device failure after the old retry budget", async () => {
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({ ...candidate, action: "POST_THREAD_MESSAGE", status: "RUNNING", leaseOwner: "browser-1", attempts: 20, text: serializeCommentThreadMessage(recoveryMessage) });
+    const result = await reportMobileAutomationResult({ workspaceId: "w1", jobId: "job-1", executorSessionId: "browser-1", outcome: "FAILED", errorCode: "mobile_prepare_failed", error: "USB interrupted", now });
+    expect(result).toMatchObject({ status: "QUEUED", leaseOwner: null, scheduledAt: new Date(now.getTime() + 900_000) });
+    expect(parseCommentThreadMessage(result.text ?? "").outcome).toBe("pending");
+  });
+
+  it("keeps checking an uncertain send automatically without resetting the send intent", async () => {
+    const text = serializeCommentThreadMessage({ ...recoveryMessage, outcome: "review" });
+    tx.mobileAutomationJob.findFirst.mockResolvedValue({ ...candidate, action: "POST_THREAD_MESSAGE", status: "RUNNING", leaseOwner: "browser-1", attempts: 20, text });
+    const result = await reportMobileAutomationResult({ workspaceId: "w1", jobId: "job-1", executorSessionId: "browser-1", outcome: "PARTIAL", resultText: text, now });
+    expect(result).toMatchObject({ status: "QUEUED", text, leaseOwner: null, scheduledAt: new Date(now.getTime() + 900_000) });
+    expect(parseCommentThreadMessage(result.text ?? "").outcome).toBe("review");
+  });
+
   it("moves a prepared job to human confirmation and releases its lease", async () => {
     tx.mobileAutomationJob.findFirst.mockResolvedValue({
       ...candidate,

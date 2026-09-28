@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { postCommentThreadMessage } from "../comment-thread-runner";
+import { inspectCommentThreadNavigation, postCommentThreadMessage } from "../comment-thread-runner";
 import { collapsedReplyPreviews } from "../facebook-conversation-ui";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
 
@@ -40,6 +40,14 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("comprueba el destinatario sin escribir, preparar el envío ni pulsar Responder", async () => {
+    const { deps: d, taps } = deps([screen([]), collapsedReply, expandedReply]);
+    d.paste = async () => { throw new Error("No debe escribir"); };
+    d.beforeSend = async () => { throw new Error("No debe preparar un envío"); };
+    const result = await inspectCommentThreadNavigation({ ...message, mode: "reply", replyToText: parentText }, d);
+    expect(result).toContain(parentText);
+    expect(taps).toEqual([632]);
+  });
   it("espera la foto vacía y abre comentarios cuando su botón aparece después", async () => {
     const { deps: d, taps } = deps([
       screen([]), screen([]), screen([]), screen([]),

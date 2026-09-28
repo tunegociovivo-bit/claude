@@ -137,7 +137,11 @@ export async function claimNextMobileAutomationJob(input: {
         refreshedText = gate.text;
         if (candidate.status === "RUNNING") {
           const message = parseCommentThreadMessage(refreshedText ?? candidate.text ?? "");
-          refreshedText = serializeCommentThreadMessage({ ...message, outcome: "review", detail: "Ejecución interrumpida: comprobar la publicación antes de reenviar." });
+          // New messages persist send intent before touching Send. A lost lease
+          // without that intent is an interrupted preparation, not an uncertain send.
+          if (message.sendProtocol !== "checkpoint-v1") {
+            refreshedText = serializeCommentThreadMessage({ ...message, outcome: "review", detail: "Ejecución interrumpida: comprobar la publicación antes de reenviar." });
+          }
         }
       }
       const isFacebookGroupBatch = [
@@ -259,7 +263,13 @@ export async function reportMobileAutomationResult(input: {
 
     if (job.action === "POST_THREAD_MESSAGE" && input.resultText) {
       let same = false;
-      try { same = sameThreadSlot(parseCommentThreadMessage(job.text ?? ""), parseCommentThreadMessage(input.resultText)) && parseCommentThreadMessage(job.text ?? "").text === parseCommentThreadMessage(input.resultText).text; } catch { same = false; }
+      try {
+        const original = parseCommentThreadMessage(job.text ?? "");
+        const result = parseCommentThreadMessage(input.resultText);
+        same = sameThreadSlot(original, result) && original.text === result.text
+          && (input.outcome === "COMPLETED" ? result.outcome === "sent"
+            : input.outcome === "PARTIAL" ? result.outcome === "review" : false);
+      } catch { same = false; }
       if (!same) throw new ApiError(400, "invalid_result", "El resultado no corresponde al mensaje aprobado.");
     } else if (input.resultText && isCommentThreadText(input.resultText)) {
       throw new ApiError(400, "invalid_result", "Este trabajo no esperaba un mensaje de conversación.");
@@ -315,10 +325,14 @@ export async function reportMobileAutomationResult(input: {
       return { ...job, ...data };
     }
 
-    if (input.outcome === "PARTIAL" && job.action === "POST_THREAD_MESSAGE" && job.attempts < job.maxAttempts) {
+    let automaticThreadRecovery = false;
+    if (job.action === "POST_THREAD_MESSAGE") {
+      try { automaticThreadRecovery = parseCommentThreadMessage(job.text ?? "").sendProtocol === "checkpoint-v1"; } catch { /* malformed jobs retain their bounded retry policy */ }
+    }
+    if (input.outcome === "PARTIAL" && job.action === "POST_THREAD_MESSAGE" && (automaticThreadRecovery || job.attempts < job.maxAttempts)) {
       // La intención persistida impide reenviar: solo se comprobará si aparece.
       const data = {
-        status: "QUEUED", text: input.resultText ?? job.text, scheduledAt: new Date(now.getTime() + 90_000),
+        status: "QUEUED", text: input.resultText ?? job.text, scheduledAt: new Date(now.getTime() + Math.min(900, 90 * 2 ** Math.min(4, Math.max(0, job.attempts - job.maxAttempts))) * 1000),
         leaseOwner: null, leaseUntil: null, lastErrorCode: "thread_verify", lastError: "Enviado sin confirmar: se volverá a comprobar automáticamente."
       };
       const changed = await tx.mobileAutomationJob.updateMany({ where: { id: job.id, workspaceId: input.workspaceId, status: "RUNNING", leaseOwner: input.executorSessionId }, data });
@@ -398,8 +412,9 @@ export async function reportMobileAutomationResult(input: {
 
     // Antes del envío se puede reintentar. Tras guardar la intención, el estado
     // review permanece en job.text y el ejecutor solo verifica, nunca reenvía.
-    const canRetry = (input.errorCode !== "facebook_navigation_failed" || job.action === "POST_THREAD_MESSAGE") && job.attempts < job.maxAttempts;
-    const retryDelay = Math.min(300, 15 * 2 ** Math.max(0, job.attempts - 1));
+    const canRetry = (input.errorCode !== "facebook_navigation_failed" || job.action === "POST_THREAD_MESSAGE")
+      && (job.attempts < job.maxAttempts || (automaticThreadRecovery && ["mobile_prepare_failed", "facebook_navigation_failed"].includes(input.errorCode ?? "")));
+    const retryDelay = Math.min(automaticThreadRecovery ? 900 : 300, 15 * 2 ** Math.min(6, Math.max(0, job.attempts - 1)));
     const data = {
       status: canRetry ? "QUEUED" : "FAILED",
       scheduledAt: canRetry ? new Date(now.getTime() + retryDelay * 1000) : job.scheduledAt,

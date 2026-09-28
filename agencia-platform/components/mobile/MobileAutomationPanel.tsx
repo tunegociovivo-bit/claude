@@ -114,6 +114,7 @@ type Props = {
   onEnsureReady?: () => Promise<boolean>;
   onWorkingChange?: (activity: MobileWorkerActivity) => void;
   onExecuteJob: (job: MobileAutomationExecutableJob) => Promise<MobileAutomationExecutionResult>;
+  onInspectJob?: (job: MobileAutomationExecutableJob) => Promise<string>;
   onPasteText: (text: string) => Promise<void>;
 };
 
@@ -282,6 +283,7 @@ export default function MobileAutomationPanel({
   onEnsureReady,
   onWorkingChange,
   onExecuteJob,
+  onInspectJob,
   onPasteText,
   composer
 }: Props) {
@@ -291,6 +293,7 @@ export default function MobileAutomationPanel({
   const [busy, setBusy] = useState(false);
   const [workerMessage, setWorkerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [inspection, setInspection] = useState<{ jobId: string; message: string } | null>(null);
   const [sourceKind, setSourceKind] = useState<SourceKind>("REAL_REVIEW");
   const [reviewMode, setReviewMode] = useState(false);
   const [platform, setPlatform] = useState<Platform>("google_maps");
@@ -881,7 +884,15 @@ export default function MobileAutomationPanel({
                   ) : null;
                 })()}
                 {job.lastError && <p className="mt-2 rounded bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">{job.lastError}</p>}
+                {inspection?.jobId === job.id && <p role="status" className="mt-2 text-xs text-slate-700">{inspection.message}</p>}
                 <div className="mt-2 flex flex-wrap gap-1.5">
+                  {onInspectJob && job.action === "POST_THREAD_MESSAGE" && <button type="button" disabled={busy} className="rounded-md border px-2.5 py-1.5 text-xs font-semibold" onClick={async () => {
+                    setBusy(true);
+                    setInspection({ jobId: job.id, message: "Comprobando navegación sin escribir ni enviar…" });
+                    try { setInspection({ jobId: job.id, message: await onInspectJob(job) }); }
+                    catch (probeError) { setInspection({ jobId: job.id, message: probeError instanceof Error ? probeError.message : "No se ha podido comprobar la navegación." }); }
+                    finally { setBusy(false); }
+                  }}>Comprobar navegación sin enviar</button>}
                   {job.status === "PENDING_APPROVAL" && (
                     <>
                       <button
