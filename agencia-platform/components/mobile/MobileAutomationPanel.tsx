@@ -2,6 +2,7 @@
 
 import { FacebookNavigationError } from "@/components/mobile/facebook-android-launch";
 import FacebookReviewQueue from "./FacebookReviewQueue";
+import { abortMobileJob, clearMobileJob, withTimeout } from "@/components/mobile/mobile-job-guard";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Bot,
@@ -370,15 +371,26 @@ export default function MobileAutomationPanel({
           : job.action === "SEARCH_FACEBOOK_GROUPS"
             ? `Buscando grupos sobre «${job.sourceRef}» en Facebook…`
             : "Preparando el trabajo aprobado en el móvil…");
-      try {
-        const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS") || job.action === "FOLLOW_PAGES" || job.action === "POST_THREAD_MESSAGE";
-        const heartbeat = isConversation ? window.setInterval(() => {
-          void apiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executorSessionId })
+        try {
+          const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS") || job.action === "FOLLOW_PAGES" || job.action === "POST_THREAD_MESSAGE";
+          clearMobileJob(job.id);
+          const heartbeat = isConversation ? window.setInterval(() => {
+          void fetch(`/api/v1/mobile/automations/jobs/${encodeURIComponent(job.id)}/checkpoint`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executorSessionId }), cache: "no-store"
+          }).then((response) => {
+            // Si el trabajo se reactivó o lo tomó otra pantalla, esta ejecución se detiene.
+            if (response.status === 409) abortMobileJob(job.id);
           }).catch(() => undefined);
         }, 30_000) : undefined;
         let execution: MobileAutomationExecutionResult;
-        try { execution = await onExecuteJob({ ...job, executorSessionId }); }
+        // Tiempo máximo por mensaje de conversación: nunca se queda «Publicando» indefinidamente.
+        const watchdogMs = job.action === "POST_THREAD_MESSAGE" ? 8 * 60_000 : 0;
+        try {
+          const run = onExecuteJob({ ...job, executorSessionId });
+          execution = watchdogMs
+            ? await withTimeout(run, watchdogMs, "La publicación superó el tiempo máximo (8 min). Se reintentará automáticamente.").catch((timeoutError) => { abortMobileJob(job.id); throw timeoutError; })
+            : await run;
+        }
         finally { if (heartbeat !== undefined) window.clearInterval(heartbeat); }
         const resultBody = JSON.stringify({
             executorSessionId,
