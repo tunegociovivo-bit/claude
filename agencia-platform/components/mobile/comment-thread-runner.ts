@@ -93,7 +93,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
   let sorted = false;
   let loadingReads = 0;
   const expandedPreviews = new Set<string>();
-  for (let screen = 0; screen < 12; screen++) {
+  for (let screen = 0; screen < 24; screen++) {
     // The photo and then the comments can each finish loading after the first read.
     // Re-evaluate their controls instead of scrolling the photo for the entire search.
     const sort = !sorted && namedControl(xml, /^(Más pertinentes|Más recientes|Most relevant|Newest|Se muestran (?:Más pertinentes|Más recientes) comentarios|Showing Most relevant comments(?:[.]|$))/i);
@@ -172,8 +172,22 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
   }
   let previous = "";
   const expandedPreviews = new Set<string>();
-  for (let screen = 0; screen < 8; screen++) {
+  let sorted = false;
+  for (let screen = 0; screen < 24; screen++) {
     if (textAlreadyVisible(xml, text)) return true;
+    const sort = !sorted && namedControl(xml, /^(Más pertinentes|Más recientes|Most relevant|Newest|Se muestran (?:Más pertinentes|Más recientes) comentarios|Showing Most relevant comments(?:[.]|$))/i);
+    if (sort) {
+      await deps.tap(sort.center);
+      await deps.wait(800);
+      const choices = await readStable(deps);
+      const all = namedControl(choices, /^(Todos los comentarios|All comments)(\b|$)/i);
+      if (!all) return false;
+      await deps.tap(all.center);
+      await deps.wait(1_200);
+      xml = await readStable(deps);
+      sorted = true;
+      if (textAlreadyVisible(xml, text)) return true;
+    }
     const preview = collapsedReplyPreviews(xml).find(item => !expandedPreviews.has(item.label));
     if (preview) {
       expandedPreviews.add(preview.label);
@@ -219,7 +233,7 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
     return { ...message, outcome: "sent", detail: "El mensaje ya estaba publicado; no se ha vuelto a escribir." };
   }
   if (message.outcome === "review" || message.outcome === "sent") {
-    return { ...message, outcome: "review", detail: "El envío anterior sigue sin confirmarse. No se volverá a enviar automáticamente; comprueba la publicación." };
+    return { ...message, outcome: "review", detail: message.sendProtocol === "checkpoint-v1" ? "El envío anterior sigue sin confirmarse. Se volverá a comprobar automáticamente sin duplicar el comentario." : "El envío anterior sigue sin confirmarse. No se volverá a enviar automáticamente; comprueba la publicación." };
   }
   // 2) Publicar desde una pantalla limpia de la publicación.
   await openPost(message.postUrl, deps);
@@ -252,7 +266,7 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
   await deps.beforeSend();
   // A partir de aquí el comentario puede estar publicado: nada puede lanzar error.
   try { await deps.tap(send.center); }
-  catch { return { ...message, outcome: "review", detail: "No se pudo confirmar la pulsación de Enviar. Revisa la publicación y marca el mensaje como publicado si aparece." }; }
+  catch { return { ...message, outcome: "review", detail: message.sendProtocol === "checkpoint-v1" ? "No se pudo confirmar la pulsación de Enviar. Se comprobará automáticamente si el comentario aparece." : "No se pudo confirmar la pulsación de Enviar. Revisa la publicación y marca el mensaje como publicado si aparece." }; }
   let shown = false;
   for (let attempt = 0; attempt < 5 && !shown; attempt++) {
     try {
@@ -263,5 +277,5 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
   }
   return shown
     ? { ...message, outcome: "sent", detail: "Mensaje visible en Facebook." }
-    : { ...message, outcome: "review", detail: "Se pulsó Enviar pero no se ha podido confirmar. Revisa la publicación y pulsa «Confirmo que está publicado» para continuar la conversación." };
+    : { ...message, outcome: "review", detail: message.sendProtocol === "checkpoint-v1" ? "Se pulsó Enviar pero no se ha podido confirmar. Se comprobará automáticamente antes de continuar la conversación." : "Se pulsó Enviar pero no se ha podido confirmar. Revisa la publicación y pulsa «Confirmo que está publicado» para continuar la conversación." };
 }
