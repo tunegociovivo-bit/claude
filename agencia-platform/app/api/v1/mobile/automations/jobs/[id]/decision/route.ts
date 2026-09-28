@@ -20,7 +20,7 @@ import {
 } from "@/lib/mobile/facebook-group-batch";
 
 const decisionSchema = z.object({
-  action: z.enum(["APPROVE", "REJECT", "COMPLETE", "RETRY", "CANCEL"]),
+  action: z.enum(["APPROVE", "REJECT", "COMPLETE", "RETRY", "VERIFY", "CANCEL"]),
   verifiedPublished: z.boolean().optional(),
   text: z.string().trim().min(1).max(MAX_CONVERSATION_BATCH_TEXT).optional(),
   targetUrl: z.string().trim().min(1).max(2048).optional(),
@@ -32,6 +32,7 @@ const statusByAction: Record<string, string> = {
   REJECT: "REJECTED",
   COMPLETE: "COMPLETED",
   RETRY: "QUEUED",
+  VERIFY: "QUEUED",
   CANCEL: "CANCELLED"
 };
 
@@ -46,6 +47,22 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api, pa
       where: { id: params.id, workspaceId: api.workspaceId }
     });
     if (!job) throw new ApiError(404, "job_not_found", "El trabajo ya no existe");
+    if (parsed.data.action === "VERIFY") {
+      if (job.action !== "POST_THREAD_MESSAGE" || !job.approvedAt || !["QUEUED", "FAILED", "WAITING_USER"].includes(job.status)
+        || parsed.data.text || parsed.data.targetUrl || parsed.data.scheduledAt || parsed.data.verifiedPublished !== undefined) {
+        throw new ApiError(409, "invalid_transition", "Solo se pueden verificar mensajes aprobados que no estén ejecutándose.");
+      }
+      const original = parseCommentThreadMessage(job.text ?? "");
+      const data = {
+        status: "QUEUED", scheduledAt: new Date(), attempts: 0, leaseOwner: null, leaseUntil: null,
+        lastError: null, lastErrorCode: null,
+        text: serializeCommentThreadMessage({ ...original, sendProtocol: "checkpoint-v1", outcome: "review", detail: "Comprobación automática de la publicación; no se volverá a enviar." })
+      };
+      const changed = await tx.mobileAutomationJob.updateMany({ where: { id: job.id, workspaceId: api.workspaceId, status: job.status, text: job.text }, data });
+      if (changed.count !== 1) throw new ApiError(409, "state_changed", "El trabajo ya cambió de estado; actualiza la lista");
+      await tx.mobileAutomationJobEvent.create({ data: { workspaceId: api.workspaceId, jobId: job.id, event: "VERIFY_REQUESTED", actorType: "USER", actorId: api.userId } });
+      return { ...job, ...data };
+    }
     const transition = parsed.data.action as MobileAutomationTransition;
     const threadManualConfirm = job.action === "POST_THREAD_MESSAGE" && transition === "COMPLETE"
       && (job.status === "FAILED" || (job.status === "QUEUED" && Boolean(job.approvedAt) && parsed.data.verifiedPublished === true));
