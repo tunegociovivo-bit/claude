@@ -16,7 +16,7 @@ export function facebookScrollCommand(xml: string, direction: "up" | "down", gen
     throw new Error("No se conoce la zona de desplazamiento de Facebook.");
   }
   // A short gesture in the list gutter avoids long-press menus on low-end phones.
-  const x = String(Math.round(bounds.left + width * 0.06));
+  const x = String(Math.round(bounds.left + width * (gentle ? 0.5 : 0.06)));
   const upper = Math.round(bounds.top + height * (gentle ? 0.35 : 0.18));
   const lower = Math.round(bounds.top + height * (gentle ? 0.65 : 0.82));
   return ["input", "touchscreen", "swipe", x, String(direction === "down" ? lower : upper), x, String(direction === "down" ? upper : lower), gentle ? "350" : "200"];

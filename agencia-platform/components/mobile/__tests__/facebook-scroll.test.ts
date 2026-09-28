@@ -17,8 +17,8 @@ describe("Facebook comment list scrolling", () => {
     expect(facebookScrollCommand(screen, "up")).toEqual(["input", "touchscreen", "swipe", "29", "235", "29", "685", "200"]);
   });
   it("uses overlapping slow steps when searching an exact threaded reply", () => {
-    expect(facebookScrollCommand(screen, "down", true)).toEqual(["input", "touchscreen", "swipe", "29", "565", "29", "355", "350"]);
-    expect(facebookScrollCommand(screen, "up", true)).toEqual(["input", "touchscreen", "swipe", "29", "355", "29", "565", "350"]);
+    expect(facebookScrollCommand(screen, "down", true)).toEqual(["input", "touchscreen", "swipe", "240", "565", "240", "355", "350"]);
+    expect(facebookScrollCommand(screen, "up", true)).toEqual(["input", "touchscreen", "swipe", "240", "355", "240", "565", "350"]);
   });
   it("fails closed when Facebook exposes no usable bounds", () => {
     expect(() => facebookScrollCommand("<hierarchy />", "down")).toThrow("zona de desplazamiento");

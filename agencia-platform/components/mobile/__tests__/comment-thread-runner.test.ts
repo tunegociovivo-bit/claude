@@ -40,6 +40,14 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("no confunde dos desplazamientos sin efecto con el final del hilo", async () => {
+    const stalled = expandedReply.replaceAll(parentText, "Otro comentario");
+    const { deps: d } = deps([screen([]), stalled, stalled, stalled, expandedReply]);
+    let scrolls = 0;
+    d.scroll = async () => { scrolls++; };
+    expect(await inspectCommentThreadNavigation({ ...message, mode: "reply", replyToText: parentText }, d)).toContain(parentText);
+    expect(scrolls).toBe(3);
+  });
   it("comprueba el destinatario sin escribir, preparar el envío ni pulsar Responder", async () => {
     const { deps: d, taps } = deps([screen([]), collapsedReply, expandedReply]);
     d.paste = async () => { throw new Error("No debe escribir"); };

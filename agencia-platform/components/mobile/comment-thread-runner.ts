@@ -92,6 +92,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
   let previous = "";
   let sorted = false;
   let loadingReads = 0;
+  let unchangedReads = 0;
   const expandedPreviews = new Set<string>();
   for (let screen = 0; screen < 24; screen++) {
     // The photo and then the comments can each finish loading after the first read.
@@ -139,7 +140,10 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
       xml = await readStable(deps);
       continue;
     }
-    if (signature === previous) break;
+    if (signature === previous) {
+      if (++unchangedReads >= 3) break;
+      await deps.wait(1_200);
+    } else unchangedReads = 0;
     previous = signature;
     await deps.scroll(xml, "down");
     xml = await readStable(deps);
@@ -173,6 +177,7 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
   let previous = "";
   const expandedPreviews = new Set<string>();
   let sorted = false;
+  let unchangedReads = 0;
   for (let screen = 0; screen < 24; screen++) {
     if (textAlreadyVisible(xml, text)) return true;
     const sort = !sorted && namedControl(xml, /^(Más pertinentes|Más recientes|Most relevant|Newest|Se muestran (?:Más pertinentes|Más recientes) comentarios|Showing Most relevant comments(?:[.]|$))/i);
@@ -199,7 +204,10 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
     const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|Ver (?:\d+|una) respuestas?|Ver respuestas|View more comments|View previous comments|View \d+ repl(y|ies))/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     const signature = screenSignature(xml);
-    if (signature === previous) break;
+    if (signature === previous) {
+      if (++unchangedReads >= 3) break;
+      await deps.wait(1_200);
+    } else unchangedReads = 0;
     previous = signature;
     await deps.scroll(xml, "down");
     xml = await readStable(deps);
