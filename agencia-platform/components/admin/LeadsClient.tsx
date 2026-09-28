@@ -58,6 +58,15 @@ import {
   Settings as SettingsIcon, Ban, GitBranch, Send, RefreshCw, Download, Play, Pause, Trash2, Pencil, Zap, CalendarClock, Eye, Mail, Building2, Radar
 } from "lucide-react";
 
+async function fetchCreateCommercialTask(input: RequestInfo | URL, init?: RequestInit) {
+  let response = await fetch(input, init);
+  if (response.status !== 429) return response;
+  const retryAfter = Number(response.headers.get("Retry-After") ?? "2");
+  await new Promise((resolve) => setTimeout(resolve, Math.min(10, Math.max(1, retryAfter)) * 1000));
+  response = await fetch(input, init);
+  return response;
+}
+
 type Lead = {
   id: string;
   name: string;
@@ -6157,7 +6166,7 @@ function InboxChat({
     try {
       const qs = new URLSearchParams({ phone: selected });
       if (threadMeta.leadId) qs.set("leadId", threadMeta.leadId);
-      const r = await fetch(`/api/v1/leads/inbox/create-task?${qs.toString()}`);
+      const r = await fetchCreateCommercialTask(`/api/v1/leads/inbox/create-task?${qs.toString()}`);
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
         alert(d?.message ?? d?.error?.message ?? "No se pudo preparar la tarea.");
@@ -6179,7 +6188,7 @@ function InboxChat({
     if (!selected || !ctTitle.trim()) return;
     setCtCreating(true);
     try {
-      const r = await fetch("/api/v1/leads/inbox/create-task", {
+      const r = await fetchCreateCommercialTask("/api/v1/leads/inbox/create-task", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

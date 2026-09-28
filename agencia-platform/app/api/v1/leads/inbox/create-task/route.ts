@@ -84,7 +84,7 @@ async function suggestTitle(workspaceId: string, phone: string, leadName: string
   return `📞 ${base} · ${phone}`;
 }
 
-export const GET = withApi({ scope: "*" }, async (req, { api }) => {
+export const GET = withApi({ scope: "*", rateLimit: { user: 600, apikey: 600 } }, async (req, { api }) => {
   const u = new URL(req.url);
   const phone = (u.searchParams.get("phone") ?? "").trim();
   if (!phone) throw new ApiError(400, "validation_error", "Falta 'phone'");
@@ -123,7 +123,7 @@ const postSchema = z.object({
   title: z.string().max(300).optional()
 });
 
-export const POST = withApi({ scope: "*" }, async (req, { api }) => {
+export const POST = withApi({ scope: "*", rateLimit: { user: 600, apikey: 600 } }, async (req, { api }) => {
   const body = await req.json().catch(() => null);
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);

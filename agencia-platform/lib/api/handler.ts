@@ -33,6 +33,8 @@ export type WithApiOpts = {
   scope?: string;
   /** Categoría de rate-limit más estricta. Si omitida, usa LIMITS por defecto. */
   rate?: RateCategory;
+  /** Límite específico para endpoints manuales que no deben competir con el polling de pantalla. */
+  rateLimit?: { user?: number; apikey?: number };
   /**
    * Exige rol ADMIN (además de las rutas /api/v1/admin/* que ya se protegen por
    * path). Úsalo en rutas admin-sensibles que viven FUERA de /api/v1/admin/
@@ -70,6 +72,16 @@ function bucketKey(req: NextRequest, api: ApiContext, rate: RateCategory): { key
   return { key: `anon:${ip}`, limit: LIMITS.anon };
 }
 
+function bucketKeyForLimit(req: NextRequest, api: ApiContext, opts: WithApiOpts): { key: string; limit: number } {
+  if (!opts.rateLimit) return bucketKey(req, api, opts.rate);
+  const isWrite = req.method !== "GET" && req.method !== "HEAD";
+  const suffix = `custom:${isWrite ? "w" : "r"}`;
+  if (api.apiKeyId) return { key: `apikey:${api.apiKeyId}:${suffix}`, limit: opts.rateLimit.apikey ?? opts.rateLimit.user ?? LIMITS.write_apikey };
+  if (api.userId) return { key: `user:${api.userId}:${suffix}`, limit: opts.rateLimit.user ?? LIMITS.write_user };
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return { key: `anon:${ip}:${suffix}`, limit: Math.min(opts.rateLimit.user ?? LIMITS.anon, 120) };
+}
+
 export function withApi(opts: WithApiOpts, handler: Handler) {
   return async (req: NextRequest, ctx: { params: any }) => {
     try {
@@ -91,7 +103,7 @@ export function withApi(opts: WithApiOpts, handler: Handler) {
         }
       }
 
-      const { key, limit } = bucketKey(req, api, opts.rate);
+      const { key, limit } = bucketKeyForLimit(req, api, opts);
       const rl = rateLimit(key, limit);
       if (!rl.ok) {
         const retryAfter = Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000));
