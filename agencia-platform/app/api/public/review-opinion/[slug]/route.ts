@@ -17,7 +17,8 @@ const schema = z.object({
   body: z.string().trim().min(2).max(4000)
 });
 
-export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const limited = rateLimitPublic(req, { tag: "review-opinion", limit: 20 });
   if (limited) return limited;
 

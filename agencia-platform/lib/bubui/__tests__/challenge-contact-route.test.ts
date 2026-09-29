@@ -12,7 +12,7 @@ describe("challenge contact endpoint", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ offerId: "welcome-1", channel: "qr" })
       }),
-      { params: { id: "customer-1" } }
+      { params: Promise.resolve({ id: "customer-1" }) }
     );
     expect(response.status).toBe(401);
   });

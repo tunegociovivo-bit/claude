@@ -15,7 +15,8 @@ import { getActivePlusGifts } from "@/lib/bubui/plus-gifts";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const customerId = params.id;
   if (!(await customerAuthOk(req, customerId))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });

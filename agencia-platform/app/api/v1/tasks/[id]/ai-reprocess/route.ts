@@ -26,11 +26,11 @@ function authed(req: NextRequest): boolean {
   return header === `Bearer ${secret}`;
 }
 
-export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   if (!authed(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  const taskId = ctx.params.id;
+  const taskId = (await ctx.params).id;
 
   const task = await prisma.task.findUnique({
     where: { id: taskId },

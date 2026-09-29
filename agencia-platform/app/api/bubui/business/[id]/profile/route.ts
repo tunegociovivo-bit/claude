@@ -116,7 +116,8 @@ const schema = z
     { message: "El mínimo de la ruleta no puede ser mayor que el máximo", path: ["wheelMinPct"] }
   );
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = req.headers.get("authorization");
   if (!(await businessTokenAllows(auth, params.id, { requireStoredToken: true }))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });

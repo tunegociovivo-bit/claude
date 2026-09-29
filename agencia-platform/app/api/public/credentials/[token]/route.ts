@@ -30,7 +30,8 @@ function safeDecrypt(v: any): string | null {
   }
 }
 
-export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // Endpoint MUY sensible (entrega credenciales). Rate-limit duro por
   // IP — 10/min, no debería leerse más que una vez por sesión legítima.
   const rl = rateLimitPublic(req, { tag: "credentials", limit: 10 });

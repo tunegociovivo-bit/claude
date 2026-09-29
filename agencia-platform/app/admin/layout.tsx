@@ -41,7 +41,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // Si por lo que sea no llega el header (no debería: el middleware lo pone en
   // todas las rutas), default-deny para no-admins (cadena vacía no casa con
   // ninguna tarjeta). Los ADMIN pasan siempre (access.all).
-  const pathname = headers().get("x-pathname") ?? "";
+  const pathname = (await headers()).get("x-pathname") ?? "";
   if (!canAccessAdminPath(access, pathname)) redirect("/admin");
 
   return <>{children}</>;

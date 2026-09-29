@@ -20,7 +20,7 @@ beforeEach(() => {
 
 describe("business challenge list", () => {
   it("shows contact details and one payment even when the friend's old referral is different", async () => {
-    const response = await GET(new Request("https://example.test/challenges"), { params: { id: "business" } });
+    const response = await GET(new Request("https://example.test/challenges"), { params: Promise.resolve({ id: "business" }) });
     const { items } = await response.json();
     expect(items[0]).toMatchObject({ done: 1, left: 1, need: 2 });
     expect(items[0].friends[0]).toMatchObject({ customerId: "friend", phone: "+34600000001", redeemed: true });
@@ -28,14 +28,14 @@ describe("business challenge list", () => {
   it("does not count a purchase linked to a different coupon", async () => {
     h.prisma.bubuiChallengeParticipant.findMany.mockResolvedValue([{ offerId: "challenge", friendCustomerId: "friend", status: "registered", registeredAt: new Date() }]);
     h.prisma.bubuiPurchase.findMany.mockResolvedValue([{ redeemedOfferId: "unrelated-coupon" }]);
-    const response = await GET(new Request("https://example.test/challenges"), { params: { id: "business" } });
+    const response = await GET(new Request("https://example.test/challenges"), { params: Promise.resolve({ id: "business" }) });
     const { items } = await response.json();
     expect(items[0]).toMatchObject({ done: 0, left: 2 });
     expect(h.prisma.bubuiPurchase.findMany.mock.calls[0][0].where).toEqual({ businessId: "business", status: "confirmed", redeemedOfferId: { in: ["welcome"] } });
   });
   it("rejects access without an authorized business session", async () => {
     h.auth.mockResolvedValue(false);
-    expect((await GET(new Request("https://example.test/challenges"), { params: { id: "business" } })).status).toBe(401);
+    expect((await GET(new Request("https://example.test/challenges"), { params: Promise.resolve({ id: "business" }) })).status).toBe(401);
     expect(h.prisma.bubuiOffer.findMany).not.toHaveBeenCalled();
   });
 });

@@ -11,7 +11,11 @@ import { businessTokenAllows } from "@/lib/bubui/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { id: string; sessionId: string } }) {
+export async function POST(
+  req: Request,
+  props: { params: Promise<{ id: string; sessionId: string }> }
+) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }

@@ -11,7 +11,11 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({ status: z.enum(["pending", "confirmed", "cancelled"]) });
 
-export async function PATCH(req: Request, { params }: { params: { id: string; bookingId: string } }) {
+export async function PATCH(
+  req: Request,
+  props: { params: Promise<{ id: string; bookingId: string }> }
+) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }

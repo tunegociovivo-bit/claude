@@ -110,6 +110,7 @@ export default function CommentRenderer({ body, bodyJson }: { body: string; body
   const [lightbox, setLightbox] = useState<{ src: string; alt: string | null } | null>(null);
 
   const editor = useEditor({
+    shouldRerenderOnTransaction: true,
     immediatelyRender: false,
     editable: false,
     extensions: [
@@ -117,7 +118,7 @@ export default function CommentRenderer({ body, bodyJson }: { body: string; body
       // secciones como "👥 Participantes" como heading nivel 3.
       // Sin esto, el doc se considera inválido y el comentario
       // aparece vacío aunque esté guardado.
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      StarterKit.configure({ link: false, heading: { levels: [1, 2, 3] } }),
       Link.configure({ openOnClick: true, autolink: true }),
       Image.configure({
         inline: false,

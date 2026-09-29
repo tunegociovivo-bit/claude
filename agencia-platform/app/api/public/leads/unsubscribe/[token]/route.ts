@@ -12,13 +12,15 @@ function page(title: string, message: string, token?: string) {
   });
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const payload = verifyUnsubscribeToken(params.token);
   if (!payload) return page("Enlace no válido", "Este enlace de baja no es válido o ha caducado.");
   return page("Dejar de recibir comunicaciones", "Confirma la baja y bloquearemos inmediatamente este contacto en email y WhatsApp.", params.token);
 }
 
-export async function POST(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const payload = verifyUnsubscribeToken(params.token);
   if (!payload) return page("Enlace no válido", "Este enlace de baja no es válido o ha caducado.");
   await blockLeadCompletely({

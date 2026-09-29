@@ -54,7 +54,8 @@ function escapeXml(s: string): string {
   })[c] as string);
 }
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const url = new URL(req.url);
   const style = (url.searchParams.get("style") ?? "cosy") as keyof typeof STYLES;
   const styleDef = STYLES[style] ?? STYLES.cosy;

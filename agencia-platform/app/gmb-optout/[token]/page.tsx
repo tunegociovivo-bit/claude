@@ -3,9 +3,10 @@
 /**
  * Página PÚBLICA de baja (opt-out) de la campaña de reseñas. Un clic añade a la suppression list.
  */
-import { useState } from "react";
+import { useState, use } from "react";
 
-export default function OptOut({ params }: { params: { token: string } }) {
+export default function OptOut(props: { params: Promise<{ token: string }> }) {
+  const params = use(props.params);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

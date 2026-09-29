@@ -12,12 +12,14 @@ import OpinarForm from "@/components/reviews/OpinarForm";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const client = await prisma.reviewClient.findFirst({ where: { slug: params.slug }, select: { name: true } });
   return { title: client ? `Tu opinión — ${client.name}` : "Opinión", robots: { index: false, follow: false } };
 }
 
-export default async function OpinarPage({ params }: { params: { slug: string } }) {
+export default async function OpinarPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const client = await prisma.reviewClient.findFirst({
     where: { slug: params.slug },
     select: { slug: true, name: true, gateHeader: true }

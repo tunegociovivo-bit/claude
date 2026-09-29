@@ -3,7 +3,8 @@ import { prisma } from '@/lib/db/prisma';
 import { businessTokenAllows } from '@/lib/bubui/auth';
 import { deliverOperation } from '@/lib/bubui/operations';
 export const dynamic = 'force-dynamic';
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get('authorization'), params.id))) return NextResponse.json({ error: { code: 'unauthorized' } }, { status: 401 });
   const [notices, ads, purchases, pendingProofs] = await Promise.all([
     prisma.bubuiOperation.findMany({ where: { businessId: params.id, status: { not: 'accepted' } }, select: { id: true, status: true, attempts: true, lastError: true, createdAt: true, kind: true }, orderBy: { createdAt: 'desc' }, take: 50 }),
@@ -13,7 +14,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   ]);
   return NextResponse.json({ notices, ads, purchases, pendingProofs });
 }
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get('authorization'), params.id))) return NextResponse.json({ error: { code: 'unauthorized' } }, { status: 401 });
   const body = await req.json().catch(() => null);
   if (typeof body?.id !== 'string') return NextResponse.json({ error: { code: 'validation' } }, { status: 400 });

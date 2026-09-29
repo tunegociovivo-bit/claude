@@ -29,7 +29,8 @@ export const maxDuration = 60;
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"];
 
-export async function POST(req: Request, { params }: { params: { code: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ code: string }> }) {
+  const params = await props.params;
   if (!isStorageEnabled()) {
     return NextResponse.json({ error: { code: "storage_disabled", message: "Storage no configurado." } }, { status: 503 });
   }

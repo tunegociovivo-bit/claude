@@ -25,7 +25,8 @@ const schema = z.object({
   ticketAmount: z.number().positive().max(10000).optional()
 });
 
-export async function POST(req: Request, { params }: { params: { code: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ code: string }> }) {
+  const params = await props.params;
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   const { customerId, ticketScanId } = parsed.data;

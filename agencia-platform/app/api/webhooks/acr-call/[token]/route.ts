@@ -57,7 +57,8 @@ function parseAcrFilename(name: string) {
   return out;
 }
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const token = String(params.token ?? "").trim();
   if (!token || token.length < 16) {
     return NextResponse.json({ ok: false, error: "invalid token" }, { status: 401 });
@@ -207,7 +208,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   return NextResponse.json({ ok: true, processed: true, taskId: r.taskId, runId: r.runId });
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   return NextResponse.json({
     ok: true,
     endpoint: "acr-call",

@@ -100,7 +100,7 @@ export async function composeQrPoster(opts: {
     h: Math.round(opts.config.qr.h * H)
   };
 
-  const composites: sharp.OverlayOptions[] = [];
+  const composites: import("sharp").OverlayOptions[] = [];
 
   // Si la tarjeta nueva es más estrecha que la de muestra de la plantilla,
   // la franja sobrante de la tarjeta original quedaría visible. La tapamos

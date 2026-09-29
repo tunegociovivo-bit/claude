@@ -55,7 +55,7 @@ describe("POST claim de un /reto reenviado", () => {
       body: JSON.stringify({ customerId: "friend-1" })
     });
 
-    const res = await POST(req, { params: { token: TOKEN } });
+    const res = await POST(req, { params: Promise.resolve({ token: TOKEN }) });
     const body = await res.json();
 
     expect(res.status).toBe(200);
@@ -79,7 +79,7 @@ describe("reclamación inicial atómica", () => {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: "owner-1" })
     });
 
-    const res = await POST(req, { params: { token: TOKEN } });
+    const res = await POST(req, { params: Promise.resolve({ token: TOKEN }) });
 
     expect(res.status).toBe(200);
     expect(H.prisma.$transaction).toHaveBeenCalledTimes(1);

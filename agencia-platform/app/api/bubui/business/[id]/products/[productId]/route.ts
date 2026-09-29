@@ -19,7 +19,11 @@ const schema = z.object({
   sortOrder: z.number().int().optional()
 });
 
-export async function PATCH(req: Request, { params }: { params: { id: string; productId: string } }) {
+export async function PATCH(
+  req: Request,
+  props: { params: Promise<{ id: string; productId: string }> }
+) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
@@ -33,7 +37,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string; pr
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: Request, { params }: { params: { id: string; productId: string } }) {
+export async function DELETE(
+  req: Request,
+  props: { params: Promise<{ id: string; productId: string }> }
+) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }

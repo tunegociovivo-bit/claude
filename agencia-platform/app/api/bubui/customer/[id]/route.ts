@@ -18,7 +18,8 @@ import { deleteCustomerMedia } from "@/lib/bubui/customer-media";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await customerAuthOk(req, params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
@@ -110,7 +111,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
  *
  * Auth: token de sesión del propio cliente.
  */
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (customerIdFromAuth(req) !== params.id || !(await customerAuthOk(req, params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }

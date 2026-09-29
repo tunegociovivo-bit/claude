@@ -9,7 +9,11 @@ import { unlockShareChallengeOffers } from "@/lib/bubui/share-offer";
 
 const schema = z.object({ action: z.enum(["yes", "no", "later", "remind", "lost"]) });
 
-export async function POST(req: Request, { params }: { params: { id: string; offerId: string; friendId: string } }) {
+export async function POST(
+  req: Request,
+  props: { params: Promise<{ id: string; offerId: string; friendId: string }> }
+) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id, { requireStoredToken: true }))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "validation" } }, { status: 400 });

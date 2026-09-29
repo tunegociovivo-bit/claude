@@ -11,7 +11,8 @@ import { eventDedupKey, fingerprintOf, type EventType, EVENT_TYPES } from "@/lib
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { trackId: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ trackId: string }> }) {
+  const params = await props.params;
   const rl = rateLimitPublic(req as any, { tag: "gmb-track", limit: 240 });
   if (rl && (rl as any).ok === false) return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
 

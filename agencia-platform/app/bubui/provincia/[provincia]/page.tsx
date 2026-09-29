@@ -14,9 +14,10 @@ import { bubuiUrl } from "@/lib/bubui/url";
 
 export const revalidate = 300;
 
-type Params = { params: { provincia: string } };
+type Params = { params: Promise<{ provincia: string }> };
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
+export async function generateMetadata(props: Params): Promise<Metadata> {
+  const params = await props.params;
   const data = await getLocalitiesForProvince(params.provincia);
   if (!data) return { title: "Directorio · Bubui" };
   const title = `Negocios con descuentos en ${data.provLabel} · Bubui`;
@@ -25,7 +26,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   return { title, description, alternates: { canonical }, robots: { index: true, follow: true }, openGraph: { title, description, url: canonical } };
 }
 
-export default async function ProvinciaPage({ params }: Params) {
+export default async function ProvinciaPage(props: Params) {
+  const params = await props.params;
   const data = await getLocalitiesForProvince(params.provincia);
   if (!data) notFound();
   const { provLabel, total, localities } = data;

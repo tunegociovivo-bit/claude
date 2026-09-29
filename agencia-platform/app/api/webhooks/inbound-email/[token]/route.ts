@@ -43,7 +43,8 @@ import { isPermanentNoContactReply } from "@/lib/leads/reply-classification";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // Auth: buscar workspace cuyo settings.aiAgent.inbound.email.webhookToken
   // sea el token de la URL. Es lineal (LIKE-style sobre JSON) — para
   // un usuario con miles de workspaces necesitaría índice, pero en
@@ -237,7 +238,8 @@ function unquotedReply(value: string): string {
 }
 
 // GET para healthcheck — algunos proveedores hacen GET para validar la URL.
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const token = String(params.token ?? "").trim();
   return NextResponse.json({ ok: true, endpoint: "inbound-email", tokenValid: token.length >= 16 });
 }

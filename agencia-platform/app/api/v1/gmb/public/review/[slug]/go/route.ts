@@ -9,7 +9,8 @@ import { rateLimitPublic } from "@/lib/api/handler";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { slug: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const rl = rateLimitPublic(req as any, { tag: "gmb-review-go", limit: 240 });
   if (rl && (rl as any).ok === false) return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
   const campaign = await prisma.gmbReviewCampaign.findUnique({ where: { publicSlug: params.slug } });

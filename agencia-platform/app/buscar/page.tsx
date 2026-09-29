@@ -6,7 +6,8 @@ import { Building2, FileText, KanbanSquare, Search } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function BuscarPage({ searchParams }: { searchParams: { q?: string } }) {
+export default async function BuscarPage(props: { searchParams: Promise<{ q?: string }> }) {
+  const searchParams = await props.searchParams;
   const q = (searchParams.q ?? "").toLowerCase().trim();
   return (
     <Suspense>

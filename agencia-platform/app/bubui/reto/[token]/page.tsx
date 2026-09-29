@@ -16,7 +16,8 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ token: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const deal = await getCustomDealPublic(params.token).catch(() => null);
   const { title, description } = customDealShareCopy(deal);
   const url = bubuiUrl(`/reto/${params.token}`);
@@ -38,7 +39,8 @@ export async function generateMetadata({ params }: { params: { token: string } }
   };
 }
 
-export default async function RetoPage({ params }: { params: { token: string } }) {
+export default async function RetoPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // Traza segura (sin PII): la página del reto se ha abierto/crawleado.
   await recordDealTrace({ token: params.token, stage: "web_page_view", platform: "web", source: "server" });
   const deal = await getCustomDealPublic(params.token).catch(() => null);

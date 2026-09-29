@@ -4,7 +4,8 @@ import { authOptions, getSessionWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { downloadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id as string | undefined;
   const workspaceId = await getSessionWorkspaceId();

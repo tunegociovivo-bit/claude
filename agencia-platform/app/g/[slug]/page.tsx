@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
-export default async function GatePage({ params }: { params: { slug: string } }) {
+export default async function GatePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const client = await prisma.reviewClient.findFirst({
     where: { slug: params.slug },
     select: { slug: true, gateTarget: true }

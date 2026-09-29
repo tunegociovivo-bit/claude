@@ -183,8 +183,8 @@ const swSelfHeal = `
 // pasamos para forzar el modo sin-chrome en todo el dominio Bubui.
 const BUBUI_HOSTS = new Set(["bubui.app", "www.bubui.app"]);
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const host = (headers().get("host") || "").split(":")[0].toLowerCase();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const host = ((await headers()).get("host") || "").split(":")[0].toLowerCase();
   const isBubuiHost = BUBUI_HOSTS.has(host);
   return (
     <html lang="es" className={poppins.variable}>

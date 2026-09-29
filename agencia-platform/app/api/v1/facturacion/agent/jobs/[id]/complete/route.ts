@@ -10,7 +10,8 @@ import { authenticateAgent, completeJob, type CompleteInput } from "@/lib/factur
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const agent = await authenticateAgent(req.headers.get("authorization") ?? "");
   if (!agent) return NextResponse.json({ error: { code: "unauthorized", message: "Agente no autorizado" } }, { status: 401 });
   const body = await req.json().catch(() => ({}));

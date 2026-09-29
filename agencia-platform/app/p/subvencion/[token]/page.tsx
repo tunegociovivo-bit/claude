@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * encontramos y confirma con un clic que quiere que la agencia se las
  * gestione. El token es el de BubuiSubvencionProposal.
  */
-export default async function SubvencionValidatePage({ params }: { params: { token: string } }) {
+export default async function SubvencionValidatePage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const proposal = await prisma.bubuiSubvencionProposal.findUnique({
     where: { token: params.token },
     include: { business: { select: { name: true } } }

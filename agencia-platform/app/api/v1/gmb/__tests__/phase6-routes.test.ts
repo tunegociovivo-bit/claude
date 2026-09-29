@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 describe("alerts/[id] PATCH", () => {
-  const patch = (id: string, body: any) => alertPatch(new NextRequest("https://h/x", { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), { params: { id } });
+  const patch = (id: string, body: any) => alertPatch(new NextRequest("https://h/x", { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), { params: Promise.resolve({ id }) });
   it("404 alerta de otro workspace", async () => {
     prisma._db.gmbAlert.push({ id: "a1", workspaceId: "otro", status: "open" });
     expect((await patch("a1", { command: "ack" })).status).toBe(404);
@@ -55,7 +55,7 @@ describe("alerts/[id] PATCH", () => {
 describe("report-share crear/revocar", () => {
   it("crea enlace con token (una vez) y guarda solo el hash", async () => {
     prisma._db.gmbClient.push({ id: "cl1", workspaceId: "w1", name: "Café" });
-    const res = await sharePost(new NextRequest("https://hub.example/x", { method: "POST", body: JSON.stringify({ expiryDays: 15 }), headers: { "content-type": "application/json" } }), { params: { id: "cl1" } });
+    const res = await sharePost(new NextRequest("https://hub.example/x", { method: "POST", body: JSON.stringify({ expiryDays: 15 }), headers: { "content-type": "application/json" } }), { params: Promise.resolve({ id: "cl1" }) });
     const body = await res.json();
     expect(body.url).toContain("/gmb-report/");
     const token = body.url.split("/gmb-report/")[1];
@@ -63,13 +63,13 @@ describe("report-share crear/revocar", () => {
     expect(prisma._db.gmbReportShare[0].tokenHash).not.toBe(token);
     // revocar
     const shareId = prisma._db.gmbReportShare[0].id;
-    await shareDelete(new NextRequest(`https://h/x?shareId=${shareId}`, { method: "DELETE" }), { params: { id: "cl1" } });
+    await shareDelete(new NextRequest(`https://h/x?shareId=${shareId}`, { method: "DELETE" }), { params: Promise.resolve({ id: "cl1" }) });
     expect(prisma._db.gmbReportShare[0].revokedAt).toBeTruthy();
   });
 });
 
 describe("report público", () => {
-  const get = (token: string) => publicReport(new Request(`https://h/api/v1/gmb/public/report/${token}`), { params: { token } });
+  const get = (token: string) => publicReport(new Request(`https://h/api/v1/gmb/public/report/${token}`), { params: Promise.resolve({ token }) });
   it("token inexistente → 404", async () => {
     expect((await get("nope")).status).toBe(404);
   });

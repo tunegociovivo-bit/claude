@@ -18,7 +18,8 @@ import { ingestInbox, recordOutboundFromPhone } from "@/lib/leads/inbox";
 import { extractWahaMessageId } from "@/lib/leads/waha";
 import { realPhoneFromMeta } from "@/lib/leads/lid";
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const workspaces = await prisma.workspace.findMany();
   const ws = workspaces.find((w) => {
     const s = (w.settings as any) ?? {};

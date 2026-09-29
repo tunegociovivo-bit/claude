@@ -36,7 +36,8 @@ async function loadPurchase(purchaseId: string) {
   });
 }
 
-export async function GET(req: Request, { params }: { params: { purchaseId: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ purchaseId: string }> }) {
+  const params = await props.params;
   const p = await loadPurchase(params.purchaseId);
   if (!p) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   if (!(await customerAuthOk(req, p.customerId))) {
@@ -66,7 +67,8 @@ export async function GET(req: Request, { params }: { params: { purchaseId: stri
   });
 }
 
-export async function POST(req: Request, { params }: { params: { purchaseId: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ purchaseId: string }> }) {
+  const params = await props.params;
   const p = await loadPurchase(params.purchaseId);
   if (!p) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   if (!(await customerAuthOk(req, p.customerId))) {

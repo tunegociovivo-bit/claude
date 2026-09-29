@@ -9,7 +9,8 @@ import { rateLimitPublic } from "@/lib/api/handler";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const limited = rateLimitPublic(req, { tag: "gmb-widget", limit: 120 });
   if (limited) return limited;
 

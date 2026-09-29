@@ -113,7 +113,7 @@ describe("Bubui with real isolated PostgreSQL and fictional people", () => {
     const { business, parent, friends } = await challengeFixture();
     const { friend, coupon } = friends[0];
     const p = await purchase(business.id, friend.id, { redeemedOfferId: coupon.id });
-    expect((await markPaid(request({ action: "yes" }, business.id), { params: { id: business.id, offerId: parent.id, friendId: friend.id } })).status).toBe(200);
+    expect((await markPaid(request({ action: "yes" }, business.id), { params: Promise.resolve({ id: business.id, offerId: parent.id, friendId: friend.id }) })).status).toBe(200);
     expect((await confirm(request({ businessId: business.id, purchaseId: p.id, action: "confirm" }, business.id))).status).toBe(200);
     expect(await prisma.bubuiCustomer.findUnique({ where: { id: friend.id } })).toMatchObject({ totalPurchases: 1, totalSaved: 50 });
   });

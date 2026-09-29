@@ -23,7 +23,7 @@ let expired: boolean;
 let rows: { id: string; friendCustomerId: string; referrerCustomerId: string; status: string; contactedAt: Date | null; nextFollowupAt: Date | null; reminderSentAt: Date | null }[];
 const call = (friendId: string, action = "yes", businessId = "business-test") => POST(new Request("https://example.test/payment", {
   method: "POST", body: JSON.stringify({ action })
-}), { params: { id: businessId, offerId: "challenge-test", friendId } });
+}), { params: Promise.resolve({ id: businessId, offerId: "challenge-test", friendId }) });
 
 beforeEach(() => {
   vi.resetAllMocks();

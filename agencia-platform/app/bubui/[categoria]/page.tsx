@@ -18,9 +18,10 @@ import { templateCategory, templateLocality, getStoredIntro, keyCategory, keyLoc
 
 export const revalidate = 300;
 
-type Params = { params: { categoria: string } };
+type Params = { params: Promise<{ categoria: string }> };
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
+export async function generateMetadata(props: Params): Promise<Metadata> {
+  const params = await props.params;
   const slug = params.categoria;
   if (categoryBySlug(slug)) {
     const data = await getLocalitiesForCategory(slug);
@@ -38,7 +39,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   return { title, description, alternates: { canonical }, robots: { index: true, follow: true }, openGraph: { title, description, url: canonical } };
 }
 
-export default async function SegmentoPage({ params }: Params) {
+export default async function SegmentoPage(props: Params) {
+  const params = await props.params;
   const slug = params.categoria;
 
   // ── Caso sector (/peluquerias) ──────────────────────────────────────────

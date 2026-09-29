@@ -125,7 +125,7 @@ export function withApi(opts: WithApiOpts, handler: Handler) {
         );
       }
 
-      const res = await handler(req, { ...ctx, api });
+      const res = await handler(req, { ...ctx, params: await ctx.params, api });
       res.headers.set("X-RateLimit-Limit", String(limit));
       res.headers.set("X-RateLimit-Remaining", String(rl.remaining));
       res.headers.set("X-RateLimit-Reset", String(Math.ceil(rl.resetAt / 1000)));

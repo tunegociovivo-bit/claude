@@ -82,7 +82,7 @@ describe("Bubui release regressions", () => {
   });
   it("A09: cancels a paid subscription before deleting the account", async () => {
     h.prisma.bubuiCustomer.findUnique.mockResolvedValue({ id: "customer-test", apiToken: "test", bubuiStripeSubscriptionId: "sub_fake", plan: "plus" });
-    const response = await deleteAccount(request({}, "Bearer customer-test:test"), { params: { id: "customer-test" } });
+    const response = await deleteAccount(request({}, "Bearer customer-test:test"), { params: Promise.resolve({ id: "customer-test" }) });
     expect(response.status).toBe(200);
     expect(h.prisma.bubuiCustomer.delete).toHaveBeenCalled();
     expect(h.cancel).toHaveBeenCalledWith("sub_fake");
@@ -101,7 +101,7 @@ describe("Bubui release regressions", () => {
   });
   it("A13: rejects forged business sessions", async () => {
     h.prisma.bubuiBusiness.update.mockResolvedValue({ id: "business-test" });
-    const response = await profile(request({ notificationEmail: "fake@example.test", defaultDiscountPct: 50 }, "Bearer business-test:FORGED"), { params: { id: "business-test" } });
+    const response = await profile(request({ notificationEmail: "fake@example.test", defaultDiscountPct: 50 }, "Bearer business-test:FORGED"), { params: Promise.resolve({ id: "business-test" }) });
     expect(response.status).toBe(401);
     expect(h.prisma.bubuiBusiness.update).not.toHaveBeenCalled();
   });
@@ -111,23 +111,23 @@ describe("Bubui release regressions", () => {
     expect(await response.json()).toMatchObject({ status: "pending" });
   });
   it("A19: returns a validation error for malformed website URLs", async () => {
-    expect((await profile(request({ websiteUrl: "example" }, "Bearer business-test:test"), { params: { id: "business-test" } })).status).toBe(400);
+    expect((await profile(request({ websiteUrl: "example" }, "Bearer business-test:test"), { params: Promise.resolve({ id: "business-test" }) })).status).toBe(400);
     expect(h.prisma.bubuiBusiness.update).not.toHaveBeenCalled();
   });
   it("rejects a legacy profile session without a stored secret even in lazy mode", async () => {
     process.env.BUBUI_BUSINESS_AUTH_MODE = "lazy";
     h.prisma.bubuiBusiness.findUnique.mockResolvedValue({ id: "business-test", apiToken: null });
-    expect((await profile(request({ description: "Edited" }, "Bearer business-test:anything"), { params: { id: "business-test" } })).status).toBe(401);
+    expect((await profile(request({ description: "Edited" }, "Bearer business-test:anything"), { params: Promise.resolve({ id: "business-test" }) })).status).toBe(401);
   });
   it("preserves an account when subscription cancellation fails", async () => {
     h.prisma.bubuiCustomer.findUnique.mockResolvedValue({ id: "customer-test", apiToken: "test", bubuiStripeSubscriptionId: "sub_fake" });
     h.cancel.mockRejectedValue(new Error("Stripe unavailable"));
-    expect((await deleteAccount(request({}, "Bearer customer-test:test"), { params: { id: "customer-test" } })).status).toBe(502);
+    expect((await deleteAccount(request({}, "Bearer customer-test:test"), { params: Promise.resolve({ id: "customer-test" }) })).status).toBe(502);
     expect(h.prisma.bubuiCustomer.delete).not.toHaveBeenCalled();
   });
   it("refuses deletion without a session even in lazy mode", async () => {
     process.env.BUBUI_CUSTOMER_AUTH_MODE = "lazy";
-    expect((await deleteAccount(request({}), { params: { id: "customer-test" } })).status).toBe(401);
+    expect((await deleteAccount(request({}), { params: Promise.resolve({ id: "customer-test" }) })).status).toBe(401);
     expect(h.cancel).not.toHaveBeenCalled();
   });
   it.each([

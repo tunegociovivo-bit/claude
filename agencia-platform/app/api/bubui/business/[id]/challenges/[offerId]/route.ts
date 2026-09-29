@@ -11,7 +11,8 @@ import { businessTokenAllows } from "@/lib/bubui/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(req: Request, { params }: { params: { id: string; offerId: string } }) {
+export async function DELETE(req: Request, props: { params: Promise<{ id: string; offerId: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }

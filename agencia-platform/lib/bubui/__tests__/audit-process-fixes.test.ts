@@ -83,7 +83,7 @@ describe("process security regression", () => {
     h.prisma.bubuiPurchase.findUnique.mockResolvedValue({ id: "purchase-test", customerId: "customer-test", businessId: "business-test", status: "rejected", business: { id: "business-test", shareOfferPct: 20 } });
     h.prisma.bubuiOffer.findUnique.mockResolvedValue(null);
     const data = new FormData(); data.set("action", "share");
-    const response = await postPurchase(new Request("https://example.test/post-purchase", { method: "POST", headers: { authorization: "Bearer customer-test:test" }, body: data }), { params: { purchaseId: "purchase-test" } });
+    const response = await postPurchase(new Request("https://example.test/post-purchase", { method: "POST", headers: { authorization: "Bearer customer-test:test" }, body: data }), { params: Promise.resolve({ purchaseId: "purchase-test" }) });
     expect(response.status).toBe(409);
     expect(h.prisma.bubuiOffer.create).not.toHaveBeenCalled();
   });

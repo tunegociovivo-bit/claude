@@ -11,7 +11,11 @@ import { defaultDimensionsByFormat, type DimensionsByFormat, type ReferenceImage
 
 export const dynamic = "force-dynamic";
 
-export default async function ClienteEditorialPage({ params, searchParams }: { params: { id: string }; searchParams: { connected?: string; error?: string } }) {
+export default async function ClienteEditorialPage(
+  props: { params: Promise<{ id: string }>; searchParams: Promise<{ connected?: string; error?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id as string | undefined;
   const workspaceId = await getSessionWorkspaceId();

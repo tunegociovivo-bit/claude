@@ -15,9 +15,10 @@ import Editorial from "../../../_components/Editorial";
 
 export const revalidate = 300;
 
-type Params = { params: { categoria: string; localidad: string } };
+type Params = { params: Promise<{ categoria: string; localidad: string }> };
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
+export async function generateMetadata(props: Params): Promise<Metadata> {
+  const params = await props.params;
   const data = await getRanking(params.categoria, params.localidad);
   if (!data) return { title: "Ranking · Bubui" };
   const year = new Date().getFullYear();
@@ -29,7 +30,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 const MEDAL = ["🥇", "🥈", "🥉"];
 
-export default async function RankingPage({ params }: Params) {
+export default async function RankingPage(props: Params) {
+  const params = await props.params;
   const data = await getRanking(params.categoria, params.localidad);
   if (!data) notFound();
   const { category, cityLabel, province, businesses } = data;

@@ -7,7 +7,8 @@ import AprobacionClient from "@/components/facturacion/AprobacionClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function AprobacionPage({ params }: { params: { token: string } }) {
+export default async function AprobacionPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // Exige usuario autenticado y ADMIN. El enlace del email NO da acceso por sí
   // solo: hay que iniciar sesión y ser administrador.
   const session = await getServerSession(authOptions);

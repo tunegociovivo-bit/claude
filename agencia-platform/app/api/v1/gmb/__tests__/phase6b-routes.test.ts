@@ -37,7 +37,7 @@ beforeEach(() => {
   for (const k of Object.keys(prisma._db)) prisma._db[k].length = 0;
   authenticateMock.mockResolvedValue({ workspaceId: "w1", userId: "u1", scopes: new Set(["*"]) });
 });
-const post = (fn: any, id: string, body: any, key = "id") => fn(new NextRequest("https://hub.example/x", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), { params: { [key]: id } });
+const post = (fn: any, id: string, body: any, key = "id") => fn(new NextRequest("https://hub.example/x", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), { params: Promise.resolve({ [key]: id }) });
 
 describe("campaigns UTM", () => {
   beforeEach(() => prisma._db.gmbClient.push({ id: "cl1", workspaceId: "w1", name: "Café", placeId: "ChIJXXXXXXXXXXXXXXXXXXXXXXX" }));
@@ -77,7 +77,7 @@ describe("contactos: consentimiento + supresión + dedup", () => {
 describe("opt-out suprime", () => {
   it("POST marca opted_out + suppression", async () => {
     prisma._db.gmbReviewContact.push({ id: "ct1", workspaceId: "w1", campaignId: "rc1", contactHash: "h1", optOutToken: "tok", status: "sent" });
-    const res = await optOutPost(new Request("https://h/x"), { params: { token: "tok" } });
+    const res = await optOutPost(new Request("https://h/x"), { params: Promise.resolve({ token: "tok" }) });
     expect((await res.json()).optedOut).toBe(true);
     expect(prisma._db.gmbReviewContact[0].status).toBe("opted_out");
     expect(prisma._db.gmbSuppression.length).toBe(1);
@@ -87,7 +87,7 @@ describe("opt-out suprime", () => {
 describe("tracker público", () => {
   it("registra evento (dedup) y redirige 302", async () => {
     prisma._db.gmbCampaign.push({ id: "cp1", trackId: "trk", workspaceId: "w1", clientId: "cl1", landingUrl: "https://x.es", utmSource: "google", utmMedium: "cpc", utmCampaign: "v" });
-    const res = await track(new Request("https://h/api/v1/gmb/public/track/trk?type=click&to=https://x.es/o"), { params: { trackId: "trk" } });
+    const res = await track(new Request("https://h/api/v1/gmb/public/track/trk?type=click&to=https://x.es/o"), { params: Promise.resolve({ trackId: "trk" }) });
     expect(res.status).toBe(302);
     expect(prisma._db.gmbAttributionEvent.length).toBe(1);
   });

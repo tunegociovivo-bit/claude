@@ -12,7 +12,8 @@ import type { AnalysisResults } from "@/lib/gmb/fake-reviews/analyzer";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Informe de reseñas", robots: { index: false, follow: false } };
 
-export default async function PublicFakeReviewReport({ params }: { params: { token: string } }) {
+export default async function PublicFakeReviewReport(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   if (!params.token || params.token.length < 20) notFound();
   const row = await prisma.gmbFakeReviewAnalysis.findUnique({
     where: { shareTokenHash: hashToken(params.token) },

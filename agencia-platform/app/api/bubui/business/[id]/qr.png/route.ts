@@ -12,7 +12,8 @@ import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: params.id } });
   if (!business) {
     return new NextResponse("Not found", { status: 404 });

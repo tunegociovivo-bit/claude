@@ -6,7 +6,8 @@ import StarRedirectWidget from "@/components/reviews/StarRedirectWidget";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const client = await prisma.reviewClient.findFirst({
     where: { slug: params.slug },
     select: { name: true }
@@ -17,13 +18,14 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function ReviewPublicPage({
-  params,
-  searchParams
-}: {
-  params: { slug: string };
-  searchParams: { [k: string]: string | string[] | undefined };
-}) {
+export default async function ReviewPublicPage(
+  props: {
+    params: Promise<{ slug: string }>;
+    searchParams: Promise<{ [k: string]: string | string[] | undefined }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const client = await prisma.reviewClient.findFirst({
     where: { slug: params.slug },
     select: {

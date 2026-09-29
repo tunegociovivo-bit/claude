@@ -10,7 +10,8 @@ import { bubuiUrl } from "@/lib/bubui/url";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { code: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ code: string }> }) {
+  const params = await props.params;
   const code = params.code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
   if (!code) return new NextResponse("Bad code", { status: 400 });
   // QR de mesa → dominio canónico + ruta limpia /usuarios/mesa.
