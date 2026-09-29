@@ -67,10 +67,10 @@ describe("process security regression", () => {
     }
   });
   it("A08: anonymous booking can attach another customer's identifier", async () => {
-    h.prisma.bubuiBooking.create.mockImplementation(async ({ data }: any) => ({ id: "booking-test", ...data }));
+    h.prisma.bubuiBooking.upsert.mockImplementation(async ({ create }: any) => ({ id: "booking-test", ...create }));
     const response = await booking(request({ businessId: "business-test", customerId: "someone-else", customerName: "Ficticio", customerPhone: "600000000", startsAt: new Date(Date.now() + 86400000).toISOString() }));
     expect(response.status).toBe(401);
-    expect(h.prisma.bubuiBooking.create).not.toHaveBeenCalled();
+    expect(h.prisma.bubuiBooking.upsert).not.toHaveBeenCalled();
   });
   it("A15: a required but unreadable ticket still permits an arbitrary manual amount", async () => {
     h.prisma.bubuiBusiness.findUnique.mockResolvedValue({ id: "business-test", active: true, requireTicket: true, defaultDiscountPct: 10 });
@@ -87,10 +87,10 @@ describe("process security regression", () => {
     expect(h.prisma.bubuiOffer.create).not.toHaveBeenCalled();
   });
   it("A20: booking persists then fails if merchant notification fails", async () => {
-    h.prisma.bubuiBooking.create.mockImplementation(async ({ data }: any) => ({ id: "booking-test", ...data }));
+    h.prisma.bubuiBooking.upsert.mockImplementation(async ({ data }: any) => ({ id: "booking-test", ...data }));
     h.alert.mockRejectedValue(new Error("Notification unavailable"));
     const response = await booking(request({ businessId: "business-test", customerName: "Ficticio", customerPhone: "600000000", startsAt: new Date(Date.now() + 86400000).toISOString() }));
     expect(response.status).toBe(201);
-    expect(h.prisma.bubuiBooking.create).toHaveBeenCalledOnce();
+    expect(h.prisma.bubuiBooking.upsert).toHaveBeenCalledOnce();
   });
 });

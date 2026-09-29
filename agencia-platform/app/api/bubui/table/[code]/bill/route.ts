@@ -50,8 +50,8 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (ticketScanId) {
     const ts = await prisma.bubuiTicketScan.findUnique({ where: { id: ticketScanId } });
     const fresh = ts && ts.createdAt > new Date(Date.now() - 30 * 60 * 1000);
-    const mine = ts && (ts.customerId === customerId || ts.customerId === "anon");
-    if (ts && fresh && mine && ts.usedByPurchaseId == null) {
+    const mine = ts && ts.customerId === customerId;
+    if (ts && fresh && mine && ts.usedByPurchaseId == null && ts.currency === "EUR" && ts.confidence >= 0.8 && (!ts.businessId || ts.businessId === session.businessId)) {
       ticketScan = { id: ts.id, amount: ts.amount };
       if (ts.amount != null) amount = ts.amount;
     }
@@ -60,15 +60,11 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     return NextResponse.json({ error: { code: "no_amount", message: "Falta el importe del ticket." } }, { status: 400 });
   }
 
-  const result = await finalizeMesaBill(session.id, amount, customerId);
+  if (ticketScanId && !ticketScan) return NextResponse.json({ error: { code: "ticket_review_required", message: "El comercio debe revisar el ticket." } }, { status: 409 });
+  let result;
+  try { result = await finalizeMesaBill(session.id, amount, customerId, ticketScan?.id); }
+  catch { return NextResponse.json({ error: { code: "mesa_not_ready", message: "La mesa ha caducado, ya está cerrada o tiene pruebas pendientes. Consulta al comercio." } }, { status: 409 }); }
   if (!result) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
-
-  // Marca el ticket como usado (evita reutilizarlo).
-  if (ticketScan) {
-    await prisma.bubuiTicketScan
-      .update({ where: { id: ticketScan.id }, data: { usedByPurchaseId: `mesa:${session.id}`, businessId: session.businessId } })
-      .catch(() => {});
-  }
 
   const st = result.state;
   const ticket = st.euros?.ticket ?? amount;
@@ -82,7 +78,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
       message: `🧾 Mesa Colectiva: cuenta de ${ticket.toFixed(2)}€ con ${result.appliedPct}% (${st.diners} comensales). Pagan ${payNow.toFixed(2)}€.`,
       pushTitle: "🧾 Cuenta Bubui en tu mesa",
       link: "/bubui/negocio"
-    });
+    }).catch(() => console.error("[bubui table] notification failed"));
   }
 
   return NextResponse.json({

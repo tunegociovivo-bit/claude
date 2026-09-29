@@ -10,6 +10,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { alertBusiness } from "@/lib/bubui/business-push";
 
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { rateLimit } from "@/lib/api/rate-limit";
+import { createHash } from "crypto";
+
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
@@ -26,6 +30,8 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   const d = parsed.data;
+  if (d.customerId && !(await customerAuthOk(req, d.customerId))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+  if (!rateLimit("bubui-booking:" + d.customerPhone.replace(/\D/g, ""), 5).ok) return NextResponse.json({ error: { code: "rate_limit" } }, { status: 429 });
 
   const business = await prisma.bubuiBusiness.findUnique({
     where: { id: d.businessId },
@@ -44,8 +50,11 @@ export async function POST(req: Request) {
     if (!svc) return NextResponse.json({ error: { code: "bad_service" } }, { status: 400 });
   }
 
-  const booking = await prisma.bubuiBooking.create({
-    data: {
+  const bookingKey = createHash("sha256").update(JSON.stringify([d.businessId, d.serviceId ?? null, d.customerId ?? null, d.customerPhone.replace(/\D/g, ""), when.toISOString()])).digest("hex");
+  const booking = await prisma.bubuiBooking.upsert({
+    where: { id: "booking_" + bookingKey }, update: {},
+    create: {
+      id: "booking_" + bookingKey,
       businessId: d.businessId,
       serviceId: d.serviceId ?? null,
       customerId: d.customerId ?? null,
@@ -58,12 +67,13 @@ export async function POST(req: Request) {
   });
 
   // Avisa al comercio (panel + push si lo activó en su dispositivo).
-  await alertBusiness(d.businessId, {
+  let notificationPending = false;
+  try { await alertBusiness(d.businessId, {
     type: "booking",
     message: `📅 Nueva solicitud de cita de ${booking.customerName} para el ${when.toLocaleString("es-ES")}`,
     pushTitle: "📅 Nueva cita",
     link: "/bubui/negocio"
-  });
+  }); } catch { notificationPending = true; console.error("[bubui booking] notification pending", booking.id); }
 
-  return NextResponse.json({ ok: true, bookingId: booking.id }, { status: 201 });
+  return NextResponse.json({ ok: true, bookingId: booking.id, status: booking.status, notificationPending }, { status: 201 });
 }

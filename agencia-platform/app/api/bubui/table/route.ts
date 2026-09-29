@@ -9,7 +9,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { genTableCode } from "@/lib/bubui/table-deal";
-import { isNewCustomer, loadTableState } from "@/lib/bubui/table";
+import { isNewCustomer, loadTableState, mesaConfigFromBusiness } from "@/lib/bubui/table";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +55,7 @@ export async function POST(req: Request) {
       tableLabel: d.tableLabel ?? null,
       captainId: customer.id,
       status: "open",
+      termsSnapshot: { ...mesaConfigFromBusiness(business), nextVisitDays: business.mesaNextVisitDays ?? 15, perkLabel: business.mesaPerkLabel ?? "" },
       basePct: business.mesaBasePct ?? 5,
       shareBonusPct: business.mesaShareBonusPct ?? 5,
       reviewBonusPct: business.mesaReviewBonusPct ?? 3,

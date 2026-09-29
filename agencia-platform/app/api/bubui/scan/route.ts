@@ -64,16 +64,20 @@ export async function POST(req: Request) {
   // ── Anti-fraude por ticket: el importe de confianza viene del OCR guardado
   //    (BubuiTicketScan), no del que teclee el cliente. Un ticket = una compra.
   let amount = d.amount;
-  let ticketUrl = d.ticketUrl;
+  let ticketUrl: string | undefined;
+  let ticketNeedsReview = false;
   let ticketScan: { id: string; amount: number | null; ticketUrl: string } | null = null;
   if (d.ticketScanId) {
     const ts = await prisma.bubuiTicketScan.findUnique({ where: { id: d.ticketScanId } });
     const fresh = ts && ts.createdAt > new Date(Date.now() - 30 * 60 * 1000);
-    const mine = ts && (ts.customerId === d.customerId || ts.customerId === "anon");
+    const mine = ts && ts.customerId === d.customerId;
     if (ts && fresh && mine && ts.usedByPurchaseId == null) {
       ticketScan = { id: ts.id, amount: ts.amount, ticketUrl: ts.ticketUrl };
       ticketUrl = ts.ticketUrl;
-      if (ts.amount != null) amount = ts.amount; // importe de confianza (servidor)
+      const reliable = ts.currency === "EUR" && ts.confidence >= 0.8 && ts.amount != null && Number.isFinite(ts.amount) && ts.amount > 0 && ts.amount <= 10000;
+      if (ts.businessId && ts.businessId !== business.id) return NextResponse.json({ error: { code: "ticket_business_mismatch", message: "El ticket pertenece a otro comercio." } }, { status: 400 });
+      ticketNeedsReview = !reliable || ts.businessId !== business.id;
+      if (reliable) amount = ts.amount!;
     }
   }
   if (business.requireTicket && !ticketScan) {
@@ -185,7 +189,7 @@ export async function POST(req: Request) {
   }
 
   // Los cupones de amigos requieren siempre la confirmación del comercio.
-  const needsConfirmation = business.purchaseMode === "double_confirm" || business.shareOfferRequiresPurchase ||
+  const needsConfirmation = ticketNeedsReview || business.purchaseMode === "double_confirm" || business.shareOfferRequiresPurchase ||
     activeOffer?.source === "referral_welcome" || !!activeOffer?.activatedProvisional;
   let purchase;
   try {

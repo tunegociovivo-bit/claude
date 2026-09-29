@@ -6166,6 +6166,7 @@ model BubuiDealTrace {
 /// comparten Bubui y/o dejan reseña en Google. El dueño la verifica desde su
 /// panel y la canjea. status: open → verified → redeemed | expired.
 model BubuiTableSession {
+  termsSnapshot Json?
   id             String    @id @default(cuid())
   businessId     String
   code           String // código corto de unión (único entre sesiones abiertas)

@@ -3,6 +3,7 @@
  * negocio, clasificar nuevo/veterano, cargar el estado de una sesión y aplicar
  * el cierre (descuento de esta visita + cupón de próxima visita).
  */
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { computeMesa, effectiveVeteranShareFriends, type MesaConfig, type MesaParticipant } from "./table-deal";
 
@@ -82,13 +83,14 @@ export function allowedContributions(b: any): string[] {
 }
 
 /** Carga la sesión + participantes + negocio y devuelve el estado calculado. */
-export async function loadTableState(sessionId: string, ticketAmount?: number | null) {
-  const session = await prisma.bubuiTableSession.findUnique({
+export async function loadTableState(sessionId: string, ticketAmount?: number | null, db: Prisma.TransactionClient = prisma) {
+  const session = await db.bubuiTableSession.findUnique({
     where: { id: sessionId },
     include: { participants: true, business: true }
   });
   if (!session) return null;
-  const cfg = mesaConfigFromBusiness(session.business, { shareFriends: session.shareFriends });
+  const saved = session.termsSnapshot as Partial<MesaConfig> | null;
+  const cfg = { ...mesaConfigFromBusiness(session.business), basePct: session.basePct, minDiners: session.minDiners, shareBonusPct: session.shareBonusPct, shareFriends: session.shareFriends, reviewBonusPct: session.reviewBonusPct, maxPct: session.maxPct, ...(saved ?? {}) };
   const parts: MesaParticipant[] = session.participants.map((p) => ({
     isNewUser: p.isNewUser,
     reviewVerified: p.reviewVerified,
@@ -119,42 +121,50 @@ export function veteranShareFor(business: any, veteranRatio: number): number {
  * guardado. Es el "cierre" del flujo en el que el camarero aplica el descuento al
  * ver la pantalla del comensal.
  */
-export async function finalizeMesaBill(sessionId: string, ticketAmount: number, billedById: string | null) {
-  const loaded = await loadTableState(sessionId, ticketAmount);
+export async function finalizeMesaBill(sessionId: string, ticketAmount: number, billedById: string | null, ticketScanId?: string) {
+  return prisma.$transaction(async (tx) => {
+  if (!Number.isFinite(ticketAmount) || ticketAmount <= 0 || ticketAmount > 10000) throw new Error("invalid_amount");
+  const loaded = await loadTableState(sessionId, ticketAmount, tx);
   if (!loaded) return null;
   const { session, state } = loaded;
   const business = session.business;
 
   if (session.status === "redeemed") {
     // Ya cerrada: recalcula con el importe ya guardado para mostrar la cuenta.
-    const re = await loadTableState(sessionId, session.ticketAmount ?? ticketAmount);
+    const re = await loadTableState(sessionId, session.ticketAmount ?? ticketAmount, tx);
     return { session, state: re?.state ?? state, appliedPct: session.finalPct ?? state.pctNow, alreadyDone: true, perkEarned: null as string | null };
   }
 
+  if (!["open", "verified"].includes(session.status) || session.expiresAt <= new Date()) throw new Error("mesa_closed");
+  if (billedById && !session.participants.some(p => p.customerId === billedById)) throw new Error("not_joined");
+  if (state.provisionalActions > 0) throw new Error("proof_review_required");
+  const claimed = await tx.bubuiTableSession.updateMany({ where: { id: sessionId, status: { in: ["open", "verified"] }, expiresAt: { gt: new Date() } }, data: { status: "redeemed", finalPct: state.pctNow, ticketAmount, billedById, verifiedAt: new Date(), redeemedAt: new Date() } });
+  if (claimed.count !== 1) throw new Error("mesa_closed");
+  if (ticketScanId) {
+    const used = await tx.bubuiTicketScan.updateMany({ where: { id: ticketScanId, customerId: billedById!, usedByPurchaseId: null }, data: { usedByPurchaseId: "mesa:" + sessionId, businessId: business.id } });
+    if (used.count !== 1) throw new Error("ticket_already_used");
+  }
   const appliedPct = state.pctNow;
   const nextVisitPct = state.pctNextVisit;
-  const days = business.mesaNextVisitDays ?? 15;
+  const terms = session.termsSnapshot as { nextVisitDays?: number; perkLabel?: string } | null;
+  const days = terms?.nextVisitDays ?? business.mesaNextVisitDays ?? 15;
   const expiresAt = new Date(Date.now() + days * 86_400_000);
-  const perk = (business.mesaPerkLabel || "").trim();
+  const perk = (terms?.perkLabel ?? business.mesaPerkLabel ?? "").trim();
   const perkEarned = !!perk && state.unlocked;
 
   if (nextVisitPct > 0 || perkEarned) {
-    const parts = await prisma.bubuiTableParticipant.findMany({ where: { sessionId }, select: { customerId: true } });
+    const parts = await tx.bubuiTableParticipant.findMany({ where: { sessionId }, select: { customerId: true } });
     for (const p of parts) {
-      await prisma.bubuiOffer
+      await tx.bubuiOffer
         .upsert({
           where: { customerId_businessId_triggerBusinessId: { customerId: p.customerId, businessId: business.id, triggerBusinessId: `mesa:${sessionId}` } },
           create: { customerId: p.customerId, businessId: business.id, triggerBusinessId: `mesa:${sessionId}`, discountPct: nextVisitPct, rewardLabel: perkEarned ? perk : null, source: "mesa", active: true, expiresAt },
-          update: { discountPct: nextVisitPct, rewardLabel: perkEarned ? perk : null, expiresAt, active: true }
-        })
-        .catch(() => {});
+          update: {}
+        });
     }
   }
 
-  await prisma.bubuiTableSession.update({
-    where: { id: sessionId },
-    data: { status: "redeemed", finalPct: appliedPct, ticketAmount, billedById, verifiedAt: new Date(), redeemedAt: new Date() }
-  });
 
   return { session, state, appliedPct, nextVisitPct, perkEarned: perkEarned ? perk : null, expiresAt, alreadyDone: false };
+  }, { isolationLevel: "Serializable" });
 }

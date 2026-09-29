@@ -50,7 +50,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   // Cupones-reto activados de forma provisional.
   const offers = await prisma.bubuiOffer.findMany({
-    where: { businessId, source: "share_challenge", activatedProvisional: true, redeemed: false },
+    where: { businessId, source: { in: ["share_challenge", "post_purchase"] }, activatedProvisional: true, redeemed: false },
     orderBy: { createdAt: "desc" },
     take: 100
   });
@@ -60,7 +60,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     type: "challenge",
     typeLabel: o.rewardLabel?.trim() || `${o.discountPct}% de descuento`,
     shotUrl: o.activationShotUrl,
-    label: "Cupón-reto",
+    label: o.source === "post_purchase" ? "Acción postcompra" : "Cupón-reto",
     date: o.createdAt,
     expiresAt: o.expiresAt
   }));
@@ -104,10 +104,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   // challenge
-  const o = await prisma.bubuiOffer.findFirst({ where: { id: refId, businessId: params.id, source: "share_challenge" }, select: { id: true } });
+  const o = await prisma.bubuiOffer.findFirst({ where: { id: refId, businessId: params.id, source: { in: ["share_challenge", "post_purchase"] } }, select: { id: true } });
   if (!o) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   if (action === "approve") {
-    await prisma.bubuiOffer.update({ where: { id: refId }, data: { activatedProvisional: false } });
+    await prisma.bubuiOffer.update({ where: { id: refId }, data: { active: true, activatedProvisional: false } });
   } else {
     // Rechazada: el cupón vuelve a quedar BLOQUEADO.
     await prisma.bubuiOffer.update({ where: { id: refId }, data: { active: false, activatedProvisional: false } });
