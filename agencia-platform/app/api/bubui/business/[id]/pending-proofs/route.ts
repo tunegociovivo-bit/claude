@@ -16,7 +16,8 @@ import { businessTokenAllows } from "@/lib/bubui/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
@@ -25,7 +26,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // Mesa: participantes con alguna acción verificada provisional.
   const parts = await prisma.bubuiTableParticipant.findMany({
     where: {
-      session: { businessId },
+      session: { businessId, status: { in: ["open", "verified"] }, expiresAt: { gt: new Date() } },
       OR: [
         { reviewVerified: true, reviewProvisional: true },
         { socialVerified: true, socialProvisional: true },
@@ -76,7 +77,8 @@ const postSchema = z.object({
   action: z.enum(["approve", "reject"])
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
@@ -85,6 +87,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const { kind, refId, type, action } = parsed.data;
 
   if (kind === "mesa") {
+    if (!type) return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
     // El participante debe pertenecer a una mesa de ESTE negocio.
     const p = await prisma.bubuiTableParticipant.findFirst({
       where: { id: refId, session: { businessId: params.id } },
@@ -99,18 +102,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       data[`${col}Verified`] = false; // se deshace: sale del bote
       data[`${col}Provisional`] = false;
     }
-    await prisma.bubuiTableParticipant.update({ where: { id: refId }, data });
+    const changed = await prisma.bubuiTableParticipant.updateMany({ where: { id: refId, session: { businessId: params.id, status: { in: ["open", "verified"] }, expiresAt: { gt: new Date() } }, [`${col}Provisional`]: true }, data });
+    if (changed.count !== 1) return NextResponse.json({ error: { code: "invalid_state" } }, { status: 409 });
     return NextResponse.json({ ok: true });
   }
 
   // challenge
   const o = await prisma.bubuiOffer.findFirst({ where: { id: refId, businessId: params.id, source: { in: ["share_challenge", "post_purchase"] } }, select: { id: true } });
   if (!o) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
-  if (action === "approve") {
-    await prisma.bubuiOffer.update({ where: { id: refId }, data: { active: true, activatedProvisional: false } });
-  } else {
-    // Rechazada: el cupón vuelve a quedar BLOQUEADO.
-    await prisma.bubuiOffer.update({ where: { id: refId }, data: { active: false, activatedProvisional: false } });
-  }
+  const changed = await prisma.bubuiOffer.updateMany({
+    where: { id: refId, businessId: params.id, source: { in: ["share_challenge", "post_purchase"] }, redeemed: false, activatedProvisional: true, expiresAt: { gt: new Date() } },
+    data: { active: action === "approve", activatedProvisional: false }
+  });
+  if (changed.count !== 1) return NextResponse.json({ error: { code: "invalid_state" } }, { status: 409 });
   return NextResponse.json({ ok: true });
 }

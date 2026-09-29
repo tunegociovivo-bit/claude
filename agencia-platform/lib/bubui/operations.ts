@@ -6,6 +6,7 @@ import { notifyBubuiCustomer } from './notify';
 export async function deliverOperation(id: string): Promise<boolean> {
   const op = await prisma.bubuiOperation.findUnique({ where: { id } });
   if (!op) return false;
+  if (op.status === 'accepted') return true;
   const claimed = await prisma.bubuiOperation.updateMany({ where: { id, status: { in: ['pending', 'failed'] }, attempts: { lt: 5 } }, data: { status: 'processing', attempts: { increment: 1 }, updatedAt: new Date() } });
   if (claimed.count !== 1) return false;
   try {
