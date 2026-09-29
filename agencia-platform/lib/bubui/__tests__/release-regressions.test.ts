@@ -122,4 +122,48 @@ describe("Bubui release regressions", () => {
     expect((await profile(request({ websiteUrl: "example" }, "Bearer business-test:test"), { params: { id: "business-test" } })).status).toBe(400);
     expect(h.prisma.bubuiBusiness.update).not.toHaveBeenCalled();
   });
+  it("rejects a legacy profile session without a stored secret even in lazy mode", async () => {
+    process.env.BUBUI_BUSINESS_AUTH_MODE = "lazy";
+    h.prisma.bubuiBusiness.findUnique.mockResolvedValue({ id: "business-test", apiToken: null });
+    expect((await profile(request({ description: "Edited" }, "Bearer business-test:anything"), { params: { id: "business-test" } })).status).toBe(401);
+  });
+  it("preserves an account when subscription cancellation fails", async () => {
+    h.prisma.bubuiCustomer.findUnique.mockResolvedValue({ id: "customer-test", apiToken: "test", bubuiStripeSubscriptionId: "sub_fake" });
+    h.cancel.mockRejectedValue(new Error("Stripe unavailable"));
+    expect((await deleteAccount(request({}, "Bearer customer-test:test"), { params: { id: "customer-test" } })).status).toBe(502);
+    expect(h.prisma.bubuiCustomer.delete).not.toHaveBeenCalled();
+  });
+  it("refuses deletion without a session even in lazy mode", async () => {
+    process.env.BUBUI_CUSTOMER_AUTH_MODE = "lazy";
+    expect((await deleteAccount(request({}), { params: { id: "customer-test" } })).status).toBe(401);
+    expect(h.cancel).not.toHaveBeenCalled();
+  });
+  it.each([
+    { payment_status: "unpaid", amount_total: 1000, currency: "eur", adId: "paid-ad", expected: 200 },
+    { payment_status: "paid", amount_total: 1, currency: "eur", adId: "paid-ad", expected: 500 },
+    { payment_status: "paid", amount_total: 1000, currency: "usd", adId: "paid-ad", expected: 500 },
+    { payment_status: "paid", amount_total: 1000, currency: "eur", adId: undefined, expected: 500 }
+  ])("does not activate an ad for incomplete or mismatched payment: %j", async ({ adId, expected, ...payment }) => {
+    h.prisma.bubuiPushAd.findUnique.mockResolvedValue({ id: "paid-ad", businessId: "business-test", pricePaidEur: 10 });
+    const response = await webhook(request({ id: "evt_fake", type: "checkout.session.completed", data: { object: { ...payment, metadata: { bubui_business_id: "business-test", bubui_kind: "push_ad", bubui_ad_id: adId } } } }));
+    expect(response.status).toBe(expected);
+    expect(h.prisma.bubuiPushAd.updateMany).not.toHaveBeenCalled();
+  });
+  it("recovers all completed loyalty cycles and propagates database errors", async () => {
+    h.prisma.bubuiBusiness.findUnique.mockResolvedValue({ loyaltyEnabled: true, loyaltyGoal: 5, loyaltyRewardPct: 20 });
+    h.prisma.bubuiPurchase.count.mockResolvedValue(11);
+    await grantLoyaltyIfReached({ customerId: "customer-test", businessId: "business-test" });
+    expect(h.prisma.bubuiOffer.createMany.mock.calls[0][0].data.map((o: any) => o.triggerBusinessId)).toEqual(["loyalty:business-test:1", "loyalty:business-test:2"]);
+    h.prisma.bubuiOffer.createMany.mockRejectedValue(new Error("Database unavailable"));
+    await expect(grantLoyaltyIfReached({ customerId: "customer-test", businessId: "business-test" })).rejects.toThrow("Database unavailable");
+  });
+  it("repairs effects when the merchant retries an already confirmed purchase without increasing savings", async () => {
+    h.prisma.bubuiPurchase.findUnique.mockResolvedValue({ id: "purchase-test", customerId: "customer-test", businessId: "business-test", status: "confirmed", redeemedOfferId: "friend-coupon", discountAmount: 50 });
+    h.prisma.bubuiOffer.findUnique.mockResolvedValue({ source: "referral_welcome", triggerBusinessId: "ref:welcome:challenge-test" });
+    const response = await confirm(request({ purchaseId: "purchase-test", businessId: "business-test", action: "confirm" }, "Bearer business-test:test"));
+    expect(response.status).toBe(200);
+    expect(h.challenge).toHaveBeenCalledWith(expect.objectContaining({ triggerBusinessId: "ref:welcome:challenge-test" }));
+    expect(h.prisma.bubuiCustomer.update).not.toHaveBeenCalled();
+  });
+
 });
