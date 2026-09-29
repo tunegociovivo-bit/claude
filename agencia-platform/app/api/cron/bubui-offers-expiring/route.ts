@@ -44,6 +44,8 @@ export async function GET(req: NextRequest) {
   const urgent = await prisma.bubuiOffer.findMany({
     where: {
       redeemed: false,
+      active: true,
+      activatedProvisional: false,
       expiresAt: { gt: now, lte: in4h }
     },
     include: { business: { select: { name: true } } }
@@ -64,13 +66,13 @@ export async function GET(req: NextRequest) {
           offers.length === 1
             ? `Tu cupón en ${first.business.name} (${first.discountPct}%) caduca hoy. ¡Úsalo antes!`
             : `Tienes ${offers.length} cupones que caducan hoy. Échales un ojo.`;
-        await notifyBubuiCustomer(customerId, {
+        const delivery = await notifyBubuiCustomer(customerId, {
           title: "⏰ Caducan hoy",
           body,
           link: "/bubui/app",
           tag: "expiring_4h"
         });
-        urgentSent++;
+        if (delivery.sent > 0) urgentSent++;
       }
     }
     if (emailOn && (await sendExpiringEmail(customerId, offers, "expiring_4h", true, dedupCutoff))) {
@@ -82,6 +84,8 @@ export async function GET(req: NextRequest) {
   const tomorrow = await prisma.bubuiOffer.findMany({
     where: {
       redeemed: false,
+      active: true,
+      activatedProvisional: false,
       expiresAt: { gt: in4h, lte: in24h }
     },
     include: { business: { select: { name: true } } }
@@ -99,13 +103,13 @@ export async function GET(req: NextRequest) {
           offers.length === 1
             ? `Tu cupón en ${offers[0].business.name} caduca mañana. No te olvides.`
             : `Tienes ${offers.length} cupones que caducan mañana.`;
-        await notifyBubuiCustomer(customerId, {
+        const delivery = await notifyBubuiCustomer(customerId, {
           title: "🔔 Mañana caducan",
           body,
           link: "/bubui/app",
           tag: "expiring_24h"
         });
-        tomorrowSent++;
+        if (delivery.sent > 0) tomorrowSent++;
       }
     }
     if (emailOn && (await sendExpiringEmail(customerId, offers, "expiring_24h", false, dedupCutoff))) {
