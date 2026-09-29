@@ -43,4 +43,11 @@ describe("express referral coupon redemption", () => {
     expect(H.unlock).not.toHaveBeenCalled();
   });
 
+  it.each(["declined", "lost"])("does not reopen a closed %s participation during recovery", async status => {
+    H.participant.findFirst.mockResolvedValue({ id: "participant", referrerCustomerId: "owner", status });
+    await reevaluateChallengeAfterFriendCouponRedemption({ source: "referral_welcome", referredById: "owner", referralOfferId: "challenge", triggerBusinessId: "ref:welcome:challenge", friendCustomerId: "friend", businessId: "business" });
+    expect(H.participant.updateMany).not.toHaveBeenCalled();
+    expect(H.unlock).not.toHaveBeenCalled();
+  });
+
 });
