@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { finishPurchaseChallenge } from "@/lib/bubui/purchase-challenge";
 import { settlePurchase, PurchaseConflict } from "@/lib/bubui/purchase-settlement";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import {
@@ -49,6 +50,10 @@ export async function POST(req: Request) {
   if (purchase.businessId !== d.businessId) {
     return NextResponse.json({ error: { code: "forbidden", message: "Negocio no autorizado" } }, { status: 403 });
   }
+  if (purchase.status === "confirmed" && d.action === "confirm") {
+    await finishPurchaseChallenge(purchase);
+    return NextResponse.json({ ok: true, status: "confirmed", discountAmount: purchase.discountAmount, offersUnlocked: 0, alreadyConfirmed: true });
+  }
   if (purchase.status !== "pending") {
     return NextResponse.json(
       { error: { code: "bad_state", message: `Compra en estado ${purchase.status}, no se puede modificar` } },
@@ -73,7 +78,11 @@ export async function POST(req: Request) {
     throw error;
   }
   if (!settled) return NextResponse.json({ error: { code: "conflict", message: "Esta compra ya se ha procesado." } }, { status: 409 });
-  const { customer, redeemedOffer, loyalty } = settled;
+  const { customer, loyalty } = settled;
+  // Await the challenge update. A failed update remains queued for repair.
+  let challengePending = false;
+  try { await finishPurchaseChallenge({ ...purchase, status: "confirmed" }); }
+  catch (error) { challengePending = true; console.warn("[bubui challenge pending]", purchase.id, error); }
 
   // Desbloquea ofertas en negocios complementarios cercanos.
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: purchase.businessId } });
@@ -91,22 +100,6 @@ export async function POST(req: Request) {
   // (fire-and-forget, no bloquea respuesta).
   void recalculateVisibilityScore(purchase.businessId).catch(() => {});
   void recalculateAmbassadorLevel(purchase.customerId).catch(() => {});
-
-  // Si este comprador fue traído por otro usuario y su negocio de origen exige
-  // que los amigos compren para desbloquear el reto, esta compra puede haber
-  // completado el reto del referidor → intentamos desbloquearlo.
-  if (redeemedOffer) {
-    void import("@/lib/bubui/challenge-redemption")
-      .then((m) => m.reevaluateChallengeAfterFriendCouponRedemption({
-        source: redeemedOffer.source,
-        triggerBusinessId: redeemedOffer.triggerBusinessId,
-        friendCustomerId: purchase.customerId,
-        businessId: purchase.businessId,
-        referredById: customer.referredById,
-        referralOfferId: customer.referralOfferId
-      }))
-      .catch(() => {});
-  }
 
   // Email de confirmación al cliente (best-effort, no bloquea).
   if (customer.email && business) {
@@ -127,6 +120,7 @@ export async function POST(req: Request) {
     status: "confirmed",
     offersUnlocked: offers.created,
     discountAmount: purchase.discountAmount,
-    loyalty
+    loyalty,
+    challengePending
   });
 }

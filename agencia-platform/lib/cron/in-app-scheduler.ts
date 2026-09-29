@@ -25,6 +25,8 @@ export function startInAppScheduler(): void {
     try {
       const { dispatchDuePushAds } = await import("@/lib/bubui/push-ad-dispatch");
       await dispatchDuePushAds();
+      const { recoverPurchaseChallenges } = await import("@/lib/bubui/purchase-challenge");
+      await recoverPurchaseChallenges();
     } catch (error) {
       console.warn("[in-app-cron] bubui paid ads:", error);
     }
