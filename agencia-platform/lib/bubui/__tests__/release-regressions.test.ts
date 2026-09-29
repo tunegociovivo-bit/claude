@@ -166,4 +166,11 @@ describe("Bubui release regressions", () => {
     expect(h.prisma.bubuiCustomer.update).not.toHaveBeenCalled();
   });
 
+  it("requires merchant confirmation for purchase-based legacy challenges even without a welcome coupon", async () => {
+    h.prisma.bubuiBusiness.findUnique.mockResolvedValue({ id: "business-test", active: true, purchaseMode: "express", shareOfferRequiresPurchase: true, defaultDiscountPct: 10 });
+    const response = await scan(request({ customerId: "customer-test", businessId: "business-test", amount: 50 }, "Bearer customer-test:test"));
+    expect(await response.json()).toMatchObject({ status: "pending" });
+    expect(h.prisma.bubuiCustomer.update).not.toHaveBeenCalled();
+  });
+
 });
