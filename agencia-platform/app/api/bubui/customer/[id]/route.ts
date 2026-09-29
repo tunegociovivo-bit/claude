@@ -129,6 +129,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   try { await deleteCustomerMedia(id); }
   catch { return NextResponse.json({ error: { code: "media_deletion_failed", message: "No se ha podido completar el borrado de archivos. Vuelve a intentarlo; conservamos la cuenta para poder terminarlo." } }, { status: 502 }); }
   await prisma.$transaction([
+    prisma.bubuiOperation.deleteMany({ where: { customerId: id } }),
     prisma.bubuiChallengeParticipant.deleteMany({ where: { OR: [{ friendCustomerId: id }, { referrerCustomerId: id }] } }),
     prisma.bubuiPushSubscription.deleteMany({ where: { customerId: id } }),
     prisma.bubuiMobilePushToken.deleteMany({ where: { customerId: id } }),

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import BubuiBusinessPushButton from "./BubuiBusinessPushButton";
 import BubuiAlertPrefs from "./BubuiAlertPrefs";
 import BubuiMesaBills from "./BubuiMesaBills";
+import BubuiIncidents from "./BubuiIncidents";
 import BubuiPendingProofs from "./BubuiPendingProofs";
 import { challengeFriendDomId, parseChallengeFollowupTarget } from "@/lib/bubui/challenge-followup-link";
 import { buildChallengeFollowupDetail } from "@/lib/bubui/challenge-followup-detail";
@@ -578,6 +579,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             </div>
           </section>
           {/* Capturas provisionales por verificar (la IA no pudo validarlas) */}
+          <BubuiIncidents businessId={b.id} token={session.token} />
           <BubuiPendingProofs businessId={b.id} token={session.token} />
           {/* Cuentas que Bubui ha traído en Mesa Colectiva (de un vistazo) */}
           <BubuiMesaBills businessId={b.id} token={session.token} />
@@ -4602,3 +4604,4 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
     </div>
   );
 }
+

@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
-import { alertBusiness } from "@/lib/bubui/business-push";
+import { deliverOperation } from "@/lib/bubui/operations";
 
 import { customerAuthOk } from "@/lib/bubui/customer-auth";
 import { rateLimit } from "@/lib/api/rate-limit";
@@ -51,7 +51,8 @@ export async function POST(req: Request) {
   }
 
   const bookingKey = createHash("sha256").update(JSON.stringify([d.businessId, d.serviceId ?? null, d.customerId ?? null, d.customerPhone.replace(/\D/g, ""), when.toISOString()])).digest("hex");
-  const booking = await prisma.bubuiBooking.upsert({
+  const booking = await prisma.$transaction(async tx => {
+  const row = await tx.bubuiBooking.upsert({
     where: { id: "booking_" + bookingKey }, update: {},
     create: {
       id: "booking_" + bookingKey,
@@ -66,14 +67,10 @@ export async function POST(req: Request) {
     }
   });
 
-  // Avisa al comercio (panel + push si lo activó en su dispositivo).
-  let notificationPending = false;
-  try { await alertBusiness(d.businessId, {
-    type: "booking",
-    message: `📅 Nueva solicitud de cita de ${booking.customerName} para el ${when.toLocaleString("es-ES")}`,
-    pushTitle: "📅 Nueva cita",
-    link: "/bubui/negocio"
-  }); } catch { notificationPending = true; console.error("[bubui booking] notification pending", booking.id); }
-
+  await tx.bubuiOperation.upsert({ where: { id: "booking:" + row.id }, update: {}, create: { id: "booking:" + row.id, businessId: row.businessId, customerId: row.customerId, kind: "business_notice", payload: { type: "booking", message: "Nueva solicitud de cita: " + row.customerName + " · " + when.toLocaleString("es-ES", { timeZone: "Europe/Madrid" }), pushTitle: "Nueva solicitud de cita", link: "/bubui/negocio" } } });
+  return row;
+  });
+  let notificationPending = true;
+  try { notificationPending = !(await deliverOperation("booking:" + booking.id)); } catch { console.error("[bubui booking] queued notice pending"); }
   return NextResponse.json({ ok: true, bookingId: booking.id, status: booking.status, notificationPending }, { status: 201 });
 }

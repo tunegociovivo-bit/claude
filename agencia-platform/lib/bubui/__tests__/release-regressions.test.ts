@@ -3,7 +3,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => {
   const model = () => Object.fromEntries(["findUnique", "findFirst", "findMany", "count", "create", "update", "updateMany", "delete", "deleteMany", "upsert", "createMany"].map(k => [k, vi.fn()]));
-  return { prisma: Object.fromEntries(["bubuiCustomer", "bubuiBusiness", "bubuiPurchase", "bubuiOffer", "bubuiTicketScan", "bubuiPushSubscription", "bubuiMobilePushToken", "bubuiTableParticipant", "bubuiTableSession", "bubuiBooking", "bubuiProcessedWebhook", "bubuiPushAd", "bubuiChallengeParticipant"].map(k => [k, model()])) as any,
+  return { prisma: Object.fromEntries(["bubuiCustomer", "bubuiBusiness", "bubuiPurchase", "bubuiOffer", "bubuiTicketScan", "bubuiPushSubscription", "bubuiMobilePushToken", "bubuiTableParticipant", "bubuiTableSession", "bubuiBooking", "bubuiProcessedWebhook", "bubuiPushAd", "bubuiChallengeParticipant", "bubuiOperation"].map(k => [k, model()])) as any,
     unlock: vi.fn(), challenge: vi.fn(), alert: vi.fn(), cancel: vi.fn() };
 });
 vi.mock("@/lib/bubui/customer-media", () => ({ deleteCustomerMedia: vi.fn(async () => {}) }));

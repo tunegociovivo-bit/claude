@@ -6742,3 +6742,20 @@ model GmbEvidence {
 
   @@index([workspaceId, caseId])
 }
+
+/// Durable operational notices; scoped to the business/customer named on each row.
+model BubuiOperation {
+  id String @id
+  kind String
+  businessId String?
+  customerId String?
+  payload Json
+  status String @default("pending")
+  attempts Int @default(0)
+  lastError String?
+  nextAttemptAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, nextAttemptAt])
+  @@index([businessId, status])
+}
