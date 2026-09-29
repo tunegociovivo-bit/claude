@@ -118,10 +118,11 @@ export async function countQualifiedOfferReferrals(
   if (welcomeOffers.length === 0) return 0;
   const participants = await prisma.bubuiChallengeParticipant.findMany({
     where: { offerId, referrerCustomerId: referrerId, friendCustomerId: { in: welcomeOffers.map((welcome) => welcome.customerId) } },
-    select: { friendCustomerId: true }
+    select: { friendCustomerId: true, status: true }
   });
   if (participants.length === 0) return 0;
-  const participantIds = participants.map((participant) => participant.friendCustomerId);
+  const activeParticipants = participants.filter((participant) => !["declined", "lost"].includes(participant.status));
+  const participantIds = activeParticipants.map((participant) => participant.friendCustomerId);
   const friends = await prisma.bubuiCustomer.findMany({
     where: {
       id: { in: participantIds },
@@ -139,7 +140,13 @@ export async function countQualifiedOfferReferrals(
     select: { redeemedOfferId: true },
     distinct: ["redeemedOfferId"]
   });
-  return redeemed.length;
+  const completedIds = new Set(activeParticipants.filter((p) => p.status === "confirmed" && friendIds.has(p.friendCustomerId)).map((p) => p.friendCustomerId));
+  const byCoupon = new Map(welcomeOffers.map((welcome) => [welcome.id, welcome.customerId]));
+  for (const purchase of redeemed) {
+    const id = purchase.redeemedOfferId ? byCoupon.get(purchase.redeemedOfferId) : undefined;
+    if (id) completedIds.add(id);
+  }
+  return completedIds.size;
 }
 
 /**

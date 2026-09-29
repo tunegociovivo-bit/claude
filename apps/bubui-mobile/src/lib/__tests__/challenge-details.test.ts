@@ -8,9 +8,10 @@ describe("friend challenge details", () => {
   });
 
   it("genera mensaje de WhatsApp con el nombre del amigo", () => {
-    const copy = challengeActionCopy({ mode: "online", businessName: "Roman Trainer", inviterName: "Ana", recipientName: "Luis", serviceTitle: "Entrenamiento personal", description: "Plan de tres meses", discountPct: 16, price: 250 });
+    const copy = challengeActionCopy({ mode: "online", businessName: "Roman Trainer", inviterName: "Ana", recipientName: "Luis", recipientPhone: "+34600000000", serviceTitle: "Entrenamiento personal", description: "Plan de tres meses", discountPct: 16, price: 250 });
     expect(copy).toContain("Ana");
     expect(copy).toContain("Luis");
+    expect(copy).toContain("📞 Mi teléfono: +34600000000");
     expect(copy).toContain("Roman Trainer");
     expect(copy).toContain("*16%*");
     expect(copy).toContain("250,00");

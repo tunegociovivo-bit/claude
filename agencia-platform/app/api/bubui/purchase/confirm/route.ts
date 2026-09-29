@@ -110,16 +110,13 @@ export async function POST(req: Request) {
     void import("@/lib/bubui/challenge-redemption")
       .then((m) => m.reevaluateChallengeAfterFriendCouponRedemption({
         source: redeemedOffer.source,
+        triggerBusinessId: redeemedOffer.triggerBusinessId,
+        friendCustomerId: purchase.customerId,
+        businessId: purchase.businessId,
         referredById: customer.referredById,
         referralOfferId: customer.referralOfferId
       }))
       .catch(() => {});
-    if (customer.referralOfferId) {
-      void prisma.bubuiChallengeParticipant.updateMany({
-        where: { offerId: customer.referralOfferId, friendCustomerId: purchase.customerId },
-        data: { status: "confirmed", decidedAt: new Date(), nextFollowupAt: null, contactedAt: new Date(), contactChannel: "qr" }
-      }).catch(() => {});
-    }
   }
 
   // Tarjeta de fidelidad: si esta compra completa el ciclo, otorga el cupón.

@@ -20,6 +20,7 @@
  */
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { referralAppUrl, rememberWebReferral } from "@/lib/bubui/web-referral";
 
 const ANDROID_PACKAGE = "com.negociovivo.bubui";
 
@@ -51,7 +52,7 @@ export default function ReferralRedirect({ code, offerId }: { code: string; offe
     ? `bubui://r/${encodeURIComponent(code)}?offer=${encodeURIComponent(offerId)}`
     : `bubui://r/${encodeURIComponent(code)}`;
   const playStore = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(invite)}`;
-  const pwa = `/bubui/app?ref=${encodeURIComponent(code ?? "")}`;
+  const pwa = referralAppUrl(code ?? "", offerId);
 
   function tryOpenApp() {
     setTriedApp(false);
@@ -69,7 +70,7 @@ export default function ReferralRedirect({ code, offerId }: { code: string; offe
     let cancelled = false;
     void (async () => {
       if (!code) { router.replace(pwa); return; }
-      try { localStorage.setItem("bubui.ref", code); } catch {}
+      try { rememberWebReferral(localStorage, code, offerId); } catch {}
       await persistReferralClick(code, offerId);
       if (cancelled) return;
 
