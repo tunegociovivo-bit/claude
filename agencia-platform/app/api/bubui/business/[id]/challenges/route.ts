@@ -37,38 +37,34 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     select: { id: true, name: true, phone: true }
   });
   const cmap = new Map(customers.map((c) => [c.id, c]));
-  const exactFriends = await prisma.bubuiCustomer.findMany({
-    where: { referralOfferId: { in: offers.map((offer) => offer.id) }, phoneVerified: true },
-    select: { id: true, name: true, phone: true, createdAt: true, referralOfferId: true }
-  });
-  const friendPurchases = await prisma.bubuiPurchase.findMany({
-    where: {
-      businessId: params.id,
-      customerId: { in: exactFriends.map((friend) => friend.id) },
-      status: "confirmed",
-      redeemedOfferId: { not: null }
-    },
-    select: { customerId: true }
-  });
-  const redeemedIds = new Set(friendPurchases.map((purchase) => purchase.customerId));
   const participants = await prisma.bubuiChallengeParticipant.findMany({
-    where: { offerId: { in: offers.map((offer) => offer.id) } },
+    where: { offerId: { in: offers.map((offer) => offer.id) }, businessId: params.id },
     select: { offerId: true, friendCustomerId: true, status: true, nextFollowupAt: true, reminderSentAt: true, contactedAt: true, contactChannel: true, registeredAt: true, decidedAt: true }
+  });
+  const exactFriends = await prisma.bubuiCustomer.findMany({
+    where: { OR: [{ referralOfferId: { in: offers.map((offer) => offer.id) } }, { id: { in: participants.map((p) => p.friendCustomerId) } }], phoneVerified: true },
+    select: { id: true, name: true, phone: true, createdAt: true, referralOfferId: true }
   });
   const welcomeOffers = await prisma.bubuiOffer.findMany({
     where: {
-      customerId: { in: participants.map((participant) => participant.friendCustomerId) },
+      customerId: { in: exactFriends.map((friend) => friend.id) },
       businessId: params.id,
       source: "referral_welcome",
       triggerBusinessId: { in: offers.map((offer) => `ref:welcome:${offer.id}`) },
     },
-    select: { customerId: true, triggerBusinessId: true, discountPct: true, expiresAt: true },
+    select: { id: true, customerId: true, triggerBusinessId: true, discountPct: true, expiresAt: true },
   });
+  const purchases = welcomeOffers.length ? await prisma.bubuiPurchase.findMany({
+    where: { businessId: params.id, status: "confirmed", redeemedOfferId: { in: welcomeOffers.map((offer) => offer.id) } },
+    select: { redeemedOfferId: true }
+  }) : [];
+  const redeemedCoupons = new Set(purchases.map((purchase) => purchase.redeemedOfferId));
 
   const items = await Promise.all(
     offers.map(async (o) => {
-      const friends = o.usesExactReferralTracking
-        ? buildChallengeFriends(o.id, exactFriends.map((friend) => ({ ...friend, redeemed: redeemedIds.has(friend.id) })))
+      const usesParticipants = o.usesExactReferralTracking || participants.some((p) => p.offerId === o.id);
+      const friends = usesParticipants
+        ? buildChallengeFriends(o.id, exactFriends.map((friend) => ({ ...friend, redeemed: welcomeOffers.some((welcome) => welcome.customerId === friend.id && welcome.triggerBusinessId === `ref:welcome:${o.id}` && redeemedCoupons.has(welcome.id)) })), participants)
             .map((friend) => {
               const participant = participants.find((row) => row.offerId === o.id && row.friendCustomerId === friend.customerId);
               const status = participant?.status ?? "registered";
@@ -90,13 +86,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         : [];
       const progressingFriends = friends.filter((friend) => !["declined", "lost"].includes(friend.status));
       const exactDone = o.unlockRequiresPurchase ? progressingFriends.filter((friend) => friend.redeemed).length : progressingFriends.length;
-      const verified = o.usesExactReferralTracking ? exactDone : (o.unlockRequiresPurchase
+      const verified = usesParticipants ? exactDone : (o.unlockRequiresPurchase
         ? await countQualifiedReferrals(o.customerId, params.id)
         : await countVerifiedReferrals(o.customerId));
-      const left = o.usesExactReferralTracking
+      const left = usesParticipants
         ? Math.max(0, o.unlockShares - verified)
         : sharesLeft({ unlockBaseline: o.unlockBaseline, unlockShares: o.unlockShares }, verified);
-      const done = o.usesExactReferralTracking ? Math.min(o.unlockShares, verified) : Math.max(0, Math.min(o.unlockShares, verified - o.unlockBaseline));
+      const done = usesParticipants ? Math.min(o.unlockShares, verified) : Math.max(0, Math.min(o.unlockShares, verified - o.unlockBaseline));
       const c = cmap.get(o.customerId);
       const friendDiscounts = welcomeOffers
         .filter((welcome) => welcome.triggerBusinessId === `ref:welcome:${o.id}`)

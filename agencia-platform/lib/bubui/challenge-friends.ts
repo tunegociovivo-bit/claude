@@ -7,9 +7,11 @@ export type ChallengeFriendRow = {
   redeemed: boolean;
 };
 
-export function buildChallengeFriends(offerId: string, friends: ChallengeFriendRow[]) {
+export function buildChallengeFriends(offerId: string, friends: ChallengeFriendRow[], participants: { offerId: string; friendCustomerId: string; registeredAt: Date }[] = []) {
+  const relevant = participants.filter((participant) => participant.offerId === offerId);
+  const membership = new Map(relevant.map((participant) => [participant.friendCustomerId, participant.registeredAt]));
   return friends
-    .filter((friend) => friend.referralOfferId === offerId)
+    .filter((friend) => relevant.length ? membership.has(friend.id) : friend.referralOfferId === offerId)
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     .map((friend) => ({
       customerId: friend.id,
@@ -17,6 +19,6 @@ export function buildChallengeFriends(offerId: string, friends: ChallengeFriendR
       phone: friend.phone,
       registered: true,
       redeemed: friend.redeemed,
-      registeredAt: friend.createdAt.toISOString(),
+      registeredAt: (membership.get(friend.id) ?? friend.createdAt).toISOString(),
     }));
 }

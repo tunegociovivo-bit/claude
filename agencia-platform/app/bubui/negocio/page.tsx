@@ -1936,7 +1936,7 @@ function DiscountsConfig({ business, token, onSaved }: { business: any; token: s
                 {dealBusy ? "Creando enlace…" : "📲 Crea un enlace ahora para tu cliente y sus amigos"}
               </button>
               <p className="text-[11px] text-black/45 mt-1">
-                Genera un enlace con estos valores para enviárselo por WhatsApp a un cliente. Él lo comparte con sus amigos y, al unirse, se activa su descuento.
+          Genera un enlace con estos valores para enviárselo por WhatsApp a un cliente. Él lo comparte con sus amigos y su descuento se activa {shareReqPurchase ? "cuando confirmes las compras necesarias." : "cuando se registren y verifiquen su teléfono los amigos necesarios."}
               </p>
               {dealErr && <p className="text-rose-600 text-xs mt-1">{dealErr}</p>}
             </>
@@ -4329,6 +4329,7 @@ function MiniMetric({ label, value }: { label: string; value: number | string })
  */
 function ActiveChallengesPanel({ businessId, token }: { businessId: string; token: string }) {
   const [items, setItems] = useState<any[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [challengeMetrics, setChallengeMetrics] = useState<any | null>(null);
   const [remindingId, setRemindingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -4352,16 +4353,21 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
       const r = await fetch(`/api/bubui/business/${businessId}/challenges`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (r.ok) { const data = await r.json(); setItems(data.items ?? []); setChallengeMetrics(data.metrics ?? null); }
-      else setItems([]);
-    } catch {
-      setItems([]);
+      if (!r.ok) throw new Error(r.status === 401 ? "Tu sesión ha caducado. Vuelve a entrar." : "No se pudieron cargar los retos. Vuelve a intentarlo.");
+      const data = await r.json();
+      setItems(data.items ?? []);
+      setChallengeMetrics(data.metrics ?? null);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Sin conexión. No se pudieron actualizar los retos.");
     }
   }
   useEffect(() => {
     void load();
+    const interval = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 15_000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [businessId]);
+  }, [businessId, token]);
 
   async function remind(customerId: string) {
     setRemindingId(customerId);
@@ -4412,13 +4418,18 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
       const response = await fetch(`/api/bubui/business/${businessId}/challenges/${offerId}/friends/${friendId}`, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ action })
       });
-      if (!response.ok) alert("No se pudo guardar la respuesta.");
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        alert(result?.error?.message ?? "No se pudo guardar la respuesta.");
+      }
       else await load();
+    } catch {
+      alert("No se pudo confirmar la respuesta por un problema de conexión. Actualiza el panel antes de reintentar.");
     } finally { setRespondingFriend(null); }
   }
 
   if (items === null) {
-    return <div className="rounded-xl border border-black/10 p-3 text-sm text-black/50">Cargando retos activos…</div>;
+    return <div className="rounded-xl border border-black/10 p-3 text-sm text-black/50">{loadError ? <><p role="alert">{loadError}</p><button onClick={() => void load()} className="mt-2 font-bold text-pink-600">Reintentar</button></> : "Cargando retos activos…"}</div>;
   }
 
   if (followupTarget && followupTarget.businessId !== businessId) {
@@ -4436,6 +4447,7 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
 
   return (
     <div id="retos-activos" className="scroll-mt-24 rounded-xl border border-black/10 p-3">
+      {loadError && <p role="alert" className="mb-2 text-sm text-rose-700">{loadError} Se muestran los últimos datos disponibles.</p>}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="font-semibold text-sm">🎯 Retos activos ({items.length})</div>
         <button onClick={() => void load()} className="text-[11px] text-pink-600 font-semibold">↻ Actualizar</button>
@@ -4556,7 +4568,7 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                           tabIndex={-1}
                           className={`rounded-md border bg-white p-2 text-[11px] outline-none transition ${followupTarget?.offerId === c.offerId && followupTarget?.friendId === friend.customerId ? "border-pink-500 ring-4 ring-pink-200 shadow-lg" : "border-pink-100"}`}
                         >
-                          <div className="flex items-center justify-between gap-2"><span className="font-semibold">{friend.name || "Sin nombre"}</span><span className="text-black/55">{friend.phone || "Sin teléfono"} · {(friend.redeemed || friend.status === "confirmed") ? "● completado" : "◐ alta completada"}</span></div>
+                          <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{friend.name || "Sin nombre"}</span><span className="text-black/55">{friend.phone ? <a href={`tel:${friend.phone.replace(/[^+\d]/g, "")}`} className="font-semibold text-pink-700 underline">{friend.phone}</a> : "Sin teléfono"} · {(friend.redeemed || friend.status === "confirmed") ? "● pagado" : ["declined", "lost"].includes(friend.status) ? "Descartado" : friend.timeline?.some((event: any) => event.key === "contacted" && event.state === "complete") ? "Interesado · pago pendiente" : "Alta completada"}</span></div>
                           {!!friend.timeline?.length && (
                             <div className="mt-2 flex items-start gap-1">
                               {friend.timeline.map((event: any, index: number) => (
@@ -4567,9 +4579,9 @@ function ActiveChallengesPanel({ businessId, token }: { businessId: string; toke
                               ))}
                             </div>
                           )}
-                          {["awaiting_business", "followup_pending"].includes(friend.status) && (
+                          {["registered", "awaiting_business", "followup_pending", "still_pending"].includes(friend.status) && (
                             <div className="mt-2 flex flex-wrap gap-1">
-                              <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "yes")} className="rounded-full bg-emerald-600 px-3 py-1 font-bold text-white">Sí</button>
+                              <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "yes")} className="rounded-full bg-emerald-600 px-3 py-1 font-bold text-white">Marcar como pagado</button>
                               <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "no")} className="rounded-full bg-rose-100 px-3 py-1 font-bold text-rose-700">No</button>
                               <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "later")} className="rounded-full bg-amber-100 px-3 py-1 font-bold text-amber-800">Todavía no</button>
                               {friend.status === "followup_pending" && !friend.reminderSentAt && <button disabled={respondingFriend === friend.customerId} onClick={() => void answerFriend(c.offerId, friend.customerId, "remind")} className="rounded-full bg-pink-100 px-3 py-1 font-bold text-pink-700">Enviar recordatorio</button>}

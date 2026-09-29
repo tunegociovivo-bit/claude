@@ -10,6 +10,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
+import { applyPendingWebReferral, rememberWebReferral } from "@/lib/bubui/web-referral";
+import { WebFriendChallenge } from "./WebFriendChallenge";
 
 type Customer = {
   customerId: string;
@@ -28,13 +30,22 @@ const AMBASSADOR_BADGE: Record<string, { label: string; emoji: string; color: st
 };
 type Offer = {
   offerId: string;
-  business: { id: string; slug?: string | null; name: string; category: string; city: string; brandColor?: string | null };
+  business: { id: string; slug?: string | null; name: string; category: string; city: string; brandColor?: string | null; phone?: string | null; address?: string | null };
   discountPct: number;
   rewardLabel?: string | null;
   expiresAt: string;
   hoursLeft: number;
   distanceM: number | null;
   priority?: boolean;
+  source?: string;
+  locked?: boolean;
+  friendsNeeded?: number;
+  sharesLeft?: number;
+  unlockRequiresPurchase?: boolean;
+  challengeServiceMode?: string | null;
+  challengeServicePrice?: number | null;
+  challengeServiceDescription?: string | null;
+  challengeInviterName?: string | null;
 };
 
 export default function BubuiApp() {
@@ -47,29 +58,35 @@ export default function BubuiApp() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem("bubui.customer");
-      if (raw) setCustomer(JSON.parse(raw));
+      if (raw) {
+        const storedCustomer = JSON.parse(raw);
+        if (storedCustomer.token) setCustomer(storedCustomer);
+        else localStorage.removeItem("bubui.customer");
+      }
       const onboarded = localStorage.getItem("bubui.onboarded") === "1";
       setShowOnboarding(!raw && !onboarded);
       // Código de referido: ?ref= o el guardado por /bubui/r/<code>.
       const urlRef = new URLSearchParams(window.location.search).get("ref");
       const stored = localStorage.getItem("bubui.ref");
       const r = urlRef || stored;
-      if (r) { setRef(r); localStorage.setItem("bubui.ref", r); }
+      if (r) {
+        setRef(r);
+        if (urlRef) rememberWebReferral(localStorage, r, new URLSearchParams(window.location.search).get("offer"));
+      }
     } catch {
       setShowOnboarding(false);
     }
   }, []);
 
-  // Pide localización al entrar (silenciosa, sin bloqueo).
-  useEffect(() => {
-    if (!customer) return;
-    if (!navigator.geolocation) return;
+  // Request location only after the customer chooses to use nearby offers.
+  function locate() {
+    if (!navigator.geolocation) { alert("Este navegador no admite ubicación."); return; }
     navigator.geolocation.getCurrentPosition(
       (p) => setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => {},
+      () => alert("No se pudo obtener tu ubicación. Puedes seguir utilizando tus cupones."),
       { timeout: 5000 }
     );
-  }, [customer]);
+  }
 
   if (showOnboarding === null) return null; // SSR / mientras carga
 
@@ -85,9 +102,9 @@ export default function BubuiApp() {
   }
 
   if (!customer) {
-    return <Signup refCode={ref} onDone={(c) => { setCustomer(c); localStorage.setItem("bubui.customer", JSON.stringify(c)); try { localStorage.removeItem("bubui.ref"); } catch {} }} />;
+    return <Signup refCode={ref} onDone={(c) => { setCustomer(c); localStorage.setItem("bubui.customer", JSON.stringify(c)); }} />;
   }
-  return <OffersFeed customer={customer} coords={coords} />;
+  return <OffersFeed customer={customer} coords={coords} onLocate={locate} />;
 }
 
 /** Onboarding · 3 slides con dots + Saltar + Siguiente/Empezar.
@@ -295,7 +312,7 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
       const r = await fetch("/api/bubui/customer/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code, name, email, birthDate, gender, postalCode, ref: refCode || undefined })
+        body: JSON.stringify({ phone, code, name, email, birthDate, gender, postalCode, ref: refCode || undefined, refOfferId: localStorage.getItem("bubui.refOffer") || undefined })
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.error?.message ?? `Error ${r.status}`); return; }
@@ -487,8 +504,11 @@ function Signup({ onDone, refCode }: { onDone: (c: Customer) => void; refCode?: 
   );
 }
 
-function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: number; lng: number } | null }) {
+function OffersFeed({ customer, coords, onLocate }: { customer: Customer; coords: { lat: number; lng: number } | null; onLocate: () => void }) {
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [refresh, setRefresh] = useState(0);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [referralError, setReferralError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pushState, setPushState] = useState<"unknown" | "unsupported" | "denied" | "granted" | "loading">("unknown");
   const [savings, setSavings] = useState<{ id: string; discountPct: number; discountAmount: number; businessName: string; date: string }[]>([]);
@@ -538,9 +558,15 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
     setSharing(o.offerId);
     try {
       const code = await getRefCode();
+      if (o.source === "share_challenge" && !code) {
+        setFeedError("No se pudo preparar el enlace del reto. Vuelve a intentarlo.");
+        return;
+      }
       const origin = window.location.origin;
       // Enlace al negocio con el ref del que comparte (acredita la invitación).
-      const url = o.business.slug
+      const url = o.source === "share_challenge" && code
+        ? `${origin}/bubui/r/${encodeURIComponent(code)}?offer=${encodeURIComponent(o.offerId)}`
+        : o.business.slug
         ? `${origin}/bubui/n/${o.business.slug}${code ? `?ref=${encodeURIComponent(code)}` : ""}`
         : code
           ? `${origin}/bubui/r/${encodeURIComponent(code)}`
@@ -586,7 +612,9 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
           fetch(`/api/bubui/customer/${customer.customerId}`, { headers: customerAuthHeaders() }),
           fetch(`/api/bubui/customer/${customer.customerId}/loyalty`, { headers: customerAuthHeaders() })
         ]);
-        if (offersRes.ok) setOffers((await offersRes.json()).items ?? []);
+        if (!offersRes.ok) throw new Error(offersRes.status === 401 ? "Tu sesión ha caducado. Vuelve a iniciar sesión." : "No se pudieron cargar tus cupones.");
+        setOffers((await offersRes.json()).items ?? []);
+        setFeedError(null);
         if (loyaltyRes.ok) setLoyalty((await loyaltyRes.json()).items ?? []);
         if (profileRes.ok) {
           const fresh = await profileRes.json();
@@ -605,11 +633,13 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
             } catch {}
           }
         }
+      } catch (error) {
+        setFeedError(error instanceof Error ? error.message : "Sin conexión. Vuelve a intentarlo.");
       } finally {
         setLoading(false);
       }
     })();
-  }, [customer.customerId, coords]);
+  }, [customer.customerId, coords, refresh]);
 
   // Cupón de amigo para clientes YA REGISTRADOS: si el cliente abrió un enlace de
   // invitación (/r/<code>) estando ya logueado, no pasó por el alta (donde se
@@ -617,22 +647,9 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
   // al tener sesión + un ref guardado, lo aplicamos una vez (idempotente).
   useEffect(() => {
     if (!customer?.customerId) return;
-    let ref: string | null = null;
-    try {
-      ref = localStorage.getItem("bubui.ref");
-    } catch {}
-    if (!ref) return;
-    fetch("/api/bubui/customer/apply-ref", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...customerAuthHeaders() },
-      body: JSON.stringify({ customerId: customer.customerId, ref })
-    })
-      .then(() => {
-        try {
-          localStorage.removeItem("bubui.ref");
-        } catch {}
-      })
-      .catch(() => {});
+    void applyPendingWebReferral(customer.customerId, localStorage, customerAuthHeaders())
+      .then((linked) => { if (linked) setRefresh((value) => value + 1); })
+      .catch((error) => setReferralError(error.message));
   }, [customer.customerId]);
 
   // Estado de push: ¿el navegador soporta?, ¿el cliente ya aceptó?
@@ -692,6 +709,8 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
 
   return (
     <main className="max-w-md mx-auto px-4 py-6 pb-24">
+      {!coords && <button onClick={onLocate} className="mb-3 text-sm font-semibold text-pink-700 underline">Usar mi ubicación para ordenar los cupones cercanos</button>}
+      {(feedError || referralError) && <div role="alert" className="mb-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-800"><p>{feedError || referralError}</p><button onClick={() => window.location.reload()} className="mt-2 font-bold underline">Reintentar</button></div>}
       {/* Header: logo */}
       <div className="flex items-center mb-4 bubui-fade-up">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -929,6 +948,8 @@ function OffersFeed({ customer, coords }: { customer: Customer; coords: { lat: n
                     ⏰ {o.hoursLeft}h
                   </div>
                 </div>
+                {o.source === "share_challenge" && <p className="mt-3 text-sm font-semibold">{o.locked ? `${Math.max(0, (o.friendsNeeded ?? 0) - (o.sharesLeft ?? 0))} de ${o.friendsNeeded ?? 0} amigos completados · faltan ${o.sharesLeft ?? 0}` : "Reto completado · descuento disponible"}</p>}
+                {o.source === "referral_welcome" && <WebFriendChallenge customerId={customer.customerId} offer={o} />}
                 <button
                   onClick={() => shareOffer(o)}
                   disabled={sharing === o.offerId}

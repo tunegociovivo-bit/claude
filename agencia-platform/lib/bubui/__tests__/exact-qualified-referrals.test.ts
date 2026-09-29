@@ -17,6 +17,17 @@ import { countOfferReferrals, countQualifiedOfferReferrals } from "../referral";
 beforeEach(() => vi.clearAllMocks());
 
 describe("qualified referrals attributed to one challenge", () => {
+  it("counts a business-confirmed payment once, even if the coupon also has a purchase", async () => {
+    H.prisma.bubuiOffer.findMany.mockResolvedValue([{ id: "welcome-a", customerId: "friend-a" }, { id: "welcome-b", customerId: "friend-b" }]);
+    H.prisma.bubuiChallengeParticipant.findMany.mockResolvedValue([{ friendCustomerId: "friend-a", status: "confirmed" }, { friendCustomerId: "friend-b", status: "registered" }]);
+    H.prisma.bubuiCustomer.findMany.mockResolvedValue([{ id: "friend-a" }, { id: "friend-b" }]);
+    H.prisma.bubuiPurchase.findMany.mockResolvedValue([]);
+    expect(await countQualifiedOfferReferrals("owner", "challenge", "biz")).toBe(1);
+    H.prisma.bubuiPurchase.findMany.mockResolvedValue([{ redeemedOfferId: "welcome-a" }]);
+    expect(await countQualifiedOfferReferrals("owner", "challenge", "biz")).toBe(1);
+    H.prisma.bubuiChallengeParticipant.findMany.mockResolvedValue([{ friendCustomerId: "friend-a", status: "confirmed" }, { friendCustomerId: "friend-b", status: "confirmed" }]);
+    expect(await countQualifiedOfferReferrals("owner", "challenge", "biz")).toBe(2);
+  });
   it("counts verified M:N participants even when their global referrer is different", async () => {
     H.prisma.bubuiChallengeParticipant.findMany.mockResolvedValue([
       { friendCustomerId: "friend-existing", status: "registered" }

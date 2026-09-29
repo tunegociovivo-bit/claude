@@ -23,6 +23,7 @@ export function challengeActionCopy(input: {
   address?: string | null;
   inviterName?: string | null;
   recipientName?: string | null;
+  recipientPhone?: string | null;
   serviceTitle?: string | null;
   description?: string | null;
   discountPct?: number | null;
@@ -35,6 +36,7 @@ export function challengeActionCopy(input: {
       "🎁 *QUIERO ACEPTAR UN RETO DE BUBUI*",
       "",
       `Hola, soy *${input.recipientName?.trim() || "un cliente de Bubui"}*.`,
+      input.recipientPhone?.trim() ? `📞 Mi teléfono: ${input.recipientPhone.trim()}` : null,
       `👤 Me invita: ${input.inviterName?.trim() || "un amigo/a"}`,
       `🏪 Negocio: *${input.businessName}*`,
       `🎯 Servicio: *${input.serviceTitle?.trim() || "Reto especial Bubui"}*`,

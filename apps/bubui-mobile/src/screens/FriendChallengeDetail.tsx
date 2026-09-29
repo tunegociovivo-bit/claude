@@ -42,12 +42,13 @@ export function FriendChallengeDetail() {
   const { challenge } = useRoute<DetailRoute>().params;
   const [showWhatsAppChooser, setShowWhatsAppChooser] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const actionFor = (recipientName?: string | null) => challengeActionCopy({
+  const actionFor = (recipientName?: string | null, recipientPhone?: string | null) => challengeActionCopy({
     mode: challenge.mode,
     businessName: challenge.business.name,
     address: challenge.business.address,
     inviterName: challenge.inviterName,
     recipientName,
+    recipientPhone,
     serviceTitle: challenge.rewardLabel,
     description: challenge.description,
     discountPct: challenge.discountPct,
@@ -58,13 +59,23 @@ export function FriendChallengeDetail() {
   const daysLeft = challenge.daysLeft ?? Math.max(1, Math.ceil(challenge.hoursLeft / 24));
 
   async function recordContact(channel: "qr" | "whatsapp") {
-    const customer = await CheckSession().catch(() => null);
-    if (customer?.customerId) await api.challengeContact(customer.customerId, challenge.offerId, channel).catch(() => {});
+    const customer = await CheckSession();
+    if (!customer?.customerId) throw new Error("Inicia sesión para aceptar el reto.");
+    const result = await api.challengeContact(customer.customerId, challenge.offerId, channel);
+    if (!result.contact?.phone) throw new Error("No se pudo obtener tu teléfono. Vuelve a intentarlo.");
+    return result.contact;
   }
 
   async function openWhatsApp(target: WhatsAppTarget) {
-    const customer = await CheckSession().catch(() => null);
-    const richAction = actionFor(customer?.name);
+    setActionError(null);
+    let contact;
+    try {
+      contact = await recordContact("whatsapp");
+    } catch {
+      setActionError("No se pudo registrar tu interés. Comprueba tu conexión y vuelve a intentarlo.");
+      return;
+    }
+    const richAction = actionFor(contact.name, contact.phone);
     const url = Platform.OS === "android"
       ? whatsappAppUrl(challenge.business.phone || "", richAction)
       : whatsappChatUrl(challenge.business.phone || "", richAction);
@@ -78,7 +89,6 @@ export function FriendChallengeDetail() {
       } else {
         await Linking.openURL(url);
       }
-      await recordContact("whatsapp");
       setShowWhatsAppChooser(false);
     } catch {
       setActionError(`No se pudo abrir ${target === "business" ? "WhatsApp Business" : "WhatsApp"}. Elige otra opción.`);
@@ -86,8 +96,14 @@ export function FriendChallengeDetail() {
   }
 
   async function shareWithAnotherApp() {
-    await Share.share({ message: action });
-    setShowWhatsAppChooser(false);
+    setActionError(null);
+    try {
+      const contact = await recordContact("whatsapp");
+      await Share.share({ message: actionFor(contact.name, contact.phone) });
+      setShowWhatsAppChooser(false);
+    } catch {
+      setActionError("No se pudo preparar tu solicitud. Comprueba tu conexión y vuelve a intentarlo.");
+    }
   }
 
   async function acceptChallenge() {
@@ -99,8 +115,12 @@ export function FriendChallengeDetail() {
       setShowWhatsAppChooser(true);
       return;
     }
-    await recordContact("qr");
-    nav.navigate("Scan", { businessId: challenge.business.id });
+    try {
+      await recordContact("qr");
+      nav.navigate("Scan", { businessId: challenge.business.id });
+    } catch {
+      setActionError("No se pudo registrar tu interés. Comprueba tu conexión y vuelve a intentarlo.");
+    }
   }
 
   return (
@@ -159,7 +179,7 @@ export function FriendChallengeDetail() {
           <View style={[styles.chooser, { paddingBottom: Math.max(18, insets.bottom + 10) }]}>
             <View style={styles.modalHandle} />
             <Text style={styles.chooserTitle}>¿Qué WhatsApp quieres usar?</Text>
-            <Text style={styles.chooserText}>Abriremos el chat del negocio con el mensaje preparado.</Text>
+            <Text style={styles.chooserText}>Registraremos tu interés en el negocio y prepararemos un mensaje con tu nombre y teléfono. El reto avanzará cuando el negocio confirme el pago.</Text>
             <TouchableOpacity style={styles.whatsappButton} onPress={() => void openWhatsApp("business")}>
               <Text style={styles.whatsappButtonText}>WhatsApp Business</Text>
             </TouchableOpacity>

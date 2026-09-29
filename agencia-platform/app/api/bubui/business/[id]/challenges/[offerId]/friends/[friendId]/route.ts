@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { scheduleChallengeFollowup } from "@/lib/bubui/challenge-lifecycle";
+import { unlockShareChallengeOffers } from "@/lib/bubui/share-offer";
 
 const schema = z.object({ action: z.enum(["yes", "no", "later", "remind", "lost"]) });
 
@@ -16,13 +17,34 @@ export async function POST(req: Request, { params }: { params: { id: string; off
 
   const now = new Date();
   const action = parsed.data.action;
+  const welcomeWhere = { customerId: params.friendId, businessId: params.id, source: "referral_welcome", triggerBusinessId: `ref:welcome:${params.offerId}`, redeemed: false };
+  const offer = await prisma.bubuiOffer.findFirst({
+    where: { id: params.offerId, businessId: params.id, customerId: participant.referrerCustomerId, source: "share_challenge", redeemed: false, expiresAt: { gt: now } },
+    select: { id: true }
+  });
+  if (!offer) return NextResponse.json({ error: { code: "conflict", message: "El reto ha caducado o ya se ha utilizado" } }, { status: 409 });
+  if (["confirmed", "declined", "lost"].includes(participant.status)) {
+    if (action === "yes" && participant.status === "confirmed") {
+      await prisma.bubuiOffer.updateMany({ where: welcomeWhere, data: { redeemed: true, redeemedAt: participant.decidedAt ?? now } });
+      await unlockShareChallengeOffers(participant.referrerCustomerId, params.offerId);
+      return NextResponse.json({ ok: true, status: participant.status, nextFollowupAt: null });
+    }
+    return NextResponse.json({ error: { code: "conflict", message: "Esta participación ya está cerrada" } }, { status: 409 });
+  }
   const status = action === "yes" ? "confirmed" : action === "no" ? "declined" : action === "later" ? "still_pending" : action === "lost" ? "lost" : participant.status;
   const business = action === "later" ? await prisma.bubuiBusiness.findUnique({ where: { id: params.id }, select: { challengeFirstFollowupHours: true, challengeRepeatFollowupDays: true } }) : null;
-  const nextFollowupAt = action === "later" && business ? scheduleChallengeFollowup("repeat", now, { firstHours: business.challengeFirstFollowupHours, repeatDays: business.challengeRepeatFollowupDays }) : null;
-  await prisma.bubuiChallengeParticipant.update({
-    where: { id: participant.id },
-    data: { status, nextFollowupAt, decidedAt: ["yes", "no", "lost"].includes(action) ? now : null, ...(action === "remind" ? { reminderSentAt: now } : {}) }
+  const nextFollowupAt = action === "remind" ? participant.nextFollowupAt : action === "later" && business ? scheduleChallengeFollowup("repeat", now, { firstHours: business.challengeFirstFollowupHours, repeatDays: business.challengeRepeatFollowupDays }) : null;
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.bubuiChallengeParticipant.updateMany({
+      where: { id: participant.id, status: participant.status, ...(action === "remind" ? { reminderSentAt: null } : {}) },
+      data: { status, nextFollowupAt, decidedAt: ["yes", "no", "lost"].includes(action) ? now : null, ...(action === "remind" ? { reminderSentAt: now } : {}) }
+    });
+    if (result.count && action === "yes") {
+      await tx.bubuiOffer.updateMany({ where: welcomeWhere, data: { redeemed: true, redeemedAt: now } });
+    }
+    return result;
   });
+  if (!changed.count) return NextResponse.json({ error: { code: "conflict", message: "El estado ha cambiado. Actualiza el panel." } }, { status: 409 });
   if (["yes", "no", "later"].includes(action)) {
     await prisma.bubuiChallengeParticipant.updateMany({
       where: { id: participant.id, contactedAt: null },
@@ -30,11 +52,7 @@ export async function POST(req: Request, { params }: { params: { id: string; off
     });
   }
   if (action === "yes") {
-    const [offer, confirmed] = await Promise.all([
-      prisma.bubuiOffer.findFirst({ where: { id: params.offerId, businessId: params.id, source: "share_challenge", active: false }, select: { id: true, unlockShares: true } }),
-      prisma.bubuiChallengeParticipant.count({ where: { offerId: params.offerId, status: "confirmed" } })
-    ]);
-    if (offer && confirmed >= offer.unlockShares) await prisma.bubuiOffer.update({ where: { id: offer.id }, data: { active: true } });
+    await unlockShareChallengeOffers(participant.referrerCustomerId, params.offerId);
   }
 
   const friend = await prisma.bubuiCustomer.findUnique({ where: { id: params.friendId }, select: { name: true, phone: true } });

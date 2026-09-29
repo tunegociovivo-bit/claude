@@ -246,15 +246,12 @@ export async function POST(req: Request) {
       }).catch(() => {});
       void reevaluateChallengeAfterFriendCouponRedemption({
         source: activeOffer.source,
+        triggerBusinessId: activeOffer.triggerBusinessId,
+        friendCustomerId: d.customerId,
+        businessId: d.businessId,
         referredById: customer.referredById,
         referralOfferId: customer.referralOfferId
       }).catch(() => {});
-      if (customer.referralOfferId) {
-        void prisma.bubuiChallengeParticipant.updateMany({
-          where: { offerId: customer.referralOfferId, friendCustomerId: d.customerId },
-          data: { status: "confirmed", decidedAt: new Date(), nextFollowupAt: null, contactedAt: new Date(), contactChannel: "qr" }
-        }).catch(() => {});
-      }
     }
     await prisma.bubuiCustomer.update({
       where: { id: d.customerId },

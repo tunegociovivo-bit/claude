@@ -258,7 +258,7 @@ export const api = {
     });
   },
   challengeContact: (customerId: string, offerId: string, channel: "qr" | "whatsapp") =>
-    call<{ ok: true }>(`/api/bubui/customer/${encodeURIComponent(customerId)}/challenge-contact`, {
+    call<{ ok: true; contact: { name: string | null; phone: string } }>(`/api/bubui/customer/${encodeURIComponent(customerId)}/challenge-contact`, {
       method: "POST", body: JSON.stringify({ offerId, channel })
     }),
   /** Activa un cupón-reto con una acción (reseña/foto) validada por IA, en vez

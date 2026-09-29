@@ -186,7 +186,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       pushOnBooking: business.pushOnBooking,
       pushOnCoupon: business.pushOnCoupon
     },
-    notifications: notifications.map((n) => ({ id: n.id, message: n.message, createdAt: n.createdAt })),
+    notifications: notifications.map((n) => ({ id: n.id, type: n.type, message: n.message, createdAt: n.createdAt })),
     pending: pending.map((p) => ({
       id: p.id,
       amount: p.amount,
