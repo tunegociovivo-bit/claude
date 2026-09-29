@@ -1,16 +1,8 @@
-/**
- * PATCH /api/bubui/business/[id]/profile
- *
- * Permite al dueño del negocio editar campos del perfil que afectan a la
- * página pública y al cartel. Auth simple v1: header
- * `Authorization: Bearer <businessId>:<random>` que se guarda en
- * localStorage tras login. v1 confiamos en que el token contiene el id —
- * en v2 firmamos JWT.
- */
-
+/** Edición del perfil: requiere la sesión persistida del propietario. */
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { businessTokenAllows } from "@/lib/bubui/auth";
 import { normalizeBusinessPhone } from "@/lib/bubui/business-phone";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +21,7 @@ const challengeImageUrlSchema = z.string().url().refine((value) => {
 }, "La imagen debe haberse subido al almacenamiento de Bubui");
 
 const publicHttpUrl = z.string().trim().max(500).url().refine((value) => {
-  const protocol = new URL(value).protocol;
-  return protocol === "https:" || protocol === "http:";
+  try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; }
 }, "El enlace debe empezar por https:// o http://");
 
 const schema = z
@@ -125,15 +116,9 @@ const schema = z
     { message: "El mínimo de la ruleta no puede ser mayor que el máximo", path: ["wheelMinPct"] }
   );
 
-function tokenAllows(token: string | null, businessId: string): boolean {
-  if (!token) return false;
-  const m = /^Bearer\s+([\w-]+):/.exec(token);
-  return !!m && m[1] === businessId;
-}
-
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const auth = req.headers.get("authorization");
-  if (!tokenAllows(auth, params.id)) {
+  if (!(await businessTokenAllows(auth, params.id, { requireStoredToken: true }))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const parsed = schema.safeParse(await req.json().catch(() => null));

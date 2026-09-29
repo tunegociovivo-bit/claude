@@ -23,6 +23,12 @@ export function startInAppScheduler(): void {
 
   async function tick() {
     try {
+      const { dispatchDuePushAds } = await import("@/lib/bubui/push-ad-dispatch");
+      await dispatchDuePushAds();
+    } catch (error) {
+      console.warn("[in-app-cron] bubui paid ads:", error);
+    }
+    try {
       await runReminders();
     } catch (e) {
       console.warn("[in-app-cron] reminders:", (e as Error).message);

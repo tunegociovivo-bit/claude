@@ -12,16 +12,16 @@
  * tarjeta muchas veces (ciclo 1, 2, 3…) pero no farmea dentro de un ciclo.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
-/** Tras una compra confirmada, otorga el cupón de fidelidad si el cliente
- *  acaba de completar la tarjeta. No falla la transacción si algo va mal —
- *  es best-effort y la compra ya está confirmada. */
+/** Recupera todos los ciclos completados, incluso si se omitió un premio anterior.
+ * Debe compartir la transacción de la compra; un fallo se propaga y revierte. */
 export async function grantLoyaltyIfReached(opts: {
   customerId: string;
   businessId: string;
-}): Promise<{ granted: boolean; cycle?: number; discountPct?: number; label?: string | null }> {
-  const business = await prisma.bubuiBusiness.findUnique({
+}, db: Prisma.TransactionClient = prisma): Promise<{ granted: boolean; cycle?: number; discountPct?: number; label?: string | null }> {
+  const business = await db.bubuiBusiness.findUnique({
     where: { id: opts.businessId },
     select: { loyaltyEnabled: true, loyaltyGoal: true, loyaltyRewardPct: true, loyaltyRewardLabel: true }
   });
@@ -31,31 +31,32 @@ export async function grantLoyaltyIfReached(opts: {
   const label = business.loyaltyRewardLabel?.trim() || null;
   if (pct === 0 && !label) return { granted: false }; // no hay recompensa configurada
 
-  const count = await prisma.bubuiPurchase.count({
+  const count = await db.bubuiPurchase.count({
     where: { customerId: opts.customerId, businessId: opts.businessId, status: "confirmed" }
   });
-  if (count <= 0 || count % goal !== 0) return { granted: false };
+  if (count < goal) return { granted: false };
 
   const cycle = Math.floor(count / goal); // 1, 2, 3, ...
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días para canjear
 
-  try {
-    await prisma.bubuiOffer.create({
-      data: {
+  let granted = false;
+  // Batches bound SQL parameter count without skipping old missing cycles.
+  for (let first = 1; first <= cycle; first += 100) {
+    const result = await db.bubuiOffer.createMany({
+      data: Array.from({ length: Math.min(100, cycle - first + 1) }, (_, offset) => ({
         customerId: opts.customerId,
         businessId: opts.businessId,
         discountPct: pct,
         rewardLabel: label,
-        triggerBusinessId: `loyalty:${opts.businessId}:${cycle}`,
+        triggerBusinessId: `loyalty:${opts.businessId}:${first + offset}`,
         source: "loyalty",
         expiresAt
-      }
+      })),
+      skipDuplicates: true
     });
-    return { granted: true, cycle, discountPct: pct, label };
-  } catch {
-    // P2002: el cupón de este ciclo ya existe (reintento). No es un error real.
-    return { granted: false };
+    granted ||= result.count > 0;
   }
+  return { granted, cycle, discountPct: pct, label };
 }
 
 /** Lista las tarjetas activas del cliente: negocios donde tiene compras

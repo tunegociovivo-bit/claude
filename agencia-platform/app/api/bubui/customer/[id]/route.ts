@@ -9,7 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { cancelSubscriptionImmediately } from "@/lib/bubui/stripe";
+import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 import { getPlusEnabled } from "@/lib/bubui/plus";
 import { effectiveWalletPct } from "@/lib/bubui/wallet";
 
@@ -108,12 +109,20 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
  * Auth: token de sesión del propio cliente.
  */
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  if (!(await customerAuthOk(req, params.id))) {
+  if (customerIdFromAuth(req) !== params.id || !(await customerAuthOk(req, params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
   const id = params.id;
-  const exists = await prisma.bubuiCustomer.findUnique({ where: { id }, select: { id: true } });
+  const exists = await prisma.bubuiCustomer.findUnique({ where: { id }, select: { id: true, bubuiStripeSubscriptionId: true } });
   if (!exists) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+
+  if (exists.bubuiStripeSubscriptionId) {
+    try {
+      await cancelSubscriptionImmediately(exists.bubuiStripeSubscriptionId);
+    } catch {
+      return NextResponse.json({ error: { code: "subscription_cancellation_failed", message: "No se pudo cancelar la suscripción. Tu cuenta se conserva; vuelve a intentarlo." } }, { status: 502 });
+    }
+  }
 
   await prisma.$transaction([
     prisma.bubuiPushSubscription.deleteMany({ where: { customerId: id } }),

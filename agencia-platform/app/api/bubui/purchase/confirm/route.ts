@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { settlePurchase, PurchaseConflict } from "@/lib/bubui/purchase-settlement";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import {
   unlockOffersForPurchase,
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
-  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId))) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId, { requireStoredToken: true }))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
 
@@ -56,35 +57,23 @@ export async function POST(req: Request) {
   }
 
   if (d.action === "reject") {
-    await prisma.bubuiPurchase.update({
-      where: { id: purchase.id },
+    const rejected = await prisma.bubuiPurchase.updateMany({
+      where: { id: purchase.id, status: "pending" },
       data: { status: "rejected", rejectionReason: d.rejectionReason ?? "Rechazada por el negocio" }
     });
+    if (!rejected.count) return NextResponse.json({ error: { code: "conflict" } }, { status: 409 });
     return NextResponse.json({ ok: true, status: "rejected" });
   }
 
-  // CONFIRM:
-  await prisma.bubuiPurchase.update({
-    where: { id: purchase.id },
-    data: { status: "confirmed", confirmedAt: new Date() }
-  });
-
-  // Si canjea una oferta cruzada, la marcamos redeemed.
-  const redeemedOffer = purchase.redeemedOfferId
-    ? await prisma.bubuiOffer.update({
-      where: { id: purchase.redeemedOfferId },
-      data: { redeemed: true, redeemedAt: new Date() }
-    })
-    : null;
-
-  // Actualiza stats del cliente.
-  const customer = await prisma.bubuiCustomer.update({
-    where: { id: purchase.customerId },
-    data: {
-      totalPurchases: { increment: 1 },
-      totalSaved: { increment: purchase.discountAmount }
-    }
-  });
+  let settled;
+  try {
+    settled = await prisma.$transaction((tx) => settlePurchase(tx, purchase));
+  } catch (error) {
+    if (error instanceof PurchaseConflict) return NextResponse.json({ error: { code: "conflict", message: error.message } }, { status: 409 });
+    throw error;
+  }
+  if (!settled) return NextResponse.json({ error: { code: "conflict", message: "Esta compra ya se ha procesado." } }, { status: 409 });
+  const { customer, redeemedOffer, loyalty } = settled;
 
   // Desbloquea ofertas en negocios complementarios cercanos.
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: purchase.businessId } });
@@ -119,17 +108,6 @@ export async function POST(req: Request) {
       .catch(() => {});
   }
 
-  // Tarjeta de fidelidad: si esta compra completa el ciclo, otorga el cupón.
-  // Best-effort: si falla, la compra ya está confirmada y la siguiente lo
-  // intentará al hacer el mod 0 de nuevo. No bloquea respuesta.
-  let loyalty: { granted: boolean; cycle?: number; discountPct?: number; label?: string | null } = { granted: false };
-  try {
-    const { grantLoyaltyIfReached } = await import("@/lib/bubui/loyalty");
-    loyalty = await grantLoyaltyIfReached({ customerId: purchase.customerId, businessId: purchase.businessId });
-  } catch (e: any) {
-    console.warn("[bubui loyalty]", e?.message ?? e);
-  }
-
   // Email de confirmación al cliente (best-effort, no bloquea).
   if (customer.email && business) {
     void import("@/lib/bubui/email").then(({ sendPurchaseConfirmationEmail }) =>
@@ -141,7 +119,7 @@ export async function POST(req: Request) {
         discountAmount: purchase.discountAmount,
         offersUnlocked: offers.created
       })
-    );
+    ).catch((error) => console.warn("[bubui confirmation email]", error));
   }
 
   return NextResponse.json({

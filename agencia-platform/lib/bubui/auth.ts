@@ -23,7 +23,7 @@ function safeEqual(a: string, b: string): boolean {
   return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
-export async function businessTokenAllows(token: string | null, businessId: string): Promise<boolean> {
+export async function businessTokenAllows(token: string | null, businessId: string, options: { requireStoredToken?: boolean } = {}): Promise<boolean> {
   if (!token) return false;
   const m = /^Bearer\s+([\w-]+):([\w-]+)$/.exec(token.trim());
   if (!m || m[1] !== businessId) return false;
@@ -37,6 +37,7 @@ export async function businessTokenAllows(token: string | null, businessId: stri
     return safeEqual(b.apiToken, secret);
   }
   // Negocio todavía sin apiToken (sesión previa a esta versión): decisión por modo.
+  if (options.requireStoredToken) return false;
   const { allow, log } = decideNoToken(businessAuthMode());
   if (log) {
     console.warn(

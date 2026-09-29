@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
   // Solo el propio negocio (token válido) puede crear/pagar su anuncio.
-  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId))) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId, { requireStoredToken: true }))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: d.businessId } });
@@ -103,6 +103,7 @@ export async function POST(req: Request) {
       reach,
       radiusKm: d.radiusKm,
       businessId: business.id,
+      adId: ad.id,
       successUrl: `${origin}/bubui/negocio?ad=${ad.id}&pay=success`,
       cancelUrl: `${origin}/bubui/negocio?ad=${ad.id}&pay=cancel`
     });

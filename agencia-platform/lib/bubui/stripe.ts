@@ -36,7 +36,9 @@ async function stripeFetch<T = any>(path: string, init: RequestInit = {}): Promi
   });
   if (!resp.ok) {
     const txt = await resp.text();
-    throw new Error(`Stripe ${resp.status}: ${txt.slice(0, 300)}`);
+    let code: string | undefined;
+    try { code = JSON.parse(txt)?.error?.code; } catch {}
+    throw Object.assign(new Error(`Stripe ${resp.status}: ${txt.slice(0, 300)}`), { status: resp.status, code });
   }
   return resp.json() as Promise<T>;
 }
@@ -138,6 +140,7 @@ export async function createPushAdCheckout(opts: {
   reach: number;
   radiusKm: number;
   businessId: string;
+  adId: string;
   successUrl: string;
   cancelUrl: string;
 }): Promise<{ url: string; sessionId: string }> {
@@ -152,12 +155,14 @@ export async function createPushAdCheckout(opts: {
   body.set("cancel_url", opts.cancelUrl);
   body.set("metadata[bubui_business_id]", opts.businessId);
   body.set("metadata[bubui_kind]", "push_ad");
+  body.set("metadata[bubui_ad_id]", opts.adId);
   body.set("metadata[radius_km]", String(opts.radiusKm));
   body.set("payment_intent_data[metadata][bubui_business_id]", opts.businessId);
   body.set("payment_intent_data[metadata][bubui_kind]", "push_ad");
+  body.set("payment_intent_data[metadata][bubui_ad_id]", opts.adId);
   const data = await stripeFetch<any>("/checkout/sessions", {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": `bubui-push-ad-${opts.adId}` },
     body
   });
   return { url: data.url, sessionId: data.id };
@@ -210,6 +215,17 @@ export async function cancelSubscriptionAtPeriodEnd(
   });
   const ts = data?.cancel_at ?? data?.current_period_end;
   return { cancelAt: ts ? new Date(ts * 1000) : null };
+}
+
+/** Cancela antes de borrar la cuenta. Un reintento sobre una suscripción ya
+ * eliminada es seguro; otros fallos deben impedir el borrado de la cuenta. */
+export async function cancelSubscriptionImmediately(subscriptionId: string): Promise<void> {
+  try {
+    await stripeFetch(`/subscriptions/${encodeURIComponent(subscriptionId)}`, { method: "DELETE" });
+  } catch (error) {
+    const e = error as { status?: number; code?: string };
+    if (e.status !== 404 || e.code !== "resource_missing") throw error;
+  }
 }
 
 /** Reactiva una suscripción marcada para cancelar (cancel_at_period_end=false). */
