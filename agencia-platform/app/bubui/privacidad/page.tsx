@@ -10,7 +10,7 @@ export const metadata = {
   description: "Cómo Bubui recopila, usa y protege tus datos personales."
 };
 
-const UPDATED = "31 de mayo de 2026";
+const UPDATED = "29 de septiembre de 2026";
 
 export default function PrivacidadPage() {
   return (
@@ -34,7 +34,7 @@ export default function PrivacidadPage() {
         <ul className="list-disc pl-5 space-y-1">
           <li><b>Datos de cuenta:</b> nombre, correo electrónico, teléfono y fecha de nacimiento cuando te registras. La fecha de nacimiento se usa para verificar que eres mayor de edad mínima y para ofertas personalizadas (p. ej. cupón de cumpleaños).</li>
           <li><b>Ubicación:</b> tu ubicación aproximada o precisa para mostrarte descuentos cerca de ti y validar que la compra se hace en el local (anti-fraude). Solo se usa mientras la app está en uso.</li>
-          <li><b>Cámara:</b> para escanear los códigos QR de los negocios. Las imágenes no se almacenan.</li>
+          <li><b>Cámara:</b> para escanear códigos QR, sin guardar los fotogramas del escáner. Si subes voluntariamente un ticket o una captura para acreditar una acción, almacenamos esa imagen y la procesamos con un proveedor de inteligencia artificial (Anthropic) para leerla o verificarla.</li>
           <li><b>Uso del servicio:</b> compras registradas, ofertas canjeadas y métricas de ahorro.</li>
           <li><b>Notificaciones push:</b> un identificador del dispositivo para enviarte avisos de ofertas (puedes desactivarlas).</li>
         </ul>
@@ -59,7 +59,7 @@ export default function PrivacidadPage() {
       <Section title="5. Con quién los compartimos">
         No vendemos tus datos. Solo los compartimos con proveedores que nos ayudan a
         operar el servicio: pagos (Stripe), envío de SMS de verificación (Twilio),
-        notificaciones push y alojamiento. Cada uno trata los datos siguiendo sus
+        notificaciones push (Expo, Google y Apple), almacenamiento y alojamiento, y lectura de imágenes (Anthropic). Cuando solicitas una cita o aceptas contratar un reto, comunicamos al comercio tu nombre y teléfono para atender tu solicitud. Cada proveedor trata los datos siguiendo sus
         propias obligaciones de protección de datos.
       </Section>
 
@@ -76,7 +76,7 @@ export default function PrivacidadPage() {
       </Section>
 
       <Section title="8. Eliminación de cuenta y datos">
-        Para eliminar tu cuenta y todos tus datos personales, envía un correo a{" "}
+        Puedes eliminar tu cuenta desde Cuenta → Eliminar cuenta en la app. Antes del borrado cancelamos tu suscripción asociada y eliminamos tus archivos de tickets y capturas del almacenamiento. Si una operación falla, mostramos un error para que puedas reintentarlo. También puedes solicitarlo escribiendo a{" "}
         <a className="text-pink-600" href="mailto:hola@bubui.app">hola@bubui.app</a> desde
         la dirección asociada a tu cuenta. Procesamos las solicitudes en un plazo
         máximo de 30 días.

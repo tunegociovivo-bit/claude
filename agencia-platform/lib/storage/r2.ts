@@ -17,7 +17,7 @@
  * subida responden 503 ai_disabled-style. La app sigue funcionando sin adjuntos.
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export function isStorageEnabled(): boolean {
@@ -145,4 +145,15 @@ export function buildS3Key(opts: {
       ? `${opts.targetType.toLowerCase()}/${opts.targetId}`
       : "uploads";
   return `${opts.workspaceId}/${folder}/${uniq}-${safeName}`;
+}
+
+/** Called only with a server-derived, owner-scoped prefix. */
+export async function deleteObjectsWithPrefix(prefix: string): Promise<void> {
+  if (!/^bubui\/(tickets|pp|challenge|mesa)\/[\w-]+[/-]/.test(prefix) || prefix.includes("..")) throw new Error("invalid_media_prefix");
+  let token: string | undefined;
+  do {
+    const page = await client().send(new ListObjectsV2Command({ Bucket: bucket(), Prefix: prefix, ContinuationToken: token }));
+    for (const object of page.Contents ?? []) if (object.Key) await deleteObject(object.Key);
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
 }

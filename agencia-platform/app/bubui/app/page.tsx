@@ -690,15 +690,16 @@ function OffersFeed({ customer, coords, onLocate }: { customer: Customer; coords
         applicationServerKey: urlBase64ToUint8Array(cfg.key) as unknown as BufferSource
       });
       // 5. Enviar al backend
-      await fetch("/api/bubui/push/subscribe", {
+      const pushResponse = await fetch("/api/bubui/push/subscribe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...customerAuthHeaders() },
         body: JSON.stringify({
           customerId: customer.customerId,
           subscription: sub.toJSON(),
           userAgent: navigator.userAgent
         })
       });
+      if (!pushResponse.ok) throw new Error("No se pudo activar las notificaciones.");
       setPushState("granted");
     } catch (e: any) {
       console.warn("push activation failed", e);
@@ -996,7 +997,9 @@ function OffersFeed({ customer, coords, onLocate }: { customer: Customer; coords
 function AccountSection({ customer }: { customer: Customer }) {
   const [deleting, setDeleting] = useState(false);
 
-  function logout() {
+  async function logout() {
+    const response = await fetch("/api/bubui/customer/logout", { method: "POST", headers: customerAuthHeaders() }).catch(() => null);
+    if (!response?.ok) { alert("No se pudo cerrar la sesión. Comprueba la conexión y vuelve a intentarlo."); return; }
     try {
       localStorage.removeItem("bubui.customer");
     } catch {}

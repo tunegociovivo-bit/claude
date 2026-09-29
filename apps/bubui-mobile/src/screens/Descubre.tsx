@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, RefreshControl, Image } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -33,12 +33,17 @@ export function Descubre() {
   const c = useTheme();
   const styles = makeStyles(c);
   const [items, setItems] = useState<Business[]>([]);
+  const requestVersion = useRef(0);
+  const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("Todo");
   const [favs, setFavs] = useState<string[]>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (offset = 0) => {
+    const version = ++requestVersion.current;
+    setError(null);
     setLoading(true);
     try {
       const raw = await AsyncStorage.getItem(FAVS_KEY);
@@ -49,14 +54,16 @@ export function Descubre() {
       // Pasamos el customerId (si hay sesión) para que el backend refresque
       // también la última ubicación conocida del usuario, no solo el Feed.
       const session = await CheckSession();
-      const r = await api.discover(lat, lng, session?.customerId);
-      setItems(r.items ?? []);
-    } finally {
-      setLoading(false);
+      const r = await api.discover(lat, lng, session?.customerId, query, cat, offset);
+      if (version !== requestVersion.current) return;
+      setItems(previous => offset ? [...previous, ...(r.items ?? [])] : r.items ?? []);
+      setHasMore(!!r.hasMore);
+    } catch { if (version === requestVersion.current) setError("No se pudieron actualizar los negocios. Comprueba la conexión."); } finally {
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, []);
+  }, [query, cat]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => { const timer = setTimeout(() => { void load(); }, 300); return () => { clearTimeout(timer); requestVersion.current++; }; }, [load]));
 
   async function toggleFav(slug: string) {
     const next = favs.includes(slug) ? favs.filter((s) => s !== slug) : [...favs, slug];
@@ -64,11 +71,7 @@ export function Descubre() {
     try { await AsyncStorage.setItem(FAVS_KEY, JSON.stringify(next)); } catch {}
   }
 
-  const filtered = items.filter((b) => {
-    if (cat !== "Todo" && !b.category?.toLowerCase().includes(cat.toLowerCase())) return false;
-    if (query.trim() && !`${b.name} ${b.category}`.toLowerCase().includes(query.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = items;
 
   const header = (
     <View>
@@ -80,6 +83,7 @@ export function Descubre() {
         <Text>🔍</Text>
         <TextInput
           style={styles.searchInput}
+          accessibilityLabel="Buscar negocios"
           placeholder="Buscar negocios, comida, belleza…"
           placeholderTextColor={c.grayLight}
           value={query}
@@ -102,6 +106,7 @@ export function Descubre() {
           );
         }}
       />
+      {error && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Reintentar carga de negocios" onPress={() => { void load(); }}><Text style={styles.emptyText}>{error} Reintentar</Text></TouchableOpacity>}
       <Text style={styles.section}>Cerca de ti</Text>
     </View>
   );
@@ -109,13 +114,15 @@ export function Descubre() {
   return (
     <View style={styles.root}>
       <FlatList
+        onEndReached={() => { if (hasMore && !loading && !error) void load(items.length); }}
+        onEndReachedThreshold={0.4}
         data={filtered}
         keyExtractor={(b) => b.id}
         ListHeaderComponent={header}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 52, paddingBottom: 30 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={c.pink} />}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} tintColor={c.pink} />}
         ListEmptyComponent={
-          !loading ? (
+          !loading && !error ? (
             <View style={styles.empty}>
               <Image source={require("../../assets/ill-tienda.png")} style={styles.emptyIll} resizeMode="contain" />
               <Text style={styles.emptyText}>

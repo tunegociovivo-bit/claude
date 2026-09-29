@@ -1,4 +1,5 @@
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { useRef } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { WebView } from "react-native-webview";
 import { API_BASE } from "../lib/api";
 import { BottomNav } from "../components/BottomNav";
@@ -13,12 +14,15 @@ const EMBED_JS =
   "try{document.body.classList.add('bubui-embedded');sessionStorage.setItem('bubuiEmbed','1');}catch(e){};true;";
 
 export function Mapa() {
+  const web = useRef<WebView>(null);
   const c = useTheme();
   const styles = makeStyles(c);
   return (
     <View style={styles.root}>
       <FadeIn replayOnFocus dy={0} style={{ flex: 1 }}>
         <WebView
+          ref={web}
+          renderError={() => <View style={styles.loading}><Text>No se pudo cargar el mapa.</Text><TouchableOpacity accessibilityRole="button" onPress={() => web.current?.reload()}><Text>Reintentar</Text></TouchableOpacity></View>}
           source={{ uri: `${API_BASE}/bubui/app/mapa?embed=1` }}
           style={{ flex: 1, backgroundColor: c.bg }}
           startInLoadingState

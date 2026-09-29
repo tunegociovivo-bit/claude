@@ -14,6 +14,8 @@ import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 import { getPlusEnabled } from "@/lib/bubui/plus";
 import { effectiveWalletPct } from "@/lib/bubui/wallet";
 
+import { deleteCustomerMedia } from "@/lib/bubui/customer-media";
+
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -124,14 +126,17 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     }
   }
 
+  try { await deleteCustomerMedia(id); }
+  catch { return NextResponse.json({ error: { code: "media_deletion_failed", message: "No se ha podido completar el borrado de archivos. Vuelve a intentarlo; conservamos la cuenta para poder terminarlo." } }, { status: 502 }); }
   await prisma.$transaction([
+    prisma.bubuiChallengeParticipant.deleteMany({ where: { OR: [{ friendCustomerId: id }, { referrerCustomerId: id }] } }),
     prisma.bubuiPushSubscription.deleteMany({ where: { customerId: id } }),
     prisma.bubuiMobilePushToken.deleteMany({ where: { customerId: id } }),
     prisma.bubuiTicketScan.deleteMany({ where: { customerId: id } }),
     prisma.bubuiTableParticipant.deleteMany({ where: { customerId: id } }),
     prisma.bubuiBooking.deleteMany({ where: { customerId: id } }),
     // Desvincula a los clientes que este usuario refirió (no se borran ellos).
-    prisma.bubuiCustomer.updateMany({ where: { referredById: id }, data: { referredById: null } }),
+    prisma.bubuiCustomer.updateMany({ where: { referredById: id }, data: { referredById: null, referralOfferId: null } }),
     // El resto de datos (compras, ofertas, reseñas, follows, push log…) caen
     // por onDelete: Cascade al borrar el cliente.
     prisma.bubuiCustomer.delete({ where: { id } })
@@ -139,3 +144,4 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   return NextResponse.json({ ok: true });
 }
+
