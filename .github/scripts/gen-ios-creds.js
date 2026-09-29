@@ -79,20 +79,8 @@ async function main() {
   const jwt = generateJWT();
   console.log('JWT generated for key:', ASC_KEY_ID);
 
-  // Step 0: Revoke all existing iOS Distribution certificates
-  console.log('Checking for existing distribution certificates...');
-  const existingCerts = await apiRequest('GET', '/v1/certificates?filter[certificateType]=IOS_DISTRIBUTION&limit=10', null, jwt);
-  if (existingCerts.data && existingCerts.data.length > 0) {
-    console.log('Found', existingCerts.data.length, 'existing certificate(s), revoking...');
-    for (const cert of existingCerts.data) {
-      console.log('Revoking cert ID:', cert.id);
-      const delResult = await apiRequest('DELETE', '/v1/certificates/' + cert.id, null, jwt);
-      console.log('Revoked, status:', delResult.status);
-    }
-    console.log('All existing certificates revoked.');
-  } else {
-    console.log('No existing distribution certificates found.');
-  }
+  // Preserve existing certificates: other builds may still depend on them.
+  // If Apple reports a certificate quota, stop and resolve it explicitly.
 
   // Step 1: Generate private key and CSR using openssl
   console.log('Generating private key and CSR...');
