@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { settlePurchase, PurchaseConflict } from "@/lib/bubui/purchase-settlement";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import { notifyBubuiCustomer } from "@/lib/bubui/notify";
 import { scheduleChallengeFollowup } from "@/lib/bubui/challenge-lifecycle";
@@ -9,7 +10,7 @@ import { unlockShareChallengeOffers } from "@/lib/bubui/share-offer";
 const schema = z.object({ action: z.enum(["yes", "no", "later", "remind", "lost"]) });
 
 export async function POST(req: Request, { params }: { params: { id: string; offerId: string; friendId: string } }) {
-  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+  if (!(await businessTokenAllows(req.headers.get("authorization"), params.id, { requireStoredToken: true }))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "validation" } }, { status: 400 });
   const participant = await prisma.bubuiChallengeParticipant.findFirst({ where: { offerId: params.offerId, friendCustomerId: params.friendId, businessId: params.id } });
@@ -34,16 +35,28 @@ export async function POST(req: Request, { params }: { params: { id: string; off
   const status = action === "yes" ? "confirmed" : action === "no" ? "declined" : action === "later" ? "still_pending" : action === "lost" ? "lost" : participant.status;
   const business = action === "later" ? await prisma.bubuiBusiness.findUnique({ where: { id: params.id }, select: { challengeFirstFollowupHours: true, challengeRepeatFollowupDays: true } }) : null;
   const nextFollowupAt = action === "remind" ? participant.nextFollowupAt : action === "later" && business ? scheduleChallengeFollowup("repeat", now, { firstHours: business.challengeFirstFollowupHours, repeatDays: business.challengeRepeatFollowupDays }) : null;
-  const changed = await prisma.$transaction(async (tx) => {
+  let changed;
+  try {
+  changed = await prisma.$transaction(async (tx) => {
     const result = await tx.bubuiChallengeParticipant.updateMany({
       where: { id: participant.id, status: participant.status, ...(action === "remind" ? { reminderSentAt: null } : {}) },
       data: { status, nextFollowupAt, decidedAt: ["yes", "no", "lost"].includes(action) ? now : null, ...(action === "remind" ? { reminderSentAt: now } : {}) }
     });
     if (result.count && action === "yes") {
+      const coupons = await tx.bubuiOffer.findMany({ where: welcomeWhere, select: { id: true } });
+      const pending = await tx.bubuiPurchase.findFirst({
+        where: { customerId: params.friendId, businessId: params.id, status: "pending", redeemedOfferId: { in: coupons.map(c => c.id) } },
+        orderBy: { scannedAt: "asc" }
+      });
+      if (pending) await settlePurchase(tx, pending);
       await tx.bubuiOffer.updateMany({ where: welcomeWhere, data: { redeemed: true, redeemedAt: now } });
     }
     return result;
   });
+  } catch (error) {
+    if (error instanceof PurchaseConflict) return NextResponse.json({ error: { code: "conflict", message: error.message } }, { status: 409 });
+    throw error;
+  }
   if (!changed.count) return NextResponse.json({ error: { code: "conflict", message: "El estado ha cambiado. Actualiza el panel." } }, { status: 409 });
   if (["yes", "no", "later"].includes(action)) {
     await prisma.bubuiChallengeParticipant.updateMany({
