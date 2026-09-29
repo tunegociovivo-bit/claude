@@ -197,24 +197,24 @@ export async function POST(req: Request) {
       } });
       if (duplicate) throw new PurchaseConflict("Ya existe un escaneo reciente de este negocio.");
       const created = await tx.bubuiPurchase.create({
-    data: {
-      customerId: d.customerId,
-      businessId: d.businessId,
-      amount,
-      discountPct,
-      discountAmount,
-      status: autoReject ? "rejected" : "pending",
-      walletPctUsed: walletInfo?.appliedPct ?? 0,
-      ticketUrl,
-      redeemedOfferId: offerApplied ? activeOffer?.id : undefined,
-      scanLat: d.scanLat,
-      scanLng: d.scanLng,
-      scanDistanceM,
-      rejectionReason: autoReject
-        ? `Escaneo a ${Math.round(scanDistanceM!)}m del local (máx ${MAX_DISTANCE_METERS}m)`
-        : undefined
-    }
-  });
+        data: {
+          customerId: d.customerId,
+          businessId: d.businessId,
+          amount,
+          discountPct,
+          discountAmount,
+          status: autoReject ? "rejected" : "pending",
+          walletPctUsed: walletInfo?.appliedPct ?? 0,
+          ticketUrl,
+          redeemedOfferId: offerApplied ? activeOffer?.id : undefined,
+          scanLat: d.scanLat,
+          scanLng: d.scanLng,
+          scanDistanceM,
+          rejectionReason: autoReject
+            ? `Escaneo a ${Math.round(scanDistanceM!)}m del local (máx ${MAX_DISTANCE_METERS}m)`
+            : undefined
+        }
+      });
 
       if (ticketScan) {
         const claimed = await tx.bubuiTicketScan.updateMany({

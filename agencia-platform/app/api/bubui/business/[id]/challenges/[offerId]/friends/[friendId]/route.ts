@@ -37,22 +37,22 @@ export async function POST(req: Request, { params }: { params: { id: string; off
   const nextFollowupAt = action === "remind" ? participant.nextFollowupAt : action === "later" && business ? scheduleChallengeFollowup("repeat", now, { firstHours: business.challengeFirstFollowupHours, repeatDays: business.challengeRepeatFollowupDays }) : null;
   let changed;
   try {
-  changed = await prisma.$transaction(async (tx) => {
-    const result = await tx.bubuiChallengeParticipant.updateMany({
-      where: { id: participant.id, status: participant.status, ...(action === "remind" ? { reminderSentAt: null } : {}) },
-      data: { status, nextFollowupAt, decidedAt: ["yes", "no", "lost"].includes(action) ? now : null, ...(action === "remind" ? { reminderSentAt: now } : {}) }
-    });
-    if (result.count && action === "yes") {
-      const coupons = await tx.bubuiOffer.findMany({ where: welcomeWhere, select: { id: true } });
-      const pending = await tx.bubuiPurchase.findFirst({
-        where: { customerId: params.friendId, businessId: params.id, status: "pending", redeemedOfferId: { in: coupons.map(c => c.id) } },
-        orderBy: { scannedAt: "asc" }
+    changed = await prisma.$transaction(async (tx) => {
+      const result = await tx.bubuiChallengeParticipant.updateMany({
+        where: { id: participant.id, status: participant.status, ...(action === "remind" ? { reminderSentAt: null } : {}) },
+        data: { status, nextFollowupAt, decidedAt: ["yes", "no", "lost"].includes(action) ? now : null, ...(action === "remind" ? { reminderSentAt: now } : {}) }
       });
-      if (pending) await settlePurchase(tx, pending);
-      await tx.bubuiOffer.updateMany({ where: welcomeWhere, data: { redeemed: true, redeemedAt: now } });
-    }
-    return result;
-  });
+      if (result.count && action === "yes") {
+        const coupons = await tx.bubuiOffer.findMany({ where: welcomeWhere, select: { id: true } });
+        const pending = await tx.bubuiPurchase.findFirst({
+          where: { customerId: params.friendId, businessId: params.id, status: "pending", redeemedOfferId: { in: coupons.map(c => c.id) } },
+          orderBy: { scannedAt: "asc" }
+        });
+        if (pending) await settlePurchase(tx, pending);
+        await tx.bubuiOffer.updateMany({ where: welcomeWhere, data: { redeemed: true, redeemedAt: now } });
+      }
+      return result;
+    });
   } catch (error) {
     if (error instanceof PurchaseConflict) return NextResponse.json({ error: { code: "conflict", message: error.message } }, { status: 409 });
     throw error;

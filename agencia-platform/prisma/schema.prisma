@@ -5744,7 +5744,7 @@ model BubuiPurchase {
   status          String    @default("pending") // pending | confirmed | rejected
   // Si vino vía un cupón cruzado, link al BubuiOffer que se canjeó.
   challengeProcessedAt DateTime? // recuperación del avance del reto tras confirmar
-  walletPctUsed   Int      @default(0) // saldo reservado en el presupuesto; se cobra al confirmar
+  walletPctUsed   Int      @default(0) // saldo presupuestado; se cobra al confirmar
   redeemedOfferId String?
   // Geolocalización al escanear (anti-fraude).
   scanLat         Float?
@@ -5770,6 +5770,7 @@ model BubuiPurchase {
   @@index([customerId])
   @@index([scannedAt])
   @@index([status, reviewPushedAt])
+  @@index([status, challengeProcessedAt, confirmedAt])
   @@map("BipiPurchase")
 }
 

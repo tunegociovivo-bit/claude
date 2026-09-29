@@ -43,39 +43,39 @@ export async function POST(req: Request) {
     await prisma.$transaction(async (db) => {
       // Claim and business changes commit together. A database outage is retryable.
       await db.bubuiProcessedWebhook.create({ data: { id: String(event.id) } });
-    switch (event.type) {
-      case "checkout.session.completed":
-      case "checkout.session.async_payment_succeeded": {
-        const session = event.data?.object;
-        await handleCheckoutCompleted(session, db);
-        break;
-      }
-      case "customer.subscription.created":
-      case "customer.subscription.updated": {
-        const sub = event.data?.object;
-        await handleSubscriptionUpsert(sub, db);
-        break;
-      }
-      case "customer.subscription.deleted": {
-        const sub = event.data?.object;
-        await handleSubscriptionDeleted(sub, db);
-        break;
-      }
-      case "invoice.paid": {
-        const inv = event.data?.object;
-        if (inv?.subscription) {
-          // Si la factura renovó la suscripción, asegura que el plan sigue
-          // activo extendiendo planExpiresAt (cogemos current_period_end
-          // del último update).
-          await handleInvoicePaid(inv, db);
+      switch (event.type) {
+        case "checkout.session.completed":
+        case "checkout.session.async_payment_succeeded": {
+          const session = event.data?.object;
+          await handleCheckoutCompleted(session, db);
+          break;
         }
-        break;
+        case "customer.subscription.created":
+        case "customer.subscription.updated": {
+          const sub = event.data?.object;
+          await handleSubscriptionUpsert(sub, db);
+          break;
+        }
+        case "customer.subscription.deleted": {
+          const sub = event.data?.object;
+          await handleSubscriptionDeleted(sub, db);
+          break;
+        }
+        case "invoice.paid": {
+          const inv = event.data?.object;
+          if (inv?.subscription) {
+            // Si la factura renovó la suscripción, asegura que el plan sigue
+            // activo extendiendo planExpiresAt (cogemos current_period_end
+            // del último update).
+            await handleInvoicePaid(inv, db);
+          }
+          break;
+        }
+        default:
+          // Ignoramos los demás (charge.refunded, etc.) — el negocio puede
+          // resolver disputas vía Stripe Dashboard.
+          break;
       }
-      default:
-        // Ignoramos los demás (charge.refunded, etc.) — el negocio puede
-        // resolver disputas vía Stripe Dashboard.
-        break;
-    }
     });
   } catch (e: any) {
     if (e?.code === "P2002") return NextResponse.json({ ok: true, duplicate: true });
@@ -210,4 +210,3 @@ async function handleInvoicePaid(inv: any, db: Prisma.TransactionClient): Promis
     await db.bubuiCustomer.update({ where: { id: customer.id }, data: { planExpiresAt: newExpiry } });
   }
 }
-
