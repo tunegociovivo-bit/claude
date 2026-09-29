@@ -1,7 +1,9 @@
-import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from "vitest";
+import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
+import { dispatchDuePushAds } from "@/lib/bubui/push-ad-dispatch";
 import { settlePurchase } from "@/lib/bubui/purchase-settlement";
+import { recoverPurchaseChallenges } from "@/lib/bubui/purchase-challenge";
 import { grantLoyaltyIfReached } from "@/lib/bubui/loyalty";
 import { countQualifiedOfferReferrals } from "@/lib/bubui/referral";
 import { POST as scan } from "@/app/api/bubui/scan/route";
@@ -139,4 +141,63 @@ describe("Bubui with real isolated PostgreSQL and fictional people", () => {
     expect(await prisma.bubuiPushAd.findUnique({ where: { id: paid.id } })).toMatchObject({ status: "ready" });
     expect(await prisma.bubuiPushAd.findUnique({ where: { id: unpaid.id } })).toMatchObject({ status: "scheduled" });
   });
+  it("does not spend the same wallet balance on two purchases", async () => {
+    const { business, customer } = await fixtures();
+    await prisma.bubuiCustomer.update({ where: { id: customer.id }, data: { referralWalletPct: 5 } });
+    const a = await purchase(business.id, customer.id, { walletPctUsed: 5 });
+    const b = await purchase(business.id, customer.id, { walletPctUsed: 5 });
+    const results = await Promise.allSettled([a,b].map(p => prisma.$transaction(tx => settlePurchase(tx, p))));
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(await prisma.bubuiCustomer.findUnique({ where: { id: customer.id } })).toMatchObject({ totalSaved: 50, totalPurchases: 1, referralWalletPct: 0 });
+    expect(await prisma.bubuiPurchase.count({ where: { customerId: customer.id, status: "pending" } })).toBe(1);
+  });
+  it("rolls back the second purchase that tries to consume the same coupon", async () => {
+    const { business, customer } = await fixtures();
+    const coupon = await prisma.bubuiOffer.create({ data: { customerId: customer.id, businessId: business.id, discountPct: 20, triggerBusinessId: id(), expiresAt: new Date(Date.now()+86400000) } });
+    const a = await purchase(business.id, customer.id, { redeemedOfferId: coupon.id });
+    const b = await purchase(business.id, customer.id, { redeemedOfferId: coupon.id });
+    const results = await Promise.allSettled([a,b].map(p => prisma.$transaction(tx => settlePurchase(tx, p))));
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(await prisma.bubuiCustomer.findUnique({ where: { id: customer.id } })).toMatchObject({ totalSaved: 50, totalPurchases: 1 });
+  });
+  it("rolls back a mismatched paid event and lets the corrected retry run", async () => {
+    const { business } = await fixtures();
+    const ad = await prisma.bubuiPushAd.create({ data: { businessId: business.id, title: "Ficticio", body: "Local", radiusKm: 1, centerLat: 0, centerLng: 0, reach: 1, pricePaidEur: 10, startsAt: new Date(), endsAt: new Date(Date.now()+86400000) } });
+    const eventId = id();
+    const body = { id: eventId, type: "checkout.session.completed", data: { object: { payment_status: "paid", amount_total: 1, currency: "eur", metadata: { bubui_kind: "push_ad", bubui_ad_id: ad.id, bubui_business_id: business.id } } } };
+    expect((await webhook(request(body, business.id))).status).toBe(500);
+    expect(await prisma.bubuiProcessedWebhook.findUnique({ where: { id: eventId } })).toBeNull();
+    body.data.object.amount_total = 1000;
+    expect((await webhook(request(body, business.id))).status).toBe(200);
+    expect(await prisma.bubuiPushAd.findUnique({ where: { id: ad.id } })).toMatchObject({ status: "ready" });
+  });
+
+  it("repairs challenge progress after a simulated interruption following the purchase commit", async () => {
+    const { business, inviter, parent, friends } = await challengeFixture();
+    for (const { friend, coupon } of friends) {
+      const p = await purchase(business.id, friend.id, { redeemedOfferId: coupon.id });
+      await prisma.$transaction(tx => settlePurchase(tx, p));
+    }
+    expect((await prisma.bubuiOffer.findUnique({ where: { id: parent.id } }))?.active).toBe(false);
+    await recoverPurchaseChallenges();
+    await recoverPurchaseChallenges();
+    expect((await prisma.bubuiOffer.findUnique({ where: { id: parent.id } }))?.active).toBe(true);
+    expect(await countQualifiedOfferReferrals(inviter.id, parent.id, business.id)).toBe(2);
+    for (const { friend } of friends) expect(await prisma.bubuiCustomer.findUnique({ where: { id: friend.id } })).toMatchObject({ totalSaved: 50, totalPurchases: 1 });
+  });
+
+  it("dispatches paid ads only when due and never sends expired or unpaid campaigns", async () => {
+    const { business } = await fixtures();
+    const now = Date.now();
+    const ad = (status: string, startsAt: number, endsAt: number) => prisma.bubuiPushAd.create({ data: { businessId: business.id, title: "Ficticio", body: "Local", radiusKm: 1, centerLat: 0, centerLng: 0, reach: 1, pricePaidEur: 10, status, startsAt: new Date(startsAt), endsAt: new Date(endsAt) } });
+    const due = await ad("ready", now - 1000, now + 86400000);
+    const future = await ad("ready", now + 86400000, now + 172800000);
+    const expired = await ad("ready", now - 172800000, now - 86400000);
+    const unpaid = await ad("scheduled", now - 1000, now + 86400000);
+    await Promise.all([dispatchDuePushAds(), dispatchDuePushAds()]);
+    for (const [record, status] of [[due,"done"],[future,"ready"],[expired,"expired"],[unpaid,"scheduled"]] as const) {
+      expect((await prisma.bubuiPushAd.findUnique({ where: { id: record.id } }))?.status).toBe(status);
+    }
+  });
+
 });
