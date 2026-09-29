@@ -10,6 +10,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 
+import { customerAuthOk } from "@/lib/bubui/customer-auth";
+
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
@@ -30,6 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
   const d = parsed.data;
+  if (!(await customerAuthOk(req, d.customerId))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   const customer = await prisma.bubuiCustomer.findUnique({ where: { id: d.customerId } });
   if (!customer) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });

@@ -1,18 +1,4 @@
-/**
- * Auth de sesión del cliente final de la app Bubui.
- *
- * La app guarda, tras verificar el OTP / hacer login, un token con la forma
- * `Bearer <customerId>:<secret>` y lo envía en cada llamada a los endpoints
- * propios del cliente. El secret se compara (en tiempo constante) con el
- * `apiToken` persistido en BubuiCustomer.
- *
- * Despliegue progresivo (modo "lazy", por defecto): mientras un cliente aún
- * NO tenga apiToken (sesión creada antes de esta versión), se le deja pasar
- * para no romper a los testers que todavía no han actualizado la app. En
- * cuanto el cliente inicia sesión con la app nueva, obtiene token y queda
- * protegido. Con la variable de entorno BUBUI_REQUIRE_CUSTOMER_TOKEN="true"
- * se exige token SIEMPRE (estado final, una vez todos han actualizado).
- */
+/** Verified stored credentials are required, including legacy accounts. */
 
 import { randomBytes, timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db/prisma";

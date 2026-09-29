@@ -1,17 +1,4 @@
-/**
- * Auth v1 del panel del negocio Bubui.
- *
- * Tras el login, el panel guarda en localStorage un token `<businessId>:<secret>`
- * y lo envía como `Authorization: Bearer <businessId>:<secret>`. El `<secret>`
- * se compara (en tiempo constante) con el `apiToken` persistido en BubuiBusiness
- * al hacer login.
- *
- * Despliegue progresivo (modo "lazy", por defecto): mientras un negocio aún NO
- * tenga apiToken (sesión creada antes de esta versión), se acepta su token
- * antiguo para no echar a los paneles ya abiertos. En cuanto el dueño vuelve a
- * iniciar sesión, obtiene secreto guardado y queda protegido. Con la variable
- * BUBUI_REQUIRE_BUSINESS_TOKEN="true" se exige secreto válido SIEMPRE.
- */
+/** Verified stored credentials are required, including legacy accounts. */
 
 import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db/prisma";

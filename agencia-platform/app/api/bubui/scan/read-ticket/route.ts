@@ -17,7 +17,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
-import { customerIdFromAuth } from "@/lib/bubui/customer-auth";
+import { customerIdFromAuth, customerAuthOk } from "@/lib/bubui/customer-auth";
+
+import { rateLimit } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,6 +28,12 @@ const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"];
 
 export async function POST(req: Request) {
+  const verifiedId = customerIdFromAuth(req);
+  if (!verifiedId || !(await customerAuthOk(req, verifiedId))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+  if (!rateLimit("bubui-ocr:" + verifiedId, 5).ok) return NextResponse.json({ error: { code: "rate_limit", message: "Espera un minuto antes de subir otro ticket." } }, { status: 429 });
+  const declaredSize = Number(req.headers.get("content-length") ?? 0);
+  if (declaredSize > MAX_BYTES + 16384) return NextResponse.json({ error: { code: "too_large" } }, { status: 413 });
+
   if (!isStorageEnabled()) {
     return NextResponse.json(
       { error: { code: "storage_disabled", message: "Storage no configurado; usa el importe manual." } },
@@ -42,6 +50,7 @@ export async function POST(req: Request) {
     url.searchParams.get("customerId") ||
     customerIdFromAuth(req) ||
     (typeof form?.get("customerId") === "string" ? (form!.get("customerId") as string) : "anon");
+  if (customerId !== verifiedId) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   if (!(file instanceof Blob)) {
     return NextResponse.json({ error: { code: "no_file", message: "Falta el campo 'file'." } }, { status: 400 });
   }
@@ -71,7 +80,7 @@ export async function POST(req: Request) {
     await uploadBuffer({ s3Key, body: buf, contentType: mimeType });
   } catch (e: any) {
     return NextResponse.json(
-      { error: { code: "upload_failed", message: `No se pudo guardar el ticket: ${e?.message ?? e}` } },
+      { error: { code: "upload_failed", message: "No se pudo guardar el ticket. Inténtalo de nuevo." } },
       { status: 502 }
     );
   }
