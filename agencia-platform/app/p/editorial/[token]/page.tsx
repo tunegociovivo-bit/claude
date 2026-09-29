@@ -4,7 +4,8 @@ import PublicApprovalView from "./PublicApprovalView";
 
 export const dynamic = "force-dynamic";
 
-export default async function PublicApprovalPage({ params }: { params: { token: string } }) {
+export default async function PublicApprovalPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // Validación rápida server-side; el componente cliente recargará vía API.
   const link = await prisma.clientApprovalLink.findUnique({
     where: { token: params.token },

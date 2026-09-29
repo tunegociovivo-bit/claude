@@ -23,7 +23,8 @@ function csvEscape(v: any): string {
   return s;
 }
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   // Valida el secreto del token contra el apiToken del negocio (antes solo se
   // comprobaba el businessId del token, sin el secreto → bastaba conocer el id).
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {

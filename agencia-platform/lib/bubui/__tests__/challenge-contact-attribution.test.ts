@@ -14,7 +14,7 @@ import { POST } from "@/app/api/bubui/customer/[id]/challenge-contact/route";
 
 const request = (offerId = "welcome-new") => POST(new Request("https://example.test/contact", {
   method: "POST", body: JSON.stringify({ offerId, channel: "whatsapp" })
-}), { params: { id: "friend" } });
+}), { params: Promise.resolve({ id: "friend" }) });
 
 beforeEach(() => {
   vi.resetAllMocks();

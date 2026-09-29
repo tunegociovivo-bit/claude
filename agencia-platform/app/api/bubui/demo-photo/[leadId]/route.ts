@@ -14,7 +14,8 @@ import { getGoogleApiKeyForWorkspace } from "@/lib/leads/google-places";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { leadId: string } }) {
+export async function GET(_req: Request, props: { params: Promise<{ leadId: string }> }) {
+  const params = await props.params;
   const lead = await prisma.lead.findUnique({
     where: { id: params.leadId },
     select: { workspaceId: true, rawData: true }

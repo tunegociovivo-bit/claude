@@ -21,6 +21,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { hasVivoStudioAccess } from "@/lib/bubui/business-referral";
 
+import { businessTokenAllows } from "@/lib/bubui/auth";
+import { rateLimit } from "@/lib/api/rate-limit";
+
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
@@ -61,6 +64,8 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: { code: "validation", message: parsed.error.message } }, { status: 400 });
   }
+  if (!(await businessTokenAllows(req.headers.get("authorization"), parsed.data.businessId))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
+  if (!rateLimit("bubui-studio:" + parsed.data.businessId, 5).ok) return NextResponse.json({ error: { code: "rate_limit" } }, { status: 429 });
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: parsed.data.businessId } });
   if (!business) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });

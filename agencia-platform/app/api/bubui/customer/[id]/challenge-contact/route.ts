@@ -5,7 +5,8 @@ import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 
 const schema = z.object({ offerId: z.string().min(1), channel: z.enum(["qr", "whatsapp"]) });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (customerIdFromAuth(req) !== params.id || !(await customerAuthOk(req, params.id))) return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: { code: "validation", message: "Contacto inválido" } }, { status: 400 });

@@ -36,12 +36,14 @@ async function loadPurchase(purchaseId: string) {
   });
 }
 
-export async function GET(req: Request, { params }: { params: { purchaseId: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ purchaseId: string }> }) {
+  const params = await props.params;
   const p = await loadPurchase(params.purchaseId);
   if (!p) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   if (!(await customerAuthOk(req, p.customerId))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
+  if (p.status !== "confirmed") return NextResponse.json({ error: { code: "purchase_not_confirmed", message: "El comercio debe confirmar la compra primero." } }, { status: 409 });
   const actions = enabledActions(p.business);
   // Acciones ya completadas (cupón creado para esta compra).
   const done = await prisma.bubuiOffer.findMany({
@@ -65,13 +67,15 @@ export async function GET(req: Request, { params }: { params: { purchaseId: stri
   });
 }
 
-export async function POST(req: Request, { params }: { params: { purchaseId: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ purchaseId: string }> }) {
+  const params = await props.params;
   const p = await loadPurchase(params.purchaseId);
   if (!p) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
   if (!(await customerAuthOk(req, p.customerId))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }
 
+  if (p.status !== "confirmed") return NextResponse.json({ error: { code: "purchase_not_confirmed", message: "El comercio debe confirmar la compra primero." } }, { status: 409 });
   const form = await req.formData().catch(() => null);
   const action = String(form?.get("action") ?? "") as PPActionKey;
   if (!["share", "review", "follow", "photo"].includes(action)) {
@@ -107,7 +111,8 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
     return NextResponse.json({ ok: true, alreadyClaimed: true, discountPct: pct });
   }
 
-  let provisional = false;
+  let provisional = action === "share";
+  let activationShotUrl: string | null = null;
   let reason = "";
 
   // Compartir: provisional (el negocio lo verifica al canjear). Reseña/seguir/
@@ -132,6 +137,7 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
     }
     const shotUrl = await signedDownloadUrl(s3Key, 60 * 60 * 24 * 6);
 
+    activationShotUrl = shotUrl;
     const today = new Date().toLocaleDateString("es-ES", { year: "numeric", month: "long", day: "numeric" });
     const platform = (p.business.mesaReviewPlatform || "google") === "google" ? "Google" : (p.business.mesaReviewPlatform || "Google");
     const system =
@@ -140,7 +146,7 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
         : action === "follow"
         ? `Eres un verificador de capturas. La captura DEBE mostrar que el usuario SIGUE el perfil de Instagram o Facebook de "${p.business.name}" (botón "Siguiendo"/"Following"). Si no se ve que sigue, NO válida. Responde SOLO JSON: {"valid":boolean,"confidence":0..1,"reason":"motivo breve"}.`
         : `Eres un verificador de capturas. HOY es ${today}. La captura DEBE ser una PUBLICACIÓN en redes (historia/post) con una FOTO que ETIQUETA o MENCIONA a "${p.business.name}", publicada HOY. Si es antigua o no etiqueta, NO válida. Responde SOLO JSON: {"valid":boolean,"confidence":0..1,"reason":"motivo breve"}.`;
-    const PROV = "No hemos podido confirmarla con seguridad: el cupón queda activo y el negocio lo verificará al canjearlo.";
+    const PROV = "No hemos podido confirmarla con seguridad: el cupón queda pendiente de revisión por el negocio.";
     try {
       const { completeVision } = await import("@/lib/ai/anthropic");
       const raw = await completeVision({
@@ -164,20 +170,13 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
           // foto sí rechazamos.
           if (action !== "follow") {
             return NextResponse.json({ ok: false, valid: false, reason: typeof j.reason === "string" ? j.reason : "No hemos podido validar la captura." });
-          }
+          } else { provisional = true; reason = PROV; }
         }
       } else {
         provisional = true; reason = PROV;
       }
     } catch {
       provisional = true; reason = PROV;
-    }
-
-    // SEGUIR en redes: como cada usuario solo puede seguir una vez, si la IA no
-    // logra verificarlo se da por válido automáticamente (no provisional).
-    if (action === "follow") {
-      provisional = false;
-      reason = "";
     }
 
     // Reseña de Google verificada de verdad → marca para no volver a pedirla.
@@ -187,7 +186,7 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
         .catch(() => {});
     }
     // Seguir verificado → marca para no volver a ofrecer "seguir" de este negocio.
-    if (action === "follow") {
+    if (action === "follow" && !provisional) {
       await prisma.bubuiSocialFollow
         .upsert({ where: { customerId_businessId: { customerId: p.customerId, businessId: p.businessId } }, create: { customerId: p.customerId, businessId: p.businessId }, update: {} })
         .catch(() => {});
@@ -203,7 +202,8 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
       discountPct: pct,
       triggerBusinessId: trigger,
       source: "post_purchase",
-      active: true,
+      active: !provisional,
+      activationShotUrl,
       activatedProvisional: provisional,
       expiresAt
     }
@@ -214,6 +214,6 @@ export async function POST(req: Request, { params }: { params: { purchaseId: str
     valid: true,
     provisional,
     discountPct: pct,
-    reason: reason || `¡Cupón del ${pct}% activado para tu próxima visita! 🎉`
+    reason: provisional ? "Acción pendiente de revisión por el comercio." : reason || `¡Cupón del ${pct}% activado para tu próxima visita! 🎉`
   });
 }

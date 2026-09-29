@@ -17,7 +17,8 @@ function stars(rating: number | null): string {
   return "★".repeat(Math.max(0, Math.min(5, full))) + "☆".repeat(Math.max(0, 5 - full));
 }
 
-export default async function BubuiDemoPage({ params }: { params: { leadId: string } }) {
+export default async function BubuiDemoPage(props: { params: Promise<{ leadId: string }> }) {
+  const params = await props.params;
   const lead = await prisma.lead.findUnique({
     where: { id: params.leadId },
     select: { name: true, province: true, category: true, rating: true, reviewsCount: true, rawData: true }

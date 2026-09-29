@@ -13,7 +13,8 @@ import { rateLimitPublic } from "@/lib/api/handler";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // Rate-limit por IP: el portal de aprobación es público (sin auth),
   // así que sin esto un atacante puede probar tokens en bucle.
   const rl = rateLimitPublic(req, { tag: "approval", limit: 60 });

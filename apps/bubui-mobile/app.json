@@ -2,7 +2,7 @@
   "expo": {
     "name": "Bubui",
     "slug": "bipi",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",

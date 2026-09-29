@@ -6,7 +6,11 @@ import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewLanding({ params, searchParams }: { params: { slug: string }; searchParams: { ct?: string } }) {
+export default async function ReviewLanding(
+  props: { params: Promise<{ slug: string }>; searchParams: Promise<{ ct?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const campaign = await prisma.gmbReviewCampaign.findUnique({ where: { publicSlug: params.slug } }).catch(() => null);
   if (!campaign || !campaign.active) {
     return (

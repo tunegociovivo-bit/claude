@@ -50,10 +50,11 @@ export default function RichTextEditor({
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
   const attachmentInsertionPos = useRef<number | null>(null);
   const editor = useEditor({
+    shouldRerenderOnTransaction: true,
     immediatelyRender: false,
     editable: !readOnly,
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      StarterKit.configure({ link: false, heading: { levels: [1, 2, 3] } }),
       Placeholder.configure({ placeholder }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -96,7 +97,7 @@ export default function RichTextEditor({
     if (!editor) return;
     const incoming = parseInitial(initialContent);
     if (JSON.stringify(incoming) === JSON.stringify(editor.getJSON())) return;
-    editor.commands.setContent(incoming, false);
+    editor.commands.setContent(incoming, { emitUpdate: false });
   }, [editor, initialContent]);
 
   useEffect(() => onUploadingChange?.(uploads.length > 0), [uploads.length, onUploadingChange]);

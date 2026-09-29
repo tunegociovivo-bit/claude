@@ -163,3 +163,5 @@ export async function registerExpoPushForCustomer(customerId: string): Promise<v
     // getExpoPushTokenAsync rechaza con error. No queremos romper la UI.
   }
 }
+
+export function resetPushRegistration(): void { lastRegisteredToken = null; }

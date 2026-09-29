@@ -15,7 +15,7 @@ const FALLBACK_PRIORITY_TOOLS = [
 ];
 
 function openAiCompatibleTools(params: Anthropic.MessageCreateParamsNonStreaming): any[] | undefined {
-  const tools = params.tools ?? [];
+  const tools = (params.tools ?? []).filter(tool => "name" in tool);
   if (tools.length === 0) return undefined;
 
   const activeToolNames = new Set<string>();

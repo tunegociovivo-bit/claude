@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
  *
  * Reusa el ClientApprovalLink: el mismo token vale para ambas vistas.
  */
-export default async function ClientPortalPage({ params }: { params: { token: string } }) {
+export default async function ClientPortalPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const link = await prisma.clientApprovalLink.findUnique({
     where: { token: params.token },
     select: { id: true, revokedAt: true, expiresAt: true }

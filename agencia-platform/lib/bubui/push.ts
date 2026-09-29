@@ -54,14 +54,6 @@ export async function sendPushToBubuiCustomer(
           JSON.stringify(payload)
         );
         sent++;
-        // Guardamos log para analítica.
-        await prisma.bubuiPushLog.create({
-          data: {
-            customerId,
-            kind: payload.tag?.split("-")[0] ?? "generic",
-            payload: payload as any
-          }
-        }).catch(() => {});
       } catch (e: any) {
         const status = e?.statusCode ?? 0;
         if (status === 404 || status === 410) {

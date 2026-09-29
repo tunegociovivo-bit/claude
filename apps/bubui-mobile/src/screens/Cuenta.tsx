@@ -4,6 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Linking, Alert } 
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CheckSession, saveSession, clearSession, type Customer } from "../lib/session";
+import { resetPushRegistration } from "../lib/push";
 import { Wordmark } from "../components/Wordmark";
 import { BottomNav } from "../components/BottomNav";
 import { FadeIn } from "../components/FadeIn";
@@ -57,7 +58,9 @@ export function Cuenta() {
   const tier = purchases >= 30 ? "⭐ Miembro Oro" : purchases >= 10 ? "✨ Miembro Plata" : "🌱 Miembro Bronce";
 
   async function logout() {
-    await clearSession().catch(() => {});
+    try { await api.logout(); } catch { Alert.alert("No se pudo cerrar la sesión", "Comprueba la conexión e inténtalo de nuevo para desconectar también las notificaciones."); return; }
+    resetPushRegistration();
+    await clearSession();
     nav.reset({ index: 0, routes: [{ name: "Onboarding" }] });
   }
 

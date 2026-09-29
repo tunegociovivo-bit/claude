@@ -9,13 +9,17 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { cancelSubscriptionImmediately } from "@/lib/bubui/stripe";
+import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 import { getPlusEnabled } from "@/lib/bubui/plus";
 import { effectiveWalletPct } from "@/lib/bubui/wallet";
 
+import { deleteCustomerMedia } from "@/lib/bubui/customer-media";
+
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await customerAuthOk(req, params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
@@ -107,22 +111,35 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
  *
  * Auth: token de sesión del propio cliente.
  */
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  if (!(await customerAuthOk(req, params.id))) {
+export async function DELETE(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
+  if (customerIdFromAuth(req) !== params.id || !(await customerAuthOk(req, params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
   const id = params.id;
-  const exists = await prisma.bubuiCustomer.findUnique({ where: { id }, select: { id: true } });
+  const exists = await prisma.bubuiCustomer.findUnique({ where: { id }, select: { id: true, bubuiStripeSubscriptionId: true } });
   if (!exists) return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
 
+  if (exists.bubuiStripeSubscriptionId) {
+    try {
+      await cancelSubscriptionImmediately(exists.bubuiStripeSubscriptionId);
+    } catch {
+      return NextResponse.json({ error: { code: "subscription_cancellation_failed", message: "No se pudo cancelar la suscripción. Tu cuenta se conserva; vuelve a intentarlo." } }, { status: 502 });
+    }
+  }
+
+  try { await deleteCustomerMedia(id); }
+  catch { return NextResponse.json({ error: { code: "media_deletion_failed", message: "No se ha podido completar el borrado de archivos. Vuelve a intentarlo; conservamos la cuenta para poder terminarlo." } }, { status: 502 }); }
   await prisma.$transaction([
+    prisma.bubuiOperation.deleteMany({ where: { customerId: id } }),
+    prisma.bubuiChallengeParticipant.deleteMany({ where: { OR: [{ friendCustomerId: id }, { referrerCustomerId: id }] } }),
     prisma.bubuiPushSubscription.deleteMany({ where: { customerId: id } }),
     prisma.bubuiMobilePushToken.deleteMany({ where: { customerId: id } }),
     prisma.bubuiTicketScan.deleteMany({ where: { customerId: id } }),
     prisma.bubuiTableParticipant.deleteMany({ where: { customerId: id } }),
     prisma.bubuiBooking.deleteMany({ where: { customerId: id } }),
     // Desvincula a los clientes que este usuario refirió (no se borran ellos).
-    prisma.bubuiCustomer.updateMany({ where: { referredById: id }, data: { referredById: null } }),
+    prisma.bubuiCustomer.updateMany({ where: { referredById: id }, data: { referredById: null, referralOfferId: null } }),
     // El resto de datos (compras, ofertas, reseñas, follows, push log…) caen
     // por onDelete: Cascade al borrar el cliente.
     prisma.bubuiCustomer.delete({ where: { id } })
@@ -130,3 +147,4 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   return NextResponse.json({ ok: true });
 }
+

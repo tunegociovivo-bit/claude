@@ -41,18 +41,8 @@ const nextConfig = {
     // el build de Railway/Vercel falla con:
     //   Module parse failed: Unexpected character ' ' (1:0)
     //   trying to parse skia.linux-x64-musl.node as JS
-    experimental: {
-        serverComponentsExternalPackages: NATIVE_PACKAGES,
-        // Activa instrumentation.ts → planificador interno de crons
-        // (recordatorios + briefing) sin cron externo.
-        instrumentationHook: true,
-        // outputFileTracingIncludes vive en `experimental` en Next 14.x.
-        // /public/fonts es necesario para el overlay del editorial.
-        // /chrome-extension es la carpeta fuente de la extensión que
-        // se sirve zipeada al vuelo en /api/v1/extension/download —
-        // sin incluirla en el trace, Railway no la bundlea en el
-        // standalone build y el endpoint 404ea en producción.
-        outputFileTracingIncludes: {
+    serverExternalPackages: NATIVE_PACKAGES,
+    outputFileTracingIncludes: {
             '/api/**/*': [
                 './public/fonts/**/*',
                 './chrome-extension/**/*',
@@ -72,7 +62,6 @@ const nextConfig = {
             '/bubui/**/*': [
                 './node_modules/next/dist/compiled/@vercel/og/**/*'
             ]
-        }
     },
     webpack: (config, { isServer }) => {
         if (!isServer) return config;

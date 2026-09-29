@@ -30,7 +30,8 @@ const schema = z.object({
   aspect: z.enum(["wide", "square"]).default("wide")
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }

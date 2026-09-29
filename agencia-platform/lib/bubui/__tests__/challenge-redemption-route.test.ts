@@ -1,6 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
 
 const H = vi.hoisted(() => ({ unlock: vi.fn(), participant: { findFirst: vi.fn(), updateMany: vi.fn() } }));
 vi.mock("../share-offer", () => ({ unlockShareChallengeOffers: H.unlock }));
@@ -8,7 +6,6 @@ vi.mock("@/lib/db/prisma", () => ({ prisma: { bubuiChallengeParticipant: H.parti
 
 import { reevaluateChallengeAfterFriendCouponRedemption } from "../challenge-redemption";
 
-const root = path.resolve(__dirname, "../../..");
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -46,11 +43,11 @@ describe("express referral coupon redemption", () => {
     expect(H.unlock).not.toHaveBeenCalled();
   });
 
-  it("calls the behavioral helper after persisting the express redemption", () => {
-    const scan = fs.readFileSync(path.join(root, "app/api/bubui/scan/route.ts"), "utf8");
-    const redeemed = scan.indexOf("data: { redeemed: true");
-    const reevaluate = scan.indexOf("reevaluateChallengeAfterFriendCouponRedemption", redeemed);
-    expect(redeemed).toBeGreaterThan(-1);
-    expect(reevaluate).toBeGreaterThan(redeemed);
+  it.each(["declined", "lost"])("does not reopen a closed %s participation during recovery", async status => {
+    H.participant.findFirst.mockResolvedValue({ id: "participant", referrerCustomerId: "owner", status });
+    await reevaluateChallengeAfterFriendCouponRedemption({ source: "referral_welcome", referredById: "owner", referralOfferId: "challenge", triggerBusinessId: "ref:welcome:challenge", friendCustomerId: "friend", businessId: "business" });
+    expect(H.participant.updateMany).not.toHaveBeenCalled();
+    expect(H.unlock).not.toHaveBeenCalled();
   });
+
 });

@@ -18,13 +18,13 @@ import {
   recalculateVisibilityScore,
   recalculateAmbassadorLevel
 } from "@/lib/bubui/core";
-import { customerAuthOk } from "@/lib/bubui/customer-auth";
+import { settlePurchase, PurchaseConflict } from "@/lib/bubui/purchase-settlement";
+import { customerAuthOk, customerIdFromAuth } from "@/lib/bubui/customer-auth";
 import { isNewCustomer } from "@/lib/bubui/table";
 import { createShareChallengeOffer } from "@/lib/bubui/share-offer";
-import { reevaluateChallengeAfterFriendCouponRedemption } from "@/lib/bubui/challenge-redemption";
 import { notifyBusinessNewReferredClient } from "@/lib/bubui/referral";
 import { alertBusiness } from "@/lib/bubui/business-push";
-import { computeWalletApplication, consumeWallet } from "@/lib/bubui/wallet";
+import { computeWalletApplication } from "@/lib/bubui/wallet";
 
 export const dynamic = "force-dynamic";
 
@@ -32,8 +32,8 @@ const schema = z.object({
   businessId: z.string().min(1),
   customerId: z.string().min(1),
   amount: z.number().positive().max(10000),
-  scanLat: z.number().optional(),
-  scanLng: z.number().optional(),
+  scanLat: z.number().min(-90).max(90).optional(),
+  scanLng: z.number().min(-180).max(180).optional(),
   ticketUrl: z.string().url().max(2000).optional(),
   // Anti-fraude: id del ticket leído por la IA (read-ticket). Si el negocio
   // exige ticket, es obligatorio y el importe se toma de ese registro.
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
-  if (!(await customerAuthOk(req, d.customerId))) {
+  if (customerIdFromAuth(req) !== d.customerId || !(await customerAuthOk(req, d.customerId))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
 
@@ -64,16 +64,20 @@ export async function POST(req: Request) {
   // ── Anti-fraude por ticket: el importe de confianza viene del OCR guardado
   //    (BubuiTicketScan), no del que teclee el cliente. Un ticket = una compra.
   let amount = d.amount;
-  let ticketUrl = d.ticketUrl;
+  let ticketUrl: string | undefined;
+  let ticketNeedsReview = false;
   let ticketScan: { id: string; amount: number | null; ticketUrl: string } | null = null;
   if (d.ticketScanId) {
     const ts = await prisma.bubuiTicketScan.findUnique({ where: { id: d.ticketScanId } });
     const fresh = ts && ts.createdAt > new Date(Date.now() - 30 * 60 * 1000);
-    const mine = ts && (ts.customerId === d.customerId || ts.customerId === "anon");
+    const mine = ts && ts.customerId === d.customerId;
     if (ts && fresh && mine && ts.usedByPurchaseId == null) {
       ticketScan = { id: ts.id, amount: ts.amount, ticketUrl: ts.ticketUrl };
       ticketUrl = ts.ticketUrl;
-      if (ts.amount != null) amount = ts.amount; // importe de confianza (servidor)
+      const reliable = ts.currency === "EUR" && ts.confidence >= 0.8 && ts.amount != null && Number.isFinite(ts.amount) && ts.amount > 0 && ts.amount <= 10000;
+      if (ts.businessId && ts.businessId !== business.id) return NextResponse.json({ error: { code: "ticket_business_mismatch", message: "El ticket pertenece a otro comercio." } }, { status: 400 });
+      ticketNeedsReview = !reliable || ts.businessId !== business.id;
+      if (reliable) amount = ts.amount!;
     }
   }
   if (business.requireTicket && !ticketScan) {
@@ -184,46 +188,60 @@ export async function POST(req: Request) {
     }
   }
 
-  const purchase = await prisma.bubuiPurchase.create({
-    data: {
-      customerId: d.customerId,
-      businessId: d.businessId,
-      amount,
-      discountPct,
-      discountAmount,
-      status: autoReject ? "rejected" : "confirmed",
-      confirmedAt: autoReject ? undefined : new Date(),
-      redeemedOfferId: offerApplied ? activeOffer?.id : undefined,
-      scanLat: d.scanLat,
-      scanLng: d.scanLng,
-      scanDistanceM,
-      rejectionReason: autoReject
-        ? `Escaneo a ${Math.round(scanDistanceM!)}m del local (máx ${MAX_DISTANCE_METERS}m)`
-        : undefined
-    }
-  });
+  // Los cupones de amigos requieren siempre la confirmación del comercio.
+  const needsConfirmation = ticketNeedsReview || business.purchaseMode === "double_confirm" || business.shareOfferRequiresPurchase ||
+    activeOffer?.source === "referral_welcome" || !!activeOffer?.activatedProvisional;
+  let purchase;
+  try {
+    purchase = await prisma.$transaction(async (tx) => {
+      // Recheck inside Serializable: concurrent scans cannot book the same visit twice.
+      const duplicate = await tx.bubuiPurchase.findFirst({ where: {
+        customerId: d.customerId, businessId: d.businessId,
+        scannedAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) }
+      } });
+      if (duplicate) throw new PurchaseConflict("Ya existe un escaneo reciente de este negocio.");
+      const created = await tx.bubuiPurchase.create({
+        data: {
+          customerId: d.customerId,
+          businessId: d.businessId,
+          amount,
+          discountPct,
+          discountAmount,
+          status: autoReject ? "rejected" : "pending",
+          walletPctUsed: walletInfo?.appliedPct ?? 0,
+          ticketUrl,
+          redeemedOfferId: offerApplied ? activeOffer?.id : undefined,
+          scanLat: d.scanLat,
+          scanLng: d.scanLng,
+          scanDistanceM,
+          rejectionReason: autoReject
+            ? `Escaneo a ${Math.round(scanDistanceM!)}m del local (máx ${MAX_DISTANCE_METERS}m)`
+            : undefined
+        }
+      });
 
-  // Guarda la foto del ticket. Tolerante a fallo: si la columna `ticketUrl`
-  // aún no existe en la DB (db push pendiente), el escaneo no se rompe.
-  if (ticketUrl) {
-    await prisma.bubuiPurchase
-      .update({ where: { id: purchase.id }, data: { ticketUrl } })
-      .catch(() => {});
-  }
-  // Marca el ticket como usado (un ticket = una compra, no reutilizable).
-  if (ticketScan) {
-    await prisma.bubuiTicketScan
-      .update({ where: { id: ticketScan.id }, data: { usedByPurchaseId: purchase.id, businessId: d.businessId } })
-      .catch(() => {});
+      if (ticketScan) {
+        const claimed = await tx.bubuiTicketScan.updateMany({
+          where: { id: ticketScan.id, usedByPurchaseId: null },
+          data: { usedByPurchaseId: created.id, businessId: d.businessId }
+        });
+        if (!claimed.count) throw new PurchaseConflict("El ticket ya se ha utilizado.");
+      }
+      if (!autoReject && !needsConfirmation) {
+        await settlePurchase(tx, created);
+        return { ...created, status: "confirmed" };
+      }
+      return created;
+    }, { isolationLevel: "Serializable" });
+  } catch (error) {
+    if (error instanceof PurchaseConflict || (error as { code?: string }).code === "P2034") {
+      return NextResponse.json({ error: { code: "conflict", message: "La compra ha cambiado. Actualiza e inténtalo de nuevo." } }, { status: 409 });
+    }
+    throw error;
   }
 
   let offersUnlocked = 0;
-  if (!autoReject) {
-    // Si se cobró la hucha de referidos, consume el % aplicado (el resto sigue
-    // acumulado). No se hace si ganó el cupón base.
-    if (walletUsed && walletCand) {
-      await consumeWallet(customer, walletCand.remaining);
-    }
+  if (purchase.status === "confirmed") {
     // Avisa al negocio si es un cliente REFERIDO que viene por 1ª vez a su local
     // (la señal que el comercio quiere: "Bubui me trae clientes nuevos").
     void notifyBusinessNewReferredClient({ businessId: d.businessId, customer }).catch(() => {});
@@ -237,26 +255,6 @@ export async function POST(req: Request) {
         link: "/bubui/negocio"
       });
     }
-    // Registro inmediato del ahorro (sin confirmación del negocio):
-    // marca cupón canjeado, suma ahorro al cliente y desbloquea cercanos.
-    if (offerApplied && activeOffer) {
-      await prisma.bubuiOffer.update({
-        where: { id: activeOffer.id },
-        data: { redeemed: true, redeemedAt: new Date() }
-      }).catch(() => {});
-      void reevaluateChallengeAfterFriendCouponRedemption({
-        source: activeOffer.source,
-        triggerBusinessId: activeOffer.triggerBusinessId,
-        friendCustomerId: d.customerId,
-        businessId: d.businessId,
-        referredById: customer.referredById,
-        referralOfferId: customer.referralOfferId
-      }).catch(() => {});
-    }
-    await prisma.bubuiCustomer.update({
-      where: { id: d.customerId },
-      data: { totalPurchases: { increment: 1 }, totalSaved: { increment: discountAmount } }
-    });
     const res = await unlockOffersForPurchase({
       customerId: d.customerId,
       triggerBusinessId: d.businessId,
@@ -303,7 +301,7 @@ export async function POST(req: Request) {
     offersUnlocked,
     business: { id: business.id, name: business.name, category: business.category },
     rejectionReason: purchase.rejectionReason,
-    offerRedeemed: offerApplied,
+    offerRedeemed: purchase.status === "confirmed" && offerApplied,
     // Si se cobró la hucha de referidos: % aplicado y € de cuenta elegibles.
     wallet: walletInfo,
     wheelSpin,

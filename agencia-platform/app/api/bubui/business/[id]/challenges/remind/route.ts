@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({ customerId: z.string().min(1) });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
@@ -64,7 +65,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     title: "Tu reto en Bubui 🎯",
     body,
     link: "/bubui/app/afiliados"
-  }).catch(() => ({ sent: 0 }) as any);
+  }).catch(() => (({
+    sent: 0
+  }) as any));
 
   // WhatsApp AUTOMÁTICO: lo manda Sonia desde el número DEFAULT (sesión
   // principal de WAHA), usando el workspace de Negocio Vivo (el más antiguo,

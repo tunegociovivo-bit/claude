@@ -17,7 +17,8 @@ const bodySchema = z.object({
   comment: z.string().max(2000).optional()
 });
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const link = await prisma.clientApprovalLink.findUnique({ where: { token: params.token } });
   if (!link || link.revokedAt || (link.expiresAt && link.expiresAt < new Date())) {
     return NextResponse.json({ error: { code: "expired", message: "Link no válido" } }, { status: 404 });

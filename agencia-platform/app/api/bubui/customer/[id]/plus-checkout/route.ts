@@ -17,7 +17,8 @@ import { getPlusEnabled } from "@/lib/bubui/plus";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const customerId = params.id;
   if (!(await customerAuthOk(req, customerId))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });

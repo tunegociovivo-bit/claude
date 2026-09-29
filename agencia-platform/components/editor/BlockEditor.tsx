@@ -39,10 +39,11 @@ export default function BlockEditor({ documentId, initialContent, readOnly, onCh
   }, []);
 
   const editor = useEditor({
+    shouldRerenderOnTransaction: true,
     immediatelyRender: false,
     editable: !readOnly,
     extensions: [
-      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      StarterKit.configure({ link: false, heading: { levels: [1, 2, 3] } }),
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === "heading") return "Título";

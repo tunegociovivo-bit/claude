@@ -17,7 +17,8 @@ async function loadLinkOr404(token: string) {
   return link;
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const link = await loadLinkOr404(params.token);
   if (!link) return NextResponse.json({ error: { code: "expired" } }, { status: 404 });
 
@@ -52,7 +53,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const link = await loadLinkOr404(params.token);
   if (!link) return NextResponse.json({ error: { code: "expired" } }, { status: 404 });
 

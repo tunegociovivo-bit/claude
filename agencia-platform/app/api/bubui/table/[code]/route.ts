@@ -11,7 +11,8 @@ import { customerAuthOk } from "@/lib/bubui/customer-auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { code: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ code: string }> }) {
+  const params = await props.params;
   const url = new URL(req.url);
   const ticket = Number(url.searchParams.get("ticket") ?? "") || null;
   const meId = url.searchParams.get("me"); // customerId del que consulta (su estado propio)

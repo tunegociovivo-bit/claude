@@ -24,11 +24,12 @@ export const dynamic = "force-dynamic";
 
 type SP = { project?: string; col?: string; scope?: string };
 
-export default async function WidgetPage({
-  searchParams
-}: {
-  searchParams: SP;
-}) {
+export default async function WidgetPage(
+  props: {
+    searchParams: Promise<SP>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id as string | undefined;
   const workspaceId = await getSessionWorkspaceId();

@@ -11,7 +11,8 @@ import type { AnalysisResults } from "@/lib/gmb/fake-reviews/analyzer";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Informe de reseñas" };
 
-export default async function InternalFakeReviewReport({ params }: { params: { id: string } }) {
+export default async function InternalFakeReviewReport(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const s = await getServerSession(authOptions);
   const workspaceId = (s?.user as any)?.workspaceId as string | undefined;
   if (!s?.user || !workspaceId) redirect(`/login?callbackUrl=/informe-resenas/i/${params.id}`);

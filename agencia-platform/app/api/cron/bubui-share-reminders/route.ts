@@ -24,6 +24,8 @@ import { sharesLeft } from "@/lib/bubui/share-offer";
 import { getChallengeExpiryWarnDays } from "@/lib/bubui/growth-settings";
 import { cronAuthOk } from "@/lib/cron-auth";
 
+import { recoverOperations } from "@/lib/bubui/operations";
+
 export const dynamic = "force-dynamic";
 
 const MIN_AGE_MS = 24 * 60 * 60 * 1000; // primera vez: a las 24h del scan
@@ -35,6 +37,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  await recoverOperations();
   const now = Date.now();
 
   // ── Aviso de CADUCIDAD inminente ──────────────────────────────────────────
@@ -160,3 +163,4 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ ok: true, lockedOffers: locked.length, customers: byCustomer.size, sent, expirySent, expiryDeferred });
 }
+

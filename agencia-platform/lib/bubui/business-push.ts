@@ -75,11 +75,10 @@ export async function businessWantsPush(businessId: string, type: string): Promi
  */
 export async function alertBusiness(
   businessId: string,
-  args: { type: string; message: string; pushTitle?: string; link?: string }
+  args: { type: string; message: string; pushTitle?: string; link?: string; eventId?: string }
 ): Promise<void> {
-  await prisma.bubuiBusinessNotification
-    .create({ data: { businessId, type: args.type, message: args.message } })
-    .catch(() => {});
+  if (args.eventId) await prisma.bubuiBusinessNotification.upsert({ where: { id: args.eventId }, update: {}, create: { id: args.eventId, businessId, type: args.type, message: args.message } });
+  else await prisma.bubuiBusinessNotification.create({ data: { businessId, type: args.type, message: args.message } });
   if (!(await businessWantsPush(businessId, args.type))) return;
   await sendPushToBubuiBusiness(businessId, {
     title: args.pushTitle ?? "Bubui",

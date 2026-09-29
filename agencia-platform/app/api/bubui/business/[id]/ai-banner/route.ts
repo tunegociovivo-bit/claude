@@ -33,7 +33,8 @@ export const maxDuration = 300; // gpt-image-2 con edición tarda
 const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
 const MAX_BYTES = 12 * 1024 * 1024; // 12 MB de entrada (se reduce antes de IA)
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized" } }, { status: 401 });
   }

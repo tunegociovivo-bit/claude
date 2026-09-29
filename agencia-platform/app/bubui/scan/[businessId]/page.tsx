@@ -242,6 +242,16 @@ function WebFlow({ businessId }: { businessId: string }) {
             <h2 className="text-xl font-bold">Escaneo no válido</h2>
             <p className="text-sm text-slate-600">{result.rejectionReason}</p>
           </>
+        ) : result?.status === "pending" ? (
+          <>
+            <div className="text-5xl">⏳</div>
+            <h2 className="text-xl font-bold">Compra pendiente de confirmación</h2>
+            <p className="text-sm text-slate-600">
+              El comercio debe confirmar el pago. Después se sumará el ahorro de <strong>{result.discountAmount.toFixed(2)} €</strong> ({result.discountPct}%).
+            </p>
+            <p className="text-sm text-slate-600">Si esta compra forma parte de un reto, contará cuando el comercio la confirme. No hace falta volver a escanear.</p>
+            <a href="/bubui/app" className="bubui-btn block text-center">Entendido</a>
+          </>
         ) : (
           <>
             <div className="text-5xl">{result?.wheelSpin ? "🎰" : "🎉"}</div>

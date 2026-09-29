@@ -17,7 +17,8 @@ import { Building2, Mail, Phone, Calendar, ArrowLeft, FileText } from "lucide-re
 
 export const dynamic = "force-dynamic";
 
-export default async function ClienteDetailPage({ params }: { params: { id: string } }) {
+export default async function ClienteDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const [clients, projects, tasks, events, team, admin] = await Promise.all([
     getClientsForUi(),
     getProjectsForUi(),

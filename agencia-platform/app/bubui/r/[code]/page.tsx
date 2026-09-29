@@ -13,7 +13,8 @@ import ReferralRedirect from "./ReferralRedirect";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { code: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ code: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const invite = await getReferralInvite(params.code).catch(() => null);
   const title = invite
     ? `Un amigo te regala un cupón en ${invite.businessName} 🎁`
@@ -30,7 +31,11 @@ export async function generateMetadata({ params }: { params: { code: string } })
   };
 }
 
-export default function ReferralLanding({ params, searchParams }: { params: { code: string }; searchParams: { offer?: string } }) {
+export default async function ReferralLanding(
+  props: { params: Promise<{ code: string }>; searchParams: Promise<{ offer?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   return (
     <main className="max-w-md mx-auto px-4 py-20 text-center">
       <h1 className="bubui-wordmark mx-auto justify-center" style={{ fontSize: 56 }}>

@@ -5743,6 +5743,8 @@ model BubuiPurchase {
   discountAmount  Float // € de descuento
   status          String    @default("pending") // pending | confirmed | rejected
   // Si vino vía un cupón cruzado, link al BubuiOffer que se canjeó.
+  challengeProcessedAt DateTime? // recuperación del avance del reto tras confirmar
+  walletPctUsed   Int      @default(0) // saldo presupuestado; se cobra al confirmar
   redeemedOfferId String?
   // Geolocalización al escanear (anti-fraude).
   scanLat         Float?
@@ -5768,6 +5770,7 @@ model BubuiPurchase {
   @@index([customerId])
   @@index([scannedAt])
   @@index([status, reviewPushedAt])
+  @@index([status, challengeProcessedAt, confirmedAt])
   @@map("BipiPurchase")
 }
 
@@ -6163,6 +6166,7 @@ model BubuiDealTrace {
 /// comparten Bubui y/o dejan reseña en Google. El dueño la verifica desde su
 /// panel y la canjea. status: open → verified → redeemed | expired.
 model BubuiTableSession {
+  termsSnapshot Json?
   id             String    @id @default(cuid())
   businessId     String
   code           String // código corto de unión (único entre sesiones abiertas)
@@ -6737,4 +6741,21 @@ model GmbEvidence {
   capturedAt  DateTime @default(now())
 
   @@index([workspaceId, caseId])
+}
+
+/// Durable operational notices; scoped to the business/customer named on each row.
+model BubuiOperation {
+  id String @id
+  kind String
+  businessId String?
+  customerId String?
+  payload Json
+  status String @default("pending")
+  attempts Int @default(0)
+  lastError String?
+  nextAttemptAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, nextAttemptAt])
+  @@index([businessId, status])
 }

@@ -20,7 +20,8 @@ const schema = z.object({
   password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres")
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!(await businessTokenAllows(req.headers.get("authorization"), params.id))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "Sesión no válida." } }, { status: 401 });
   }

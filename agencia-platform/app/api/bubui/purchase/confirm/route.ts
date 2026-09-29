@@ -14,6 +14,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { finishPurchaseChallenge } from "@/lib/bubui/purchase-challenge";
+import { settlePurchase, PurchaseConflict } from "@/lib/bubui/purchase-settlement";
 import { businessTokenAllows } from "@/lib/bubui/auth";
 import {
   unlockOffersForPurchase,
@@ -37,7 +39,7 @@ export async function POST(req: Request) {
   }
   const d = parsed.data;
 
-  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId))) {
+  if (!(await businessTokenAllows(req.headers.get("authorization"), d.businessId, { requireStoredToken: true }))) {
     return NextResponse.json({ error: { code: "unauthorized", message: "No autorizado" } }, { status: 401 });
   }
 
@@ -48,6 +50,10 @@ export async function POST(req: Request) {
   if (purchase.businessId !== d.businessId) {
     return NextResponse.json({ error: { code: "forbidden", message: "Negocio no autorizado" } }, { status: 403 });
   }
+  if (purchase.status === "confirmed" && d.action === "confirm") {
+    await finishPurchaseChallenge(purchase);
+    return NextResponse.json({ ok: true, status: "confirmed", discountAmount: purchase.discountAmount, offersUnlocked: 0, alreadyConfirmed: true });
+  }
   if (purchase.status !== "pending") {
     return NextResponse.json(
       { error: { code: "bad_state", message: `Compra en estado ${purchase.status}, no se puede modificar` } },
@@ -56,35 +62,27 @@ export async function POST(req: Request) {
   }
 
   if (d.action === "reject") {
-    await prisma.bubuiPurchase.update({
-      where: { id: purchase.id },
+    const rejected = await prisma.bubuiPurchase.updateMany({
+      where: { id: purchase.id, status: "pending" },
       data: { status: "rejected", rejectionReason: d.rejectionReason ?? "Rechazada por el negocio" }
     });
+    if (!rejected.count) return NextResponse.json({ error: { code: "conflict" } }, { status: 409 });
     return NextResponse.json({ ok: true, status: "rejected" });
   }
 
-  // CONFIRM:
-  await prisma.bubuiPurchase.update({
-    where: { id: purchase.id },
-    data: { status: "confirmed", confirmedAt: new Date() }
-  });
-
-  // Si canjea una oferta cruzada, la marcamos redeemed.
-  const redeemedOffer = purchase.redeemedOfferId
-    ? await prisma.bubuiOffer.update({
-      where: { id: purchase.redeemedOfferId },
-      data: { redeemed: true, redeemedAt: new Date() }
-    })
-    : null;
-
-  // Actualiza stats del cliente.
-  const customer = await prisma.bubuiCustomer.update({
-    where: { id: purchase.customerId },
-    data: {
-      totalPurchases: { increment: 1 },
-      totalSaved: { increment: purchase.discountAmount }
-    }
-  });
+  let settled;
+  try {
+    settled = await prisma.$transaction((tx) => settlePurchase(tx, purchase));
+  } catch (error) {
+    if (error instanceof PurchaseConflict) return NextResponse.json({ error: { code: "conflict", message: error.message } }, { status: 409 });
+    throw error;
+  }
+  if (!settled) return NextResponse.json({ error: { code: "conflict", message: "Esta compra ya se ha procesado." } }, { status: 409 });
+  const { customer, loyalty } = settled;
+  // Await the challenge update. A failed update remains queued for repair.
+  let challengePending = false;
+  try { await finishPurchaseChallenge({ ...purchase, status: "confirmed" }); }
+  catch (error) { challengePending = true; console.warn("[bubui challenge pending]", purchase.id, error); }
 
   // Desbloquea ofertas en negocios complementarios cercanos.
   const business = await prisma.bubuiBusiness.findUnique({ where: { id: purchase.businessId } });
@@ -103,33 +101,6 @@ export async function POST(req: Request) {
   void recalculateVisibilityScore(purchase.businessId).catch(() => {});
   void recalculateAmbassadorLevel(purchase.customerId).catch(() => {});
 
-  // Si este comprador fue traído por otro usuario y su negocio de origen exige
-  // que los amigos compren para desbloquear el reto, esta compra puede haber
-  // completado el reto del referidor → intentamos desbloquearlo.
-  if (redeemedOffer) {
-    void import("@/lib/bubui/challenge-redemption")
-      .then((m) => m.reevaluateChallengeAfterFriendCouponRedemption({
-        source: redeemedOffer.source,
-        triggerBusinessId: redeemedOffer.triggerBusinessId,
-        friendCustomerId: purchase.customerId,
-        businessId: purchase.businessId,
-        referredById: customer.referredById,
-        referralOfferId: customer.referralOfferId
-      }))
-      .catch(() => {});
-  }
-
-  // Tarjeta de fidelidad: si esta compra completa el ciclo, otorga el cupón.
-  // Best-effort: si falla, la compra ya está confirmada y la siguiente lo
-  // intentará al hacer el mod 0 de nuevo. No bloquea respuesta.
-  let loyalty: { granted: boolean; cycle?: number; discountPct?: number; label?: string | null } = { granted: false };
-  try {
-    const { grantLoyaltyIfReached } = await import("@/lib/bubui/loyalty");
-    loyalty = await grantLoyaltyIfReached({ customerId: purchase.customerId, businessId: purchase.businessId });
-  } catch (e: any) {
-    console.warn("[bubui loyalty]", e?.message ?? e);
-  }
-
   // Email de confirmación al cliente (best-effort, no bloquea).
   if (customer.email && business) {
     void import("@/lib/bubui/email").then(({ sendPurchaseConfirmationEmail }) =>
@@ -141,7 +112,7 @@ export async function POST(req: Request) {
         discountAmount: purchase.discountAmount,
         offersUnlocked: offers.created
       })
-    );
+    ).catch((error) => console.warn("[bubui confirmation email]", error));
   }
 
   return NextResponse.json({
@@ -149,6 +120,7 @@ export async function POST(req: Request) {
     status: "confirmed",
     offersUnlocked: offers.created,
     discountAmount: purchase.discountAmount,
-    loyalty
+    loyalty,
+    challengePending
   });
 }

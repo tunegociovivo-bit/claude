@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS "BubuiOperation" ("id" TEXT PRIMARY KEY, "kind" TEXT NOT NULL, "businessId" TEXT, "customerId" TEXT, "payload" JSONB NOT NULL, "status" TEXT NOT NULL DEFAULT 'pending', "attempts" INTEGER NOT NULL DEFAULT 0, "lastError" TEXT, "nextAttemptAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS "BubuiOperation_status_nextAttemptAt_idx" ON "BubuiOperation"("status", "nextAttemptAt");
+CREATE INDEX IF NOT EXISTS "BubuiOperation_businessId_status_idx" ON "BubuiOperation"("businessId", "status");

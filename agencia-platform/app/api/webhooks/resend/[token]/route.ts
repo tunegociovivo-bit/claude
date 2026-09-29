@@ -13,7 +13,8 @@ import { isPermanentNoContactReply } from "@/lib/leads/reply-classification";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const endpointToken = process.env.RESEND_WEBHOOK_TOKEN;
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   if (!endpointToken || params.token !== endpointToken || !secret) {

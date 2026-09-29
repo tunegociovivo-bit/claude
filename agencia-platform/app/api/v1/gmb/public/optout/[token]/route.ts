@@ -12,13 +12,15 @@ async function findContact(token: string) {
   return prisma.gmbReviewContact.findUnique({ where: { optOutToken: token } });
 }
 
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
+export async function GET(_req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const c = await findContact(params.token);
   if (!c) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   return NextResponse.json({ ok: true, optedOut: c.status === "opted_out" });
 }
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const rl = rateLimitPublic(req as any, { tag: "gmb-optout", limit: 60 });
   if (rl && (rl as any).ok === false) return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
   const c = await findContact(params.token);

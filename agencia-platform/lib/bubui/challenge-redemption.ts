@@ -24,9 +24,9 @@ export async function reevaluateChallengeAfterFriendCouponRedemption(
     const participant = await prisma.bubuiChallengeParticipant.findFirst({
       where: { offerId, friendCustomerId: redemption.friendCustomerId, businessId: redemption.businessId }
     });
-    if (!participant) return 0;
+    if (!participant || ["declined", "lost"].includes(participant.status)) return 0;
     await prisma.bubuiChallengeParticipant.updateMany({
-      where: { id: participant.id, status: { not: "confirmed" } },
+      where: { id: participant.id, status: { notIn: ["confirmed", "declined", "lost"] } },
       data: { status: "confirmed", decidedAt: new Date(), nextFollowupAt: null }
     });
     await prisma.bubuiChallengeParticipant.updateMany({

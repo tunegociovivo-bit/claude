@@ -10,8 +10,9 @@ import { getCustomDealPublic } from "@/lib/bubui/custom-deal";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
-  const deal = await getCustomDealPublic(params.token);
-  if (!deal) return NextResponse.json({ error: { code: "not_found", message: "Reto no encontrado" } }, { status: 404 });
-  return NextResponse.json({ ...deal, claimedByMe: false });
+export async function GET(_req: Request, props: { params: Promise<{ token: string }> }) {
+ const params = await props.params;
+ const deal = await getCustomDealPublic(params.token);
+ if (!deal) return NextResponse.json({ error: { code: "not_found", message: "Reto no encontrado" } }, { status: 404 });
+ return NextResponse.json({ ...deal, claimedByMe: false });
 }

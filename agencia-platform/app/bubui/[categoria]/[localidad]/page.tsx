@@ -20,9 +20,10 @@ import { templateListing, getStoredIntro, keyListing } from "@/lib/bubui/editori
 
 export const revalidate = 300;
 
-type Params = { params: { categoria: string; localidad: string } };
+type Params = { params: Promise<{ categoria: string; localidad: string }> };
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
+export async function generateMetadata(props: Params): Promise<Metadata> {
+  const params = await props.params;
   const data = await getListing(params.categoria, params.localidad);
   if (!data) return { title: "Directorio · Bubui" };
   const { category, cityLabel, businesses } = data;
@@ -38,7 +39,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   };
 }
 
-export default async function DirectorioNichoLocalidad({ params }: Params) {
+export default async function DirectorioNichoLocalidad(props: Params) {
+  const params = await props.params;
   const data = await getListing(params.categoria, params.localidad);
   if (!data) notFound();
   const { category, cityLabel, province, businesses } = data;

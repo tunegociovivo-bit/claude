@@ -10,6 +10,7 @@
  * solo se llamaba al canal web.
  */
 
+import { prisma } from "@/lib/db/prisma";
 import { sendPushToBubuiCustomer } from "./push";
 import { sendMobilePushToCustomer } from "./expo-push";
 import { canReceivePush, recordPushSent } from "./push-cap";
@@ -51,7 +52,9 @@ export async function notifyBubuiCustomer(
   if (web.status === "rejected") console.warn("[bubui notify] web push:", web.reason);
   if (mobile.status === "rejected") console.warn("[bubui notify] mobile push:", mobile.reason);
   const sent = webSent + mobileSent;
-  // Solo contamos contra el tope si realmente se entregó algo.
+  // Aceptación del proveedor, no prueba de lectura ni entrega al dispositivo.
+  await prisma.bubuiPushLog.create({ data: { customerId, kind: payload.tag ?? "generic", payload: { ...payload, deliveryStatus: sent > 0 ? "accepted" : "failed", webAccepted: webSent, mobileAccepted: mobileSent } as any } });
+  // Solo contamos contra el tope si el proveedor aceptó algo.
   if (sent > 0 && !payload.bypassDailyCap) await recordPushSent(customerId);
   return { web: webSent, mobile: mobileSent, sent };
 }

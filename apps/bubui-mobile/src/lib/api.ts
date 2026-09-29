@@ -230,6 +230,7 @@ export const api = {
       referralQualifiedCount?: number;
     }>(`/api/bubui/customer/${customerId}`),
   /** Elimina la cuenta del cliente y todos sus datos (requisito Apple 5.1.1(v)). */
+  logout: () => call<{ ok: true }>("/api/bubui/customer/logout", { method: "POST" }),
   deleteAccount: (customerId: string) =>
     call<{ ok: true }>(`/api/bubui/customer/${customerId}`, { method: "DELETE" }),
   /** Inicia el checkout de Bubui Plus (1€/mes). Devuelve la URL de Stripe que
@@ -268,9 +269,12 @@ export const api = {
       `/api/bubui/offer/${encodeURIComponent(offerId)}/verify-action`,
       { method: "POST", body: JSON.stringify({ customerId, type, imageBase64, mimeType }) }
     ),
-  discover: (lat?: number, lng?: number, customerId?: string) => {
+  discover: (lat?: number, lng?: number, customerId?: string, query = "", category = "Todo", offset = 0) => {
     const url = new URL(`${API_BASE}/api/bubui/discover`);
     url.searchParams.set("limit", "60");
+    url.searchParams.set("q", query);
+    url.searchParams.set("category", category);
+    url.searchParams.set("offset", String(offset));
     if (lat != null) url.searchParams.set("lat", String(lat));
     if (lng != null) url.searchParams.set("lng", String(lng));
     if (customerId) url.searchParams.set("customerId", customerId);

@@ -11,7 +11,8 @@ import { acceptProposalByToken } from "@/lib/bubui/subvenciones";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const limited = rateLimitPublic(req as any, { tag: "bubui-subvencion", limit: 30 });
   if (limited) return limited;
 

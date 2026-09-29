@@ -36,15 +36,15 @@ function req(auth?: string): Request {
 
 describe("auth-mode helpers", () => {
   it("default = lazy; flags legacy = strict; env explícita gana", () => {
-    expect(customerAuthMode({} as any)).toBe("lazy");
+    expect(customerAuthMode({} as any)).toBe("strict");
     expect(customerAuthMode({ BUBUI_REQUIRE_CUSTOMER_TOKEN: "true" } as any)).toBe("strict");
-    expect(customerAuthMode({ BUBUI_CUSTOMER_AUTH_MODE: "shadow" } as any)).toBe("shadow");
+    expect(customerAuthMode({ BUBUI_CUSTOMER_AUTH_MODE: "shadow" } as any)).toBe("strict");
     expect(businessAuthMode({ BUBUI_BUSINESS_AUTH_MODE: "strict" } as any)).toBe("strict");
   });
   it("decideNoToken", () => {
     expect(decideNoToken("strict")).toEqual({ allow: false, log: false });
-    expect(decideNoToken("shadow")).toEqual({ allow: true, log: true });
-    expect(decideNoToken("lazy")).toEqual({ allow: true, log: false });
+    expect(decideNoToken("shadow")).toEqual({ allow: false, log: false });
+    expect(decideNoToken("lazy")).toEqual({ allow: false, log: false });
   });
 });
 
@@ -64,13 +64,13 @@ describe("customerAuthOk — token presentado (SIEMPRE estricto con el token)", 
 
 describe("customerAuthOk — SIN token, por modo", () => {
   it("lazy (default) → true", async () => {
-    expect(await customerAuthOk(req(), "c1")).toBe(true);
+    expect(await customerAuthOk(req(), "c1")).toBe(false);
   });
   it("shadow → true (permite y registra)", async () => {
     process.env.BUBUI_CUSTOMER_AUTH_MODE = "shadow";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(await customerAuthOk(req(), "c1")).toBe(true);
-    expect(warn).toHaveBeenCalled();
+    expect(await customerAuthOk(req(), "c1")).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
   it("strict → false (fail-closed)", async () => {
@@ -92,7 +92,7 @@ describe("businessTokenAllows", () => {
   });
   it("negocio SIN apiToken → lazy permite, strict bloquea", async () => {
     prisma.bubuiBusiness.findUnique.mockResolvedValue({ apiToken: null });
-    expect(await businessTokenAllows("Bearer b1:whatever", "b1")).toBe(true);
+    expect(await businessTokenAllows("Bearer b1:whatever", "b1")).toBe(false);
 
     process.env.BUBUI_BUSINESS_AUTH_MODE = "strict";
     prisma.bubuiBusiness.findUnique.mockResolvedValue({ apiToken: null });

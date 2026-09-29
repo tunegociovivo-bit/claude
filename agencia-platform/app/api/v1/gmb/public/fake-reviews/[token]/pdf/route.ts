@@ -10,7 +10,8 @@ import type { AnalysisResults } from "@/lib/gmb/fake-reviews/analyzer";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const limited = rateLimitPublic(req, { tag: "fake-reviews-pdf", limit: 20 });
   if (limited) return limited;
   const row = await prisma.gmbFakeReviewAnalysis.findUnique({

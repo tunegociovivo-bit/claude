@@ -17,7 +17,8 @@ import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const img = await prisma.bubuiImage.findUnique({ where: { id: params.id } });
   if (!img) {
     return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });

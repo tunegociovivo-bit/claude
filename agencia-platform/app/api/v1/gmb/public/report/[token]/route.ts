@@ -14,7 +14,8 @@ import { buildGrowthReport, monthPeriod } from "@/lib/gmb/report";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const rl = rateLimitPublic(req as any, { tag: "gmb-report", limit: 60 });
   if (rl && (rl as any).ok === false) return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
 

@@ -7,7 +7,7 @@ const h = vi.hoisted(() => ({
     bubuiOffer: { findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
     bubuiCustomer: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     bubuiChallengeParticipant: { findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
-    bubuiPurchase: { findMany: vi.fn() },
+    bubuiPurchase: { findMany: vi.fn(), findFirst: vi.fn() },
     bubuiBusiness: { findUnique: vi.fn() }
   }
 }));
@@ -23,7 +23,7 @@ let expired: boolean;
 let rows: { id: string; friendCustomerId: string; referrerCustomerId: string; status: string; contactedAt: Date | null; nextFollowupAt: Date | null; reminderSentAt: Date | null }[];
 const call = (friendId: string, action = "yes", businessId = "business-test") => POST(new Request("https://example.test/payment", {
   method: "POST", body: JSON.stringify({ action })
-}), { params: { id: businessId, offerId: "challenge-test", friendId } });
+}), { params: Promise.resolve({ id: businessId, offerId: "challenge-test", friendId }) });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -45,6 +45,7 @@ beforeEach(() => {
   h.prisma.bubuiCustomer.findMany.mockImplementation(async ({ where }) => rows.filter((r) => where.id.in.includes(r.id)).map((r) => ({ id: r.id })));
   h.prisma.bubuiCustomer.findUnique.mockResolvedValue({ name: "Amigo ficticio", phone: "+34600000000" });
   h.prisma.bubuiPurchase.findMany.mockResolvedValue([]);
+  h.prisma.bubuiPurchase.findFirst.mockResolvedValue(null);
   h.prisma.bubuiOffer.findMany.mockImplementation(async ({ where }) => where.source === "share_challenge"
     ? active ? [] : [{ id: "challenge-test", businessId: "business-test", customerId: "inviter", usesExactReferralTracking: true, unlockRequiresPurchase: true, unlockShares: 2, business: { name: "Negocio ficticio" }, discountPct: 20 }]
     : rows.map((r) => ({ id: `welcome-${r.id}`, customerId: r.id })));
