@@ -185,7 +185,7 @@ export async function POST(req: Request) {
   }
 
   // Los cupones de amigos requieren siempre la confirmación del comercio.
-  const needsConfirmation = business.purchaseMode === "double_confirm" ||
+  const needsConfirmation = business.purchaseMode === "double_confirm" || business.shareOfferRequiresPurchase ||
     activeOffer?.source === "referral_welcome" || !!activeOffer?.activatedProvisional;
   let purchase;
   try {
