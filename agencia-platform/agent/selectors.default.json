@@ -1,6 +1,6 @@
 {
   "sessionReady": { "css": "input[name='searchControl']", "describe": "Buscador visible tras iniciar sesión" },
-  "remittancesNav": { "css": ".nwe-card-flex-content-card", "hasText": "Generación", "describe": "Tarjeta Generación" },
+  "remittancesNav": { "text": "Generador de Remesas", "describe": "Acceso Generador de Remesas" },
   "previousRemittance": { "text": "{{template}}", "describe": "Nombre exacto de la remesa recurrente" },
   "rowMenuAction": { "xpath": "//*[normalize-space(text())='{{template}}']/ancestor::tr[1]//button[last()]", "describe": "Menú de tres puntos de la remesa" },
   "editAction": { "xpath": "//*[normalize-space(text())='{{template}}']/ancestor::tr[1]//*[normalize-space(text())='Editar']", "describe": "Editar la remesa existente" },
@@ -12,7 +12,7 @@
   "clientLabel": { "text": "{{client}}", "describe": "Cliente deudor" },
   "firstSendAction": { "role": { "role": "button", "name": "Enviar" }, "describe": "Primer Enviar del resumen" },
   "basicPaymentsOption": { "css": "a.remesasNoLink", "hasText": "Pagos y cobros básicos", "describe": "Categoría Pagos y cobros básicos" },
-  "directDebitOption": { "css": "ul.remesaselectoption:not(.ng-hide) label[aria-label='Norma de la remesa']", "hasText": "Para emitir tus recibos", "describe": "Domiciliaciones SEPA CORE/COR1 visible" },
+  "directDebitOption": { "css": "ul.remesaselectoption:not(.ng-hide) a.remesasNoLink", "hasText": "Para emitir tus recibos", "describe": "Domiciliaciones SEPA CORE/COR1 visible" },
   "acceptAction": { "role": { "role": "button", "name": "Aceptar" }, "describe": "Aceptar tipo de envío" },
   "secondSendAction": { "role": { "role": "button", "name": "Enviar" }, "describe": "Segundo Enviar" },
   "pendingSignatureIndicator": { "text": "Operaciones pendientes de firma", "describe": "Confirmación pendiente de firma" },

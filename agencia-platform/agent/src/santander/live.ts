@@ -91,6 +91,21 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
       // 4) Navegar a la portada oficial de remesas y entrar en Generación.
       await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, { waitUntil: "domcontentloaded", timeout: STEP_TIMEOUT_MS });
+      // The authenticated outer shell can remain visible while its inner frame
+      // says that the session expired. In that state the URL and header are
+      // false positives, so reconnect before looking for remittances.
+      if (await this.hasExpiredSessionFrame(page)) {
+        await page.goto(`${this.opts.santanderOrigin}/paas/loginnwe/`, {
+          waitUntil: "domcontentloaded",
+          timeout: STEP_TIMEOUT_MS
+        });
+        const loginResult = await this.trySavedLogin(page, S);
+        if (!loginResult.ok) return this.pause(hooks, loginResult.reason);
+        await page.goto(`${this.opts.santanderOrigin}/paas/nwe/app/portal/distribuidoras/remesas`, {
+          waitUntil: "domcontentloaded",
+          timeout: STEP_TIMEOUT_MS
+        });
+      }
       const portal = await this.findAppFrame(page);
       if (!portal) return this.pause(hooks, "No encuentro el marco interno oficial de remesas.");
       let app = await this.findGeneratorFrame(page, 4);
@@ -371,6 +386,16 @@ export class LiveSantanderAdapter implements SantanderAdapter {
     return false;
   }
 
+  private async hasExpiredSessionFrame(page: any): Promise<boolean> {
+    for (const frame of page.frames()) {
+      const text = await frame.locator("body").innerText({ timeout: 2_000 }).catch(() => "");
+      if (/sesi[oó]n\s+ha\s+caducado|sesi[oó]n\s+caducada|vuelve\s+a\s+introducir\s+tus\s+claves/i.test(text)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Santander now renders the options icon as nested, unlabelled buttons.
    * Resolve it from the unique table row whose own cell exactly matches the
@@ -465,13 +490,33 @@ export class LiveSantanderAdapter implements SantanderAdapter {
 
   private async clickUniqueVisible(page: any, spec: SelectorSpec): Promise<boolean> {
     try {
-      const matches = this.locator(page, spec);
-      const visibility: boolean[] = [];
-      for (let index = 0; index < await matches.count(); index++) visibility.push(await matches.nth(index).isVisible().catch(() => false));
-      const index = uniqueVisibleIndex(visibility);
-      if (index === null) return false;
-      await matches.nth(index).click({ timeout: STEP_TIMEOUT_MS });
-      return true;
+      // The send-type accordion animates after selecting "Pagos y cobros
+      // básicos". Waiting a fixed 300 ms is unreliable: on slower sessions the
+      // option exists but is still hidden. Poll for one uniquely visible option
+      // before clicking its actionable anchor.
+      for (let attempt = 0; attempt <= 20; attempt++) {
+        const matches = this.locator(page, spec);
+        const visibility: boolean[] = [];
+        for (let index = 0; index < await matches.count(); index++) {
+          visibility.push(await matches.nth(index).isVisible().catch(() => false));
+        }
+        const index = uniqueVisibleIndex(visibility);
+        if (index !== null) {
+          await matches.nth(index).click({ timeout: STEP_TIMEOUT_MS });
+          return true;
+        }
+        await page.waitForTimeout(250);
+      }
+      // Santander sometimes keeps the chosen option under an ancestor that
+      // Playwright still considers hidden even though Angular's ng-click is
+      // active.  The selector is deliberately specific; when it resolves to
+      // exactly one element, dispatch the click without actionability checks.
+      const exactMatch = this.locator(page, spec);
+      if (await exactMatch.count() === 1) {
+        await exactMatch.first().click({ timeout: STEP_TIMEOUT_MS, force: true });
+        return true;
+      }
+      return false;
     } catch { return false; }
   }
 
@@ -530,7 +575,7 @@ export class LiveSantanderAdapter implements SantanderAdapter {
         return true;
       }
 
-      const semantic = page.getByText(/^\s*Generaci(?:ó|o)n(?: de remesas)?\s*$/i);
+      const semantic = page.getByText(/^\s*(?:Generaci(?:ó|o)n|Generador)(?: de [Rr]emesas)?\s*$/i);
       const visibility: boolean[] = [];
       for (let index = 0; index < await semantic.count(); index++) visibility.push(await semantic.nth(index).isVisible().catch(() => false));
       const unique = uniqueVisibleIndex(visibility);

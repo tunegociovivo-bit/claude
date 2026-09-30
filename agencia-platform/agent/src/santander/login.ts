@@ -174,5 +174,6 @@ export function isSafeRemittanceGenerationLabel(label: string): boolean {
   const normalized = label.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
   return normalized === "generacion"
     || normalized === "generacion de remesas"
+    || normalized === "generador de remesas"
     || normalized === "generacion herramienta para crear tus ficheros de remesas";
 }
