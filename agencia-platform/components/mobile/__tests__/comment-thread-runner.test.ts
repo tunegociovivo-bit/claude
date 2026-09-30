@@ -40,6 +40,36 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("no pulsa el campo de comentario si SIGUIENTE lo tapa y no existe otro acceso", async () => {
+    const covered = screen([{ desc: "Añadir un comentario", y: 798 }, { desc: "SIGUIENTE:", y: 807 }]);
+    const { deps: d, taps } = deps([screen([]), covered, covered, covered, covered, covered]);
+    d.scroll = async () => { throw new Error("No debe cambiar de reel"); };
+    await expect(inspectCommentThreadNavigation({ ...message, postUrl: "https://www.facebook.com/reel/123" }, d)).rejects.toThrow("No se ha localizado");
+    expect(taps).toEqual([]);
+  });
+  it("prefiere Comentar marcado no clickable al campo tapado por SIGUIENTE", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([
+        { desc: "Comentar", cls: "android.widget.Button", clickable: false, y: 446 },
+        { desc: "Añadir un comentario", cls: "android.widget.Button", clickable: true, y: 798 },
+        { desc: "SIGUIENTE:", y: 807 }
+      ]), screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 705 }])
+    ]);
+    expect(await inspectCommentThreadNavigation({ ...message, postUrl: "https://www.facebook.com/reel/123" }, d)).toContain("Campo de comentario localizado");
+    expect(taps).toEqual([486]);
+  });
+  it("espera los controles de un reel sin desplazarlo hacia otro vídeo", async () => {
+    const { deps: d } = deps([screen([]), screen([{ text: "Vídeo", y: 200 }]), screen([{ desc: "1 comentario", y: 450 }]), screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 705 }])]);
+    d.scroll = async () => { throw new Error("No debe cambiar de reel"); };
+    expect(await inspectCommentThreadNavigation({ ...message, postUrl: "https://www.facebook.com/reel/123" }, d)).toContain("Campo de comentario localizado");
+  });
+  it("no busca publicaciones anteriores desplazando el vídeo cuando el panel no se abrió", async () => {
+    const reel = screen([{ desc: "1 comentario", y: 450 }]);
+    const { deps: d } = deps([reel, reel, reel]);
+    d.scroll = async () => { throw new Error("No debe cambiar de reel"); };
+    d.paste = async () => { throw new Error("No debe escribir"); };
+    await expect(postCommentThreadMessage({ ...message, postUrl: "https://www.facebook.com/reel/123" }, d)).rejects.toThrow("panel de comentarios del reel no está abierto");
+  });
   it("prefiere el contador al campo inferior que puede estar tapado por el siguiente reel", async () => {
     const { deps: d, taps } = deps([
       screen([]), screen([

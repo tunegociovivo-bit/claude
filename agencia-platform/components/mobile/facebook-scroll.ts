@@ -3,10 +3,14 @@ import { facebookNodes } from "./facebook-conversation-ui";
 /** Keep the gesture inside the list, away from the fixed composer and comment text. */
 export function facebookScrollCommand(xml: string, direction: "up" | "down", gentle = false): string[] {
   const nodes = facebookNodes(xml);
-  const list = nodes.filter(node => node.scrollable && node.bounds.bottom - node.bounds.top > 100)
+  // Short comment drawers still expose a RecyclerView with scrollable=false.
+  // Its bounds remain authoritative; falling back to the whole display can
+  // drag through the reel behind the drawer and change the publication.
+  const lists = nodes.filter(node => /RecyclerView|ListView/.test(node.className) && node.bounds.bottom - node.bounds.top > 100);
+  const list = (lists.length ? lists : nodes.filter(node => node.scrollable && node.bounds.bottom - node.bounds.top > 100))
     .sort((a, b) => (b.bounds.bottom - b.bounds.top) - (a.bounds.bottom - a.bounds.top))[0];
   const bounds = list?.bounds ?? {
-    left: 0, top: 0,
+    left: Math.min(...nodes.map(node => node.bounds.left)), top: Math.min(...nodes.map(node => node.bounds.top)),
     right: Math.max(...nodes.map(node => node.bounds.right)),
     bottom: Math.max(...nodes.map(node => node.bounds.bottom)),
   };
