@@ -40,6 +40,41 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("prefiere el contador al campo inferior que puede estar tapado por el siguiente reel", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([
+        { desc: "Añadir un comentario", cls: "android.widget.Button", y: 798 },
+        { desc: "1 comentario", cls: "android.widget.Button", y: 461 },
+        { desc: "SIGUIENTE:", y: 807 }
+      ]), screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 705 }])
+    ]);
+    expect(await inspectCommentThreadNavigation(message, d)).toContain("Campo de comentario localizado");
+    expect(taps).toEqual([501]);
+  });
+  it("abre el contador del reel sin exigir una descripción encima ni tocar Compartir", async () => {
+    const reel = screen([
+      { desc: "3 reacciones", y: 368 },
+      { desc: "1 comentario", cls: "android.widget.Button", y: 461 },
+      { desc: "Compartir, 15 veces compartido", y: 554 },
+      { desc: "Guardar", y: 647 },
+      { desc: "Aquaking, configuración de privacidad Público", y: 713 }
+    ]);
+    const { deps: d, taps } = deps([screen([]), reel, expandedReply]);
+    d.scroll = async () => { throw new Error("No debe desplazar el reel para buscar comentarios"); };
+    expect(await inspectCommentThreadNavigation({ ...message, mode: "reply", replyToText: parentText }, d)).toContain(parentText);
+    expect(taps).toEqual([501]);
+  });
+
+  it.each(["Añadir un comentario", "Añade un comentario…", "Add a comment"])("reconoce el acceso del reel %s", async (label) => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([{ desc: label, cls: "android.widget.Button", y: 798 }]),
+      screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 705 }])
+    ]);
+    d.scroll = async () => { throw new Error("No debe desplazar el reel"); };
+    expect(await inspectCommentThreadNavigation(message, d)).toContain("Campo de comentario localizado");
+    expect(taps).toEqual([838]);
+  });
+
   it("no confunde dos desplazamientos sin efecto con el final del hilo", async () => {
     const stalled = expandedReply.replaceAll(parentText, "Otro comentario");
     const { deps: d } = deps([screen([]), stalled, stalled, stalled, expandedReply]);
