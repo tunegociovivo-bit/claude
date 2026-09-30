@@ -40,6 +40,18 @@ const expandedReply = `<hierarchy>
 </hierarchy>`;
 
 describe("respuestas plegadas de Facebook", () => {
+  it("espera los controles de un reel sin desplazarlo hacia otro vídeo", async () => {
+    const { deps: d } = deps([screen([]), screen([{ text: "Vídeo", y: 200 }]), screen([{ desc: "1 comentario", y: 450 }]), screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 705 }])]);
+    d.scroll = async () => { throw new Error("No debe cambiar de reel"); };
+    expect(await inspectCommentThreadNavigation({ ...message, postUrl: "https://www.facebook.com/reel/123" }, d)).toContain("Campo de comentario localizado");
+  });
+  it("no busca publicaciones anteriores desplazando el vídeo cuando el panel no se abrió", async () => {
+    const reel = screen([{ desc: "1 comentario", y: 450 }]);
+    const { deps: d } = deps([reel, reel, reel]);
+    d.scroll = async () => { throw new Error("No debe cambiar de reel"); };
+    d.paste = async () => { throw new Error("No debe escribir"); };
+    await expect(postCommentThreadMessage({ ...message, postUrl: "https://www.facebook.com/reel/123" }, d)).rejects.toThrow("panel de comentarios del reel no está abierto");
+  });
   it("prefiere el contador al campo inferior que puede estar tapado por el siguiente reel", async () => {
     const { deps: d, taps } = deps([
       screen([]), screen([

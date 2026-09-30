@@ -10,6 +10,14 @@ const screen = `<hierarchy>
 </hierarchy>`;
 
 describe("Facebook comment list scrolling", () => {
+  it("keeps a short non-scrollable reel drawer isolated from the video behind it", () => {
+    const drawer = screen.replace('scrollable="true"', 'scrollable="false"').replace('[0,109][480,811]', '[0,464][480,811]');
+    expect(facebookScrollCommand(drawer, "down", true)).toEqual(["input", "touchscreen", "swipe", "240", "690", "240", "585", "350"]);
+  });
+  it("uses the actual top of a modal when no list is exposed", () => {
+    const modal = '<hierarchy><node package="com.facebook.katana" class="android.widget.FrameLayout" bounds="[0,427][480,888]" /></hierarchy>';
+    expect(facebookScrollCommand(modal, "down", true)).toEqual(["input", "touchscreen", "swipe", "240", "727", "240", "588", "350"]);
+  });
   it("keeps both endpoints inside the list, ignoring the composer and keyboard", () => {
     expect(facebookScrollCommand(screen, "down")).toEqual(["input", "touchscreen", "swipe", "29", "685", "29", "235", "200"]);
   });

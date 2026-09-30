@@ -56,6 +56,20 @@ function placeholderNode(xml: string) {
   return facebookNodes(xml).find((node) => !COMPOSER.test(node.className) && COMPOSER_PLACEHOLDER.test(nodeText(node)));
 }
 
+const isReel = (url: string) => /facebook\.com\/reels?\//i.test(url);
+function protectReelNavigation(deps: CommentThreadRunnerDependencies, url: string): CommentThreadRunnerDependencies {
+  if (!isReel(url)) return deps;
+  return {
+    ...deps,
+    scroll: async (xml, direction) => {
+      if (!visibleComments(xml).length && !composerNode(xml, false)) {
+        throw new Error(`El panel de comentarios del reel no está abierto. Se reintentará desde el enlace original sin desplazar el vídeo. ${screenSummary(xml)}`);
+      }
+      await deps.scroll(xml, direction);
+    }
+  };
+}
+
 function commentButton(xml: string) {
   return facebookNodes(xml).filter((node) => COMMENT_BUTTON.test(nodeText(node))
     || ((node.clickable || node.className === "android.widget.Button") && COMMENT_COUNTER.test(nodeText(node))))
@@ -72,7 +86,7 @@ function screenSummary(xml: string): string {
 }
 
 /** Deja la pantalla con el campo de escribir comentario (EditText) visible. */
-async function revealComposer(deps: CommentThreadRunnerDependencies): Promise<string> {
+async function revealComposer(deps: CommentThreadRunnerDependencies, reel = false): Promise<string> {
   let xml = await readStable(deps);
   for (let step = 0; step < 4; step++) {
     if (composerNode(xml, false)) return xml;
@@ -80,8 +94,9 @@ async function revealComposer(deps: CommentThreadRunnerDependencies): Promise<st
     if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); continue; }
     const placeholder = placeholderNode(xml);
     if (placeholder) { await deps.tap(placeholder.center); await deps.wait(1_000); xml = await readStable(deps); continue; }
-    // El botón «Comentar» puede quedar por debajo de un vídeo o imagen alta.
-    await deps.scroll(xml, "down");
+    // Swiping a reel changes the destination instead of revealing its controls.
+    if (reel) await deps.wait(1_500);
+    else await deps.scroll(xml, "down");
     xml = await readStable(deps);
   }
   return xml;
@@ -224,14 +239,24 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
 
 /** Runs the production navigation against a real phone without editing or sending. */
 export async function inspectCommentThreadNavigation(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<string> {
+  deps = protectReelNavigation(deps, message.postUrl);
+  const source = deps;
+  const trace: string[] = [];
+  const record = (event: string) => { trace.push(event); if (trace.length > 12) trace.shift(); };
+  deps = {
+    ...source,
+    read: async () => { const xml = await source.read(); record(screenSummary(xml)); return xml; },
+    tap: async (point) => { record(`Toque ${point.x},${point.y}`); await source.tap(point); },
+    scroll: async (xml, direction) => { record(`Desplazamiento ${direction}`); await source.scroll(xml, direction); }
+  };
   await openPost(message.postUrl, deps);
   if (message.mode === "reply") {
     const parent = await locateParent(message, deps);
-    return `Destinatario localizado automáticamente: ${parent.author}. Texto: ${parent.text}`;
+    return `Destinatario localizado automáticamente: ${parent.author}. Texto: ${parent.text}. Recorrido: ${trace.join(" → ")}`;
   }
-  const xml = await revealComposer(deps);
-  if (!composerNode(xml, false)) throw new Error(`No se ha localizado el campo de comentario. ${screenSummary(xml)}`);
-  return "Campo de comentario localizado automáticamente. No se ha escrito ni enviado nada.";
+  const xml = await revealComposer(deps, isReel(message.postUrl));
+  if (!composerNode(xml, false)) throw new Error(`No se ha localizado el campo de comentario. Recorrido: ${trace.join(" → ")}`);
+  return `Campo de comentario localizado automáticamente. No se ha escrito ni enviado nada. Recorrido: ${trace.join(" → ")}`;
 }
 
 /**
@@ -241,6 +266,7 @@ export async function inspectCommentThreadNavigation(message: CommentThreadMessa
  * se deja «en revisión» para no duplicar el comentario.
  */
 export async function postCommentThreadMessage(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
+  deps = protectReelNavigation(deps, message.postUrl);
   // 1) ¿Ya está publicado? (reintentos, recargas, envíos sin confirmar). Si aparece,
   //    no se vuelve a escribir.
   await openPost(message.postUrl, deps);
@@ -259,7 +285,7 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
     await deps.wait(1_000);
     xml = await readStable(deps);
   } else {
-    xml = await revealComposer(deps);
+    xml = await revealComposer(deps, isReel(message.postUrl));
   }
   // Protección anti-duplicados: si el texto ya está publicado (p. ej. un intento
   // anterior sí se envió), no se vuelve a escribir.
