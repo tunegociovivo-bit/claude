@@ -28,6 +28,9 @@ while ((Get-Date) -lt $deadline) {
 }
 
 $startScript = Join-Path $PSScriptRoot "start-chrome.ps1"
+if (-not (Test-Path -LiteralPath $startScript)) {
+  $startScript = Join-Path $PSScriptRoot "launch-bank-chrome.ps1"
+}
 & $startScript -Port $Port -UserDataDir $resolvedProfile
 
 $readyBy = (Get-Date).AddSeconds(20)
