@@ -20,6 +20,7 @@ const COMPOSER = /EditText|AutoCompleteTextView/;
 const SEND = /^(Enviar|Publicar|Send|Post)( comentario| respuesta)?$/i;
 /** Botón «Comentar» de la publicación (texto o content-desc, con o sin sufijos de accesibilidad). */
 const COMMENT_BUTTON = /^(Comentar|Comment|Añadir un comentario|Añade un comentario|Add a comment)(\b|[,.])/i;
+const COMMENT_ENTRY = /^(Comentar|Comment)(\b|[,.])/i;
 // On a known reel the comments counter itself opens the thread. Unlike feed
 // discovery, this does not require a post caption above the counter: reel
 // captions can sit below the vertical action rail.
@@ -53,6 +54,7 @@ function composerNode(xml: string, reply: boolean) {
 }
 
 function placeholderNode(xml: string) {
+  if (facebookNodes(xml).some(node => /^(SIGUIENTE:|NEXT:)/i.test(nodeText(node)))) return undefined;
   return facebookNodes(xml).find((node) => !COMPOSER.test(node.className) && COMPOSER_PLACEHOLDER.test(nodeText(node)));
 }
 
@@ -71,9 +73,12 @@ function protectReelNavigation(deps: CommentThreadRunnerDependencies, url: strin
 }
 
 function commentButton(xml: string) {
-  return facebookNodes(xml).filter((node) => COMMENT_BUTTON.test(nodeText(node))
+  const nodes = facebookNodes(xml);
+  const nextOverlay = nodes.some(node => /^(SIGUIENTE:|NEXT:)/i.test(nodeText(node)));
+  return nodes.filter(node => !nextOverlay || COMMENT_ENTRY.test(nodeText(node)) || COMMENT_COUNTER.test(nodeText(node)))
+    .filter((node) => COMMENT_BUTTON.test(nodeText(node))
     || ((node.clickable || node.className === "android.widget.Button") && COMMENT_COUNTER.test(nodeText(node))))
-    .sort((a, b) => Number(COMMENT_COUNTER.test(nodeText(b))) - Number(COMMENT_COUNTER.test(nodeText(a)))
+    .sort((a, b) => Number(COMMENT_COUNTER.test(nodeText(b)) || COMMENT_ENTRY.test(nodeText(b))) - Number(COMMENT_COUNTER.test(nodeText(a)) || COMMENT_ENTRY.test(nodeText(a)))
       || Number(b.clickable) - Number(a.clickable))[0];
 }
 
