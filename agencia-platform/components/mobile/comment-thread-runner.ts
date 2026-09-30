@@ -11,6 +11,7 @@ export type CommentThreadRunnerDependencies = {
   tap: (point: AndroidUiPoint) => Promise<void>;
   scroll: (xml: string, direction: "up" | "down") => Promise<void>;
   paste: (text: string) => Promise<void>;
+  back: () => Promise<void>;
   wait: (ms: number) => Promise<void>;
   beforeSend: () => Promise<void>;
 };
@@ -266,8 +267,19 @@ export async function postCommentThreadMessage(message: CommentThreadMessage, de
   await deps.paste(message.text);
   await deps.wait(700);
   xml = await readStable(deps);
-  const filled = facebookNodes(xml).some((node) => COMPOSER.test(node.className) && normalizeFacebookText(node.text) === normalizeFacebookText(message.text));
-  const send = namedControl(xml, SEND);
+  const filledEditor = (hierarchy: string) => facebookNodes(hierarchy).find((node) => COMPOSER.test(node.className) && normalizeFacebookText(node.text) === normalizeFacebookText(message.text));
+  let filled = filledEditor(xml);
+  let send = namedControl(xml, SEND);
+  // Facebook's reel composer can expose only its focused EditText while the
+  // keyboard is open. Dismiss it once, then verify both controls afresh; never
+  // infer a send target from the old screen or from fixed coordinates.
+  if (filled?.focused && !send) {
+    await deps.back();
+    await deps.wait(700);
+    xml = await readStable(deps);
+    filled = filledEditor(xml);
+    send = namedControl(xml, SEND);
+  }
   if (!filled || !send) throw new Error(`No se ha podido verificar el texto escrito o el botón de enviar. No se ha publicado nada. ${screenSummary(xml)}`);
 
   // Persistir la intención ANTES del efecto externo. Un reinicio solo verificará.
