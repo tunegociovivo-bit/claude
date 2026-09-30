@@ -10,6 +10,25 @@ type LaunchDependencies = {
 
 const FACEBOOK_PACKAGES = ["com.facebook.katana", "com.facebook.lite"] as const;
 
+/** Dispatch navigation without ActivityManager's additional launch-completion wait.
+ * Callers still read and verify the destination before any editing or sending.
+ */
+export async function openFacebookUrl(
+  packageName: string,
+  url: string,
+  runCommand: LaunchDependencies["runCommand"]
+): Promise<void> {
+  if (!/^com\.facebook\.(katana|lite)$/.test(packageName)) throw new FacebookNavigationError("La aplicación seleccionada no es Facebook.");
+  try {
+    const output = String(await runCommand([
+      "timeout", "-k", "3", "25", "am", "start", "-a", "android.intent.action.VIEW", "-d", url, "-p", packageName
+    ]));
+    if (/Error:|Exception|Permission Denial|Status:\s*(?:timeout|error)/i.test(output)) throw new Error(output.trim().slice(0, 500));
+  } catch (error) {
+    throw new FacebookNavigationError(`No se ha podido abrir el enlace en Facebook: ${error instanceof Error ? error.message : "fallo de Android"}`);
+  }
+}
+
 export async function resolveLaunchableFacebookPackage(
   dependencies: Pick<LaunchDependencies, "runCommand" | "readHierarchy">
 ): Promise<string> {

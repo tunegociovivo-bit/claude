@@ -1,11 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
-import { launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
+import { launchFacebookForAutomation, openFacebookUrl, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 
 const screen = (pkg: string) => `<hierarchy><node package="${pkg}" bounds="[0,0][1080,2340]" /></hierarchy>`;
 const setup = () => ({
   runCommand: vi.fn(async (command: readonly string[]): Promise<string> => command[0] === "cmd" ? "com.facebook.katana/.LoginActivity" : "Status: ok"),
   readHierarchy: vi.fn(async () => screen("com.facebook.katana")).mockResolvedValueOnce(screen("com.miui.home")),
   wait: vi.fn(async () => {})
+});
+
+describe("Facebook link navigation", () => {
+  it("dispatches the exact link without ActivityManager's launch-completion wait", async () => {
+    const runCommand = vi.fn(async () => "Starting: Intent");
+    await openFacebookUrl("com.facebook.katana", "https://www.facebook.com/reel/123", runCommand);
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith([
+      "timeout", "-k", "3", "25", "am", "start", "-a", "android.intent.action.VIEW", "-d", "https://www.facebook.com/reel/123", "-p", "com.facebook.katana"
+    ]);
+  });
+  it("reports rejected intents even when Android returns a successful shell exit", async () => {
+    await expect(openFacebookUrl("com.facebook.katana", "https://www.facebook.com/reel/123", async () => "Error: unable to resolve Intent"))
+      .rejects.toThrow("abrir el enlace en Facebook: Error: unable to resolve Intent");
+  });
+  it("identifies navigation timeouts without suppressing them", async () => {
+    await expect(openFacebookUrl("com.facebook.lite", "https://www.facebook.com/reel/123", async () => { throw new Error("código 124"); }))
+      .rejects.toThrow("abrir el enlace en Facebook: código 124");
+  });
 });
 
 describe("verified Facebook launch", () => {
