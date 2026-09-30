@@ -19,9 +19,13 @@ export type CommentThreadRunnerDependencies = {
 const COMPOSER = /EditText|AutoCompleteTextView/;
 const SEND = /^(Enviar|Publicar|Send|Post)( comentario| respuesta)?$/i;
 /** Botón «Comentar» de la publicación (texto o content-desc, con o sin sufijos de accesibilidad). */
-const COMMENT_BUTTON = /^(Comentar|Comment)(\b|[,.])/i;
+const COMMENT_BUTTON = /^(Comentar|Comment|Añadir un comentario|Añade un comentario|Add a comment)(\b|[,.])/i;
+// On a known reel the comments counter itself opens the thread. Unlike feed
+// discovery, this does not require a post caption above the counter: reel
+// captions can sit below the vertical action rail.
+const COMMENT_COUNTER = /^(?:(?:Ver (?:los )?|View )?\d+[\d., milk]* (?:comentarios?|comments?))(?:[.,].*)?$/i;
 /** Barra «Escribe un comentario…» que aún no es un EditText hasta que se toca. */
-const COMPOSER_PLACEHOLDER = /^(Escribe un comentario|Escribe una respuesta|Write a comment|Write a reply|Comentar como|Comment as|Responder como|Reply as)/i;
+const COMPOSER_PLACEHOLDER = /^(Escribe un comentario|Añade un comentario|Añadir un comentario|Add a comment|Escribe una respuesta|Write a comment|Write a reply|Comentar como|Comment as|Responder como|Reply as)/i;
 
 /**
  * uiautomator falla si la pantalla no está quieta (vídeos en reproducción de anuncios,
@@ -53,8 +57,10 @@ function placeholderNode(xml: string) {
 }
 
 function commentButton(xml: string) {
-  return facebookNodes(xml).filter((node) => COMMENT_BUTTON.test(nodeText(node)) && !/\d/.test(nodeText(node).slice(0, 3)))
-    .sort((a, b) => Number(b.clickable) - Number(a.clickable))[0];
+  return facebookNodes(xml).filter((node) => COMMENT_BUTTON.test(nodeText(node))
+    || ((node.clickable || node.className === "android.widget.Button") && COMMENT_COUNTER.test(nodeText(node))))
+    .sort((a, b) => Number(COMMENT_COUNTER.test(nodeText(b))) - Number(COMMENT_COUNTER.test(nodeText(a)))
+      || Number(b.clickable) - Number(a.clickable))[0];
 }
 
 /** Resumen de lo que hay en pantalla para que el error sea diagnosticable desde el Hub. */
@@ -70,10 +76,10 @@ async function revealComposer(deps: CommentThreadRunnerDependencies): Promise<st
   let xml = await readStable(deps);
   for (let step = 0; step < 4; step++) {
     if (composerNode(xml, false)) return xml;
-    const placeholder = placeholderNode(xml);
-    if (placeholder) { await deps.tap(placeholder.center); await deps.wait(1_000); xml = await readStable(deps); continue; }
     const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
     if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); continue; }
+    const placeholder = placeholderNode(xml);
+    if (placeholder) { await deps.tap(placeholder.center); await deps.wait(1_000); xml = await readStable(deps); continue; }
     // El botón «Comentar» puede quedar por debajo de un vídeo o imagen alta.
     await deps.scroll(xml, "down");
     xml = await readStable(deps);
