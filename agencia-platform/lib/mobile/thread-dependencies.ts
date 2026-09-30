@@ -1,11 +1,14 @@
 import { parseCommentThreadMessage } from "./comment-thread";
 
-type ThreadJob = { id: string; status: string; text: string | null };
+type ThreadJob = { id: string; status: string; text: string | null; lastError?: string | null };
 
 /** A stopped branch does not prevent independent approved messages from advancing. */
 export function isStoppedThreadBranch(job: ThreadJob, jobs: readonly ThreadJob[], visited = new Set<string>()): boolean {
   if (["FAILED", "WAITING_USER", "CANCELLED", "REJECTED"].includes(job.status)) return true;
   if (job.status !== "QUEUED" || visited.has(job.id)) return false;
+  // An automatic retry is still a stopped branch, even though it is QUEUED
+  // instead of FAILED. Its independent successors need not wait for recovery.
+  if (job.lastError) return true;
   visited.add(job.id);
   try {
     const message = parseCommentThreadMessage(job.text ?? "");

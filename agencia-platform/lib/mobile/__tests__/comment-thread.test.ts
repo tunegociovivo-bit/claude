@@ -49,7 +49,7 @@ describe("conversación entre cuentas", () => {
     expect(sameThreadSlot(parsed, { ...parsed, postUrl: "https://www.facebook.com/otra" })).toBe(false);
   });
 
-  function tx(jobs: Array<{ id: string; status: string; text?: string }>) {
+  function tx(jobs: Array<{ id: string; status: string; text?: string; lastError?: string | null }>) {
     return { mobileAutomationJob: { findMany: async () => jobs } } as never;
   }
 
@@ -71,5 +71,21 @@ describe("conversación entre cuentas", () => {
     const jobs = [{ id: "job1", status: "FAILED" }, { id: "job2", status: "QUEUED", text: serializeCommentThreadMessage(base) }];
     expect((await threadMessageGate(tx(jobs), "w", independent)).state).toBe("ready");
     expect((await threadMessageGate(tx(jobs), "w", serializeCommentThreadMessage(base))).state).toBe("wait");
+  });
+
+  it("permite responder al padre publicado mientras otro mensaje espera recuperación", async () => {
+    const third = serializeCommentThreadMessage({ ...base, order: 3, previousJobId: "job2" });
+    const jobs = [
+      { id: "job1", status: "COMPLETED" },
+      { id: "job2", status: "QUEUED", lastError: "Conexión USB interrumpida" }
+    ];
+    expect((await threadMessageGate(tx(jobs), "w", third)).state).toBe("ready");
+    expect((await threadMessageGate(tx(jobs), "w", serializeCommentThreadMessage({ ...base, order: 3, parentJobId: "job2", previousJobId: "job2" }))).state).toBe("wait");
+  });
+
+  it.each(["RUNNING", "PENDING_APPROVAL", "QUEUED"])("respeta el orden ante un anterior %s sin recuperación pendiente", async (status) => {
+    const third = serializeCommentThreadMessage({ ...base, order: 3, previousJobId: "job2" });
+    const jobs = [{ id: "job1", status: "COMPLETED" }, { id: "job2", status, lastError: status === "QUEUED" ? null : "Error anterior" }];
+    expect((await threadMessageGate(tx(jobs), "w", third)).state).toBe("wait");
   });
 });

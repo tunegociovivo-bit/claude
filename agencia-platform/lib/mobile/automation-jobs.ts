@@ -209,7 +209,7 @@ export async function threadMessageGate(
   const ids = [message.previousJobId, message.parentJobId].filter((id): id is string => Boolean(id));
   const related = ids.length ? await tx.mobileAutomationJob.findMany({
     where: { workspaceId, action: "POST_THREAD_MESSAGE", idempotencyKey: { startsWith: `thread:${message.threadId}:` } },
-    select: { id: true, status: true, text: true }
+    select: { id: true, status: true, text: true, lastError: true }
   }) : [];
   const previous = related.find((job) => job.id === message.previousJobId);
   if (previous && THREAD_PENDING.includes(previous.status) && !isStoppedThreadBranch(previous, related)) return { state: "wait" };
