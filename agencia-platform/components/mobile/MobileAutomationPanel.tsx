@@ -842,6 +842,7 @@ export default function MobileAutomationPanel({
                         ? <textarea value={edits[job.id] ?? threadMessage.text} onChange={(event) => setEdits((current) => ({ ...current, [job.id]: event.target.value }))} rows={3} maxLength={1200} className="w-full rounded-lg border px-2.5 py-2 leading-5" />
                         : <p className="whitespace-pre-wrap leading-5 text-slate-700">{threadMessage.text}</p>}
                       {threadMessage.detail && <p className="text-[11px] text-slate-500">{threadMessage.detail}</p>}
+                      {job.status === "QUEUED" && job.lastError && new Date(job.scheduledAt).getTime() > Date.now() && <p className="text-[11px] text-amber-700">Próximo reintento automático: {new Date(job.scheduledAt).toLocaleTimeString("es-ES")}.</p>}
                     </div>
                   );
                   const follow = readPageFollow(job.action, job.text);
