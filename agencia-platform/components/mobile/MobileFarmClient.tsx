@@ -24,6 +24,7 @@ import {
 import { Adb, AdbDaemonTransport } from "@yume-chan/adb";
 import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 import { observeMobileAuthorization, waitForMobileAuthentication } from "./mobile-adb-authentication";
+import { boundedMobileConnectionStep, mobileReconnectDelay, MOBILE_VIDEO_OPTIONS } from "./mobile-connection-policy";
 import {
   AdbDaemonWebUsbDevice,
   AdbDaemonWebUsbDeviceManager,
@@ -999,6 +1000,9 @@ function MobileDeviceCard({
     if (startSessionPromiseRef.current || closeSessionPromiseRef.current) return false;
     if (status === "mirroring") return true;
     if (status !== "idle" && status !== "error") return false;
+    // Remember the request even if its first connection fails.
+    autoPaused.current = false;
+    onRememberConnection(device.serial, true);
     let finishStartSession: () => void = () => {};
     const startSessionPromise = new Promise<void>((resolve) => {
       finishStartSession = resolve;
@@ -1021,7 +1025,8 @@ function MobileDeviceCard({
       assertCurrentSessionAttempt();
       const connectionPromise = device.connect();
       connectionPromiseRef.current = connectionPromise;
-      const connection = await connectionPromise;
+      // closeSession owns pendingConnection cleanup, including late arrivals.
+      const connection = await boundedMobileConnectionStep(connectionPromise, 15_000, "La apertura USB");
       if (connectionPromiseRef.current === connectionPromise) {
         connectionPromiseRef.current = undefined;
       }
@@ -1070,17 +1075,17 @@ function MobileDeviceCard({
         (command) => runAdbCommand(adb, command)
       );
       awakeSessionRef.current = awakeSession;
-      await awakeSession.ready;
+      await boundedMobileConnectionStep(awakeSession.ready, 15_000, "La preparación del móvil");
       assertCurrentSessionAttempt();
 
-      const [reportedModel, version] = await Promise.all([
+      const [reportedModel, version] = await boundedMobileConnectionStep(Promise.all([
         adb.getProp("ro.product.model").catch(() => adb.banner.model || device.name || "Android"),
         adb.getProp("ro.build.version.release").catch(() => "")
-      ]);
+      ]), 15_000, "La identificación del móvil");
       assertCurrentSessionAttempt();
       setModel(reportedModel || device.name || "Android");
       setAndroidVersion(version || null);
-      let currentProxy = await readAndroidProxy(adb).catch(() => null);
+      let currentProxy = await boundedMobileConnectionStep(readAndroidProxy(adb).catch(() => null), 10_000, "La lectura de conexión");
       assertCurrentSessionAttempt();
       const configuredProxy = linkedPhone?.androidProxy ?? null;
       if (
@@ -1088,9 +1093,9 @@ function MobileDeviceCard({
         && !configuredProxy.requiresIpAuthorization
         && formatAndroidProxy(configuredProxy) !== (currentProxy ? formatAndroidProxy(currentProxy) : "")
       ) {
-        await runAdbCommand(adb, ["settings", "put", "global", "http_proxy", formatAndroidProxy(configuredProxy)]);
+        await boundedMobileConnectionStep(runAdbCommand(adb, ["settings", "put", "global", "http_proxy", formatAndroidProxy(configuredProxy)]), 10_000, "La configuración de conexión");
         assertCurrentSessionAttempt();
-        currentProxy = await readAndroidProxy(adb);
+        currentProxy = await boundedMobileConnectionStep(readAndroidProxy(adb), 10_000, "La comprobación de conexión");
         assertCurrentSessionAttempt();
         if (!currentProxy || formatAndroidProxy(currentProxy) !== formatAndroidProxy(configuredProxy)) {
           throw new Error("Android no ha confirmado el proxy configurado en NV Leads.");
@@ -1110,26 +1115,24 @@ function MobileDeviceCard({
       }
 
       setStatus("preparing");
-      const serverResponse = await fetch("/api/v1/mobile/scrcpy-server", { cache: "force-cache" });
+      const serverResponse = await fetch("/api/v1/mobile/scrcpy-server", { cache: "force-cache", signal: AbortSignal.timeout(30_000) });
       assertCurrentSessionAttempt();
       if (!serverResponse.ok || !serverResponse.body) {
         const detail = await serverResponse.json().catch(() => null);
         throw new Error(detail?.error?.message || detail?.message || "No se ha podido descargar el servicio de pantalla");
       }
-      await AdbScrcpyClient.pushServer(adb, serverResponse.body as never);
+      await boundedMobileConnectionStep(AdbScrcpyClient.pushServer(adb, serverResponse.body as never), 30_000, "La transferencia del servicio de pantalla");
       assertCurrentSessionAttempt();
 
       const options = new AdbScrcpyOptionsLatest({
         video: true,
         audio: false,
         control: true,
-        maxSize: 1280,
-        videoBitRate: 4_000_000,
-        maxFps: 30,
+        ...MOBILE_VIDEO_OPTIONS,
         stayAwake: true,
         clipboardAutosync: true
       });
-      const client = await AdbScrcpyClient.start(adb, "/data/local/tmp/scrcpy-server.jar", options);
+      const client = await boundedMobileConnectionStep(AdbScrcpyClient.start(adb, "/data/local/tmp/scrcpy-server.jar", options), 30_000, "El inicio de pantalla", late => late.close());
       clientRef.current = client;
       // Clipboard notifications share the channel with paste acknowledgements.
       // An unread notification blocks every subsequent setClipboard promise.
@@ -1145,7 +1148,7 @@ function MobileDeviceCard({
         // disconnection reporting.
       });
       assertCurrentSessionAttempt();
-      const video = await client.videoStream;
+      const video = await boundedMobileConnectionStep(client.videoStream, 15_000, "La señal de vídeo");
       assertCurrentSessionAttempt();
       if (!video) throw new Error("El móvil no ha entregado una señal de vídeo");
 
@@ -1610,8 +1613,7 @@ function MobileDeviceCard({
     }
     if (!autoReconnect || !canManage || !linkedPhone?.active || autoPaused.current || unlockBlockedRef.current) return;
     if (status !== "idle" && status !== "error") return;
-    const stagger = [...device.serial].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 10 * 1_000;
-    const delay = reconnectAttempts.current === 0 ? 2_000 + stagger : Math.min(120_000, 15_000 * 2 ** Math.min(reconnectAttempts.current, 3));
+    const delay = mobileReconnectDelay(device.serial, reconnectAttempts.current);
     const timer = window.setTimeout(() => { reconnectAttempts.current += 1; void startForFleetRef.current(); }, delay);
     return () => window.clearTimeout(timer);
   }, [autoReconnect, canManage, device.serial, linkedPhone?.active, status]);
