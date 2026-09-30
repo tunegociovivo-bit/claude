@@ -87,7 +87,7 @@ import {
 import { scanFacebookConversations, sendFacebookConversationReplies, type ConversationRunnerDependencies } from "@/components/mobile/facebook-conversation-runner";
 import { serializeConversationBatch, type FacebookConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-navigation";
-import { FacebookNavigationError, launchFacebookForAutomation, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
+import { FacebookNavigationError, launchFacebookForAutomation, openFacebookUrl, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
 import { inspectCommentThreadNavigation, postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
@@ -1263,7 +1263,11 @@ function MobileDeviceCard({
         runCommand: command => runAdbCommand(adb, command), readHierarchy: () => readAndroidUiHierarchy(adb), wait: waitForAndroidUi
       }),
       dismissKeyboard: dismissConversationKeyboard,
-      tap: async (point) => { await runAdbCommand(adb, ["timeout", "-k", "1", "10", "input", "tap", String(point.x), String(point.y)]); await waitForAndroidUi(450); },
+      tap: async (point) => {
+        try { await runAdbCommand(adb, ["timeout", "-k", "1", "10", "input", "tap", String(point.x), String(point.y)]); }
+        catch (error) { throw new FacebookNavigationError(`Android no ha confirmado el toque en pantalla: ${error instanceof Error ? error.message : "fallo de Android"}`); }
+        await waitForAndroidUi(450);
+      },
       scroll: async (xml, direction) => {
         // The XML supplies the current list bounds, including when the keyboard
         // is open. Back can close Facebook's comment drawer instead of the IME.
@@ -1274,8 +1278,7 @@ function MobileDeviceCard({
       openUrl: async (url) => {
         const pkg = await resolveFacebookPackage(adb);
         await prepareAndroidForAutomation((command) => runAdbCommand(adb, command));
-        // «timeout» evita que am start -W se quede esperando para siempre (selector de app, MIUI…).
-        await runAdbCommand(adb, ["timeout", "-k", "3", "25", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url, "-p", pkg]);
+        await openFacebookUrl(pkg, url, command => runAdbCommand(adb, command));
         await waitForAndroidUi(1200);
       },
       paste: async (content) => { await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content }); await waitForAndroidUi(400); },
