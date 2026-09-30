@@ -92,6 +92,7 @@ import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/compone
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
 import { inspectCommentThreadNavigation, postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
 import { createPacedDependencies } from "@/components/mobile/mobile-pace";
+import { createMobileTouchInput } from "@/components/mobile/mobile-touch-input";
 import { abortMobileJob, clearMobileJob, guardDependencies, withTimeout } from "@/components/mobile/mobile-job-guard";
 import { serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
@@ -1363,10 +1364,20 @@ function MobileDeviceCard({
       },
       postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
         const deps = conversationDependencies({} as FacebookConversationBatch);
+        const touch = createMobileTouchInput({
+          controller,
+          readDisplaySize: async () => String(await runAdbCommand(adb, ["timeout", "-k", "1", "10", "wm", "size"])),
+          videoSize: () => sizeRef.current,
+          wait: waitForAndroidUi
+        });
         const threadDeps = createPacedDependencies(guardDependencies(job.id, {
-          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, wait: deps.wait, back: deps.back,
+          openUrl: deps.openUrl, read: deps.read,
+          tap: async (point: AndroidUiPoint) => { await touch.tap(point); await waitForAndroidUi(450); },
+          wait: deps.wait,
+          back: async () => { await touch.back(); await waitForAndroidUi(500); },
           scroll: async (xml: string, direction: "up" | "down") => {
-            await runAdbCommand(adb, facebookScrollCommand(xml, direction, true));
+            const command = facebookScrollCommand(xml, direction, true);
+            await touch.swipe({ x: Number(command[3]), y: Number(command[4]) }, { x: Number(command[5]), y: Number(command[6]) });
             await waitForAndroidUi(700);
           },
           paste: async (content: string) => {
