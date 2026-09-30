@@ -10,7 +10,7 @@ type LaunchDependencies = {
 
 const FACEBOOK_PACKAGES = ["com.facebook.katana", "com.facebook.lite"] as const;
 
-/** Dispatch navigation without waiting for a continuously rendering reel to idle.
+/** Dispatch navigation without ActivityManager's additional launch-completion wait.
  * Callers still read and verify the destination before any editing or sending.
  */
 export async function openFacebookUrl(

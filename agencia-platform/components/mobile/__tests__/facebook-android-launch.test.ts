@@ -9,7 +9,7 @@ const setup = () => ({
 });
 
 describe("Facebook link navigation", () => {
-  it("dispatches the exact link without waiting for ActivityManager idle", async () => {
+  it("dispatches the exact link without ActivityManager's launch-completion wait", async () => {
     const runCommand = vi.fn(async () => "Starting: Intent");
     await openFacebookUrl("com.facebook.katana", "https://www.facebook.com/reel/123", runCommand);
     expect(runCommand).toHaveBeenCalledExactlyOnceWith([
