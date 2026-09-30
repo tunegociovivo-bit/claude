@@ -133,7 +133,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { api }) => {
     actorId: api.userId
   }).catch((e) => console.warn("[notif] assignment create:", e?.message ?? e));
   notifyNewMentions({
-    source: { kind: "task", id: task.id, title: task.title, workspaceId: api.workspaceId },
+    source: { kind: "task", id: task.id, title: task.title, workspaceId: api.workspaceId, content: task.description },
     previousBody: null,
     nextBody: `${task.title}\n${task.description ?? ""}`,
     actorId: api.userId

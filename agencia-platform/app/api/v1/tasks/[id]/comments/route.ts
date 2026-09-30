@@ -173,7 +173,7 @@ export const POST = withApi({ scope: "tasks:write" }, async (req, { params, api 
       title: taskInfo?.title ?? "una tarea",
       workspaceId: api.workspaceId,
       link: `/tareas?task=${params.id}`,
-      text: bodyString
+      content: doc
     },
     previousBody: null,
     nextBody: parsed.data.body,

@@ -9,6 +9,13 @@
 import { prisma } from "@/lib/db/prisma";
 import { sendPushToUser } from "@/lib/push/web-push";
 import { extractMentionTokens, extractMentionUserIds, resolveMentions } from "@/lib/mentions";
+import {
+  focusOnMention,
+  hasVisibleContent,
+  richTextToEmailHtml,
+  richTextToPlainText
+} from "@/lib/notifications/rich-text";
+import { buildMentionEmail } from "@/lib/notifications/mention-email";
 
 type Source = {
   kind: "task" | "document" | "comment";
@@ -16,8 +23,19 @@ type Source = {
   title: string;
   workspaceId: string;
   link?: string;
-  text?: string | null;
+  /**
+   * Cuerpo rico donde está la mención (doc TipTap como objeto, JSON
+   * stringified o texto plano legacy). Se renderiza para email/WhatsApp;
+   * NUNCA se manda en crudo.
+   *  - comment: el comentario completo.
+   *  - task: la descripción.
+   *  - document: el contenido del documento.
+   */
+  content?: unknown;
 };
+
+const EXCERPT_MAX_CHARS_EMAIL = 1200;
+const EXCERPT_MAX_CHARS_WHATSAPP = 600;
 
 export async function notifyNewMentions(opts: {
   source: Source;
@@ -51,7 +69,7 @@ export async function notifyNewMentions(opts: {
       ? "la tarea"
       : opts.source.kind === "document"
         ? "el documento"
-        : "un comentario";
+        : "un comentario de la tarea";
   const body = `${actorName ?? "Alguien"} te mencionó en ${where} "${opts.source.title}"`;
   const link = opts.source.link ?? (opts.source.kind === "task"
       ? `/tareas?task=${opts.source.id}`
@@ -74,12 +92,11 @@ export async function notifyNewMentions(opts: {
   );
   await Promise.all(
     valid.map((u) => notifyMentionOutsideHub({
-      workspaceId: opts.source.workspaceId,
+      source: opts.source,
       user: u,
-      title: "Te han mencionado en el Hub",
+      actorName: actorName ?? "Alguien",
       body,
-      link,
-      excerpt: opts.source.text
+      link
     }))
   );
 }
@@ -113,46 +130,77 @@ function textFromAny(body: any): string {
 }
 
 async function notifyMentionOutsideHub(opts: {
-  workspaceId: string;
+  source: Source;
   user: { id: string; email: string; phone: string | null; name: string | null };
-  title: string;
+  actorName: string;
   body: string;
   link: string;
-  excerpt?: string | null;
 }) {
-  const baseUrl = process.env.NEXTAUTH_URL ?? "https://hub.negociovivo.app";
+  const { source, user } = opts;
+  const baseUrl = (process.env.NEXTAUTH_URL ?? "https://hub.negociovivo.app").replace(/\/+$/, "");
   const url = `${baseUrl}${opts.link}`;
-  const excerpt = opts.excerpt ? `\n\nTexto:\n${opts.excerpt.slice(0, 800)}` : "";
+
+  // Fragmento a mostrar: el comentario entero, o en tareas/documentos
+  // solo los bloques donde se menciona a este usuario.
+  const raw = source.content;
+  const excerptSource =
+    raw == null || !hasVisibleContent(raw)
+      ? null
+      : source.kind === "comment"
+        ? raw
+        : focusOnMention(raw, user.id);
+
+  const excerptHtml = excerptSource
+    ? richTextToEmailHtml(excerptSource, { maxChars: EXCERPT_MAX_CHARS_EMAIL, highlightUserId: user.id })
+    : { output: "", truncated: false };
+  const excerptText = excerptSource
+    ? richTextToPlainText(excerptSource, { maxChars: EXCERPT_MAX_CHARS_EMAIL })
+    : { output: "", truncated: false };
+
+  const labels =
+    source.kind === "comment"
+      ? { where: "un comentario", kind: "Tarea", cta: "Ver comentario" }
+      : source.kind === "task"
+        ? { where: "una tarea", kind: "Tarea", cta: "Abrir tarea" }
+        : { where: "un documento", kind: "Documento", cta: "Abrir documento" };
+
+  const email = buildMentionEmail({
+    actorName: opts.actorName,
+    whereLabel: labels.where,
+    sourceTitle: source.title,
+    sourceKindLabel: labels.kind,
+    url,
+    ctaLabel: labels.cta,
+    excerptHtml: excerptHtml.output,
+    excerptTruncated: excerptHtml.truncated,
+    excerptText: excerptText.output
+  });
+
   await import("@/lib/integrations/email")
     .then(({ sendEmail }) =>
       sendEmail({
-        workspaceId: opts.workspaceId,
-        to: opts.user.email,
-        subject: opts.title,
-        text: `${opts.body}${excerpt}\n\nAbrir en el Hub: ${url}`,
-        html: `<p>${escapeHtml(opts.body)}</p>${opts.excerpt ? `<p><strong>Texto:</strong></p><div style="white-space:pre-wrap">${escapeHtml(opts.excerpt.slice(0, 800))}</div>` : ""}<p><a href="${escapeHtml(url)}">Abrir en el Hub</a></p>`
+        workspaceId: source.workspaceId,
+        to: user.email,
+        subject: email.subject,
+        text: email.text,
+        html: email.html
       })
     )
     .catch((e) => console.warn("[email] mention fallo:", e?.message ?? e));
 
-  if (!opts.user.phone) return;
+  if (!user.phone) return;
+  const waExcerpt = excerptSource
+    ? richTextToPlainText(excerptSource, { maxChars: EXCERPT_MAX_CHARS_WHATSAPP, format: "whatsapp" }).output
+    : "";
   await import("@/lib/leads/waha")
     .then(async ({ normalizePhone, sendText }) => {
-      const phoneNormalized = normalizePhone(opts.user.phone ?? "");
+      const phoneNormalized = normalizePhone(user.phone ?? "");
       if (!phoneNormalized) return;
       await sendText({
-        workspaceId: opts.workspaceId,
+        workspaceId: source.workspaceId,
         phoneNormalized,
-        text: `*${opts.title}*\n\n${opts.body}${opts.excerpt ? `\n\n${opts.excerpt.slice(0, 600)}` : ""}\n\n${url}`
+        text: `*Te han mencionado en el Hub*\n\n${opts.body}${waExcerpt ? `\n\n${waExcerpt}` : ""}\n\n${url}`
       });
     })
     .catch((e) => console.warn("[whatsapp] mention fallo:", e?.message ?? e));
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

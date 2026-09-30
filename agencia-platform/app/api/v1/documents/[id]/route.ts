@@ -48,7 +48,7 @@ export const PATCH = withApi({ scope: "docs:write" }, async (req, { params, api 
 
   if ((parsed.data.content !== undefined || parsed.data.title !== undefined) && fresh) {
     notifyNewMentions({
-      source: { kind: "document", id: params.id, title: fresh.title, workspaceId: api.workspaceId },
+      source: { kind: "document", id: params.id, title: fresh.title, workspaceId: api.workspaceId, content: fresh.content },
       previousBody: JSON.stringify({ title: previous?.title ?? "", content: previous?.content ?? null }),
       nextBody: JSON.stringify({ title: fresh.title, content: fresh.content ?? null }),
       actorId: api.userId

@@ -255,7 +255,13 @@ export const PATCH = withApi({ scope: "tasks:write" }, async (req, { params, api
   // Notif por @menciones nuevas en título o descripción.
   if (data.description !== undefined || data.title !== undefined) {
     notifyNewMentions({
-      source: { kind: "task", id: params.id, title: result.title, workspaceId: api.workspaceId },
+      source: {
+        kind: "task",
+        id: params.id,
+        title: result.title,
+        workspaceId: api.workspaceId,
+        content: data.description ?? (result as any).description ?? null
+      },
       previousBody: `${prevMentionText?.title ?? ""}\n${prevMentionText?.description ?? ""}`,
       nextBody: `${data.title ?? result.title}\n${data.description ?? (result as any).description ?? ""}`,
       actorId: api.userId
