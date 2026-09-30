@@ -19,7 +19,7 @@ function deps(screens: Array<string | Error>) {
   return {
     taps,
     deps: {
-      openUrl: async () => {}, wait: async () => {}, paste: async () => {}, scroll: async () => {}, beforeSend: async () => {},
+      openUrl: async () => {}, wait: async () => {}, paste: async () => {}, scroll: async () => {}, back: async () => {}, beforeSend: async () => {},
       tap: async (point: { y: number }) => { taps.push(point.y); },
       read: async () => { const next = screens.shift(); if (next instanceof Error) throw next; return next ?? screen([]); }
     }
@@ -125,6 +125,40 @@ describe("respuestas plegadas de Facebook", () => {
 });
 
 describe("publicar mensaje de conversación", () => {
+  it("cierra el teclado del reel y verifica de nuevo antes del checkpoint y envío", async () => {
+    const editor = screen([{ text: message.text, cls: "android.widget.EditText", y: 436 }]).replace('focused="false"', 'focused="true"');
+    const { deps: d } = deps([
+      screen([]), screen([]), screen([]),
+      screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 705 }]),
+      editor,
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 705 }, { desc: "Enviar", y: 822 }]),
+      screen([{ text: message.text, y: 300 }])
+    ]);
+    const actions: string[] = [];
+    d.back = async () => { actions.push("back"); };
+    d.beforeSend = async () => { actions.push("checkpoint"); };
+    d.tap = async (point) => { actions.push(`tap:${point.y}`); };
+    expect((await postCommentThreadMessage(message, d)).outcome).toBe("sent");
+    expect(actions).toEqual(["tap:745", "back", "checkpoint", "tap:862"]);
+  });
+
+  it.each(["texto cambiado", "editor ausente", "envío ausente"])("no envía si tras cerrar el teclado queda %s", async (failure) => {
+    const editor = screen([{ text: message.text, cls: "android.widget.EditText", y: 436 }]).replace('focused="false"', 'focused="true"');
+    const after = screen([
+      ...(failure === "editor ausente" ? [] : [{ text: failure === "texto cambiado" ? "Otro texto" : message.text, cls: "android.widget.EditText", y: 705 }]),
+      ...(failure === "envío ausente" ? [] : [{ desc: "Enviar", y: 822 }])
+    ]);
+    const { deps: d, taps } = deps([screen([]), screen([]), screen([]), editor, editor, after]);
+    let backs = 0;
+    let checkpoints = 0;
+    d.back = async () => { backs++; };
+    d.beforeSend = async () => { checkpoints++; };
+    await expect(postCommentThreadMessage(message, d)).rejects.toThrow("No se ha podido verificar");
+    expect(backs).toBe(1);
+    expect(checkpoints).toBe(0);
+    expect(taps).toEqual([476]);
+  });
+
   it("toca «Comentar», reintenta lecturas fallidas y publica", async () => {
     const posted = screen([{ text: message.text, cls: "android.widget.TextView", y: 900 }]);
     const { deps: d, taps } = deps([

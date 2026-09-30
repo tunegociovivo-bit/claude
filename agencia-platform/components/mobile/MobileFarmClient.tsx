@@ -1361,7 +1361,7 @@ function MobileDeviceCard({
       postThreadMessage: async (message): Promise<MobileAutomationExecutionResult> => {
         const deps = conversationDependencies({} as FacebookConversationBatch);
         const threadDeps = createPacedDependencies(guardDependencies(job.id, {
-          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, wait: deps.wait,
+          openUrl: deps.openUrl, read: deps.read, tap: deps.tap, wait: deps.wait, back: deps.back,
           scroll: async (xml: string, direction: "up" | "down") => {
             await runAdbCommand(adb, facebookScrollCommand(xml, direction, true));
             await waitForAndroidUi(700);
