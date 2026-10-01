@@ -11,7 +11,7 @@ export default function ImportPage() {
         title="Importador (clientes y facturas)"
         description="Sube un listado en PDF, CSV o Excel. Si un cliente ya existe, solo se rellenan los datos que le falten — nunca se sobrescribe. Solo administradores."
       />
-      <ImporterClient />
+      <ImporterClient enableHolded />
     </div>
   );
 }
