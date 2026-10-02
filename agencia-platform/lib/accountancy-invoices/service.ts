@@ -66,8 +66,12 @@ export async function ensureDefaultAccountancyClients(workspaceId: string) {
 }
 
 export async function processPendingGoogleAdsInvoiceRun(runId?: string) {
+  // Sólo reclama cuentas con OAuth permanente configurado. Las restantes
+  // conservan su trabajo disponible para el colector del navegador.
+  const connections = await prisma.googleAdsConnection.findMany({ select: { workspaceId: true, accountEmail: true } });
+  if (!connections.length) return null;
   const pending = await prisma.accountancyInvoiceRunItem.findFirst({
-    where: { source: "GOOGLE_ADS", status: "PENDING", ...(runId ? { runId } : {}) },
+    where: { source: "GOOGLE_ADS", status: "PENDING", ...(runId ? { runId } : {}), OR: connections.map((connection) => ({ run: { workspaceId: connection.workspaceId }, client: { connectionRef: connection.accountEmail } })) },
     include: { run: true, client: true },
     // Prioriza la ejecución mensual más reciente; los intentos históricos no
     // deben retrasar la entrega actual.

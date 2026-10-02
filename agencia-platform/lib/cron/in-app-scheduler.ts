@@ -340,9 +340,10 @@ export function startInAppScheduler(): void {
     if (accountancyBusy) return;
     accountancyBusy = true;
     try {
-      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processPendingHoldedInvoiceRun, processAllPendingGoogleAdsInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
+      await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría independiente:", (e as Error).message);
     } finally {
