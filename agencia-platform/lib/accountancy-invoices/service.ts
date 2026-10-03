@@ -172,6 +172,10 @@ export async function createAccountancyInvoiceRun(workspaceId: string, trigger: 
   const active = await prisma.accountancyInvoiceRun.findUnique({ where: { activeKey }, include: { items: true } });
   if (active) return active;
   const clients = await prisma.accountancyInvoiceClient.findMany({ where: { workspaceId, enabled: true }, orderBy: [{ source: "asc" }, { name: "asc" }] });
+  // Una ejecución sin cuentas nunca termina (se queda en PENDING) y bloquea
+  // el envío del mes. Sin cuentas activas no se crea nada: la programación
+  // vuelve a intentarlo en cuanto se active alguna.
+  if (!clients.length) return null;
   const schedule = await prisma.accountancyInvoiceSchedule.findUnique({ where: { workspaceId } });
   try {
     return await prisma.accountancyInvoiceRun.create({
@@ -204,17 +208,34 @@ export async function refreshRunStatus(runId: string) {
     data: { status, ...(status === "SUCCESS" || status === "PARTIAL" || status === "FAILED" ? { finishedAt: new Date(), activeKey: null } : {}) }
   });
   if (updated.trigger === "SCHEDULED" && ["SUCCESS", "PARTIAL", "FAILED"].includes(updated.status)) {
-    setImmediate(() => import("./delivery").then(({ deliverScheduledAccountancyRun }) => deliverScheduledAccountancyRun(runId)).catch((error) => console.warn("[facturas-gestoria] envío automático:", error?.message || error)));
+    setImmediate(() => import("./delivery").then(({ deliverScheduledAccountancyRun }) => deliverScheduledAccountancyRun(runId)).catch(async (error) => {
+      console.warn("[facturas-gestoria] envío automático:", error?.message || error);
+      // Visible en el panel ("Error de envío") en lugar de perderse en logs.
+      await prisma.accountancyInvoiceRun.update({ where: { id: runId }, data: { archiveFiles: { deliveryStatus: "FAILED", error: `Envío automático: ${String(error?.message || error).slice(0, 450)}` } } }).catch(() => {});
+    }));
   }
   return updated;
 }
 
+/** Cierra ejecuciones creadas sin cuentas, que de otro modo quedan en PENDING para siempre. */
+export async function closeEmptyAccountancyRuns(now = new Date()) {
+  const closed = await prisma.accountancyInvoiceRun.updateMany({
+    where: { status: { in: ["PENDING", "RUNNING"] }, items: { none: {} }, createdAt: { lt: new Date(now.getTime() - 2 * 60_000) } },
+    data: { status: "FAILED", finishedAt: now, activeKey: null }
+  });
+  return closed.count;
+}
+
 export async function runAccountancySchedules(now = new Date()) {
+  await closeEmptyAccountancyRuns(now);
   const schedules = await prisma.accountancyInvoiceSchedule.findMany({ where: { enabled: true } });
   let created = 0;
   for (const schedule of schedules) {
     if (!shouldRunMonthlySchedule(now, schedule, schedule.lastRunMonth)) continue;
-    await createAccountancyInvoiceRun(schedule.workspaceId, "SCHEDULED", now);
+    const run = await createAccountancyInvoiceRun(schedule.workspaceId, "SCHEDULED", now);
+    // Sin cuentas activas no se marca el mes: se reintenta en el siguiente
+    // ciclo (y hasta 7 días después del día programado).
+    if (!run) continue;
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: schedule.timezone, year: "numeric", month: "2-digit" }).formatToParts(now).reduce<Record<string, string>>((acc, part) => ({ ...acc, [part.type]: part.value }), {});
     await prisma.accountancyInvoiceSchedule.update({ where: { id: schedule.id }, data: { lastRunMonth: `${parts.year}-${parts.month}` } });
     created++;

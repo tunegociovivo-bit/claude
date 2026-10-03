@@ -45,3 +45,18 @@ export function nextGoogleAdsFailure(previousError: string | null | undefined, f
   }
   return { retry: false as const, error: `${detail} (tras ${done + 1} intentos)` };
 }
+
+/**
+ * Meta devuelve "Necesitas permiso para ver el contenido" cuando el usuario de
+ * Facebook del perfil de Chrome no tiene acceso a la facturación de la cuenta.
+ * No es un fallo de descarga reintentable: hay que dar acceso o cambiar de
+ * perfil, así que se explica en esos términos.
+ */
+const META_PERMISSION_PATTERN = /necesitas permiso para ver el contenido|you need permission to view (this|the) content|no tienes permiso para|you don't have permission/i;
+
+export function describeMetaFailure(error: string, ctx: { accountId?: string | null; profileLabel?: string | null }) {
+  if (!META_PERMISSION_PATTERN.test(error)) return error;
+  const account = ctx.accountId ? ` ${ctx.accountId}` : "";
+  const profile = ctx.profileLabel ? `«${ctx.profileLabel}»` : "asignado";
+  return `Sin permiso en Meta: el usuario de Facebook del perfil de Chrome ${profile} no puede ver la facturación de la cuenta publicitaria${account}. Pide al administrador de esa cuenta acceso a la facturación para ese usuario, o asígnala en «Perfiles automáticos de Meta» a un perfil de Chrome cuyo usuario sí tenga acceso.`;
+}

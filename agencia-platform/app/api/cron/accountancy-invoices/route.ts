@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   for (const schedule of schedules) {
     if (!shouldRunMonthlySchedule(now, schedule, schedule.lastRunMonth)) continue;
     const run = await createAccountancyInvoiceRun(schedule.workspaceId, "SCHEDULED", now);
+    if (!run) continue;
     const local = new Intl.DateTimeFormat("en-CA", { timeZone: schedule.timezone, year: "numeric", month: "2-digit" }).format(now).slice(0, 7);
     await prisma.accountancyInvoiceSchedule.update({ where: { id: schedule.id }, data: { lastRunMonth: local } });
     created.push(run.id);

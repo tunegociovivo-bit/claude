@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { buildCollectorTarget } from "@/lib/accountancy-invoices/collector";
 import { refreshRunStatus } from "@/lib/accountancy-invoices/service";
 import { syncAccountancyRunItemExpenses } from "@/lib/accountancy-invoices/expense-ledger";
-import { isGoogleAdsAutoRetryError, nextGoogleAdsFailure, pickGoogleAdsAgentKey } from "@/lib/accountancy-invoices/agents";
+import { describeMetaFailure, isGoogleAdsAutoRetryError, nextGoogleAdsFailure, pickGoogleAdsAgentKey } from "@/lib/accountancy-invoices/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +86,11 @@ export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req: NextRequ
       if (requeued.count) return NextResponse.json({ ok: true, retrying: true });
     }
     error = failure.error;
+  }
+  if (body.status === "FAILED" && current.source === "META" && error) {
+    const client = current.clientId ? await prisma.accountancyInvoiceClient.findFirst({ where: { id: current.clientId, workspaceId: api.workspaceId }, select: { externalAccountId: true, connectionRef: true } }) : null;
+    const profile = client?.connectionRef ? await prisma.accountancyBrowserAgent.findFirst({ where: { workspaceId: api.workspaceId, agentKey: client.connectionRef }, select: { label: true, customLabel: true } }) : null;
+    error = describeMetaFailure(error, { accountId: client?.externalAccountId, profileLabel: profile?.customLabel || profile?.label });
   }
   const item = await prisma.accountancyInvoiceRunItem.update({
     where: { id: current.id },

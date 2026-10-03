@@ -61,6 +61,7 @@ export default function AccountancyInvoicesClient() {
   return <div className="flex flex-col gap-6">
     <nav className="order-[-30] flex gap-2 border-b border-slate-200"><a href="/facturacion" className="px-4 py-3 text-sm font-semibold text-slate-500">Facturación</a><span className="border-b-2 border-brand-600 px-4 py-3 text-sm font-bold text-brand-700">Facturas gestoría</span></nav>
     {error && <div className="order-[-20] rounded-xl border-2 border-red-300 bg-red-50 p-4 font-semibold text-red-800"><AlertTriangle className="mr-2 inline h-5 w-5" />{error}</div>}
+    {data.schedule.enabled && !data.clients.some((client) => client.enabled) && <div className="order-[-20] rounded-xl border-2 border-amber-300 bg-amber-50 p-4 font-semibold text-amber-900"><AlertTriangle className="mr-2 inline h-5 w-5" />No hay cuentas activas: la descarga automática del día {data.schedule.dayOfMonth} no se creará hasta que actives alguna en «Clientes y medios».</div>}
     <details className="rounded-2xl border bg-white shadow-sm">
       <summary className="flex cursor-pointer list-none items-center justify-between p-5 text-lg font-bold"><span>Perfiles automáticos de Meta</span><span className="text-sm font-semibold text-brand-700">Mostrar / minimizar</span></summary>
     <section className="border-t p-5">

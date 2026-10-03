@@ -35,10 +35,24 @@ export async function buildAccountancyReport(periodKey: string, items: Item[]): 
     if (item.error) { doc.fillColor("#b91c1c").fontSize(9).text(item.error, 60, y, { width: 475 }); y += 24; }
     y += 12;
   }
-  if (y > 690) { doc.addPage(); y = 48; }
-  doc.roundedRect(48, y, 499, 74, 6).fill("#fff7ed");
-  doc.fillColor("#9a3412").font("Helvetica-Bold").fontSize(11).text("Notas pendientes", 60, y + 13);
-  doc.font("Helvetica").fontSize(10).text("• Falta por descargar las facturas de Eroski de Meta.\n• Falta incorporar las cuentas y extractos bancarios.", 60, y + 33);
+  const notes = buildAccountancyReportNotes(items);
+  if (notes.length) {
+    const height = 46 + notes.length * 16;
+    if (y + height > 790) { doc.addPage(); y = 48; }
+    doc.roundedRect(48, y, 499, height, 6).fill("#fff7ed");
+    doc.fillColor("#9a3412").font("Helvetica-Bold").fontSize(11).text("Notas pendientes", 60, y + 13);
+    doc.font("Helvetica").fontSize(10).text(notes.map((note) => `• ${note}`).join("\n"), 60, y + 33, { width: 475 });
+  }
   doc.end();
   return done;
+}
+
+/** Notas del informe según lo que falte de verdad (antes estaban fijas en el código). */
+export function buildAccountancyReportNotes(items: Array<{ clientName: string; source: string; status: string }>) {
+  const missing = items.filter((item) => item.status !== "DOWNLOADED");
+  const notes = missing.length
+    ? [`Falta por descargar: ${missing.map((item) => `${item.clientName} (${labels[item.source] || item.source})`).join(", ")}.`]
+    : [];
+  if (!items.some((item) => item.source === "BANK")) notes.push("Falta incorporar las cuentas y extractos bancarios.");
+  return notes;
 }

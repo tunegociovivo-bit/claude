@@ -65,8 +65,11 @@ export async function GET() {
     });
   }
   const referencedAgentKeys = new Set(clients.filter((client) => client.source === "META" && client.connectionRef).map((client) => client.connectionRef));
-  const activeAgentAfter = Date.now() - 10 * 60 * 1000;
-  const browserAgents = rawBrowserAgents.filter((agent) => referencedAgentKeys.has(agent.agentKey) || agent.lastHeartbeatAt.getTime() >= activeAgentAfter);
+  // Se muestran también los perfiles desconectados vistos en los últimos 60
+  // días: si un perfil con acceso a una cuenta deja de estar abierto, hay que
+  // poder reconocerlo y volver a asignarle esa cuenta.
+  const recentAgentAfter = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  const browserAgents = rawBrowserAgents.filter((agent) => referencedAgentKeys.has(agent.agentKey) || agent.lastHeartbeatAt.getTime() >= recentAgentAfter);
   return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS, ccRecipients: [] }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents, googleAdsAgentKey: pickGoogleAdsAgentKey(rawBrowserAgents) } });
 }
 
@@ -100,6 +103,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(refreshed, { status: 202 });
     }
     const run = await createAccountancyInvoiceRun(ctx.workspaceId, "MANUAL");
+    if (!run) return NextResponse.json({ error: "No hay cuentas activas. Activa al menos una cuenta antes de descargar." }, { status: 409 });
     return NextResponse.json(run, { status: 202 });
   }
   if (body.action === "retry-failed") {
@@ -219,7 +223,10 @@ export async function PATCH(req: NextRequest) {
     if (!updated.count) return NextResponse.json({ error: "Cuenta no encontrada" }, { status: 404 });
     return NextResponse.json(updated);
   }
-  const updated = await prisma.accountancyInvoiceClient.updateMany({ where: { id: body.id, workspaceId: ctx.workspaceId }, data: { enabled: Boolean(body.enabled) } });
+  // Sin id, Prisma ignora el filtro y desactivaría TODAS las cuentas del
+  // workspace (así se puede quedar vacía la ejecución automática).
+  if (typeof body.id !== "string" || !body.id || typeof body.enabled !== "boolean") return NextResponse.json({ error: "Acción no válida" }, { status: 400 });
+  const updated = await prisma.accountancyInvoiceClient.updateMany({ where: { id: body.id, workspaceId: ctx.workspaceId }, data: { enabled: body.enabled } });
   return NextResponse.json(updated);
 }
 

@@ -13,8 +13,19 @@ describe("accountancy invoice automation", () => {
   it("only schedules once on the configured local day and time", () => {
     const config = { dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid" };
     expect(shouldRunMonthlySchedule(new Date("2026-09-02T06:30:20.000Z"), config, null)).toBe(true);
+    expect(shouldRunMonthlySchedule(new Date("2026-09-02T06:20:00.000Z"), config, null)).toBe(false);
     expect(shouldRunMonthlySchedule(new Date("2026-09-02T06:44:00.000Z"), config, "2026-09")).toBe(false);
-    expect(shouldRunMonthlySchedule(new Date("2026-09-03T06:30:00.000Z"), config, null)).toBe(false);
+    expect(shouldRunMonthlySchedule(new Date("2026-09-03T06:30:00.000Z"), config, "2026-09")).toBe(false);
+  });
+
+  it("catches up a missed monthly run during the following week", () => {
+    // Caso real: el 2-oct no había cuentas activas a las 08:30 y el mes se perdía.
+    const config = { dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid" };
+    expect(shouldRunMonthlySchedule(new Date("2026-10-02T10:00:00.000Z"), config, "2026-09")).toBe(true);
+    expect(shouldRunMonthlySchedule(new Date("2026-10-03T06:00:00.000Z"), config, "2026-09")).toBe(true);
+    expect(shouldRunMonthlySchedule(new Date("2026-10-09T12:00:00.000Z"), config, "2026-09")).toBe(true);
+    expect(shouldRunMonthlySchedule(new Date("2026-10-10T12:00:00.000Z"), config, "2026-09")).toBe(false);
+    expect(shouldRunMonthlySchedule(new Date("2026-10-01T12:00:00.000Z"), config, "2026-09")).toBe(false);
   });
 
   it("marks partial and failed downloads prominently", () => {

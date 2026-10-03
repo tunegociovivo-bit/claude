@@ -37,8 +37,17 @@ export function shouldRunMonthlySchedule(
   }).formatToParts(now).reduce<Record<string, string>>((acc, part) => ({ ...acc, [part.type]: part.value }), {});
   const monthKey = `${values.year}-${values.month}`;
   const localTime = `${values.hour}:${values.minute}`;
-  return Number(values.day) === config.dayOfMonth && localTime >= config.time && lastRunMonth !== monthKey;
+  const day = Number(values.day);
+  // Si el día programado no se pudo crear la ejecución (servidor caído, sin
+  // cuentas activas…), se recupera en los días siguientes en lugar de perder
+  // el mes. lastRunMonth evita duplicados.
+  const due = day === config.dayOfMonth
+    ? localTime >= config.time
+    : day > config.dayOfMonth && day <= config.dayOfMonth + SCHEDULE_CATCH_UP_DAYS;
+  return due && lastRunMonth !== monthKey;
 }
+
+export const SCHEDULE_CATCH_UP_DAYS = 7;
 
 export function getRunHealth(items: Array<{ status: string }>): "SUCCESS" | "PARTIAL" | "FAILED" | "PENDING" {
   if (!items.length || items.some((item) => item.status === "PENDING" || item.status === "RUNNING")) return "PENDING";
