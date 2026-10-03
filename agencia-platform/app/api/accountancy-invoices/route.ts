@@ -65,10 +65,12 @@ export async function GET() {
     });
   }
   const referencedAgentKeys = new Set(clients.filter((client) => client.source === "META" && client.connectionRef).map((client) => client.connectionRef));
-  // Se muestran también los perfiles desconectados vistos en los últimos 60
+  // Se muestran también los perfiles desconectados vistos en los últimos 14
   // días: si un perfil con acceso a una cuenta deja de estar abierto, hay que
-  // poder reconocerlo y volver a asignarle esa cuenta.
-  const recentAgentAfter = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  // poder reconocerlo y volver a asignarle esa cuenta. Cada recarga de la
+  // extensión crea identidades nuevas, así que una ventana más larga llenaría
+  // la lista de perfiles que ya no existen.
+  const recentAgentAfter = Date.now() - 14 * 24 * 60 * 60 * 1000;
   const browserAgents = rawBrowserAgents.filter((agent) => referencedAgentKeys.has(agent.agentKey) || agent.lastHeartbeatAt.getTime() >= recentAgentAfter);
   return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS, ccRecipients: [] }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents, googleAdsAgentKey: pickGoogleAdsAgentKey(rawBrowserAgents) } });
 }
