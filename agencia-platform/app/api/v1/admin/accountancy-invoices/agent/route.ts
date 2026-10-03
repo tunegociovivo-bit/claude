@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { buildCollectorTarget } from "@/lib/accountancy-invoices/collector";
 import { refreshRunStatus } from "@/lib/accountancy-invoices/service";
 import { syncAccountancyRunItemExpenses } from "@/lib/accountancy-invoices/expense-ledger";
-import { pickGoogleAdsAgentKey } from "@/lib/accountancy-invoices/agents";
+import { isGoogleAdsAutoRetryError, nextGoogleAdsFailure, pickGoogleAdsAgentKey } from "@/lib/accountancy-invoices/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +59,10 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
     await refreshRunStatus(item.runId);
     return NextResponse.json({ skipped: item.id, reason: String(error?.message || error), retry: true });
   }
-  const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: item.id, status: "PENDING", run: { workspaceId: api.workspaceId } }, data: { status: "RUNNING", startedAt: new Date(), error: null } });
+  // En Google Ads se conserva el contador de reintentos automáticos (viaja
+  // en el mensaje de error) para que el siguiente fallo sepa cuántos lleva.
+  const keepError = item.source === "GOOGLE_ADS" && isGoogleAdsAutoRetryError(item.error) ? item.error : null;
+  const claimed = await prisma.accountancyInvoiceRunItem.updateMany({ where: { id: item.id, status: "PENDING", run: { workspaceId: api.workspaceId } }, data: { status: "RUNNING", startedAt: new Date(), error: keepError } });
   if (!claimed.count) return NextResponse.json({ item: null });
   await prisma.accountancyInvoiceRun.update({ where: { id: item.runId }, data: { status: "RUNNING", startedAt: new Date() } });
   return NextResponse.json({ item: { id: item.id, clientName: item.clientName, source: item.source, externalAccountId: item.client?.externalAccountId, connectionRef: item.client?.connectionRef, periodKey: item.run.periodKey, periodFrom: item.run.periodFrom, periodTo: item.run.periodTo, target } });
@@ -71,9 +74,22 @@ export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req: NextRequ
   if (!body.id || !["DOWNLOADED", "FAILED", "SKIPPED"].includes(body.status)) throw new ApiError(400, "bad_result", "Resultado no válido");
   const current = await prisma.accountancyInvoiceRunItem.findFirst({ where: { id: body.id, run: { workspaceId: api.workspaceId } } });
   if (!current) throw new ApiError(404, "not_found", "Cuenta de ejecución no encontrada");
+  let error: string | null = body.error ? String(body.error).slice(0, 900) : null;
+  if (body.status === "FAILED" && current.source === "GOOGLE_ADS" && current.status === "RUNNING") {
+    const failure = nextGoogleAdsFailure(current.error, error || "");
+    if (failure.retry) {
+      // Vuelve a la cola: la extensión lo recoge en su siguiente consulta.
+      const requeued = await prisma.accountancyInvoiceRunItem.updateMany({
+        where: { id: current.id, status: "RUNNING" },
+        data: { status: "PENDING", error: failure.error.slice(0, 1000), startedAt: null, finishedAt: null }
+      });
+      if (requeued.count) return NextResponse.json({ ok: true, retrying: true });
+    }
+    error = failure.error;
+  }
   const item = await prisma.accountancyInvoiceRunItem.update({
     where: { id: current.id },
-    data: { status: body.status, invoiceCount: Math.max(0, Number(body.invoiceCount) || 0), amountCents: Math.max(0, Number(body.amountCents) || 0), currency: body.currency || "EUR", files: Array.isArray(body.files) ? body.files.slice(0, 200) : undefined, error: body.error ? String(body.error).slice(0, 1000) : null, finishedAt: new Date() }
+    data: { status: body.status, invoiceCount: Math.max(0, Number(body.invoiceCount) || 0), amountCents: Math.max(0, Number(body.amountCents) || 0), currency: body.currency || "EUR", files: Array.isArray(body.files) ? body.files.slice(0, 200) : undefined, error: error ? error.slice(0, 1000) : null, finishedAt: new Date() }
   });
   if (item.status === "DOWNLOADED" && item.source === "GOOGLE_ADS") await syncAccountancyRunItemExpenses(item.id);
   await refreshRunStatus(item.runId);

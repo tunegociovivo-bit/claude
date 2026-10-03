@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pickGoogleAdsAgentKey } from "../agents";
+import { GOOGLE_ADS_AUTO_RETRY_LIMIT, isGoogleAdsAutoRetryError, nextGoogleAdsFailure, pickGoogleAdsAgentKey } from "../agents";
 
 const now = new Date("2026-10-03T10:00:00.000Z");
 const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
@@ -34,5 +34,30 @@ describe("Google Ads browser agent selection", () => {
     const route = readFileSync(resolve(process.cwd(), "app/api/v1/admin/accountancy-invoices/agent/route.ts"), "utf8");
     expect(route).toContain("pickGoogleAdsAgentKey(agents) === agentKey");
     expect(route).not.toContain('orderBy: { createdAt: "asc" }, select: { agentKey: true }');
+  });
+});
+
+describe("Google Ads automatic retries", () => {
+  const slowPage = "No se detectaron facturas PDF. Revisa la sesión, el periodo y la URL de facturación.";
+
+  it("requeues a failed account until the retry budget is spent", () => {
+    const first = nextGoogleAdsFailure(null, slowPage);
+    expect(first).toEqual({ retry: true, error: `Reintento automático 1/${GOOGLE_ADS_AUTO_RETRY_LIMIT}: ${slowPage}` });
+    expect(isGoogleAdsAutoRetryError(first.error)).toBe(true);
+    const second = nextGoogleAdsFailure(first.error, slowPage);
+    expect(second).toEqual({ retry: true, error: `Reintento automático 2/${GOOGLE_ADS_AUTO_RETRY_LIMIT}: ${slowPage}` });
+    const final = nextGoogleAdsFailure(second.error, slowPage);
+    expect(final).toEqual({ retry: false, error: `${slowPage} (tras 3 intentos)` });
+  });
+
+  it("starts a fresh budget after a manual retry or an interrupted job", () => {
+    expect(nextGoogleAdsFailure("Reintentada automáticamente tras interrumpirse la descarga anterior", slowPage).retry).toBe(true);
+    expect(isGoogleAdsAutoRetryError("Reintentada automáticamente tras interrumpirse la descarga anterior")).toBe(false);
+  });
+
+  it("keeps the retry counter when the extension claims the job again", () => {
+    const route = readFileSync(resolve(process.cwd(), "app/api/v1/admin/accountancy-invoices/agent/route.ts"), "utf8");
+    expect(route).toContain('item.source === "GOOGLE_ADS" && isGoogleAdsAutoRetryError(item.error) ? item.error : null');
+    expect(route).toContain("nextGoogleAdsFailure(current.error");
   });
 });
