@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createAccountancyInvoiceRun, DEFAULT_RECIPIENTS, SOURCES } from "@/lib/accountancy-invoices/service";
 import { getPreviousMonthPeriod, validateRecipients } from "@/lib/accountancy-invoices/domain";
 import { syncAllAccountancyExpenses } from "@/lib/accountancy-invoices/expense-ledger";
+import { pickGoogleAdsAgentKey } from "@/lib/accountancy-invoices/agents";
 
 async function adminContext() {
   const session = await getServerSession(authOptions);
@@ -66,7 +67,7 @@ export async function GET() {
   const referencedAgentKeys = new Set(clients.filter((client) => client.source === "META" && client.connectionRef).map((client) => client.connectionRef));
   const activeAgentAfter = Date.now() - 10 * 60 * 1000;
   const browserAgents = rawBrowserAgents.filter((agent) => referencedAgentKeys.has(agent.agentKey) || agent.lastHeartbeatAt.getTime() >= activeAgentAfter);
-  return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS, ccRecipients: [] }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents } });
+  return NextResponse.json({ clients, documents: [...documentMap.values()], schedule: schedule ?? { enabled: true, dayOfMonth: 2, time: "08:30", timezone: "Europe/Madrid", recipients: DEFAULT_RECIPIENTS, ccRecipients: [] }, runs, sources: SOURCES, integrations: { googleAds: googleAdsConnections, metaConnectionCount, billingMailboxConnected: billingMailboxCount > 0, browserAgents, googleAdsAgentKey: pickGoogleAdsAgentKey(rawBrowserAgents) } });
 }
 
 export async function POST(req: NextRequest) {

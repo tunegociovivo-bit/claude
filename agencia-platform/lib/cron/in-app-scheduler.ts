@@ -340,10 +340,13 @@ export function startInAppScheduler(): void {
     if (accountancyBusy) return;
     accountancyBusy = true;
     try {
-      const { processPendingHoldedInvoiceRun, processAllPendingGoogleAdsInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
+      const { processPendingHoldedInvoiceRun, runAccountancySchedules } = await import("@/lib/accountancy-invoices/service");
       await runAccountancySchedules();
       await processPendingHoldedInvoiceRun();
-      await processAllPendingGoogleAdsInvoiceRun(undefined, 4);
+      // Google Ads lo descarga solo la extensión de Chrome. La API oficial
+      // únicamente entrega facturas de cuentas con facturación mensual (las
+      // nuestras pagan con tarjeta → 403) y, al fallar, dejaba las cuentas en
+      // FAILED sin que el agente del navegador pudiera recogerlas.
     } catch (e) {
       console.warn("[in-app-cron] facturas gestoría independiente:", (e as Error).message);
     } finally {

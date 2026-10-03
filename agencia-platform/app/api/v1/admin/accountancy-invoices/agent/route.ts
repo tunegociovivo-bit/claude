@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { buildCollectorTarget } from "@/lib/accountancy-invoices/collector";
 import { refreshRunStatus } from "@/lib/accountancy-invoices/service";
 import { syncAccountancyRunItemExpenses } from "@/lib/accountancy-invoices/expense-ledger";
+import { pickGoogleAdsAgentKey } from "@/lib/accountancy-invoices/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,11 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
   if (req.nextUrl.searchParams.get("registerOnly") === "1") {
     return NextResponse.json({ ok: true, registered: true });
   }
-  const primaryAgent = await prisma.accountancyBrowserAgent.findFirst({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "asc" }, select: { agentKey: true } });
-  const allowedSources = primaryAgent?.agentKey === agentKey ? ["GOOGLE_ADS", "META"] : ["META"];
+  // Google Ads lo descarga el perfil activo (no el registrado más antiguo:
+  // tras reinstalar la extensión ese perfil ya no existe y bloqueaba la cola).
+  const agents = await prisma.accountancyBrowserAgent.findMany({ where: { workspaceId: api.workspaceId }, select: { agentKey: true, createdAt: true, lastHeartbeatAt: true } });
+  const ownsGoogleAds = pickGoogleAdsAgentKey(agents) === agentKey;
+  const allowedSources = ownsGoogleAds ? ["GOOGLE_ADS", "META"] : ["META"];
   const staleBefore = new Date(Date.now() - 2 * 60 * 1000);
   await prisma.accountancyInvoiceRunItem.updateMany({
     where: { status: "RUNNING", startedAt: { lt: staleBefore }, run: { workspaceId: api.workspaceId } },
@@ -39,7 +43,7 @@ export const GET = withApi({ scope: "*", rate: "admin" }, async (req, { api }) =
       source: { in: allowedSources },
       run: { workspaceId: api.workspaceId },
       OR: [
-        ...(primaryAgent?.agentKey === agentKey ? [{ source: "GOOGLE_ADS" }] : []),
+        ...(ownsGoogleAds ? [{ source: "GOOGLE_ADS" }] : []),
         { source: "META", client: { connectionRef: agentKey } }
       ]
     },
