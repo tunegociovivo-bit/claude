@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/api/auth";
 import { withApi } from "@/lib/api/handler";
 import { loadMobileAutomationAccess, requireSerialLinkedToWorkspace } from "@/lib/mobile/automation-access";
 import { claimNextMobileAutomationJob } from "@/lib/mobile/automation-jobs";
+import { autoResumeStalledThreads } from "@/lib/mobile/thread-resume";
 
 const claimSchema = z.object({
   deviceSerial: z.string().trim().min(1).max(160),
@@ -17,6 +18,10 @@ export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, {
     throw new ApiError(400, "validation_error", parsed.error.issues[0]?.message ?? "Claim no válido");
   }
   requireSerialLinkedToWorkspace(phones, parsed.data.deviceSerial);
+  // Las conversaciones paradas se reactivan solas tras un rato sin avances.
+  await autoResumeStalledThreads(api.workspaceId).catch((error) => {
+    console.warn("[mobile] auto-resume de conversaciones falló", error);
+  });
   let blockedReason: string | null = null;
   const job = await claimNextMobileAutomationJob({
     workspaceId: api.workspaceId,
