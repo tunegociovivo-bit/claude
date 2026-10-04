@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isStoppedThreadBranch } from "@/lib/mobile/thread-dependencies";
 import { Loader2, MessageSquareReply, MessagesSquare, RefreshCw, Send, Trash2 } from "lucide-react";
 import {
@@ -9,6 +9,9 @@ import {
   validateThreadScript,
   type SimulatedMessage
 } from "@/lib/mobile/comment-thread";
+
+/** Minutos sin avances tras los que la conversación se reactiva sola. */
+const AUTO_RESUME_AFTER_MS = 10 * 60 * 1000;
 
 export type ThreadTarget = { deviceSerial: string; phoneKey: string; label: string };
 
@@ -199,6 +202,36 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
     return () => { disposed = true; window.clearInterval(timer); };
   }, [ids]);
 
+  // Vigilante: si la conversación lleva un rato sin avanzar y hay mensajes parados,
+  // se reactiva sola (igual que «Reactivar y continuar») y se reabren las pantallas.
+  const progress = useRef<{ signature: string; since: number; lastAuto: number }>({ signature: "", since: Date.now(), lastAuto: 0 });
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!jobs || finished) return;
+    const signature = jobs.map((job) => `${job.id}:${job.status}`).join("|");
+    if (signature !== progress.current.signature) progress.current = { ...progress.current, signature, since: Date.now() };
+  }, [jobs, finished]);
+  useEffect(() => {
+    if (!jobs?.length || finished) return;
+    const timer = window.setInterval(() => {
+      const stalled = (jobs ?? []).some((job) => job.status === "WAITING_USER" || job.status === "FAILED" || (job.status === "CANCELLED" && /caduc/i.test(job.lastError ?? "")));
+      const now = Date.now();
+      if (busy) return;
+      if (now - progress.current.since < AUTO_RESUME_AFTER_MS || now - progress.current.lastAuto < AUTO_RESUME_AFTER_MS) return;
+      progress.current.lastAuto = now;
+      if (!stalled) {
+        // Nada parado pero tampoco avanza: probablemente se cerró la pantalla de algún móvil.
+        const waiting = [...new Set((jobs ?? []).filter((job) => job.status === "QUEUED" || job.status === "RUNNING").map((job) => job.deviceSerial))];
+        if (onOpen && waiting.length) onOpen(waiting);
+        return;
+      }
+      setAutoNote(`Reactivada automáticamente a las ${new Date(now).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} tras ${Math.round(AUTO_RESUME_AFTER_MS / 60000)} min sin avances.`);
+      void resumeThread();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids, jobs, finished, busy]);
+
   async function simulate() {
     setBusy(true); setError(null);
     try {
@@ -289,7 +322,8 @@ export default function CommentThreadComposer({ targets, allowed, onOpen }: { ta
         <p className="font-semibold text-slate-800">Conversación {finished ? "terminada" : "en curso"} · {jobs.length} mensajes · {jobs.filter((job) => job.status === "COMPLETED").length} publicados</p>
         {trackedGuide && <p className="text-slate-500">{trackedGuide.slice(0, 160)}</p>}
         {!finished && <button type="button" disabled={busy} onClick={() => void resumeThread()} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Reactivar y continuar</button>}
-        {!finished && <p className="text-[11px] text-slate-500">Reactiva los mensajes parados y abre sus pantallas sin interrumpir los trabajos activos. Si un envío quedó sin confirmar, solo se comprueba; no se vuelve a enviar automáticamente.</p>}
+        {!finished && <p className="text-[11px] text-slate-500">Reactiva los mensajes parados y abre sus pantallas sin interrumpir los trabajos activos. Si un envío quedó sin confirmar, solo se comprueba; no se vuelve a enviar automáticamente. Si la conversación pasa {Math.round(AUTO_RESUME_AFTER_MS / 60000)} minutos parada, se reactiva sola.</p>}
+        {!finished && autoNote && <p className="rounded bg-violet-50 px-2 py-1 text-violet-800">{autoNote}</p>}
         <p className="rounded bg-sky-50 px-2 py-1 text-sky-800">El progreso se guarda en el Hub: si recargas la página, vuelve aquí y pulsa «Abrir pantallas de estos móviles» para que continúe por donde iba.</p>
         <p className="text-slate-600">Cada mensaje necesita aprobación. Se respeta el orden mientras los mensajes avanzan; si una rama queda parada, continúan los mensajes independientes. Una respuesta siempre espera a que se publique su comentario original.</p>
         {jobs.map((job, index) => {
