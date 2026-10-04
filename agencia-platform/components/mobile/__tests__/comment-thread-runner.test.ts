@@ -325,3 +325,40 @@ describe("anti-duplicados", () => {
     expect(taps).toEqual([]);
   });
 });
+
+describe("obstáculos en móviles lentos", () => {
+  const photoSheet = screen([{ text: "Guardar en el teléfono", y: 500 }, { text: "Compartir externamente", y: 600 }, { text: "Denunciar foto", y: 700 }]);
+  it("cierra el menú de la foto (pulsación larga) y sigue publicando", async () => {
+    const { deps: d, taps } = deps([
+      screen([{ text: "Inicio", y: 100 }]),
+      screen([{ text: "Inicio", y: 100 }]),
+      screen([{ text: "Inicio", y: 100 }]),
+      photoSheet,
+      screen([{ desc: "Comentar, botón", y: 1500 }]),
+      screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 2000 }, { desc: "Enviar", y: 2000 }]),
+      screen([{ text: message.text, cls: "android.widget.TextView", y: 900 }])
+    ]);
+    let backs = 0;
+    d.back = async () => { backs += 1; };
+    expect((await postCommentThreadMessage(message, d)).outcome).toBe("sent");
+    expect(backs).toBe(1);
+    expect(taps).toEqual([1540, 2040, 2040]);
+  });
+  it("si no hay «Todos los comentarios» cierra el menú y busca con el orden actual", async () => {
+    const { deps: d, taps } = deps([
+      screen([]), screen([]), screen([]),
+      screen([{ text: "Más pertinentes", y: 100 }]),
+      screen([{ text: "Opción rara", y: 200 }]),
+      expandedReply,
+      screen([{ text: "Ana", cls: "android.widget.EditText", y: 700 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 700 }, { text: "Enviar", y: 900 }]),
+      screen([{ text: message.text, y: 500 }])
+    ]);
+    let backs = 0;
+    d.back = async () => { backs += 1; };
+    expect((await postCommentThreadMessage({ ...message, mode: "reply", replyToText: parentText }, d)).outcome).toBe("sent");
+    expect(backs).toBe(1);
+    expect(taps[0]).toBe(140);
+  });
+});

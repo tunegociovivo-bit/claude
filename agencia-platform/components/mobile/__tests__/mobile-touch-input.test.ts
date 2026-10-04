@@ -62,7 +62,7 @@ describe("mobile live control input", () => {
   it("makes a paced swipe on the same channel and releases at its endpoint", async () => {
     const { input, controller, wait } = setup("Physical size: 480x960");
     await input.swipe({ x: 240, y: 690 }, { x: 240, y: 585 });
-    expect(wait).toHaveBeenCalledTimes(7);
+    expect(wait).toHaveBeenCalledTimes(6) // el primer movimiento sale sin pausa: evita la pulsación larga;
     expect(controller.injectTouch).toHaveBeenCalledTimes(9);
     expect(controller.injectTouch).toHaveBeenLastCalledWith(expect.objectContaining({ action: AndroidMotionEventAction.Up, pointerX: 240, pointerY: 585 }));
   });
