@@ -94,8 +94,7 @@ function commentButton(xml: string) {
   const nodes = facebookNodes(xml);
   const nextOverlay = nodes.some(node => /^(SIGUIENTE:|NEXT:)/i.test(nodeText(node)));
   return nodes.filter(node => !nextOverlay || COMMENT_ENTRY.test(nodeText(node)) || COMMENT_COUNTER.test(nodeText(node)))
-    .filter((node) => COMMENT_BUTTON.test(nodeText(node))
-    || ((node.clickable || node.className === "android.widget.Button") && COMMENT_COUNTER.test(nodeText(node))))
+    .filter((node) => COMMENT_BUTTON.test(nodeText(node)) || COMMENT_COUNTER.test(nodeText(node)))
     .sort((a, b) => Number(COMMENT_COUNTER.test(nodeText(b)) || COMMENT_ENTRY.test(nodeText(b))) - Number(COMMENT_COUNTER.test(nodeText(a)) || COMMENT_ENTRY.test(nodeText(a)))
       || Number(b.clickable) - Number(a.clickable))[0];
 }
@@ -104,8 +103,10 @@ function commentButton(xml: string) {
 function screenSummary(xml: string): string {
   const nodes = parseAndroidUiNodes(xml);
   const packages = [...new Set(nodes.map((node) => node.packageName).filter(Boolean))].slice(0, 3).join(", ");
-  const labels = [...new Set(nodes.filter((node) => node.clickable).map((node) => (node.text || node.contentDescription).trim()).filter(Boolean))].slice(0, 12).join(" | ");
-  return `App en pantalla: ${packages || "desconocida"}. Botones visibles: ${labels || "ninguno"}`.slice(0, 400);
+  const short = (value: string) => value.length > 45 ? `${value.slice(0, 42)}…` : value;
+  const labels = [...new Set(nodes.filter((node) => node.clickable).map((node) => short((node.text || node.contentDescription).trim())).filter(Boolean))].slice(0, 20).join(" | ");
+  const texts = [...new Set(nodes.filter((node) => !node.clickable).map((node) => short((node.text || node.contentDescription).trim())).filter(Boolean))].slice(0, 12).join(" | ");
+  return `App en pantalla: ${packages || "desconocida"}. Botones visibles: ${labels || "ninguno"}. Textos: ${texts || "ninguno"}`.slice(0, 900);
 }
 
 /** Deja la pantalla con el campo de escribir comentario (EditText) visible. */
@@ -123,6 +124,26 @@ async function revealComposer(deps: CommentThreadRunnerDependencies, reel = fals
     xml = await readStable(deps);
   }
   return xml;
+}
+
+/**
+ * Plan B cuando la estructura del comentario no se reconoce (otro diseño de
+ * Facebook, idioma o autor sin botón): localiza el texto exacto en pantalla y
+ * usa el botón «Responder» más cercano por debajo de él.
+ */
+const REPLY_BUTTON = /^(Responder al comentario de |Reply to .*comment|Responder$|Reply$)/i;
+export function replyButtonBelowText(xml: string, wanted: string): { point: AndroidUiPoint; text: string; author: string } | null {
+  const nodes = facebookNodes(xml).filter((node) => !COMPOSER.test(node.className));
+  const holders = nodes.filter((node) => {
+    const text = normalizeFacebookText(nodeText(node));
+    return text === wanted || (wanted.length >= 20 && text.includes(wanted) && text.length <= wanted.length + 80);
+  });
+  const tops = [...new Set(holders.map((node) => node.bounds.top))];
+  if (tops.length !== 1) return null;
+  const holder = holders.sort((a, b) => (a.bounds.bottom - a.bounds.top) - (b.bounds.bottom - b.bounds.top))[0]!;
+  const reply = nodes.filter((node) => REPLY_BUTTON.test(nodeText(node)) && node.bounds.top >= holder.bounds.bottom - 10 && node.bounds.top - holder.bounds.bottom < 260)
+    .sort((a, b) => a.bounds.top - b.bounds.top)[0];
+  return reply ? { point: reply.center, text: nodeText(holder), author: nodeText(reply).replace(/^(Responder al comentario de |Reply to )/i, "").replace(/[,.].*$/, "") } : null;
 }
 
 async function locateParent(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies) {
@@ -160,9 +181,15 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
       }
       xml = await readStable(deps);
     }
-    const matches = visibleComments(xml).filter((comment) => normalizeFacebookText(comment.text) === wanted);
+    const comments = visibleComments(xml);
+    let matches = comments.filter((comment) => normalizeFacebookText(comment.text) === wanted);
+    // Facebook puede añadir líneas al bloque (fecha, «Editado», traducción): se acepta
+    // el comentario que contiene el texto completo del original.
+    if (!matches.length && wanted.length >= 20) matches = comments.filter((comment) => normalizeFacebookText(comment.text).includes(wanted));
     if (matches.length > 1) throw new Error("Hay varios comentarios con el mismo texto. Comprueba el destinatario antes de responder.");
     if (matches[0]) return matches[0];
+    const byText = replyButtonBelowText(xml, wanted);
+    if (byText) return byText;
     const previews = collapsedReplyPreviews(xml).filter(preview => !expandedPreviews.has(preview.label));
     const preview = previews.find(item => normalizeFacebookText(item.text) === wanted) ?? previews[0];
     if (preview) {
