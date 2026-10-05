@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { isSameOrigin, requireOperator } from "@/lib/auth";
 import { calculateUsageOverview } from "@/lib/admin/usage";
 import { getGlobalPrompt, saveGlobalPrompt } from "@/lib/admin/config";
+import { readModules } from "@/lib/modules";
 
 function madridDayStart() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -44,6 +45,13 @@ export async function GET() {
       messages: { where: { direction: "in" }, select: { createdAt: true } },
     },
   });
+  // Coste estimado de IA de los módulos de contenidos (Editorial / SEO) del mes.
+  const contentAi = await prisma.aiUsage.groupBy({
+    by: ["workspaceId"],
+    where: { createdAt: { gte: monthSince } },
+    _sum: { costMicros: true },
+  });
+  const contentAiByWorkspace = new Map(contentAi.map((row) => [row.workspaceId, ((row._sum.costMicros ?? 0) / 1_000_000) * usdToEurRate]));
   const clients = workspaces.map((workspace) => {
     const usage = calculateUsageOverview({
       calls: workspace.calls.map((call) => ({
@@ -63,6 +71,8 @@ export async function GET() {
       email: workspace.users[0]?.email ?? "—",
       isBlocked: workspace.isBlocked,
       adminNotes: workspace.adminNotes ?? "",
+      modules: readModules(workspace.settings),
+      contentAiCostMonthly: contentAiByWorkspace.get(workspace.id) ?? 0,
       ...usage,
     };
   });

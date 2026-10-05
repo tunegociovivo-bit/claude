@@ -4,6 +4,10 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/api/auth",
   "/api/webhooks",
+  // Archivos con URL firmada (Meta/WordPress los descargan sin sesión) y
+  // endpoints públicos con su propia autenticación (emparejamiento WordPress).
+  "/api/files/",
+  "/api/public/",
   "/_next",
   "/favicon.ico",
 ];

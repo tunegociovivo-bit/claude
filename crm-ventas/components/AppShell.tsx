@@ -15,15 +15,25 @@ import {
   LogOut,
   ChevronUp,
   ChevronDown,
+  CalendarRange,
+  Newspaper,
 } from "lucide-react";
 
-const NAV = [
+type NavItem = { href: string; label: string; icon: typeof KanbanSquare; module?: "editorial" | "seo" };
+
+const NAV: NavItem[] = [
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
   { href: "/calendario", label: "Calendario", icon: CalendarDays },
   { href: "/conversaciones", label: "WhatsApp", icon: MessageCircle },
   { href: "/llamadas", label: "Llamadas", icon: Phone },
+  // Módulos de contenidos: solo aparecen si Negocio Vivo los activa.
+  { href: "/editorial", label: "Editorial", icon: CalendarRange, module: "editorial" },
+  { href: "/publicador-seo", label: "Blog SEO", icon: Newspaper, module: "seo" },
   { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
+
+type Modules = { editorial: boolean; seo: boolean };
+const MODULES_CACHE_KEY = "crm-ventas:modules";
 
 const NAV_ORDER_KEY = "crm-ventas:navigation-order";
 
@@ -31,14 +41,27 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [logo, setLogo] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("Paula");
-  const [nav, setNav] = useState(NAV);
+  const [order, setOrder] = useState<NavItem[]>(NAV);
+  const [modules, setModules] = useState<Modules>({ editorial: false, seo: false });
+  const nav = order.filter((item) => !item.module || modules[item.module]);
 
   useEffect(() => {
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(MODULES_CACHE_KEY) ?? "null");
+      if (cached && typeof cached === "object") setModules({ editorial: cached.editorial === true, seo: cached.seo === true });
+    } catch {
+      // Sin caché: se pinta el menú base hasta que responda el servidor.
+    }
     fetch("/api/v1/settings/logo", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setLogo(d?.logoDataUrl ?? null);
         setAgentName(d?.agentName || "Paula");
+        if (d?.modules) {
+          const next = { editorial: d.modules.editorial === true, seo: d.modules.seo === true };
+          setModules(next);
+          try { sessionStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(next)); } catch {}
+        }
       })
       .catch(() => undefined);
 
@@ -47,9 +70,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (Array.isArray(saved)) {
         const ordered = saved
           .map((href) => NAV.find((item) => item.href === href))
-          .filter((item): item is (typeof NAV)[number] => Boolean(item));
+          .filter((item): item is NavItem => Boolean(item));
         const missing = NAV.filter((item) => !ordered.some((savedItem) => savedItem.href === item.href));
-        setNav([...ordered, ...missing]);
+        // Los módulos nuevos se colocan justo antes de Ajustes si no había orden guardado para ellos.
+        const settingsIndex = ordered.findIndex((item) => item.href === "/ajustes");
+        const merged = [...ordered];
+        for (const item of missing) {
+          if (item.module && settingsIndex >= 0) merged.splice(merged.findIndex((i) => i.href === "/ajustes"), 0, item);
+          else merged.push(item);
+        }
+        setOrder(merged);
       }
     } catch {
       // Conserva el orden predeterminado si el dato local no es válido.
@@ -76,12 +106,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("agent-name-changed", updateAgentName);
   }, []);
 
+  // Reordena dentro de lo visible y lo traslada al orden completo (los módulos
+  // ocultos conservan su posición relativa).
   function moveNav(index: number, direction: -1 | 1) {
     const target = index + direction;
     if (target < 0 || target >= nav.length) return;
-    const next = [...nav];
-    [next[index], next[target]] = [next[target], next[index]];
-    setNav(next);
+    const a = order.indexOf(nav[index]);
+    const b = order.indexOf(nav[target]);
+    if (a < 0 || b < 0) return;
+    const next = [...order];
+    [next[a], next[b]] = [next[b], next[a]];
+    setOrder(next);
     localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(next.map((item) => item.href)));
   }
 
@@ -157,7 +192,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </aside>
       <main className="min-w-0 flex-1 p-3 pb-24 sm:p-4 sm:pb-24 md:p-5 md:pb-5 lg:p-6">{children}</main>
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
+      <nav style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }} className="fixed inset-x-0 bottom-0 z-40 grid border-t border-slate-200 bg-white/95 px-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
         {nav.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href} className={clsx("flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-[10px] font-medium", pathname.startsWith(href) ? "bg-brand-50 text-brand-700" : "text-slate-500")}>
             <Icon size={19} />
