@@ -106,3 +106,20 @@ export function isOptOutMessage(value: string): boolean {
 export function bodyFingerprint(text: string): string {
   return normalizeText(text).replace(/\d+/g, "#").slice(0, 300);
 }
+
+// Nombre de contacto que en realidad es un número o un identificador interno.
+export function isPlaceholderName(name: string | null | undefined, phone?: string | null): boolean {
+  const n = (name ?? "").trim();
+  if (!n) return true;
+  if (phone && n === phone) return true;
+  if (n.includes("@")) return true;
+  return /^\+?[\d\s().-]{6,}$/.test(n);
+}
+
+export function cleanPushName(value: unknown): string | null {
+  const n = String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (!n || isPlaceholderName(n)) return null;
+  if (!/[\p{L}\p{N}]/u.test(n)) return null; // solo emojis o signos
+  return n;
+}
+

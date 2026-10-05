@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  cleanPushName,
+  isPlaceholderName,
   bodyFingerprint,
   classifyReplyOutcome,
   containsLink,
@@ -132,4 +134,25 @@ test("lee sesión, id, ack y origen de los eventos de WAHA", () => {
   assert.equal(extractAck({}), null);
   assert.equal(isApiSent({ source: "api" }), true);
   assert.equal(isApiSent({ source: "app" }), false);
+});
+
+test("nombres: detecta nombres que son números o identificadores y limpia el de WhatsApp", () => {
+  assert.equal(isPlaceholderName("123456789012345@lid"), true);
+  assert.equal(isPlaceholderName("34611111111", "34611111111"), true);
+  assert.equal(isPlaceholderName("+34 611 111 111"), true);
+  assert.equal(isPlaceholderName(""), true);
+  assert.equal(isPlaceholderName("Lucía Pérez"), false);
+  assert.equal(cleanPushName("  Aom  "), "Aom");
+  assert.equal(cleanPushName("🙂🙂"), null);
+  assert.equal(cleanPushName("+34 600 000 000"), null);
+  assert.equal(cleanPushName("x".repeat(80))?.length, 60);
+});
+
+test("avatar neutro cuando no hay nombre real", async () => {
+  const { initials, displayName, firstRealName } = await import("../components/inbox/ui");
+  assert.equal(initials("Número oculto (WhatsApp)"), "#");
+  assert.equal(initials("+34 611 111 111"), "#");
+  assert.equal(initials("Aom"), "A");
+  assert.equal(firstRealName("98765@lid", null, "Chuty"), "Chuty");
+  assert.equal(displayName(firstRealName("98765@lid", null), "98765@lid"), "Número oculto (WhatsApp)");
 });
