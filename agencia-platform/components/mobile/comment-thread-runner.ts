@@ -352,7 +352,39 @@ export async function inspectCommentThreadNavigation(message: CommentThreadMessa
  * sin riesgo. Lo que ocurre DESPUÉS nunca lanza error: si no se puede confirmar,
  * se deja «en revisión» para no duplicar el comentario.
  */
+export type ThreadRunnerDiagnostics = { trace: string[]; xml: string };
+/** Error con el recorrido y la última pantalla leída, para diagnosticar desde el Hub. */
+export function threadRunnerDiagnostics(error: unknown): ThreadRunnerDiagnostics | null {
+  const value = (error as { diagnostics?: ThreadRunnerDiagnostics } | null)?.diagnostics;
+  return value && Array.isArray(value.trace) ? value : null;
+}
+
 export async function postCommentThreadMessage(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
+  const trace: string[] = [];
+  let lastXml = "";
+  const record = (event: string) => { trace.push(`${new Date().toISOString().slice(11, 19)} ${event}`); if (trace.length > 40) trace.shift(); };
+  const source = deps;
+  deps = {
+    ...source,
+    openUrl: async (url) => { record(`Abrir ${url}`); await source.openUrl(url); },
+    read: async () => { const xml = await source.read(); lastXml = xml; record(`Pantalla: ${screenSummary(xml)}`); return xml; },
+    tap: async (point) => { record(`Toque ${point.x},${point.y}`); await source.tap(point); },
+    scroll: async (xml, direction) => { record(`Desplazamiento ${direction}`); await source.scroll(xml, direction); },
+    back: async () => { record("Atrás"); await source.back(); },
+    paste: async (text) => { record(`Pegar ${text.length} caracteres`); await source.paste(text); }
+  };
+  try {
+    return await postCommentThreadMessageSteps(message, deps);
+  } catch (error) {
+    if (error && typeof error === "object") {
+      record(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      (error as { diagnostics?: ThreadRunnerDiagnostics }).diagnostics = { trace: [...trace], xml: lastXml };
+    }
+    throw error;
+  }
+}
+
+async function postCommentThreadMessageSteps(message: CommentThreadMessage, deps: CommentThreadRunnerDependencies): Promise<CommentThreadMessage> {
   deps = protectReelNavigation(deps, message.postUrl);
   // 1) ¿Ya está publicado? (reintentos, recargas, envíos sin confirmar). Si aparece,
   //    no se vuelve a escribir.

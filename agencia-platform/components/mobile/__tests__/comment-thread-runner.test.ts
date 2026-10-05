@@ -404,3 +404,16 @@ ${bar}
     expect(photoViewerCommentPoint(viewer("").replace('text="Foto"', 'text="Vídeo"'))).toBeNull();
   });
 });
+
+describe("diagnóstico de fallos", () => {
+  it("adjunta el recorrido y la última pantalla al error", async () => {
+    const { threadRunnerDiagnostics } = await import("../comment-thread-runner");
+    const { deps: d } = deps([screen([{ text: "Inicio", y: 100 }])]);
+    let caught: unknown;
+    try { await postCommentThreadMessage(message, d); } catch (error) { caught = error; }
+    const diagnostics = threadRunnerDiagnostics(caught);
+    expect(diagnostics?.trace.some((line) => line.includes("Abrir"))).toBe(true);
+    expect(diagnostics?.trace.at(-1)).toContain("Error:");
+    expect(diagnostics?.xml).toContain("hierarchy");
+  });
+});
