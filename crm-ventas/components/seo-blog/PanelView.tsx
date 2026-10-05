@@ -17,8 +17,10 @@ export function PostRow({ p, nav }: { p: any; nav: Nav }) {
             {["generando", "en_cola"].includes(p.status) && p.stepLabel ? ` · ${p.stepLabel}` : ""}
           </span>
         </span>
-        <Score value={p.seoScore} />
-        <StatusBadge status={p.status} />
+        <span className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+          <Score value={p.seoScore} />
+          <StatusBadge status={p.status} />
+        </span>
       </button>
     </li>
   );
@@ -93,7 +95,7 @@ export default function PanelView({ nav }: { nav: Nav }) {
         <Kpi l="Programados en web" v={cnt(["aprobada", "programada"])} tab="calendario" />
         <Kpi l="Publicados este mes" v={(posts ?? []).filter((p) => p.status === "publicada" && (p.publishAt ?? "").slice(0, 7) === ym).length} tab="calendario" />
       </div>
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card title="Próximas publicaciones" actions={<button type="button" className="text-xs font-semibold text-brand-700" onClick={() => nav.go("calendario")}>Calendario →</button>}>
           {upcoming.length ? <ul>{upcoming.map((p) => <PostRow key={p.id} p={p} nav={nav} />)}</ul> : <Empty>No hay publicaciones planificadas. Ve a Propuestas y asigna fechas.</Empty>}
         </Card>

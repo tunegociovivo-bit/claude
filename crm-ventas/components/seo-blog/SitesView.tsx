@@ -98,15 +98,15 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
         <Card>
           <p className="text-xs text-slate-500 mb-4">La IA usa estos datos (y los de tu ficha de marca) para escribir como tu negocio. Cuanto más concretos, mejores artículos.</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {txt("sector", "Sector / actividad", { ph: "Estores y cortinas a medida" })}
-            {txt("location", "Ubicación / zona de servicio", { ph: "Málaga y Costa del Sol" })}
+            {txt("sector", "Sector / actividad", { ph: "Ej: clínica dental, reformas, asesoría…" })}
+            {txt("location", "Ubicación / zona de servicio", { ph: "Ej: tu ciudad y alrededores" })}
             <Field label="Idioma">
               <select value={form.language} onChange={set("language")} className={inputCls}>
                 {[["es-ES", "Español (España)"], ["es-MX", "Español (México)"], ["en-GB", "English (UK)"], ["en-US", "English (US)"], ["de-DE", "Deutsch"], ["fr-FR", "Français"], ["it-IT", "Italiano"], ["pt-PT", "Português"], ["ca-ES", "Català"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </Field>
             {area("businessInfo", "Datos reales del negocio (servicios, equipo, años, certificaciones, diferenciales…)", { rows: 4, help: "La IA solo afirma datos que estén aquí o en tu ficha de marca. Nunca inventa cifras, premios ni testimonios." })}
-            {area("audience", "Público objetivo", { ph: "Familias y negocios de Málaga que reforman o estrenan vivienda y buscan cortinas a medida con instalación…" })}
+            {area("audience", "Público objetivo", { ph: "Quién compra lo que vendes: perfil, necesidades, dudas habituales…" })}
             {txt("tone", "Tono", { ph: "Cercano, experto, tranquilizador. Trato de tú." })}
             {txt("ctaText", "Llamada a la acción", { ph: "Pide tu presupuesto sin compromiso" })}
             {txt("ctaUrl", "URL de la llamada a la acción", { ph: "https://…/contacto/" })}
@@ -347,7 +347,7 @@ function KeywordsTab({ siteId, onChanged }: { siteId: string; onChanged: () => P
     >
       <div className="flex flex-wrap gap-2 mb-4">
         <input value={kw} onChange={(e) => setKw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addOne()}
-          placeholder="Nueva palabra clave (p. ej. estores a medida málaga)" className={inputCls + " flex-[2] min-w-[220px]"} />
+          placeholder="Nueva palabra clave (p. ej. servicio + ciudad)" className={inputCls + " flex-[2] min-w-[220px]"} />
         <select value={prio} onChange={(e) => setPrio(e.target.value)} className={inputCls + " w-40"}><option value="1">Prioridad alta</option><option value="2">Prioridad media</option><option value="3">Prioridad baja</option></select>
         <input type="number" value={vol} onChange={(e) => setVol(e.target.value)} placeholder="Volumen (opc.)" className={inputCls + " w-36"} />
         <Btn onClick={addOne}>Añadir</Btn>
@@ -381,7 +381,7 @@ function KeywordsTab({ siteId, onChanged }: { siteId: string; onChanged: () => P
       <Modal open={bulk !== null} onClose={() => setBulk(null)} title="Añadir palabras clave en bloque"
         footer={<><Btn variant="ghost" onClick={() => setBulk(null)}>Cancelar</Btn><Btn onClick={async () => { const n = await add({ bulk }); setMsg(`${n} palabras clave añadidas`); setBulk(null); }}>Añadir</Btn></>}>
         <p className="text-xs text-slate-500 mb-2">Una por línea. Opcional: <code>palabra clave | prioridad(1-3) | volumen</code></p>
-        <textarea rows={10} value={bulk ?? ""} onChange={(e) => setBulk(e.target.value)} className={inputCls} placeholder={"estores a medida málaga | 1 | 480\ncortinas a medida precio | 1\nestores enrollables opiniones | 2"} />
+        <textarea rows={10} value={bulk ?? ""} onChange={(e) => setBulk(e.target.value)} className={inputCls} placeholder={"servicio principal ciudad | 1 | 480\nprecio servicio principal | 1\nopiniones servicio | 2"} />
       </Modal>
       <Modal open={!!sugg} onClose={() => setSugg(null)} title="Sugerencias de palabras clave" size="lg"
         footer={<><Btn variant="ghost" onClick={() => setSugg(null)}>Cancelar</Btn><Btn disabled={!picked.size} onClick={async () => { const n = await add({ items: (sugg ?? []).filter((_, i) => picked.has(i)) }); setMsg(`${n} añadidas`); setSugg(null); }}>Añadir seleccionadas</Btn></>}>
@@ -504,7 +504,7 @@ function StyleTab({ siteId, form, setForm, set, saveBar, onChanged }: any) {
             <textarea rows={5} value={form.visualStyle ?? ""} onChange={set("visualStyle")} className={inputCls} />
           </Field>
           <Field label="Indicaciones adicionales" wide>
-            <textarea rows={2} value={form.visualNotes ?? ""} onChange={set("visualNotes")} className={inputCls} placeholder="Mediterranean light, bright living rooms with tailored blinds, real homes in Málaga…" />
+            <textarea rows={2} value={form.visualNotes ?? ""} onChange={set("visualNotes")} className={inputCls} placeholder="Ej: natural light, real customers using the product, warm tones…" />
           </Field>
           <Field label="Imágenes por post (portada incluida)"><input type="number" min={1} max={6} value={form.imagesPerPost ?? 3} onChange={set("imagesPerPost")} className={inputCls} /></Field>
           <Field label="Formato">

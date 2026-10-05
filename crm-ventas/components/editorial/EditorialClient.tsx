@@ -630,7 +630,7 @@ export default function EditorialClient() {
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="text-sm font-semibold px-3 capitalize">
+          <span className="text-sm font-semibold px-3 first-letter:uppercase">
             {cursor.toLocaleDateString("es-ES", { month: "long", year: "numeric", timeZone: "UTC" })}
           </span>
           <button
@@ -2689,7 +2689,7 @@ function PostFormModal({
                   value={aiImageInclude}
                   onChange={(e) => setAiImageInclude(e.target.value)}
                   rows={3}
-                  placeholder="Ej. salón luminoso con estores enrollables, ambiente cálido, plantas verdes…"
+                  placeholder="Ej. ambiente luminoso, tu producto en uso real, colores cálidos…"
                   className="w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>

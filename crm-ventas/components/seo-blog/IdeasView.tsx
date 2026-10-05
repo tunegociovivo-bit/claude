@@ -91,8 +91,8 @@ export default function IdeasView({ nav }: { nav: Nav }) {
               {p.rationale && <p className="text-xs text-slate-500">{p.rationale}</p>}
               {p.notes && <p className="text-xs bg-brand-50 rounded px-2 py-1">📝 {p.notes}</p>}
               <div className="mt-auto pt-2 border-t flex items-center gap-2 flex-wrap">
-                <label className="flex items-center gap-1.5 text-xs flex-1 min-w-[150px]">Publicar el
-                  <input type="date" min={todayISO()} className="px-2 py-1 rounded border text-xs" onChange={(e) => e.target.value && action(p.id, { action: "schedule", publishAt: e.target.value })} />
+                <label className="flex w-full items-center gap-1.5 text-xs">Publicar el
+                  <input type="date" min={todayISO()} className="min-w-0 flex-1 px-2 py-1 rounded border text-xs" onChange={(e) => e.target.value && action(p.id, { action: "schedule", publishAt: e.target.value })} />
                 </label>
                 <Btn size="sm" onClick={async () => {
                   try {

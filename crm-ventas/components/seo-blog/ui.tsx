@@ -47,7 +47,7 @@ export function Score({ value, big }: { value: number; big?: boolean }) {
 
 export function Card({ children, className, title, actions }: { children: ReactNode; className?: string; title?: ReactNode; actions?: ReactNode }) {
   return (
-    <section className={clsx("bg-white rounded-xl border p-4 sm:p-5", className)}>
+    <section className={clsx("min-w-0 bg-white rounded-xl border p-4 sm:p-5", className)}>
       {(title || actions) && (
         <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           {title && <h3 className="font-semibold text-slate-800">{title}</h3>}

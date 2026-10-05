@@ -161,7 +161,7 @@ export function BrandEditorialForm({ initial, onSaved }: { initial: Meta; onSave
             <input
               value={form.name ?? ""}
               onChange={(e) => patch("name", e.target.value)}
-              placeholder="Ej: Estores Málaga"
+              placeholder="Ej: nombre comercial de tu negocio"
               className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
@@ -170,7 +170,7 @@ export function BrandEditorialForm({ initial, onSaved }: { initial: Meta; onSave
             <input
               value={form.industry ?? ""}
               onChange={(e) => patch("industry", e.target.value || null)}
-              placeholder="Ej: estores y cortinas a medida"
+              placeholder="Ej: clínica dental, reformas, restaurante…"
               className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
@@ -186,7 +186,7 @@ export function BrandEditorialForm({ initial, onSaved }: { initial: Meta; onSave
           value={form.brandBrief ?? ""}
           onChange={(e) => patch("brandBrief", e.target.value)}
           rows={5}
-          placeholder="Ej: Estores y cortinas a medida en Málaga. Tono cercano y experto. Audiencia: propietarios de 30-60 años que reforman su casa. Eslogan: 'luz a tu medida'…"
+          placeholder="Ej: qué ofreces y en qué zona, tono (cercano, experto, divertido…), a quién te diriges, eslogan y cosas que no quieres que se digan…"
           className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
         <p className="mt-1 text-[11px] text-slate-500">
@@ -395,7 +395,7 @@ export function BrandEditorialForm({ initial, onSaved }: { initial: Meta; onSave
       </Section>
 
       {/* Barra de guardado (pegada al pie del modal) */}
-      <div className="sticky bottom-0 -mx-4 sm:-mx-5 -mb-4 bg-white border-t shadow-[0_-4px_12px_rgba(15,23,42,0.06)] px-4 py-3 z-10">
+      <div className="sticky -bottom-4 -mx-4 sm:-mx-5 -mb-4 bg-white border-t shadow-[0_-4px_12px_rgba(15,23,42,0.06)] px-4 py-3 z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
           <div className="text-xs text-slate-500 min-w-0 flex-1">
             {error ? (
