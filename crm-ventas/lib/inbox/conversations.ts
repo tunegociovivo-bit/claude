@@ -1,6 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { ensurePrimaryLine } from "@/lib/inbox/lines";
+import { cleanPushName, isPlaceholderName } from "@/lib/inbox/text";
+
+export { isPlaceholderName };
 
 function preview(text: string) {
   return text.replace(/\s+/g, " ").trim().slice(0, 160);
@@ -141,4 +144,49 @@ export async function backfillConversations(workspaceId: string) {
   } finally {
     backfillRunning.delete(workspaceId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Nombres visibles. Muchos chats llegan con un identificador interno de
+// WhatsApp (…@lid) o solo con el número como nombre del contacto. El nombre
+// que el cliente tiene puesto en WhatsApp (pushName) viaja en sus mensajes:
+// se usa para mostrarlo y para completar la ficha del contacto.
+// ---------------------------------------------------------------------------
+
+// Último pushName conocido por teléfono del hilo.
+export async function latestPushNames(workspaceId: string, phones: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(phones)].filter(Boolean);
+  if (!unique.length) return new Map();
+  const rows = await prisma.$queryRaw<{ phone: string; name: string | null }[]>`
+    SELECT DISTINCT ON (phone) phone, meta->>'pushName' AS name
+    FROM "Message"
+    WHERE "workspaceId" = ${workspaceId}
+      AND phone = ANY(${unique}::text[])
+      AND direction = 'in'
+      AND coalesce(meta->>'pushName', '') <> ''
+    ORDER BY phone, "createdAt" DESC`;
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const name = cleanPushName(row.name);
+    if (name) map.set(row.phone, name);
+  }
+  return map;
+}
+
+// Completa (una sola vez) el nombre de los contactos que solo tenían el número
+// o el identificador interno. Solo si el nombre no ha cambiado entretanto.
+export async function fillPlaceholderContactNames(
+  workspaceId: string,
+  contacts: { id: string; name: string; phone: string | null }[],
+  pushByContact: Map<string, string>
+) {
+  await Promise.all(
+    contacts
+      .filter((c) => isPlaceholderName(c.name, c.phone) && pushByContact.has(c.id))
+      .map((c) =>
+        prisma.contact
+          .updateMany({ where: { id: c.id, workspaceId, name: c.name }, data: { name: pushByContact.get(c.id)! } })
+          .catch(() => undefined)
+      )
+  );
 }

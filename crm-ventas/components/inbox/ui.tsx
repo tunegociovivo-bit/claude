@@ -75,7 +75,8 @@ export function relativeTime(iso: string | Date) {
 
 export function initials(name: string) {
   const clean = name.replace(/[^\p{L}\p{N} ]/gu, " ").trim();
-  if (!clean || /^\d/.test(clean)) return "#";
+  // Sin nombre real (número, número oculto…): avatar neutro.
+  if (!clean || /^\d/.test(clean) || /^(n[uú]mero oculto|sin nombre)\b/i.test(clean)) return "#";
   const parts = clean.split(/\s+/);
   return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
 }
@@ -134,6 +135,11 @@ export async function jsonFetch<T = any>(url: string, init?: RequestInit): Promi
 
 export function randomKey() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Primer nombre "de verdad" de la lista (ni número ni identificador interno).
+export function firstRealName(...names: (string | null | undefined)[]) {
+  return names.find((n) => n && n.trim() && !n.includes("@") && !/^\+?[\d\s().-]{6,}$/.test(n.trim())) ?? null;
 }
 
 // Nombre visible: si el "nombre" es solo un teléfono (o un chatId), se formatea.

@@ -6,7 +6,12 @@ import { isSameOrigin } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
 import { getWorkspaceSettings } from "@/lib/settings";
 import { inboxError, requireInboxUser } from "@/lib/inbox/api";
-import { backfillConversations } from "@/lib/inbox/conversations";
+import {
+  backfillConversations,
+  fillPlaceholderContactNames,
+  isPlaceholderName,
+  latestPushNames,
+} from "@/lib/inbox/conversations";
 import { listLines } from "@/lib/inbox/lines";
 import { describeDecision, enqueueOutbound, processIfDue } from "@/lib/inbox/outbound";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
@@ -67,6 +72,24 @@ export async function GET(req: NextRequest) {
         })
       : [];
     const contactById = new Map(contacts.map((c) => [c.id, c]));
+    // Nombre real de WhatsApp para los chats sin nombre (y se guarda en la ficha).
+    const needName = rows.filter((r) => {
+      const c = r.contactId ? contactById.get(r.contactId) : null;
+      return !c || isPlaceholderName(c.name, c.phone);
+    });
+    const pushNames = await latestPushNames(workspaceId, needName.map((r) => r.phone));
+    const pushByContact = new Map<string, string>();
+    for (const r of needName) {
+      const name = pushNames.get(r.phone);
+      if (name && r.contactId) pushByContact.set(r.contactId, name);
+    }
+    if (pushByContact.size) {
+      await fillPlaceholderContactNames(workspaceId, contacts, pushByContact);
+      for (const [id, name] of pushByContact) {
+        const c = contactById.get(id);
+        if (c && isPlaceholderName(c.name, c.phone)) contactById.set(id, { ...c, name });
+      }
+    }
     const now = Date.now();
 
     return Response.json({
@@ -84,6 +107,7 @@ export async function GET(req: NextRequest) {
         archived: r.archived,
         humanActive: Boolean(r.humanUntil && r.humanUntil.getTime() > now),
         contact: r.contactId ? contactById.get(r.contactId) ?? null : null,
+        pushName: pushNames.get(r.phone) ?? null,
       })),
       lines: lines.map((l) => {
         const unread = unreadByLine.find((u) => u.lineId === l.id);

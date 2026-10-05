@@ -32,6 +32,7 @@ import {
   Avatar,
   AI_MODE_LABEL,
   displayName as niceName,
+  firstRealName,
   formatPhone,
   jsonFetch,
   lineStatusText,
@@ -57,6 +58,7 @@ type ConversationItem = {
   archived: boolean;
   humanActive: boolean;
   contact: { id: string; name: string; stage: string; phone: string | null } | null;
+  pushName: string | null;
 };
 
 type ThreadMessage = {
@@ -94,6 +96,7 @@ type Thread = {
     lastInboundAt: string | null;
   };
   contact: { id: string; name: string; phone: string | null; stage: string; notes: string | null } | null;
+  pushName: string | null;
   line: { id: string; label: string; phone: string | null; aiMode: string; active: boolean; lastStatus: string | null } | null;
   messages: ThreadMessage[];
   outbound: Pending[];
@@ -259,7 +262,7 @@ export default function InboxPanel({
   }, [unreadTotal, listLoaded, onUnreadChange]);
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
   const displayName = niceName(
-    thread?.contact?.name ?? selected?.contact?.name,
+    firstRealName(thread?.contact?.name, thread?.pushName, selected?.contact?.name, selected?.pushName),
     thread?.contact?.phone ?? thread?.conversation.phone ?? selected?.phone
   );
 
@@ -495,7 +498,7 @@ export default function InboxPanel({
               </p>
             )}
             {conversations.map((c) => {
-              const name = niceName(c.contact?.name, c.contact?.phone ?? c.phone);
+              const name = niceName(firstRealName(c.contact?.name, c.pushName), c.contact?.phone ?? c.phone);
               const l = c.lineId ? linesById.get(c.lineId) : undefined;
               return (
                 <button

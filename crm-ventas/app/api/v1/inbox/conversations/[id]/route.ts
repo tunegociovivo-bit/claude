@@ -5,6 +5,7 @@ import { isSameOrigin } from "@/lib/auth";
 import { sendSeen } from "@/lib/waha";
 import { inboxError, requireInboxUser } from "@/lib/inbox/api";
 import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
+import { fillPlaceholderContactNames, isPlaceholderName, latestPushNames } from "@/lib/inbox/conversations";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const conversation = await prisma.conversation.findFirst({ where: { id: params.id, workspaceId } });
     if (!conversation) return Response.json({ error: "Conversación no encontrada" }, { status: 404 });
 
-    const [messages, outbound, contact, line] = await Promise.all([
+    const [messages, outbound, contactRow, line] = await Promise.all([
       prisma.message.findMany({
         where: { workspaceId, phone: conversation.phone },
         orderBy: { createdAt: "desc" },
@@ -41,6 +42,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         : Promise.resolve(null),
       conversation.lineId ? prisma.whatsappLine.findFirst({ where: { id: conversation.lineId, workspaceId } }) : Promise.resolve(null),
     ]);
+
+    let contact = contactRow;
+    let pushName: string | null = null;
+    if (!contact || isPlaceholderName(contact.name, contact.phone)) {
+      pushName = (await latestPushNames(workspaceId, [conversation.phone])).get(conversation.phone) ?? null;
+      if (contact && pushName) {
+        await fillPlaceholderContactNames(workspaceId, [contact], new Map([[contact.id, pushName]]));
+        contact = { ...contact, name: pushName };
+      }
+    }
 
     // Abrir el chat lo marca como leído (también en el móvil del cliente: doble check azul).
     if (conversation.unread > 0) {
@@ -77,6 +88,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         lastInboundAt: conversation.lastInboundAt,
       },
       contact,
+      pushName,
       line: line
         ? { id: line.id, label: line.label, phone: line.phone, aiMode: line.aiMode, active: line.active, lastStatus: line.lastStatus }
         : null,
