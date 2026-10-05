@@ -90,7 +90,9 @@ import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-
 import { FacebookNavigationError, launchFacebookForAutomation, openFacebookUrl, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
-import { inspectCommentThreadNavigation, postCommentThreadMessage, threadRunnerDiagnostics } from "@/components/mobile/comment-thread-runner";
+import { isMobileBusy, isNewerBuild, loadResumeSerials, saveResumeSerials } from "@/components/mobile/mobile-busy";
+import { checkThreadEngagement, inspectCommentThreadNavigation, postCommentThreadMessage, threadRunnerDiagnostics } from "@/components/mobile/comment-thread-runner";
+import { serializeThreadCheck } from "@/lib/mobile/thread-check-schema";
 import { createPacedDependencies } from "@/components/mobile/mobile-pace";
 import { createMobileTouchInput } from "@/components/mobile/mobile-touch-input";
 import { abortMobileJob, clearMobileJob, guardDependencies, withTimeout } from "@/components/mobile/mobile-job-guard";
@@ -98,7 +100,7 @@ import { serializeCommentThreadMessage } from "@/lib/mobile/comment-thread";
 import { pageFollowSummary, serializePageFollowBatch, type PageFollowPlatform } from "@/lib/mobile/page-follow-batch";
 import { escapeAdbCommand } from "@/components/mobile/mobile-adb-command";
 import { facebookScrollCommand } from "@/components/mobile/facebook-scroll";
-import { discardMobileClipboard, readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
+import { createClipboardWatcher, readMobileControlOutput } from "@/components/mobile/mobile-control-diagnostics";
 import {
   closeMobileSessionResources,
   createMobileSessionAttemptTracker,
@@ -591,13 +593,32 @@ const DEVICE_COLUMNS_KEY = "nv-mobile-device-columns";
 
 export default function MobileFarmClient() {
   const [resumeSerials, setResumeSerials] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  // Tras recargar (a mano o por versión nueva) se reabren solas las pantallas que estaban abiertas.
+  useEffect(() => { setResumeSerials(loadResumeSerials()); }, []);
   const rememberConnection = useCallback((serial: string, resume: boolean) => {
     setResumeSerials(current => {
       if (current.get(serial) === resume) return current;
       const next = new Map(current);
       next.set(serial, resume);
+      saveResumeSerials(next);
       return next;
     });
+  }, []);
+  // Recarga automática cuando se publica una versión nueva, sin cortar trabajos en curso.
+  const [newVersion, setNewVersion] = useState(false);
+  useEffect(() => {
+    let pending = false;
+    const timer = window.setInterval(async () => {
+      if (!pending) {
+        try {
+          const version = await fetch("/api/version", { cache: "no-store" }).then((response) => response.json());
+          pending = isNewerBuild(process.env.NEXT_PUBLIC_BUILD_TIMESTAMP, version?.buildTimestamp);
+          if (pending) setNewVersion(true);
+        } catch { return; }
+      }
+      if (pending && !isMobileBusy()) window.location.reload();
+    }, 30_000);
+    return () => window.clearInterval(timer);
   }, []);
   const [runnerMode, setRunnerMode] = useState<"loading" | "browser" | "desktop" | "diagnostic">("loading");
   useEffect(() => {
@@ -774,6 +795,7 @@ export default function MobileFarmClient() {
 
       <details className="rounded-2xl border border-indigo-200 bg-white shadow-sm">
         <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-indigo-900">Configurar encargo común <span className="ml-2 font-normal text-slate-500">· Automatización en varios móviles</span></summary>
+      {newVersion && <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">Hay una versión nueva del Hub. La página se recargará sola en cuanto los móviles terminen lo que están haciendo y volverá a abrir sus pantallas.</p>}
       <MobileFleetAutomationPanel devices={devices.map(d => { const shared = sharedPhones.find(p => p.deviceSerial === d.serial); return { deviceSerial: d.serial, label: shared?.phone ? `${shared.phone}${d.name ? ` · ${d.name}` : ""}` : d.name || "Android", phoneKey: shared?.key }; })} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
       </details>
 
@@ -907,6 +929,7 @@ function MobileDeviceCard({
   const startSessionPromiseRef = useRef<Promise<void>>();
   const authenticationAbortRef = useRef<AbortController>();
   const clientRef = useRef<AdbScrcpyClient<AdbScrcpyOptionsLatest<true>>>();
+  const clipboardWatcherRef = useRef<ReturnType<typeof createClipboardWatcher>>();
   const awakeSessionRef = useRef<AndroidAwakeSession>();
   const closeSessionPromiseRef = useRef<Promise<void>>();
   const decoderRef = useRef<WebCodecsVideoDecoder>();
@@ -1161,7 +1184,9 @@ function MobileDeviceCard({
       // Clipboard notifications share the channel with paste acknowledgements.
       // An unread notification blocks every subsequent setClipboard promise.
       if (client.clipboard) {
-        void discardMobileClipboard(client.clipboard).catch(() => { /* The connection lifecycle reports disconnection. */ });
+        const watcher = createClipboardWatcher(client.clipboard as never);
+        clipboardWatcherRef.current = watcher;
+        void watcher.done.catch(() => { /* The connection lifecycle reports disconnection. */ });
       }
       // Drain the server stream: input permission errors otherwise remain
       // invisible while the video stream still appears healthy.
@@ -1396,6 +1421,12 @@ function MobileDeviceCard({
         const threadDeps = createPacedDependencies(guardDependencies(job.id, {
           openUrl: deps.openUrl, read: deps.read,
           tap: async (point: AndroidUiPoint) => { await touch.tap(point); await waitForAndroidUi(450); },
+          longPress: async (point: AndroidUiPoint) => { await touch.longPress(point); await waitForAndroidUi(600); },
+          captureClipboard: async (action: () => Promise<void>, timeoutMs: number) => {
+            const watcher = clipboardWatcherRef.current;
+            if (!watcher) return null;
+            return watcher.capture(action, timeoutMs);
+          },
           wait: deps.wait,
           back: async () => { await touch.back(); await waitForAndroidUi(500); },
           scroll: async (xml: string, direction: "up" | "down") => {
@@ -1436,6 +1467,31 @@ function MobileDeviceCard({
           resultText: serializeCommentThreadMessage(result),
           summary: result.detail ?? undefined
         };
+      },
+      checkThread: async (check): Promise<MobileAutomationExecutionResult> => {
+        const deps = conversationDependencies({} as FacebookConversationBatch);
+        const touch = createMobileTouchInput({
+          controller,
+          readDisplaySize: async () => String(await runAdbCommand(adb, ["timeout", "-k", "1", "10", "wm", "size"])),
+          videoSize: () => sizeRef.current,
+          wait: waitForAndroidUi
+        });
+        // Solo lectura: escribir o enviar está prohibido en la comprobación.
+        const checkDeps = createPacedDependencies(guardDependencies(job.id, {
+          openUrl: deps.openUrl, read: deps.read, wait: deps.wait,
+          tap: async (point: AndroidUiPoint) => { await touch.tap(point); await waitForAndroidUi(450); },
+          back: async () => { await touch.back(); await waitForAndroidUi(500); },
+          scroll: async (xml: string, direction: "up" | "down") => {
+            const command = facebookScrollCommand(xml, direction, true);
+            await touch.swipe({ x: Number(command[3]), y: Number(command[4]) }, { x: Number(command[5]), y: Number(command[6]) });
+            await waitForAndroidUi(700);
+          },
+          paste: async () => { throw new Error("La comprobación no escribe nada."); },
+          beforeSend: async () => { throw new Error("La comprobación no envía nada."); }
+        }));
+        const result = await checkThreadEngagement(check, checkDeps);
+        const visible = result.items.filter((item) => item.visible).length;
+        return { outcome: "COMPLETED", resultText: serializeThreadCheck(result), summary: `${visible} de ${result.items.length} comentarios siguen visibles.` };
       },
       followPages: async (batch): Promise<MobileAutomationExecutionResult> => {
         const appPackage = await resolveFollowAppPackage(adb, batch.platform);

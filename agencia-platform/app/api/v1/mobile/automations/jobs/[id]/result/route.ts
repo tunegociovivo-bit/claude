@@ -1,4 +1,5 @@
 import { parseCommentThreadMessage } from "@/lib/mobile/comment-thread";
+import { applyThreadCheckResult, parseThreadCheck } from "@/lib/mobile/thread-check";
 import { parsePageFollowBatch } from "@/lib/mobile/page-follow-batch";
 import { MAX_CONVERSATION_BATCH_TEXT, parseConversationBatch } from "@/lib/mobile/facebook-conversations";
 import { NextResponse } from "next/server";
@@ -29,6 +30,7 @@ const resultSchema = z.object({
     if (kind === "facebook_conversations") parseConversationBatch(value.resultText);
     else if (kind === "page_follow") parsePageFollowBatch(value.resultText);
     else if (kind === "comment_thread") parseCommentThreadMessage(value.resultText);
+    else if (kind === "thread_check") parseThreadCheck(value.resultText);
     else parseFacebookGroupBatch(value.resultText);
   } catch (error) {
     context.addIssue({
@@ -54,5 +56,8 @@ export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, {
     errorCode: parsed.data.errorCode,
     error: parsed.data.error
   });
+  if (job.action === "CHECK_THREAD" && parsed.data.outcome === "COMPLETED" && parsed.data.resultText) {
+    await applyThreadCheckResult(api.workspaceId, parsed.data.resultText).catch((error) => console.warn("[mobile] guardar comprobación falló", error));
+  }
   return NextResponse.json({ ok: true, job });
 });

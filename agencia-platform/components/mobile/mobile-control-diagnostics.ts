@@ -30,3 +30,35 @@ export async function readMobileControlOutput(
     reader.releaseLock();
   }
 }
+
+/**
+ * Lee las notificaciones de portapapeles del móvil sin guardarlas, salvo durante
+ * una captura explícita (p. ej. «Copiar enlace» de un comentario recién publicado).
+ */
+export function createClipboardWatcher(
+  output: { getReader: () => { read: () => Promise<{ done: boolean; value?: unknown }>; releaseLock: () => void } }
+) {
+  const state: { waiting: ((value: string) => void) | null } = { waiting: null };
+  const done = (async () => {
+    const reader = output.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        if (state.waiting && typeof value === "string") { const resolve = state.waiting; state.waiting = null; resolve(value); }
+      }
+    } finally { reader.releaseLock(); }
+  })();
+  return {
+    done,
+    async capture(action: () => Promise<void>, timeoutMs: number): Promise<string | null> {
+      const copied = new Promise<string | null>((resolve) => {
+        const timer = setTimeout(() => { if (state.waiting === finish) state.waiting = null; resolve(null); }, timeoutMs);
+        const finish = (value: string) => { clearTimeout(timer); resolve(value); };
+        state.waiting = finish;
+      });
+      await action();
+      return copied;
+    }
+  };
+}

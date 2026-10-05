@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { isStoppedThreadBranch } from "@/lib/mobile/thread-dependencies";
+import { isThreadCheckText, parseThreadCheck, sameThreadCheckTargets } from "@/lib/mobile/thread-check-schema";
 
 const DEFAULT_POLICY = {
   enabled: true,
@@ -150,7 +151,8 @@ export async function claimNextMobileAutomationJob(input: {
         "DISCOVER_FACEBOOK_CONVERSATIONS",
         "REPLY_FACEBOOK_CONVERSATIONS",
         "FOLLOW_PAGES",
-        "POST_THREAD_MESSAGE"
+        "POST_THREAD_MESSAGE",
+        "CHECK_THREAD"
       ].includes(candidate.action);
       const leaseUntil = new Date(now.getTime() + (candidate.action === "POST_THREAD_MESSAGE" ? 3 * 60_000 : isFacebookGroupBatch ? 10 * 60_000 : 60_000));
       const claimed = await tx.mobileAutomationJob.updateMany({
@@ -222,9 +224,12 @@ export async function threadMessageGate(
   if (parent.status !== "COMPLETED") return { state: "wait" };
   // El texto del padre pudo editarse al aprobarlo: la respuesta debe buscar el texto publicado.
   try {
-    const parentText = parseCommentThreadMessage(parent.text ?? "").text;
-    if (parentText === message.replyToText) return { state: "ready", text: null };
-    return { state: "ready", text: serializeCommentThreadMessage({ ...message, replyToText: parentText }) };
+    const parentMessage = parseCommentThreadMessage(parent.text ?? "");
+    const parentText = parentMessage.text;
+    // Enlace directo al comentario original: la respuesta lo abre sin buscarlo.
+    const replyToUrl = parentMessage.commentUrl ?? message.replyToUrl ?? null;
+    if (parentText === message.replyToText && replyToUrl === (message.replyToUrl ?? null)) return { state: "ready", text: null };
+    return { state: "ready", text: serializeCommentThreadMessage({ ...message, replyToText: parentText, replyToUrl }) };
   } catch {
     return { state: "ready", text: null };
   }
@@ -254,14 +259,22 @@ export async function reportMobileAutomationResult(input: {
     if (input.outcome === "DISCOVERED" && !["DISCOVER_FACEBOOK_GROUPS", "DISCOVER_FACEBOOK_CONVERSATIONS"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba resultados de grupos");
     }
-    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action)) {
+    if (["COMPLETED", "PARTIAL"].includes(input.outcome) && !["JOIN_FACEBOOK_GROUP_BATCH", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE", "CHECK_THREAD"].includes(job.action)) {
       throw new ApiError(409, "invalid_result", "Este trabajo no esperaba solicitudes de grupos");
     }
     if (["DISCOVERED", "COMPLETED", "PARTIAL"].includes(input.outcome) && !input.resultText) {
       throw new ApiError(400, "missing_result", "Falta el resultado del lote de grupos");
     }
 
-    if (job.action === "POST_THREAD_MESSAGE" && input.resultText) {
+    if (job.action === "CHECK_THREAD") {
+      if (input.resultText) {
+        let same = false;
+        try { same = input.outcome === "COMPLETED" && sameThreadCheckTargets(parseThreadCheck(job.text ?? ""), parseThreadCheck(input.resultText)); } catch { same = false; }
+        if (!same) throw new ApiError(400, "invalid_result", "La comprobación no corresponde a la conversación.");
+      }
+    } else if (input.resultText && isThreadCheckText(input.resultText)) {
+      throw new ApiError(400, "invalid_result", "Este trabajo no esperaba una comprobación.");
+    } else if (job.action === "POST_THREAD_MESSAGE" && input.resultText) {
       let same = false;
       try {
         const original = parseCommentThreadMessage(job.text ?? "");
@@ -369,7 +382,7 @@ export async function reportMobileAutomationResult(input: {
         data: {
           workspaceId: input.workspaceId,
           jobId: job.id,
-          event: job.action === "POST_THREAD_MESSAGE" ? (partial ? "THREAD_MESSAGE_REVIEW" : "THREAD_MESSAGE_SENT") : job.action === "FOLLOW_PAGES" ? (partial ? "PAGE_FOLLOW_PARTIAL" : "PAGE_FOLLOW_COMPLETED") : partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
+          event: job.action === "CHECK_THREAD" ? "THREAD_CHECKED" : job.action === "POST_THREAD_MESSAGE" ? (partial ? "THREAD_MESSAGE_REVIEW" : "THREAD_MESSAGE_SENT") : job.action === "FOLLOW_PAGES" ? (partial ? "PAGE_FOLLOW_PARTIAL" : "PAGE_FOLLOW_COMPLETED") : partial ? "GROUP_BATCH_PARTIAL" : "GROUP_BATCH_COMPLETED",
           actorType: "BROWSER",
           actorId: input.executorSessionId
         }

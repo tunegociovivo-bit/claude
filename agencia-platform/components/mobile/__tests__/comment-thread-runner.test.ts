@@ -417,3 +417,45 @@ describe("diagnóstico de fallos", () => {
     expect(diagnostics?.xml).toContain("hierarchy");
   });
 });
+
+describe("enlace del comentario y seguimiento", () => {
+  it("copia el enlace del comentario tras publicarlo", async () => {
+    const posted = screen([{ text: message.text, cls: "android.widget.TextView", y: 900 }]);
+    const { deps: d } = deps([
+      screen([{ text: "Inicio", y: 100 }]), screen([{ text: "Inicio", y: 100 }]), screen([{ text: "Inicio", y: 100 }]),
+      screen([{ desc: "Comentar, botón", y: 1500 }]),
+      screen([{ text: "Escribe un comentario…", cls: "android.widget.EditText", y: 2000 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 2000 }, { desc: "Enviar", y: 2000 }]),
+      posted, posted, screen([{ text: "Copiar", y: 300 }, { text: "Copiar enlace", y: 400 }])
+    ]);
+    (d as any).longPress = async () => {};
+    (d as any).captureClipboard = async (action: () => Promise<void>) => { await action(); return "https://www.facebook.com/reel/1?comment_id=99"; };
+    const result = await postCommentThreadMessage(message, d);
+    expect(result.outcome).toBe("sent");
+    expect(result.commentUrl).toBe("https://www.facebook.com/reel/1?comment_id=99");
+  });
+  it("una respuesta abre directamente el enlace del comentario original", async () => {
+    const opened: string[] = [];
+    const { deps: d } = deps([screen([]), screen([]), screen([]), expandedReply, screen([{ text: "Ana", cls: "android.widget.EditText", y: 700 }]),
+      screen([{ text: message.text, cls: "android.widget.EditText", y: 700 }, { text: "Enviar", y: 900 }]), screen([{ text: message.text, y: 500 }])]);
+    (d as any).openUrl = async (url: string) => { opened.push(url); };
+    await postCommentThreadMessage({ ...message, mode: "reply", replyToOrder: 1, replyToText: parentText, replyToUrl: "https://www.facebook.com/x?comment_id=5" } as any, d);
+    expect(opened.at(-1)).toBe("https://www.facebook.com/x?comment_id=5");
+  });
+  it("comprueba visibilidad, reacciones y respuestas sin escribir", async () => {
+    const { checkThreadEngagement } = await import("../comment-thread-runner");
+    const view = `<hierarchy>
+<node package="com.facebook.katana" class="android.widget.Button" text="${parentText}" content-desc="" clickable="true" bounds="[90,150][900,260]" />
+<node package="com.facebook.katana" class="android.view.View" text="" content-desc="3 reacciones" clickable="true" bounds="[700,265][800,300]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="Responder" content-desc="" clickable="true" bounds="[90,270][200,310]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="Ver 2 respuestas" content-desc="" clickable="true" bounds="[120,320][400,360]" />
+</hierarchy>`;
+    const { deps: d } = deps([screen([]), view, view, view, view, view]);
+    d.paste = async () => { throw new Error("no debe escribir"); };
+    const check = { kind: "thread_check" as const, version: 1 as const, threadId: "7f1c1a52-6a55-4e38-9b44-1b0b2a8a3c11", postUrl: "https://www.facebook.com/post/1", checkedAt: null,
+      items: [{ jobId: "a", order: 1, text: parentText, visible: null, reactions: null, replies: null }, { jobId: "b", order: 2, text: "Otro texto que ya no está", visible: null, reactions: null, replies: null }] };
+    const result = await checkThreadEngagement(check, d);
+    expect(result.items[0]).toMatchObject({ visible: true, reactions: 3, replies: 2 });
+    expect(result.items[1]!.visible).toBe(false);
+  });
+});

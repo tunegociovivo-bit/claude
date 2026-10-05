@@ -5,7 +5,8 @@ import { withApi } from "@/lib/api/handler";
 import { loadMobileAutomationAccess, requireSerialLinkedToWorkspace } from "@/lib/mobile/automation-access";
 import { claimNextMobileAutomationJob } from "@/lib/mobile/automation-jobs";
 import { autoResumeStalledThreads } from "@/lib/mobile/thread-resume";
-import { failoverBlockedThreadMessages, markDeviceSeen } from "@/lib/mobile/thread-failover";
+import { scheduleAutomaticThreadChecks } from "@/lib/mobile/thread-check";
+import { failoverBlockedThreadMessages, markDeviceBlocked, markDeviceSeen } from "@/lib/mobile/thread-failover";
 
 const claimSchema = z.object({
   deviceSerial: z.string().trim().min(1).max(160),
@@ -28,6 +29,10 @@ export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, {
   await autoResumeStalledThreads(api.workspaceId).catch((error) => {
     console.warn("[mobile] auto-resume de conversaciones falló", error);
   });
+  // 24 h después de terminar, cada conversación se comprueba sola (reacciones y respuestas).
+  await scheduleAutomaticThreadChecks(api.workspaceId).catch((error) => {
+    console.warn("[mobile] programar comprobaciones falló", error);
+  });
   let blockedReason: string | null = null;
   const job = await claimNextMobileAutomationJob({
     workspaceId: api.workspaceId,
@@ -35,6 +40,7 @@ export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, {
     executorSessionId: parsed.data.executorSessionId,
     onBlocked: (reason) => { blockedReason = reason; }
   });
+  markDeviceBlocked(api.workspaceId, parsed.data.deviceSerial, job ? null : blockedReason);
   return NextResponse.json({ job, blockedReason });
 });
 

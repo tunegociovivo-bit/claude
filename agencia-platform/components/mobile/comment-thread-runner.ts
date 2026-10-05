@@ -2,6 +2,7 @@ import { parseAndroidUiNodes, type AndroidUiPoint } from "@/components/mobile/an
 import { collapsedReplyPreviews, facebookNodes, namedControl, nodeText, screenSignature, visibleComments, visiblePostComments } from "@/components/mobile/facebook-conversation-ui";
 import { normalizeFacebookText } from "@/lib/mobile/facebook-conversations";
 import type { CommentThreadMessage } from "@/lib/mobile/comment-thread";
+import type { ThreadCheck } from "@/lib/mobile/thread-check-schema";
 import { APP_LABELS, findAppChooserTarget } from "@/components/mobile/android-app-chooser";
 import { MobileJobAbortedError } from "@/components/mobile/mobile-job-guard";
 
@@ -14,6 +15,10 @@ export type CommentThreadRunnerDependencies = {
   back: () => Promise<void>;
   wait: (ms: number) => Promise<void>;
   beforeSend: () => Promise<void>;
+  /** Mantener pulsado (menú del comentario). Opcional. */
+  longPress?: (point: AndroidUiPoint) => Promise<void>;
+  /** Ejecuta la acción y devuelve lo que Android copie al portapapeles (o null). Opcional. */
+  captureClipboard?: (action: () => Promise<void>, timeoutMs: number) => Promise<string | null>;
 };
 
 const COMPOSER = /EditText|AutoCompleteTextView/;
@@ -352,6 +357,40 @@ export async function inspectCommentThreadNavigation(message: CommentThreadMessa
  * sin riesgo. Lo que ocurre DESPUÉS nunca lanza error: si no se puede confirmar,
  * se deja «en revisión» para no duplicar el comentario.
  */
+const COPY_LINK = /^(Copiar enlace|Copiar el enlace|Copy link)(\b|$)/i;
+export function isFacebookCommentUrl(value: string | null | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && /(^|\.)facebook\.com$|(^|\.)fb\.(com|me)$/i.test(url.hostname);
+  } catch { return false; }
+}
+
+/**
+ * Tras publicar, intenta copiar el enlace directo del comentario (menú «Copiar
+ * enlace» al mantenerlo pulsado). Si Facebook no lo ofrece, devuelve null y las
+ * respuestas buscarán el comentario por su texto. Nunca lanza error.
+ */
+async function captureCommentLink(deps: CommentThreadRunnerDependencies, text: string): Promise<string | null> {
+  if (!deps.longPress || !deps.captureClipboard) return null;
+  try {
+    const xml = await deps.read();
+    const wanted = normalizeFacebookText(text);
+    const node = facebookNodes(xml).find((item) => !COMPOSER.test(item.className) && normalizeFacebookText(item.text) === wanted);
+    if (!node) return null;
+    await deps.longPress(node.center);
+    await deps.wait(1_000);
+    const menu = await deps.read();
+    const copy = namedControl(menu, COPY_LINK);
+    if (!copy) { await deps.back(); return null; }
+    const copied = await deps.captureClipboard(() => deps.tap(copy.center), 4_000);
+    const url = copied?.trim().split(/\s+/).find((part) => isFacebookCommentUrl(part)) ?? null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 export type ThreadRunnerDiagnostics = { trace: string[]; xml: string };
 /** Error con el recorrido y la última pantalla leída, para diagnosticar desde el Hub. */
 export function threadRunnerDiagnostics(error: unknown): ThreadRunnerDiagnostics | null {
@@ -395,8 +434,9 @@ async function postCommentThreadMessageSteps(message: CommentThreadMessage, deps
   if (message.outcome === "review" || message.outcome === "sent") {
     return { ...message, outcome: "review", detail: message.sendProtocol === "checkpoint-v1" ? "El envío anterior sigue sin confirmarse. Se volverá a comprobar automáticamente sin duplicar el comentario." : "El envío anterior sigue sin confirmarse. No se volverá a enviar automáticamente; comprueba la publicación." };
   }
-  // 2) Publicar desde una pantalla limpia de la publicación.
-  await openPost(message.postUrl, deps);
+  // 2) Publicar desde una pantalla limpia de la publicación. Una respuesta abre
+  //    directamente el comentario original si se conoce su enlace.
+  await openPost(message.mode === "reply" && message.replyToUrl ? message.replyToUrl : message.postUrl, deps);
   let xml: string;
   if (message.mode === "reply") {
     const parent = await locateParent(message, deps);
@@ -446,7 +486,74 @@ async function postCommentThreadMessageSteps(message: CommentThreadMessage, deps
       shown = textAlreadyVisible(after, message.text);
     } catch { /* pantalla en movimiento: se reintenta la comprobación */ }
   }
+  if (shown) {
+    const commentUrl = await captureCommentLink(deps, message.text);
+    return { ...message, outcome: "sent", detail: "Mensaje visible en Facebook.", ...(commentUrl ? { commentUrl } : {}) };
+  }
   return shown
     ? { ...message, outcome: "sent", detail: "Mensaje visible en Facebook." }
     : { ...message, outcome: "review", detail: message.sendProtocol === "checkpoint-v1" ? "Se pulsó Enviar pero no se ha podido confirmar. Se comprobará automáticamente antes de continuar la conversación." : "Se pulsó Enviar pero no se ha podido confirmar. Revisa la publicación y pulsa «Confirmo que está publicado» para continuar la conversación." };
+}
+
+// ---------- Seguimiento después de publicar (solo lectura) ----------
+
+const REACTIONS = /(\d[\d.,]*)\s*(reacci|reaction|personas? han reaccionado|me gusta\b)/i;
+const REPLIES = /^(?:Ver|View)\s+(\d+|una|un|one)\s+(?:respuestas?|repl(?:y|ies))|^(\d+)\s+(?:respuestas?|repl(?:y|ies))$/i;
+
+function countFrom(value: string | undefined): number | null {
+  if (!value) return null;
+  if (/^(una|un|one)$/i.test(value)) return 1;
+  const parsed = Number(value.replace(/[.,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Busca cada comentario publicado y anota si sigue visible, sus reacciones y respuestas. Nunca escribe. */
+export async function checkThreadEngagement(check: ThreadCheck, deps: CommentThreadRunnerDependencies): Promise<ThreadCheck> {
+  await openPost(check.postUrl, deps);
+  let xml = await readStable(deps);
+  if (!visibleComments(xml).length) {
+    const entry = commentEntry(xml);
+    if (entry) { await deps.tap(entry.center); await deps.wait(1_500); xml = await readStable(deps); }
+  }
+  const sort = namedControl(xml, /^(Más pertinentes|Most relevant|Se muestran Más pertinentes comentarios|Showing Most relevant comments)/i);
+  if (sort) {
+    await deps.tap(sort.center); await deps.wait(800);
+    const choices = await readStable(deps);
+    const all = namedControl(choices, /^(Todos los comentarios|All comments)(\b|$)/i) ?? namedControl(choices, /^(Más recientes|Newest)(\b|$)/i);
+    if (all) await deps.tap(all.center); else await deps.back();
+    await deps.wait(1_200);
+    xml = await readStable(deps);
+  }
+  const items = check.items.map((item) => ({ ...item, visible: false as boolean | null, reactions: null as number | null, replies: null as number | null }));
+  let previous = "";
+  let unchanged = 0;
+  for (let screen = 0; screen < 20 && items.some((item) => !item.visible); screen++) {
+    const nodes = facebookNodes(xml);
+    for (const item of items) {
+      if (item.visible) continue;
+      const wanted = normalizeFacebookText(item.text);
+      const holder = nodes.find((node) => !COMPOSER.test(node.className) && normalizeFacebookText(nodeText(node)) === wanted);
+      if (!holder) continue;
+      item.visible = true;
+      const nextReply = nodes.filter((node) => /^(Responder|Reply)/i.test(nodeText(node)) && node.bounds.top >= holder.bounds.bottom - 10)
+        .sort((a, b) => a.bounds.top - b.bounds.top)[0];
+      const blockBottom = (nextReply?.bounds.bottom ?? holder.bounds.bottom + 160) + 10;
+      const block = nodes.filter((node) => node.bounds.top >= holder.bounds.top - 10 && node.bounds.bottom <= blockBottom);
+      for (const node of block) {
+        const match = REACTIONS.exec(`${node.contentDescription} ${node.text}`);
+        if (match) { item.reactions = countFrom(match[1]); break; }
+      }
+      const below = nodes.filter((node) => node.bounds.top >= holder.bounds.bottom && node.bounds.top - holder.bounds.bottom < 420);
+      for (const node of below) {
+        const match = REPLIES.exec(nodeText(node));
+        if (match) { item.replies = countFrom(match[1] ?? match[2]); break; }
+      }
+    }
+    const signature = screenSignature(xml);
+    if (signature === previous) { if (++unchanged >= 3) break; } else unchanged = 0;
+    previous = signature;
+    await deps.scroll(xml, "down");
+    xml = await readStable(deps);
+  }
+  return { ...check, checkedAt: new Date().toISOString(), items };
 }

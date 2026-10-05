@@ -5,6 +5,8 @@ import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { loadMobileAutomationAccess, requireLinkedMobile } from "@/lib/mobile/automation-access";
 import { validateAutomationTargetUrl } from "@/lib/mobile/automation-policy";
+import { deviceBlockedReason, isDeviceOnline } from "@/lib/mobile/thread-failover";
+import { threadWaitingReason } from "@/lib/mobile/thread-waiting";
 import {
   parseCommentThreadMessage,
   MAX_THREAD_MESSAGES,
@@ -24,6 +26,7 @@ const requestSchema = z.object({
   participants: z.array(threadParticipantSchema).min(2).max(MAX_THREAD_PARTICIPANTS),
   messages: z.array(simulatedMessageSchema).min(2).max(MAX_THREAD_MESSAGES),
   startAt: z.string().datetime({ offset: true }).optional(),
+  client: z.string().trim().max(120).optional(),
   gapMinutes: z.number().int().min(1).max(240).default(8)
 }).strict();
 
@@ -49,7 +52,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
   });
   if (existing.length) return NextResponse.json({ ok: true, jobs: existing, replayed: true });
 
-  const start = parsed.data.startAt ? new Date(parsed.data.startAt) : new Date();
+  const start = parsed.data.startAt && new Date(parsed.data.startAt) > new Date() ? new Date(parsed.data.startAt) : new Date();
+  const client = parsed.data.client?.trim() || null;
   const jobs = await prisma.$transaction(async (tx) => {
     const created: Array<{ id: string }> = [];
     for (const message of messages) {
@@ -85,7 +89,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
             previousJobId: created.at(-1)?.id ?? null,
             text: message.text,
             outcome: "pending",
-            detail: null
+            detail: null,
+            client
           }),
           status: "PENDING_APPROVAL",
           scheduledAt,
@@ -130,17 +135,28 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     },
     orderBy: { createdAt: "asc" },
     take: 2000,
-    select: { id: true, deviceSerial: true, status: true, lastError: true, text: true, idempotencyKey: true, createdAt: true, completedAt: true, approvedAt: true }
+    select: { id: true, deviceSerial: true, status: true, lastError: true, text: true, idempotencyKey: true, createdAt: true, completedAt: true, approvedAt: true, scheduledAt: true }
   });
-  const threads = new Map<string, { threadId: string; guide: string; postUrl: string; createdAt: Date; jobs: Array<Record<string, unknown>> }>();
+  const now = new Date();
+  const parsedRows = rows.flatMap((row) => { try { return [{ row, message: parseCommentThreadMessage(row.text ?? "") }]; } catch { return []; } });
+  const byId = new Map(parsedRows.map(({ row, message }) => [row.id, { id: row.id, status: row.status, deviceSerial: row.deviceSerial, scheduledAt: row.scheduledAt, lastError: row.lastError, message }]));
+  const waitingContext = {
+    now, byId,
+    online: (serial: string) => isDeviceOnline(api.workspaceId, serial, now.getTime()),
+    blocked: (serial: string) => deviceBlockedReason(api.workspaceId, serial, now.getTime())
+  };
+  const threads = new Map<string, { threadId: string; guide: string; postUrl: string; createdAt: Date; client: string | null; jobs: Array<Record<string, unknown>> }>();
   for (const row of rows) {
     let message;
     try { message = parseCommentThreadMessage(row.text ?? ""); } catch { continue; }
-    const thread = threads.get(message.threadId) ?? { threadId: message.threadId, guide: message.guide, postUrl: message.postUrl, createdAt: row.createdAt, jobs: [] };
+    const thread = threads.get(message.threadId) ?? { threadId: message.threadId, guide: message.guide, postUrl: message.postUrl, createdAt: row.createdAt, client: message.client ?? null, jobs: [] };
+    if (!thread.client && message.client) thread.client = message.client;
     thread.jobs.push({
       id: row.id, deviceSerial: row.deviceSerial, status: row.status, lastError: row.lastError,
       order: message.order, replyToOrder: message.replyToOrder, author: phoneBySerial.get(row.deviceSerial) || message.author,
-      text: message.text, replyToAuthor: message.replyToAuthor, completedAt: row.completedAt, detail: message.detail
+      text: message.text, replyToAuthor: message.replyToAuthor, completedAt: row.completedAt, detail: message.detail,
+      waiting: byId.has(row.id) ? threadWaitingReason(byId.get(row.id)!, waitingContext) : null,
+      scheduledAt: row.scheduledAt, client: message.client ?? null, commentUrl: message.commentUrl ?? null, engagement: message.engagement ?? null
     });
     threads.set(message.threadId, thread);
   }

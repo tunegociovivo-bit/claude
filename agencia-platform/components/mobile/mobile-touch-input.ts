@@ -27,7 +27,7 @@ export function createMobileTouchInput(deps: Dependencies) {
     const source = rotated ? { width: native.height, height: native.width } : native;
     return { source, video };
   }
-  async function gesture(from: AndroidUiPoint, to?: AndroidUiPoint) {
+  async function gesture(from: AndroidUiPoint, to?: AndroidUiPoint, holdMs = 0) {
     const { source, video } = await geometry();
     const position = (point: AndroidUiPoint) => {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.y < 0 || point.x >= source.width || point.y >= source.height) {
@@ -45,6 +45,7 @@ export function createMobileTouchInput(deps: Dependencies) {
     let failed = false;
     try {
       await inject(AndroidMotionEventAction.Down);
+      if (holdMs > 0) await deps.wait(holdMs);
       if (to) {
         // The first move goes out immediately: on slow phones a pause after
         // touching down is read as a long press (photo menu) instead of a swipe.
@@ -63,6 +64,7 @@ export function createMobileTouchInput(deps: Dependencies) {
   return {
     tap: (point: AndroidUiPoint) => gesture(point),
     swipe: (from: AndroidUiPoint, to: AndroidUiPoint) => gesture(from, to),
+    longPress: (point: AndroidUiPoint, holdMs = 900) => gesture(point, undefined, holdMs),
     back: async () => {
       for (const action of [AndroidKeyEventAction.Down, AndroidKeyEventAction.Up]) {
         await deps.controller.injectKeyCode({ action, keyCode: AndroidKeyCode.AndroidBack, repeat: 0, metaState: AndroidKeyEventMeta.None });

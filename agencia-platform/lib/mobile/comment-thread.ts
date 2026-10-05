@@ -12,6 +12,14 @@ export const MAX_THREAD_TEXT = 1200;
 
 export const threadMessageOutcomeSchema = z.enum(["pending", "sent", "review", "failed"]);
 
+export const threadEngagementSchema = z.object({
+  checkedAt: z.string().max(40),
+  visible: z.boolean(),
+  reactions: z.number().int().min(0).nullable(),
+  replies: z.number().int().min(0).nullable()
+}).strict();
+export type ThreadEngagement = z.infer<typeof threadEngagementSchema>;
+
 export const commentThreadMessageSchema = z.object({
   kind: z.literal("comment_thread"),
   version: z.literal(1),
@@ -30,7 +38,15 @@ export const commentThreadMessageSchema = z.object({
   previousJobId: z.string().max(100).nullable(),
   text: z.string().trim().min(2).max(MAX_THREAD_TEXT),
   outcome: threadMessageOutcomeSchema,
-  detail: z.string().trim().max(500).nullable()
+  detail: z.string().trim().max(500).nullable(),
+  /** Cliente para el que se hace la conversación (informes). */
+  client: z.string().trim().max(120).nullable().optional(),
+  /** Enlace directo al comentario publicado: las respuestas lo abren sin buscarlo. */
+  commentUrl: z.string().url().max(2048).nullable().optional(),
+  /** Enlace del comentario al que responde (copiado del mensaje original al publicarse). */
+  replyToUrl: z.string().url().max(2048).nullable().optional(),
+  /** Seguimiento después de publicar. */
+  engagement: threadEngagementSchema.nullable().optional()
 }).strict().superRefine((value, context) => {
   if (value.mode === "reply" && (!value.replyToOrder || value.replyToOrder >= value.order)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["replyToOrder"], message: "Una respuesta debe apuntar a un mensaje anterior." });
@@ -59,7 +75,7 @@ export function isCommentThreadText(text: string | null | undefined): boolean {
 
 /** Todo salvo el texto (en revisión) y el resultado (en ejecución) es inmutable. */
 export function sameThreadSlot(a: CommentThreadMessage, b: CommentThreadMessage): boolean {
-  const slot = ({ text: _t, outcome: _o, detail: _d, replyToText: _r, ...rest }: CommentThreadMessage) => rest;
+  const slot = ({ text: _t, outcome: _o, detail: _d, replyToText: _r, commentUrl: _u, replyToUrl: _ru, engagement: _e, ...rest }: CommentThreadMessage) => rest;
   return JSON.stringify(slot(a)) === JSON.stringify(slot(b));
 }
 

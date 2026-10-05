@@ -24,7 +24,17 @@ export function isDeviceOnline(workspaceId: string, deviceSerial: string, now = 
   const seen = deviceSeen.get(`${workspaceId}:${deviceSerial}`);
   return seen !== undefined && now - seen <= DEVICE_ONLINE_MS;
 }
-export function resetFailoverStateForTests() { deviceSeen.clear(); lastRun.clear(); }
+const deviceBlocked = new Map<string, { reason: string; at: number }>();
+/** Motivo por el que el claim no dio trabajo a este móvil (horario, límite diario…). */
+export function markDeviceBlocked(workspaceId: string, deviceSerial: string, reason: string | null, now = Date.now()) {
+  const key = `${workspaceId}:${deviceSerial}`;
+  if (reason) deviceBlocked.set(key, { reason, at: now }); else deviceBlocked.delete(key);
+}
+export function deviceBlockedReason(workspaceId: string, deviceSerial: string, now = Date.now()): string | null {
+  const value = deviceBlocked.get(`${workspaceId}:${deviceSerial}`);
+  return value && now - value.at <= DEVICE_ONLINE_MS ? value.reason : null;
+}
+export function resetFailoverStateForTests() { deviceSeen.clear(); lastRun.clear(); deviceBlocked.clear(); }
 
 type Candidate = { id: string; status: string; deviceSerial: string; idempotencyKey: string; text: string | null; scheduledAt: Date; createdAt: Date; leaseUntil: Date | null };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { FacebookNavigationError } from "@/components/mobile/facebook-android-launch";
+import { beginMobileWork, endMobileWork } from "@/components/mobile/mobile-busy";
 import FacebookReviewQueue from "./FacebookReviewQueue";
 import { mobileWorkerActivity, runWhileConnected, type MobileWorkerActivity } from "./mobile-worker-activity";
 import { abortMobileJob, clearMobileJob, withTimeout } from "@/components/mobile/mobile-job-guard";
@@ -353,6 +354,7 @@ export default function MobileAutomationPanel({
   const claimAndExecute = useCallback(async () => {
     if (composer || !ready || !canManage || workerBusyRef.current) return;
     workerBusyRef.current = true;
+    beginMobileWork();
     const connectionRun = new AbortController();
     connectionRunRef.current = connectionRun;
     const executorSessionId = crypto.randomUUID();
@@ -365,7 +367,7 @@ export default function MobileAutomationPanel({
       const job = payload.job as AutomationJob | null;
       if (!job) { setWorkerMessage(payload.blockedReason ?? null); return; }
       setExecuting(true);
-      setWorkerMessage(job.action === "POST_THREAD_MESSAGE" ? "Publicando el mensaje aprobado de la conversación…" : job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
+      setWorkerMessage(job.action === "CHECK_THREAD" ? "Comprobando reacciones y respuestas de la conversación (sin escribir nada)…" : job.action === "POST_THREAD_MESSAGE" ? "Publicando el mensaje aprobado de la conversación…" : job.action === "FOLLOW_PAGES" ? "Abriendo cada página y pulsando «Seguir»…" : job.action === "DISCOVER_FACEBOOK_CONVERSATIONS" ? "Buscando comentarios y preparando respuestas…" : job.action === "REPLY_FACEBOOK_CONVERSATIONS" ? "Enviando las respuestas seleccionadas…" : job.action === "DISCOVER_FACEBOOK_GROUPS"
         ? `Analizando varios resultados sobre «${job.sourceRef}» en Facebook…`
         : job.action === "JOIN_FACEBOOK_GROUP_BATCH"
           ? "Procesando en Facebook todos los grupos aprobados…"
@@ -373,7 +375,7 @@ export default function MobileAutomationPanel({
             ? `Buscando grupos sobre «${job.sourceRef}» en Facebook…`
             : "Preparando el trabajo aprobado en el móvil…");
         try {
-          const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS") || job.action === "FOLLOW_PAGES" || job.action === "POST_THREAD_MESSAGE";
+          const isConversation = job.action.endsWith("FACEBOOK_CONVERSATIONS") || job.action === "FOLLOW_PAGES" || job.action === "POST_THREAD_MESSAGE" || job.action === "CHECK_THREAD";
           clearMobileJob(job.id);
           const abortDisconnectedJob = () => abortMobileJob(job.id);
           connectionRun.signal.addEventListener("abort", abortDisconnectedJob, { once: true });
@@ -452,6 +454,7 @@ export default function MobileAutomationPanel({
       setError(claimError instanceof Error ? claimError.message : "El worker móvil se ha detenido");
     } finally {
       workerBusyRef.current = false;
+      endMobileWork();
       setExecuting(false);
       if (connectionRunRef.current === connectionRun) connectionRunRef.current = null;
     }

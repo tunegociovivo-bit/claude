@@ -15,7 +15,7 @@ export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, {
   if (!parsed.success) throw new ApiError(400, "validation_error", "Progreso no válido.");
   const job = await prisma.mobileAutomationJob.findFirst({ where: { id: params.id, workspaceId: api.workspaceId } });
   const now = new Date();
-  if (!job || job.status !== "RUNNING" || !job.leaseUntil || job.leaseUntil <= now || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE"].includes(job.action)) {
+  if (!job || job.status !== "RUNNING" || !job.leaseUntil || job.leaseUntil <= now || job.leaseOwner !== parsed.data.executorSessionId || !["DISCOVER_FACEBOOK_CONVERSATIONS", "REPLY_FACEBOOK_CONVERSATIONS", "FOLLOW_PAGES", "POST_THREAD_MESSAGE", "CHECK_THREAD"].includes(job.action)) {
     throw new ApiError(409, "lease_lost", "La ejecución se ha detenido o está en otra pestaña.");
   }
   let intentText: string | undefined;
