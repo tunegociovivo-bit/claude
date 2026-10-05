@@ -19,6 +19,8 @@ import { humanizeAiError } from "@/lib/ai/errors";
 import { ensureContentBrand } from "@/lib/content/brand";
 import { assertWorkspaceAssetUrl } from "@/lib/editorial/assets";
 
+export const dynamic = "force-dynamic";
+
 const schema = z.object({
   // CRM: se ignora; siempre se usa la ficha de marca del negocio.
   clientId: z.string().optional().nullable(),

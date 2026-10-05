@@ -63,6 +63,8 @@ export type GenerateMonthOptions = {
   referenceLinks?: string[];
   requiredTopics?: string[];
   allowReuseUsed?: boolean;
+  /** Publicaciones que no cuentan como «contenido ya utilizado» (la que se está regenerando). */
+  excludePostIds?: string[];
   // ID del BackgroundJob para chequear cancelRequested entre
   // iteraciones (cancelación cooperativa).
   jobId?: string;
@@ -416,7 +418,7 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   });
   if (!brandRow) throw new Error("Ficha de marca no encontrada");
   // URLs de las fotos del roster con firma vigente (se adjuntan a Claude).
-  const client = await resignBrandAssets(brandRow);
+  const client = await resignBrandAssets(brandRow, opts.workspaceId);
 
   const isSingle = !!opts.singleTopic;
   const effectiveCount = isSingle ? 1 : opts.count;
@@ -436,6 +438,7 @@ export async function generateMonth(opts: GenerateMonthOptions): Promise<Generat
   const usedPosts = opts.allowReuseUsed ? [] : await prisma.editorialPost.findMany({
     where: {
       workspaceId: opts.workspaceId, clientId: opts.clientId,
+      ...(opts.excludePostIds?.length ? { id: { notIn: opts.excludePostIds } } : {}),
       OR: [{ status: "PUBLISHED" }, { publishedAt: { not: null } }, { publications: { some: { status: "PUBLISHED" } } }, { metaJson: { path: ["contentUsage", "usedAt"], not: Prisma.JsonNull } }]
     },
     select: { title: true, content: true },

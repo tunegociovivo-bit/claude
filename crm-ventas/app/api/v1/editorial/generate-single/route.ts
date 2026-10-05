@@ -21,6 +21,8 @@ import { buildS3Key, isStorageEnabled, signedDownloadUrl, uploadBuffer } from "@
 import { ensureContentBrand } from "@/lib/content/brand";
 import { assertWorkspaceAssetUrl } from "@/lib/editorial/assets";
 
+export const dynamic = "force-dynamic";
+
 /** Formatos que se generan como VÍDEO (pipeline tomas + voz + subtítulos)
  *  en vez de como imagen estática. */
 const VIDEO_FORMATS = new Set(["video", "reel", "story"]);

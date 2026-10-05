@@ -1,3 +1,4 @@
+import { cleanupSeoPostFiles } from "@/lib/content/cleanup";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -35,7 +36,10 @@ export const POST = withApi({ module: "seo" }, async (req, { api }) => {
     return NextResponse.json({ updated: r.count });
   }
   if (action === "delete") {
-    const r = await prisma.seoBlogPost.deleteMany({ where: { ...scope, status: { notIn: ["programada", "publicada"] } } });
+    const where = { ...scope, status: { notIn: ["programada", "publicada"] } };
+    const doomed = await prisma.seoBlogPost.findMany({ where, select: { id: true } });
+    const r = await prisma.seoBlogPost.deleteMany({ where: { ...where, id: { in: doomed.map((p) => p.id) } } });
+    for (const p of doomed) void cleanupSeoPostFiles(ws, p.id);
     return NextResponse.json({ updated: r.count });
   }
   if (action === "generate") {

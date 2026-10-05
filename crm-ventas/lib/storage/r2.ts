@@ -12,12 +12,12 @@
  *    funciona sin configurar nada y las URLs son públicas para Meta/WordPress.
  */
 import crypto from "crypto";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "@/lib/prisma";
 
 export const FILES_ROUTE = "/api/files/";
-const DB_MAX_BYTES = 60 * 1024 * 1024;
+const DB_MAX_BYTES = 40 * 1024 * 1024;
 
 export function isS3Enabled(): boolean {
   return Boolean(
@@ -123,7 +123,7 @@ export async function uploadBuffer(opts: { s3Key: string; body: Uint8Array | Buf
   }
   const data = Buffer.from(opts.body);
   if (data.length > DB_MAX_BYTES) {
-    throw new Error("Archivo demasiado grande para guardarlo sin bucket (máx. 60 MB). Configura STORAGE_* (R2/S3).");
+    throw new Error("Archivo demasiado grande para guardarlo sin bucket (máx. 40 MB). Configura STORAGE_* (R2/S3).");
   }
   const workspaceId = opts.s3Key.split("/")[0] || null;
   await prisma.storedFile.upsert({
@@ -159,4 +159,29 @@ export function buildS3Key(opts: { workspaceId: string; targetType?: string | nu
   const uniq = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const folder = opts.targetType && opts.targetId ? `${opts.targetType.toLowerCase()}/${opts.targetId}` : "uploads";
   return `${opts.workspaceId}/${folder}/${uniq}-${safeName}`;
+}
+
+/**
+ * Borra todos los archivos de una publicación (BD y bucket). Solo acepta
+ * prefijos `<workspace>/<editorial|seoblog_post>/<id>/` construidos en el
+ * servidor, para que nunca pueda borrarse nada fuera de esa carpeta.
+ */
+export async function deleteObjectsWithPrefix(prefix: string): Promise<number> {
+  if (!/^[A-Za-z0-9_-]+\/(editorial|seoblog_post)\/[A-Za-z0-9_-]+\/$/.test(prefix)) throw new Error("invalid_media_prefix");
+  const db = await prisma.storedFile.deleteMany({ where: { key: { startsWith: prefix } } });
+  let removed = db.count;
+  if (isS3Enabled()) {
+    let token: string | undefined;
+    do {
+      const page = await client().send(new ListObjectsV2Command({ Bucket: bucket(), Prefix: prefix, ContinuationToken: token }));
+      for (const object of page.Contents ?? []) {
+        if (object.Key) {
+          await client().send(new DeleteObjectCommand({ Bucket: bucket(), Key: object.Key }));
+          removed++;
+        }
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+  }
+  return removed;
 }

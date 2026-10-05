@@ -3,6 +3,7 @@ import { isSameOrigin } from "@/lib/auth";
 import { isModuleEnabled, MODULE_LABELS, type ContentModule } from "@/lib/modules";
 import { authenticate, errorResponse, requireAdminRole, requireScope, ApiError, type ApiContext } from "./auth";
 import { rateLimit } from "./rate-limit";
+import { assertAiBudget } from "@/lib/content/ai-budget";
 
 type Handler = (req: NextRequest, ctx: { params: any; api: ApiContext }) => Promise<NextResponse | Response>;
 
@@ -33,6 +34,9 @@ export function withApi(opts: WithApiOpts, handler: Handler) {
         throw new ApiError(403, "module_disabled", `El módulo ${MODULE_LABELS[opts.module]} no está activo en tu cuenta. Pídeselo a Negocio Vivo.`);
       }
 
+      // Endpoints de IA: tope mensual de gasto por negocio (claves de Negocio Vivo).
+      if (opts.rate === "ai" && isWrite) await assertAiBudget(api.workspaceId);
+
       const limit = opts.rateLimit?.user ?? (opts.rate ? CATEGORY_LIMITS[opts.rate] : isWrite ? LIMITS.write : LIMITS.read);
       const key = `user:${api.userId}:${opts.rateLimit ? "custom" : opts.rate ?? (isWrite ? "w" : "r")}`;
       const rl = rateLimit(key, limit);
@@ -48,6 +52,8 @@ export function withApi(opts: WithApiOpts, handler: Handler) {
       if (!res.headers.has("Cache-Control")) res.headers.set("Cache-Control", "no-store, must-revalidate");
       return res;
     } catch (err) {
+      // Señales internas de Next (render dinámico) no son errores de la ruta.
+      if ((err as { digest?: string })?.digest === "DYNAMIC_SERVER_USAGE") throw err;
       return errorResponse(err);
     }
   };

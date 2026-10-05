@@ -113,7 +113,7 @@ export const POST = withApi({ module: "seo" }, async (_req, { params, api }) => 
       const buffer =
         own || it.url.startsWith("data:")
           ? (await fetchAssetBuffer(it.url, { timeoutMs: 30_000, maxBytes: 25 * 1024 * 1024 })).buffer
-          : await safeDownload((await resignUrlIfNeeded(it.url)) ?? it.url, { timeoutMs: 30_000, maxBytes: 25 * 1024 * 1024 });
+          : await safeDownload((await resignUrlIfNeeded(it.url, api.workspaceId)) ?? it.url, { timeoutMs: 30_000, maxBytes: 25 * 1024 * 1024 });
       await storeReference(api.workspaceId, site.id, buffer, `editorial-${imported + 1}.jpg`, it.label);
       imported++;
     } catch (e: any) {

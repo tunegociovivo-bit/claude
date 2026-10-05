@@ -17,6 +17,8 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { patchWorkspaceSettings, readWorkspaceSettings } from "@/lib/content/settings";
 
+export const dynamic = "force-dynamic";
+
 function availability() {
   const text = Boolean(process.env.ANTHROPIC_API_KEY);
   const openai = Boolean(process.env.OPENAI_API_KEY);

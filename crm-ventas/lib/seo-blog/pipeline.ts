@@ -15,6 +15,8 @@ import sharp from "sharp";
 import type { SeoBlogPost } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { complete, completeJson } from "@/lib/ai/anthropic";
+import { logAiUsage } from "@/lib/ai/usage";
+import { getAiBudget } from "@/lib/content/ai-budget";
 import { humanizeAiError } from "@/lib/ai/errors";
 import { appBaseUrl, downloadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 import { readModules } from "@/lib/modules";
@@ -344,6 +346,7 @@ async function stepImagesRequest(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
     const row: ImgItem = { ...img, prompt, aspect: site.imageAspect || "widescreen_16_9", status: "pending", tries: 1, requestedAt: Date.now() };
     try {
       const t = await createSeedreamTask(p.workspaceId, s, prompt, row.aspect!, refs);
+      void logAiUsage({ workspaceId: p.workspaceId, feature: "seo_blog_image", provider: "freepik", model: "freepik-image" }).catch(() => undefined);
       row.taskId = t.taskId;
       row.endpoint = t.endpoint;
       anyOk = true;
@@ -396,6 +399,7 @@ export async function pollImages(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
         if (tries === 2) await seoLog(p.workspaceId, { siteId: p.siteId, postId: p.id }, `Imagen ${i}: Seedream rechazó la escena dos veces (filtro de seguridad); se genera una escena neutra del sector.`, "warn");
         try {
           const t = await createSeedreamTask(p.workspaceId, s, promptTry, img.aspect ?? "widescreen_16_9", await referenceUrls(p.workspaceId, site.id, 5));
+          void logAiUsage({ workspaceId: p.workspaceId, feature: "seo_blog_image", provider: "freepik", model: "freepik-image" }).catch(() => undefined);
           Object.assign(img, { taskId: t.taskId, endpoint: t.endpoint, requestedAt: Date.now() });
           pending++;
         } catch (e: any) {
@@ -435,6 +439,7 @@ export async function regenImage(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettin
   const prompt = imagePrompt(site, imgs[index], refs.length > 0, isNanoBanana(s));
   const aspect = imgs[index].aspect ?? (site.imageAspect || "widescreen_16_9");
   const t = await createSeedreamTask(p.workspaceId, s, prompt, aspect, refs);
+  void logAiUsage({ workspaceId: p.workspaceId, feature: "seo_blog_image", provider: "freepik", model: "freepik-image" }).catch(() => undefined);
   imgs[index] = {
     ...imgs[index], prompt, aspect, status: "pending", tries: 1, requestedAt: Date.now(),
     taskId: t.taskId, endpoint: t.endpoint, remoteId: 0, remoteUrl: "", remoteFull: "", error: ""
@@ -677,6 +682,11 @@ export async function runSeoBlogTick(
   const wsIds = await enabledWorkspaceIds(opts.workspaceId);
   if (!wsIds.length) return { processed, published };
   const inWs = { workspaceId: { in: wsIds } };
+  // Negocios que han agotado su tope mensual de IA: no se redacta nada nuevo
+  // (sí se siguen enviando a WordPress los posts ya aprobados, que no gastan IA).
+  const overBudget: string[] = [];
+  for (const id of wsIds) if ((await getAiBudget(id).catch(() => null))?.exceeded) overBudget.push(id);
+  const budgetOk = overBudget.length ? { OR: [{ status: "aprobada" }, { workspaceId: { notIn: overBudget } }] } : {};
 
   // 1) Planificadas cuya ventana de redacción (N días antes) ha llegado → cola
   const planned = await prisma.seoBlogPost.findMany({
@@ -698,7 +708,7 @@ export async function runSeoBlogTick(
         ...inWs,
         status: { in: ["aprobada", "generando", "en_cola"] },
         id: { notIn: [...tried] },
-        OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }]
+        AND: [{ OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] }, budgetOk]
       },
       orderBy: [{ publishAt: "asc" }, { createdAt: "asc" }],
       select: { id: true, workspaceId: true }
@@ -706,7 +716,7 @@ export async function runSeoBlogTick(
     if (!cand) {
       // Reintento automático de errores (máx 3) tras 15 min
       const err = await prisma.seoBlogPost.findFirst({
-        where: { ...inWs, status: "error", attempts: { lt: 3 }, updatedAt: { lt: new Date(Date.now() - 15 * 60 * 1000) }, id: { notIn: [...tried] } },
+        where: { ...inWs, status: "error", attempts: { lt: 3 }, updatedAt: { lt: new Date(Date.now() - 15 * 60 * 1000) }, id: { notIn: [...tried] }, ...(overBudget.length ? { workspaceId: { in: wsIds.filter((id) => !overBudget.includes(id)) } } : {}) },
         select: { id: true, workspaceId: true, step: true }
       });
       if (!err) break;

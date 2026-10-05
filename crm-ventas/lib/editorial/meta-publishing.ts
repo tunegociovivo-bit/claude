@@ -303,12 +303,12 @@ export async function publishEditorialPublication(workspaceId: string, publicati
     const mediaUrls = parseMediaUrls(publication.post.mediaUrls);
     const rawVideoUrl = mediaUrls.find(isVideoUrl) ?? null;
     const rawImageUrl = publication.post.thumbnail ?? mediaUrls.find((url) => !isVideoUrl(url)) ?? null;
-    const videoUrl = await resignUrlLong(rawVideoUrl);
-    const imageUrl = await resignUrlLong(rawImageUrl);
+    const videoUrl = await resignUrlLong(rawVideoUrl, workspaceId);
+    const imageUrl = await resignUrlLong(rawImageUrl, workspaceId);
     const carousel = ["carrusel", "carousel"].includes(publication.post.format ?? "");
     const savedMedia = (publication.metaJson as { mediaUrls?: string[] } | null)?.mediaUrls ?? [];
     if (carousel && savedMedia.length < 2) throw new Error("Selecciona las imágenes del carrusel antes de publicar.");
-    const images = carousel ? (await Promise.all(savedMedia.map(resignUrlLong))).filter((url): url is string => !!url) : undefined;
+    const images = carousel ? (await Promise.all(savedMedia.map((url) => resignUrlLong(url, workspaceId)))).filter((url): url is string => !!url) : undefined;
     const prefersVideo = ["reel", "story", "video"].some((part) => String(publication.post.format ?? "").toLowerCase().includes(part));
     const result =
       network === "facebook"
@@ -358,7 +358,38 @@ const EDITORIAL_ENABLED_WORKSPACE = {
   is: { isBlocked: false, settings: { path: ["modules", "editorial"], equals: true } }
 } as const;
 
+// Un envío que lleva más de esto en PUBLISHING es de un proceso que murió
+// (redeploy, reinicio) entre la reclamación y el resultado.
+const STALE_PUBLISHING_MS = 15 * 60 * 1000;
+
+/**
+ * Libera destinos atascados en PUBLISHING: no se sabe si Meta llegó a
+ * publicarlos, así que pasan a UNKNOWN (no se reintentan solos, para no
+ * duplicar) y dejan de bloquear la edición del post.
+ */
+export async function recoverStalePublishing(): Promise<number> {
+  const stale = await prisma.editorialPublication.findMany({
+    where: { status: "PUBLISHING", updatedAt: { lt: new Date(Date.now() - STALE_PUBLISHING_MS) } },
+    select: { id: true, metaJson: true, updatedAt: true },
+    take: 100,
+  });
+  let recovered = 0;
+  for (const row of stale) {
+    const res = await prisma.editorialPublication.updateMany({
+      where: { id: row.id, status: "PUBLISHING", updatedAt: row.updatedAt },
+      data: {
+        status: "UNKNOWN",
+        lastError: "El envío se interrumpió (reinicio del servidor). Comprueba en Facebook/Instagram si llegó a publicarse antes de reintentar.",
+        metaJson: publicationHistory(row.metaJson, "UNKNOWN"),
+      },
+    });
+    recovered += res.count;
+  }
+  return recovered;
+}
+
 export async function publishScheduledEditorialMetaPublications(limit = 10) {
+  await recoverStalePublishing().catch((error) => console.warn("[editorial] recuperando envíos atascados:", (error as Error).message));
   const due = await prisma.editorialPublication.findMany({
     where: { status: "SCHEDULED", scheduledFor: { lte: new Date() }, workspace: EDITORIAL_ENABLED_WORKSPACE },
     orderBy: { scheduledFor: "asc" },

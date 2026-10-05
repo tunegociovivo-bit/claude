@@ -12,6 +12,8 @@ import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
 import { ensureContentBrand } from "@/lib/content/brand";
 
+export const dynamic = "force-dynamic";
+
 export const POST = withApi({ module: "editorial", rate: "ai" }, async (_req, { api }) => {
   const brand = await ensureContentBrand(api.workspaceId);
   try {

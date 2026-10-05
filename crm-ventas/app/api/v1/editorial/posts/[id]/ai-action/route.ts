@@ -15,6 +15,8 @@ import { runAiAction, AI_ACTIONS, type AiAction } from "@/lib/editorial/ai-actio
 import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
 
+export const dynamic = "force-dynamic";
+
 const ACTION_KEYS = Object.keys(AI_ACTIONS) as [AiAction, ...AiAction[]];
 
 const schema = z.object({

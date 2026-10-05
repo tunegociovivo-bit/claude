@@ -5,7 +5,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
-import { readOwnFile } from "@/lib/storage/r2";
+import { fetchAssetBuffer } from "@/lib/storage/fetch-asset";
 import { stripLoneSurrogates, deepSanitizeStrings } from "./sanitize";
 
 // Modelos (configurables por entorno). Por defecto, los mismos del Hub.
@@ -234,27 +234,9 @@ export async function normalizeImageForClaude(input: Buffer): Promise<Buffer | n
  */
 async function fetchImageAsBase64Block(url: string): Promise<ImageBlock | null> {
   try {
-    const own = await readOwnFile(url);
-    let buf: Buffer;
-    if (own) {
-      buf = own.buffer;
-    } else {
-      if (!/^https?:\/\//i.test(url)) return null;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 15_000);
-      const resp = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
-      clearTimeout(timer);
-      if (!resp.ok) {
-        console.warn(`[vision] HTTP ${resp.status} al descargar ${url.slice(0, 80)}`);
-        return null;
-      }
-      buf = Buffer.from(await resp.arrayBuffer());
-    }
-    if (buf.length > 25 * 1024 * 1024) {
-      console.warn(`[vision] imagen > 25MB, saltando ${url.slice(0, 80)}`);
-      return null;
-    }
-    const normalized = await normalizeImageForClaude(buf);
+    // Archivos propios desde BD; externos con anti-SSRF y tope de tamaño.
+    const { buffer } = await fetchAssetBuffer(url, { timeoutMs: 15_000, maxBytes: 25 * 1024 * 1024 });
+    const normalized = await normalizeImageForClaude(buffer);
     return normalized ? toBlock(normalized) : null;
   } catch (e: any) {
     console.warn(`[vision] fetch fail ${url.slice(0, 80)}: ${e?.message ?? e}`);

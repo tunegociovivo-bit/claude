@@ -159,21 +159,30 @@ export async function saveWorkspaceSettings(
   workspaceId: string,
   patch: Partial<WorkspaceSettings>
 ): Promise<WorkspaceSettings> {
-  const current = await getWorkspaceSettings(workspaceId);
-  const merged: WorkspaceSettings = {
-    ...current,
-    ...patch,
-    sonia: { ...current.sonia, ...(patch.sonia ?? {}) },
-    whatsapp: { ...current.whatsapp, ...(patch.whatsapp ?? {}) },
-    branding: { ...current.branding, ...(patch.branding ?? {}) },
-    urgentAlerts: { ...current.urgentAlerts, ...(patch.urgentAlerts ?? {}) },
-    pipeline: patch.pipeline ?? current.pipeline,
-  };
-  await prisma.workspace.update({
-    where: { id: workspaceId },
-    data: { settings: merged as any },
+  // Lectura y escritura en la misma transacción (FOR UPDATE) y conservando las
+  // claves que este módulo no conoce: settings también guarda los módulos de
+  // contenidos (modules, editorial, seoBlog, integrations…), que no deben
+  // perderse al guardar la configuración de Paula, el logo o WhatsApp.
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ settings: unknown }>>`SELECT "settings" FROM "Workspace" WHERE "id" = ${workspaceId} FOR UPDATE`;
+    if (rows.length === 0) throw new Error("Workspace no encontrado");
+    const raw = (rows[0].settings && typeof rows[0].settings === "object" ? rows[0].settings : {}) as Record<string, unknown>;
+    const current = readSettings(raw);
+    const merged: WorkspaceSettings = {
+      ...current,
+      ...patch,
+      sonia: { ...current.sonia, ...(patch.sonia ?? {}) },
+      whatsapp: { ...current.whatsapp, ...(patch.whatsapp ?? {}) },
+      branding: { ...current.branding, ...(patch.branding ?? {}) },
+      urgentAlerts: { ...current.urgentAlerts, ...(patch.urgentAlerts ?? {}) },
+      pipeline: patch.pipeline ?? current.pipeline,
+    };
+    await tx.workspace.update({
+      where: { id: workspaceId },
+      data: { settings: { ...raw, ...merged } as any },
+    });
+    return merged;
   });
-  return merged;
 }
 
 // Busca el workspace dueño de un token de webhook (Vapi o WhatsApp).

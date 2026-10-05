@@ -63,14 +63,14 @@ export async function ensureContentBrand(workspaceId: string) {
 }
 
 /** Re-firma las URLs de recursos de la ficha para mostrarlas en pantalla. */
-export async function resignBrandAssets<T extends Record<string, any>>(brand: T): Promise<T> {
+export async function resignBrandAssets<T extends Record<string, any>>(brand: T, workspaceId: string): Promise<T> {
   const out: any = { ...brand };
-  if (typeof out.logoUrl === "string") out.logoUrl = await resignUrlIfNeeded(out.logoUrl);
+  if (typeof out.logoUrl === "string") out.logoUrl = await resignUrlIfNeeded(out.logoUrl, workspaceId);
   for (const field of ["referenceImages", "patternTemplates", "fonts"]) {
     if (Array.isArray(out[field])) {
       out[field] = await Promise.all(
         out[field].map(async (item: any) =>
-          item && typeof item.url === "string" ? { ...item, url: await resignUrlIfNeeded(item.url) } : item
+          item && typeof item.url === "string" ? { ...item, url: await resignUrlIfNeeded(item.url, workspaceId) } : item
         )
       );
     }

@@ -82,11 +82,30 @@ function cleanTag(closing: boolean, name: string, attrs: string): string {
   return `<${tag}${out.length ? " " + out.join(" ") : ""}>`;
 }
 
+const TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+
+function escText(v: string): string {
+  return v.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Tokeniza una sola vez: lo que tiene forma de etiqueta pasa por la lista
+ * blanca y TODO lo demás se emite como texto escapado. Así, al quitar una
+ * etiqueta no permitida, los trozos de alrededor no pueden unirse para formar
+ * una etiqueta nueva (p. ej. `<<x>img onerror=…>`).
+ */
 export function sanitizePreviewHtml(html: string): string {
-  return String(html ?? "")
+  const src = String(html ?? "")
     .replace(/<!--[\s\S]*?(-->|$)/g, "")
     .replace(DROP_WITH_CONTENT, "")
-    .replace(DROP_OPEN, "")
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (_m, slash: string, name: string, attrs: string) => cleanTag(!!slash, name, attrs))
-    .replace(/<(?![a-zA-Z/])/g, "&lt;");
+    .replace(DROP_OPEN, "");
+  let out = "";
+  let last = 0;
+  for (const m of src.matchAll(TAG_RE)) {
+    out += escText(src.slice(last, m.index));
+    out += cleanTag(!!m[1], m[2], m[3]);
+    last = (m.index ?? 0) + m[0].length;
+  }
+  out += escText(src.slice(last));
+  return out;
 }

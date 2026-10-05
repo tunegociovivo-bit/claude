@@ -10,6 +10,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 
+export const dynamic = "force-dynamic";
+
 export const GET = withApi({ module: "editorial" }, async (req, { api }) => {
   const url = new URL(req.url);
   const month = url.searchParams.get("month");

@@ -92,8 +92,10 @@ function ensureFontDir() {
 const FONT_PATH_CACHE = new Map<string, string>(); // url → path local
 
 async function downloadFontToTmp(url: string): Promise<string | null> {
-  if (FONT_PATH_CACHE.has(url)) {
-    const p = FONT_PATH_CACHE.get(url)!;
+  // Clave estable (sin la firma, que cambia cada hora) para no re-descargar.
+  const cacheKey = url.split("?")[0];
+  if (FONT_PATH_CACHE.has(cacheKey)) {
+    const p = FONT_PATH_CACHE.get(cacheKey)!;
     if (existsSync(p)) return p;
   }
   ensureFontDir();
@@ -103,17 +105,17 @@ async function downloadFontToTmp(url: string): Promise<string | null> {
     const buf = asset.buffer;
     const ct = (asset.contentType ?? "").split(";")[0].trim();
     const ext =
-      ct === "font/ttf" || url.endsWith(".ttf")
+      ct === "font/ttf" || cacheKey.toLowerCase().endsWith(".ttf")
         ? "ttf"
-        : ct === "font/otf" || url.endsWith(".otf")
+        : ct === "font/otf" || cacheKey.toLowerCase().endsWith(".otf")
           ? "otf"
-          : ct === "font/woff" || url.endsWith(".woff")
+          : ct === "font/woff" || cacheKey.toLowerCase().endsWith(".woff")
             ? "woff"
             : "woff2";
-    const hash = createHash("md5").update(url).digest("hex").slice(0, 12);
+    const hash = createHash("md5").update(cacheKey).digest("hex").slice(0, 12);
     const filePath = join(FONT_DIR, `${hash}.${ext}`);
     writeFileSync(filePath, buf);
-    FONT_PATH_CACHE.set(url, filePath);
+    FONT_PATH_CACHE.set(cacheKey, filePath);
     return filePath;
   } catch {
     return null;
@@ -222,6 +224,8 @@ function ensureInterRegistered(): { family: string; regularOk: boolean; boldOk: 
   return { family: "Inter", regularOk, boldOk };
 }
 
+const registeredBrandFamilies = new Map<string, { family: string; hasBold: boolean }>();
+
 async function resolveFontFamily(clientFonts?: ClientFont[]): Promise<{
   family: string;
   hasBold: boolean;
@@ -232,19 +236,27 @@ async function resolveFontFamily(clientFonts?: ClientFont[]): Promise<{
   // Si el cliente sube fuentes (Montserrat etc), las registramos
   // bajo un nombre "BrandFont" y las usamos como principal.
   if (clientFonts && clientFonts.length > 0) {
+    // GlobalFonts es global del proceso: cada negocio (cada juego de fuentes)
+    // usa su propia familia para que las fuentes no se mezclen entre clientes
+    // que generan a la vez. La URL sin firma identifica el archivo de forma estable.
+    const stable = clientFonts.map((f) => `${(f.url || "").split("?")[0]}|${f.weight ?? ""}`).sort().join("\n");
+    const family = `BrandFont-${createHash("sha1").update(stable).digest("hex").slice(0, 12)}`;
+    if (registeredBrandFamilies.has(family)) return registeredBrandFamilies.get(family)!;
     let registeredAny = false;
     let hasBoldClient = false;
     for (const f of clientFonts) {
       const path = await downloadFontToTmp(f.url);
       if (!path) continue;
       try {
-        GlobalFonts.registerFromPath(path, "BrandFont");
+        GlobalFonts.registerFromPath(path, family);
         registeredAny = true;
         if (f.weight === "bold") hasBoldClient = true;
       } catch {}
     }
     if (registeredAny) {
-      return { family: "BrandFont", hasBold: hasBoldClient || clientFonts.some((f) => f.weight === "bold") };
+      const result = { family, hasBold: hasBoldClient || clientFonts.some((f) => f.weight === "bold") };
+      registeredBrandFamilies.set(family, result);
+      return result;
     }
   }
   return { family: "Inter", hasBold: true };
@@ -257,7 +269,7 @@ async function resolveFontFamily(clientFonts?: ClientFont[]): Promise<{
 async function fetchBuffer(url: string): Promise<Buffer> {
   // CRM: los recursos propios (logo, imagen del post) se leen directo de BD
   // aunque la firma de su URL haya caducado.
-  const { buffer } = await fetchAssetBuffer(url);
+  const { buffer } = await fetchAssetBuffer(url, { maxBytes: 10 * 1024 * 1024 });
   return buffer;
 }
 

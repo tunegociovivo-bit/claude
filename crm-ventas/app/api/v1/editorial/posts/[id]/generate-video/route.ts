@@ -24,7 +24,8 @@ export const maxDuration = 600;
 const schema = z.object({
   promptOverride: z.string().optional(),
   extraGuidance: z.string().optional(),
-  model: z.string().optional(),
+  // Lista blanca: el slug va en la ruta de la API de Freepik con la clave de Negocio Vivo.
+  model: z.string().regex(/^kling-v[0-9]+(-[0-9]+)?(-(pro|std|master))?$/).optional(),
   shots: z.number().int().min(1).max(4).optional(),
   voiceover: z.boolean().optional(),
   subtitles: z.boolean().optional(),

@@ -18,6 +18,8 @@ import { ApiError } from "@/lib/api/auth";
 import { lockEditorialEdit, syncPublicationEdit } from "@/lib/editorial/sync-publication-edit";
 import { ensureContentBrand } from "@/lib/content/brand";
 
+export const dynamic = "force-dynamic";
+
 const baseSchema = z.object({
   action: z.enum(["approve", "schedule", "publish", "duplicate", "archive"]),
   // CRM: se ignora (una sola marca por negocio).

@@ -5,6 +5,8 @@ import { ApiError } from "@/lib/api/auth";
 import { buildS3Key, isStorageEnabled, uploadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 import { ensureContentBrand } from "@/lib/content/brand";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Sube una imagen de referencia para «Generar mes con IA» (referencias del
  * mes). CRM: la referencia queda bajo la marca del negocio; `clientId` del

@@ -7,6 +7,8 @@ import { resignPostMedia } from "@/lib/storage/resign";
 import { ensureContentBrand } from "@/lib/content/brand";
 import { assertWorkspaceAssetUrl, assetUrlSchema } from "@/lib/editorial/assets";
 
+export const dynamic = "force-dynamic";
+
 const STATUSES = ["DRAFT", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED", "ARCHIVED"] as const;
 
 const createSchema = z.object({

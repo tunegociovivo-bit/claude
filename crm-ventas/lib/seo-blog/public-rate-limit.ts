@@ -5,12 +5,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/api/rate-limit";
 
+// La última IP de X-Forwarded-For es la que añade el proxy de la plataforma
+// (la primera la puede inventar el cliente para esquivar el límite).
 export function clientIp(req: NextRequest): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip")?.trim() ||
-    "unknown"
-  );
+  const chain = (req.headers.get("x-forwarded-for") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  return chain[chain.length - 1] || req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 export function rateLimitPublic(req: NextRequest, opts: { limit?: number; tag: string }): NextResponse | null {

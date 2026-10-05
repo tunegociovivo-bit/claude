@@ -1,3 +1,4 @@
+import { workspaceKeyFromUrl } from "@/lib/storage/resign";
 import sharp from "sharp";
 import { prisma } from "@/lib/db/prisma";
 import { buildS3Key, downloadBuffer, isStorageEnabled, keyFromFileUrl, signedDownloadUrl, uploadBuffer } from "@/lib/storage/r2";
@@ -128,29 +129,9 @@ export async function getLatestEditorialImageBuffer(opts: {
 }
 
 export function editorialStorageKey(url: string, workspaceId: string): string | null {
-  // Archivos guardados en la BD del CRM (/api/files/<key>): solo valen los
-  // del propio negocio (aislamiento entre workspaces).
-  const ownKey = keyFromFileUrl(url);
-  if (ownKey) {
-    return ownKey.startsWith(workspaceId + "/") && !ownKey.split("/").includes("..") ? ownKey : null;
-  }
-  try {
-    const target = new URL(url);
-    const bases = [process.env.STORAGE_PUBLIC_URL, process.env.STORAGE_ENDPOINT].filter(Boolean) as string[];
-    for (const base of bases) {
-      const allowed = new URL(base);
-      const bucket = process.env.STORAGE_BUCKET;
-      const virtualHost = bucket ? `${bucket}.${allowed.hostname}` : "";
-      if (target.protocol !== allowed.protocol || target.port !== allowed.port ||
-          (target.hostname !== allowed.hostname && target.hostname !== virtualHost)) continue;
-      let path = decodeURIComponent(target.pathname).replace(/^\/+/, "");
-      const prefix = allowed.pathname.replace(/^\/+|\/+$/g, "");
-      if (prefix) { if (!path.startsWith(prefix + "/")) continue; path = path.slice(prefix.length + 1); }
-      if (bucket && path.startsWith(bucket + "/")) path = path.slice(bucket.length + 1);
-      if (path.startsWith(workspaceId + "/") && !path.split("/").includes("..")) return path;
-    }
-  } catch { /* Invalid URLs cannot identify stored media. */ }
-  return null;
+  // Mismo extractor que la re-firma (lib/storage/resign): archivos en BD
+  // (/api/files/<key>) o en el bucket, solo si son del propio negocio.
+  return workspaceKeyFromUrl(url, workspaceId);
 }
 
 export async function resizeEditorialImage(opts: {

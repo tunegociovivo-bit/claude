@@ -32,6 +32,22 @@ const MODEL_PRICING: Record<string, [number, number]> = {
   "whisper-1": [0, 6]
 };
 
+// Funciones que no se cobran por tokens. Para las de imagen del Editorial,
+// outputTokens trae el coste estimado en céntimos de USD (convenio del Hub).
+const CENTS_IN_OUTPUT = new Set(["editorial_generate_image", "editorial_edit_image"]);
+const FIXED_COST_USD: Record<string, number> = {
+  editorial_video: 0.6, // clip de vídeo (Kling vía Freepik)
+  editorial_video_frame: 0.04,
+  editorial_video_voiceover: 0.05,
+  seo_blog_image: 0.08, // imagen del blog (Nano Banana / Seedream vía Freepik)
+};
+
+export function estimateFeatureCostMicros(feature: string, model: string, inputTokens: number, outputTokens: number): number {
+  if (CENTS_IN_OUTPUT.has(feature)) return Math.round(outputTokens * 10_000);
+  if (feature in FIXED_COST_USD) return Math.round(FIXED_COST_USD[feature] * USD_TO_MICROS);
+  return estimateCostMicros(model, inputTokens, outputTokens);
+}
+
 export function estimateCostMicros(model: string, inputTokens: number, outputTokens: number): number {
   const [inputPerM, outputPerM] = MODEL_PRICING[model] ?? [1, 5];
   const usd = (inputTokens / 1_000_000) * inputPerM + (outputTokens / 1_000_000) * outputPerM;
@@ -50,7 +66,7 @@ export async function logAiUsage(opts: {
 }): Promise<void> {
   const input = opts.inputTokens ?? 0;
   const output = opts.outputTokens ?? 0;
-  const costMicros = estimateCostMicros(opts.model, input, output);
+  const costMicros = estimateFeatureCostMicros(opts.feature, opts.model, input, output);
   try {
     await prisma.aiUsage.create({
       data: {

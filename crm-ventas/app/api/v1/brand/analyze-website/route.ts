@@ -17,6 +17,8 @@ import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
 import { ensureContentBrand } from "@/lib/content/brand";
 
+export const dynamic = "force-dynamic";
+
 const withProtocol = (value: unknown) =>
   typeof value === "string" && value.trim() && !/^https?:\/\//i.test(value.trim()) ? `https://${value.trim()}` : value;
 

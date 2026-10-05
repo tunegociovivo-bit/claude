@@ -1,3 +1,4 @@
+import { cleanupEditorialPostFiles } from "@/lib/content/cleanup";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
@@ -7,6 +8,8 @@ import { ApiError } from "@/lib/api/auth";
 import { lockEditorialEdit, syncPublicationEdit } from "@/lib/editorial/sync-publication-edit";
 import { ensureContentBrand } from "@/lib/content/brand";
 import { assertWorkspaceAssetUrl, assetUrlSchema } from "@/lib/editorial/assets";
+
+export const dynamic = "force-dynamic";
 
 const STATUSES = ["DRAFT", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED", "ARCHIVED"] as const;
 
@@ -128,5 +131,6 @@ export const DELETE = withApi({ module: "editorial", rate: "destructive" }, asyn
     where: { id: params.id, workspaceId: api.workspaceId }
   });
   if (del.count === 0) throw new ApiError(404, "not_found", "Publicación no encontrada");
+  void cleanupEditorialPostFiles(api.workspaceId, String(params.id));
   return NextResponse.json({ ok: true });
 });

@@ -533,7 +533,7 @@ export async function generatePostVideo(opts: {
   });
   if (!post) throw new Error(`Post ${opts.postId} no existe en este workspace`);
   // CRM: ficha de marca con URLs re-firmadas (fotos del roster para las tomas).
-  const client: any = post.client ? await resignBrandAssets(post.client) : null;
+  const client: any = post.client ? await resignBrandAssets(post.client, opts.workspaceId) : null;
 
   const format = (post as any).format ?? "reel";
   // Aspect ratio: si el usuario lo eligió en el modal (p.ej. "1:1", "16:9",

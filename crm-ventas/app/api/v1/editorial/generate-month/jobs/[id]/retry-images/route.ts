@@ -11,6 +11,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 
+export const dynamic = "force-dynamic";
+
 export const POST = withApi({ module: "editorial", rate: "ai" }, async (_req, { params, api }) => {
   const original = await prisma.backgroundJob.findFirst({
     where: {

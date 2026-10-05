@@ -13,6 +13,8 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 
+export const dynamic = "force-dynamic";
+
 const ZOMBIE_PENDING_MS = 90 * 1000; // 90s en PENDING = zombie
 const ZOMBIE_RUNNING_MS = 15 * 60 * 1000; // 15min en RUNNING = zombie
 

@@ -26,6 +26,8 @@ import { buildMetricoolCsv } from "@/lib/integrations/metricool-csv";
 import { resignPostMediaLong } from "@/lib/storage/resign";
 import { isEmailEnabled, sendEmailWithAttachment } from "@/lib/editorial/email";
 
+export const dynamic = "force-dynamic";
+
 const inputSchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   // CRM: se ignora (una sola marca por negocio).
@@ -87,6 +89,12 @@ export const POST = withApi({ module: "editorial" }, async (req, { api }) => {
 
   let emailResult: any = null;
   if (sendEmail && email) {
+    // El CSV solo se envía a personas del propio negocio (usuarios del CRM),
+    // para no usar el remitente de Negocio Vivo como relé hacia terceros.
+    const member = await prisma.user.findFirst({ where: { workspaceId: api.workspaceId, email: String(email).toLowerCase().trim() }, select: { id: true } });
+    if (!member) {
+      throw new ApiError(400, "email_not_member", "Solo se puede enviar a un email de un usuario de tu cuenta. Descarga el CSV si es para otra persona.");
+    }
     if (!isEmailEnabled()) {
       return NextResponse.json(
         {

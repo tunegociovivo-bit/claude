@@ -15,6 +15,8 @@ import { editImageForPost } from "@/lib/editorial/generate-image";
 import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
 
+export const dynamic = "force-dynamic";
+
 const schema = z.object({
   prompt: z.string().trim().min(3, "Escribe qué quieres cambiar de la imagen"),
   quality: z.enum(["low", "medium", "high"]).default("medium")

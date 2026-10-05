@@ -58,7 +58,7 @@ export async function openaiImagesEdits(opts: {
   const refResults = await Promise.all(
     opts.referenceUrls.map(async (url, i) => {
       try {
-        const asset = await fetchAssetBuffer(url, { timeoutMs: 15000 });
+        const asset = await fetchAssetBuffer(url, { timeoutMs: 15000, maxBytes: 25 * 1024 * 1024 });
         const ab = new Uint8Array(asset.buffer);
         const ct = (asset.contentType || "image/png").split(";")[0].trim();
         // Si el "content-type" no es imagen (p.ej. una página de error XML/HTML
@@ -268,7 +268,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
 
   // CRM: ficha de marca del negocio, con las URLs de logo/refs/plantillas/
   // fuentes re-firmadas para descargarlas.
-  const client = post.client ? await resignBrandAssets(post.client) : null;
+  const client = post.client ? await resignBrandAssets(post.client, opts.workspaceId) : null;
   const format = (opts.format ?? (post.format as EditorialFormat) ?? "imagen") as EditorialFormat;
   const dims = (client?.dimensionsByFormat as DimensionsByFormat | null) ?? defaultDimensionsByFormat();
   // Si la publicación tiene un aspect ratio elegido por el usuario en el
@@ -460,7 +460,7 @@ export async function generateImageForPost(opts: GenerateImageOptions): Promise<
       if (referenceUrls.length < TOTAL_CAP) referenceUrls.push(u);
     }
   }
-  for (let i = 0; i < referenceUrls.length; i++) referenceUrls[i] = (await resignUrlLong(referenceUrls[i])) || referenceUrls[i];
+  for (let i = 0; i < referenceUrls.length; i++) referenceUrls[i] = (await resignUrlLong(referenceUrls[i], opts.workspaceId)) || referenceUrls[i];
 
   // Log diagnóstico: qué personas detectamos y por qué. Visible en
   // Railway logs (kind=info). Permite saber si el matching falla por

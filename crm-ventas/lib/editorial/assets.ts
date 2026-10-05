@@ -16,6 +16,7 @@ import { z } from "zod";
 import { ApiError } from "@/lib/api/auth";
 import { isPrivateIp } from "@/lib/leads/email-extract";
 import { keyFromFileUrl, signedDownloadUrl } from "@/lib/storage/r2";
+import { workspaceKeyFromUrl } from "@/lib/storage/resign";
 import { ASSET_URL_TTL } from "@/lib/content/brand";
 import { editorialStorageKey } from "./media";
 
@@ -64,21 +65,8 @@ export function pointsToOwnStorage(parsed: URL): boolean {
  * negocio (prefijo `${workspaceId}/`). null si no es nuestra o es de otro.
  */
 export function workspaceStorageKey(url: string, workspaceId: string): string | null {
-  const ownKey = keyFromFileUrl(url);
-  if (ownKey) return ownKey.startsWith(`${workspaceId}/`) && !ownKey.split("/").includes("..") ? ownKey : null;
-  const viaConfig = editorialStorageKey(url, workspaceId);
-  if (viaConfig) return viaConfig;
-  try {
-    const parsed = new URL(url);
-    if (!pointsToOwnStorage(parsed)) return null;
-    // Estilo path (/bucket/key) o virtual-host (bucket.host/key).
-    let path = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-    const bucket = process.env.STORAGE_BUCKET;
-    if (bucket && path.startsWith(`${bucket}/`)) path = path.slice(bucket.length + 1);
-    return path.startsWith(`${workspaceId}/`) && !path.split("/").includes("..") ? path : null;
-  } catch {
-    return null;
-  }
+  // Un único extractor para validar y para re-firmar (lib/storage/resign).
+  return workspaceKeyFromUrl(url, workspaceId);
 }
 
 export async function assertWorkspaceAssetUrl(url: string, workspaceId: string): Promise<void> {

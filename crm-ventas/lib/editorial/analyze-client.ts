@@ -138,7 +138,7 @@ export async function generateStyleGuide(opts: {
   });
   if (!stored) throw new Error("Ficha de marca no encontrada");
   // URLs re-firmadas para descargar las imágenes (la caché usa la URL sin firma).
-  const client = await resignBrandAssets(stored);
+  const client = await resignBrandAssets(stored, opts.workspaceId);
 
   const refs = (client.referenceImages as ReferenceImage[] | null) ?? [];
   if (refs.length === 0) {

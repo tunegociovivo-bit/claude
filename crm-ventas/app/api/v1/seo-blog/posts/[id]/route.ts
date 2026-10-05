@@ -1,3 +1,4 @@
+import { cleanupSeoPostFiles } from "@/lib/content/cleanup";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -142,6 +143,8 @@ export const PATCH = withApi({ module: "seo" }, async (req, { params, api }) => 
 
 export const DELETE = withApi({ module: "seo", rate: "destructive" }, async (_req, { params, api }) => {
   const site = await ensureSeoSite(api.workspaceId);
-  await prisma.seoBlogPost.deleteMany({ where: { id: String(params.id ?? ""), workspaceId: api.workspaceId, siteId: site.id } });
+  const id = String(params.id ?? "");
+  const r = await prisma.seoBlogPost.deleteMany({ where: { id, workspaceId: api.workspaceId, siteId: site.id } });
+  if (r.count) void cleanupSeoPostFiles(api.workspaceId, id);
   return NextResponse.json({ ok: true });
 });

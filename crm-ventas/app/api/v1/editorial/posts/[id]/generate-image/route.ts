@@ -15,6 +15,8 @@ import { generateImageForPost } from "@/lib/editorial/generate-image";
 import { AIDisabledError } from "@/lib/ai/anthropic";
 import { humanizeAiError } from "@/lib/ai/errors";
 
+export const dynamic = "force-dynamic";
+
 const schema = z.object({
   quality: z.enum(["low", "medium", "high"]).default("medium"),
   promptOverride: z.string().optional(),

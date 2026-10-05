@@ -240,3 +240,10 @@ describe("anti-SSRF (CRM)", () => {
     assert.equal(t.address, "93.184.215.14");
   });
 });
+
+test("sanitizePreviewHtml: al quitar etiquetas no se forman etiquetas nuevas (XSS por concatenación)", () => {
+  const out = sanitizePreviewHtml('<<x>img src=x onerror="fetch(1)"><scr<script></script>ipt>alert(1)</script><<img/src=x/onerror=alert(1)>');
+  assert.ok(!/<[a-z]+[^>]*\son[a-z]+\s*=/i.test(out), out);
+  assert.ok(!/<script/i.test(out), out);
+  assert.equal(sanitizePreviewHtml("3 < 4 > 2"), "3 &lt; 4 &gt; 2");
+});

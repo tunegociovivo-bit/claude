@@ -8,6 +8,8 @@ import { listWorkspaceMetaTokens } from "@/lib/meta/connection";
 import { prisma } from "@/lib/db/prisma";
 import { ensureContentBrand } from "@/lib/content/brand";
 
+export const dynamic = "force-dynamic";
+
 const schema = z.object({
   // CRM: se ignora; los perfiles se vinculan siempre a la marca del negocio.
   clientId: z.string().optional().nullable(),
@@ -62,7 +64,7 @@ export const GET = withApi({ module: "editorial" }, async (req, { api }) => {
   return NextResponse.json({ items });
 });
 
-export const DELETE = withApi({ module: "editorial" }, async (req, { api }) => {
+export const DELETE = withApi({ module: "editorial", admin: true }, async (req, { api }) => {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) throw new ApiError(400, "validation_error", "Selecciona un perfil.");
   await prisma.$transaction([
@@ -72,7 +74,7 @@ export const DELETE = withApi({ module: "editorial" }, async (req, { api }) => {
   return NextResponse.json({ ok: true });
 });
 
-export const POST = withApi({ module: "editorial" }, async (req, { api }) => {
+export const POST = withApi({ module: "editorial", admin: true }, async (req, { api }) => {
   const body = await req.json().catch(() => ({}));
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);

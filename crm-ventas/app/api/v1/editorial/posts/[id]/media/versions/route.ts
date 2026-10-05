@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db/prisma";
 import { signedDownloadUrl } from "@/lib/storage/r2";
 import { prependMediaUrl, parseMediaUrls, mediaIdentity } from "@/lib/editorial/media";
 
+export const dynamic = "force-dynamic";
+
 export const GET = withApi({ module: "editorial" }, async (_req, { params, api }) => {
   const post = await prisma.editorialPost.findFirst({ where: { id: params.id, workspaceId: api.workspaceId } });
   if (!post) throw new ApiError(404, "not_found", "Publicación no encontrada");

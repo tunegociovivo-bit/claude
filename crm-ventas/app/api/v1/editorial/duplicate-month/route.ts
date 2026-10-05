@@ -15,6 +15,8 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { ensureContentBrand } from "@/lib/content/brand";
 
+export const dynamic = "force-dynamic";
+
 const schema = z.object({
   clientId: z.string().optional().nullable(),
   sourceMonth: z.string().regex(/^\d{4}-\d{2}$/),

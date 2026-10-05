@@ -13,6 +13,7 @@ type Client = {
   callCostMonthly: number; whatsappCostMonthly: number; totalCostMonthly: number;
   modules: { editorial: boolean; seo: boolean };
   contentAiCostMonthly: number;
+  contentAiLimitUsd: number;
 };
 
 const MODULES: Array<{ key: "editorial" | "seo"; label: string; hint: string; icon: typeof Newspaper }> = [
@@ -33,6 +34,7 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [names, setNames] = useState<Record<string, string>>({});
+  const [aiLimits, setAiLimits] = useState<Record<string, string>>({});
   const [showCreate, setShowCreate] = useState(false);
   const [newClient, setNewClient] = useState({ name: "", contactName: "", email: "", password: "" });
 
@@ -43,6 +45,7 @@ export default function AdminDashboard() {
     setData(next); setPrompt(next.globalPrompt ?? "");
     setNotes(Object.fromEntries(next.clients.map((client: Client) => [client.id, client.adminNotes ?? ""])));
     setNames(Object.fromEntries(next.clients.map((client: Client) => [client.id, client.name])));
+    setAiLimits(Object.fromEntries(next.clients.map((client: Client) => [client.id, String(client.contentAiLimitUsd ?? "")])));
   }
   useEffect(() => { void load(); }, []);
   const totals = useMemo(() => (data?.clients ?? []).reduce((acc, client) => ({
@@ -84,6 +87,19 @@ export default function AdminDashboard() {
     setBusy(null);
     const label = MODULES.find((module) => module.key === key)?.label ?? key;
     setNotice(response.ok ? `${label} ${enable ? "activado" : "desactivado"} para ${client.name}.` : `No se pudo cambiar ${label}.`);
+    if (response.ok) await load();
+  }
+
+  async function saveAiLimit(client: Client) {
+    const raw = (aiLimits[client.id] ?? "").trim().replace(",", ".");
+    const value = raw === "" ? null : Number(raw);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) { setNotice("Indica un límite válido en USD (0 = sin límite)."); return; }
+    setBusy(`ailimit:${client.id}`); setNotice("");
+    const response = await fetch(`/api/v1/admin/clients/${client.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentAiMonthlyLimitUsd: value }),
+    });
+    setBusy(null);
+    setNotice(response.ok ? `Límite de IA de ${client.name} guardado.` : "No se pudo guardar el límite de IA.");
     if (response.ok) await load();
   }
 
@@ -174,7 +190,15 @@ export default function AdminDashboard() {
                       );
                     })}
                   </div>
-                  {(client.modules?.editorial || client.modules?.seo) && <p className="mt-2 text-xs text-slate-500">IA de contenidos este mes: {money(client.contentAiCostMonthly ?? 0)}</p>}
+                  {(client.modules?.editorial || client.modules?.seo) && (
+                    <div className="mt-3 flex flex-wrap items-end gap-2 text-xs text-slate-500">
+                      <span className="mr-auto self-center">IA de contenidos este mes: {money(client.contentAiCostMonthly ?? 0)}</span>
+                      <label className="flex items-center gap-1.5">Límite/mes (USD)
+                        <input aria-label={`Límite mensual de IA de ${client.name}`} className="input w-24 py-1" inputMode="decimal" value={aiLimits[client.id] ?? ""} onChange={(event) => setAiLimits((current) => ({ ...current, [client.id]: event.target.value }))} placeholder="60" />
+                      </label>
+                      <button className="btn-ghost min-h-8 py-1" disabled={busy === `ailimit:${client.id}`} onClick={() => saveAiLimit(client)}>{busy === `ailimit:${client.id}` ? "Guardando…" : "Guardar límite"}</button>
+                    </div>
+                  )}
                 </div>
                 <p className="mt-3 text-xs text-slate-400">Voz {money(client.callCost)} · WhatsApp {money(client.whatsappCost)}</p>
                 <p className="mt-2 text-xs text-slate-400">Hoy: {client.callsToday} llamadas, {client.minutesToday} min, {client.whatsappToday} WhatsApp y {money(client.totalCostToday)} de coste.</p>

@@ -15,6 +15,8 @@ import { ensureContentBrand, resignBrandAssets } from "@/lib/content/brand";
 import { brandEditorialMetaSchema, BRAND_META_SELECT } from "@/lib/editorial/schemas";
 import { persistBrandAssetUrl } from "@/lib/editorial/assets";
 
+export const dynamic = "force-dynamic";
+
 async function loadBrand(workspaceId: string) {
   const brand = await ensureContentBrand(workspaceId);
   const row = await prisma.contentBrand.findFirst({
@@ -22,7 +24,7 @@ async function loadBrand(workspaceId: string) {
     select: BRAND_META_SELECT
   });
   if (!row) throw new ApiError(404, "not_found", "Ficha de marca no encontrada");
-  return resignBrandAssets(row);
+  return resignBrandAssets(row, workspaceId);
 }
 
 export const GET = withApi({ module: "editorial" }, async (_req, { api }) => {

@@ -1,3 +1,6 @@
+import { cleanupEditorialPostFiles } from "@/lib/content/cleanup";
+
+export const dynamic = "force-dynamic";
 /**
  * POST /api/v1/editorial/posts/[id]/regenerate
  *
@@ -97,10 +100,10 @@ async function regenerateAsync(
     });
     await pushEvent("info", "Regenerando publicación…");
 
-    // Borramos el post antiguo y dejamos que generateMonth cree el nuevo
-    // con el mismo título, formato, fecha y networks.
-    await prisma.editorialPost.deleteMany({ where: { id: postId, workspaceId } });
-    await pushEvent("info", "Post anterior eliminado, llamando a Claude para nuevo contenido…");
+    // Se genera PRIMERO la publicación nueva (mismo título, formato, fecha y
+    // redes); la antigua solo se sustituye si la generación termina bien, para
+    // no perder nada si la IA falla.
+    await pushEvent("info", "Llamando a Claude para el nuevo contenido…");
 
     const month = scheduledFor.toISOString().slice(0, 7);
     const result = await generateMonth({
@@ -118,6 +121,9 @@ async function regenerateAsync(
       generateImages: true,
       imageQuality: hints.imageQuality,
       singleTopic: title,
+      // Al regenerar, la publicación antigua no cuenta como contenido repetido
+      // (se sustituye cuando la nueva esté lista).
+      excludePostIds: [postId],
       singleFormat: format,
       singleScheduledFor: scheduledFor,
       imageIncludeHint: hints.imageIncludeHint,
@@ -128,6 +134,22 @@ async function regenerateAsync(
         await pushEvent("info", msg);
       }
     });
+
+    if (!result.count) throw new Error("La IA no devolvió ninguna publicación; se conserva la anterior.");
+    // Si la antigua ya tuvo envíos a Meta (publicados o en duda), se archiva
+    // para conservar su historial; si no, se borra con sus archivos.
+    const sent = await prisma.editorialPublication.count({ where: { postId, workspaceId, status: { in: ["PUBLISHED", "PUBLISHING", "UNKNOWN"] } } });
+    if (sent > 0) {
+      await prisma.$transaction([
+        prisma.editorialPublication.updateMany({ where: { postId, workspaceId, status: { in: ["PENDING", "SCHEDULED", "FAILED"] } }, data: { status: "CANCELLED", scheduledFor: null } }),
+        prisma.editorialPost.updateMany({ where: { id: postId, workspaceId }, data: { status: "ARCHIVED" } }),
+      ]);
+      await pushEvent("info", "Publicación anterior archivada (ya tenía envíos a Meta).");
+    } else {
+      const removed = await prisma.editorialPost.deleteMany({ where: { id: postId, workspaceId } });
+      if (removed.count) void cleanupEditorialPostFiles(workspaceId, postId);
+      await pushEvent("info", "Publicación anterior sustituida.");
+    }
 
     const summary = result.imagesGenerated > 0
       ? "✓ Regenerado · imagen lista"

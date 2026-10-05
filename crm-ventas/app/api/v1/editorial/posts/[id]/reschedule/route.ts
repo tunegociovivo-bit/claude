@@ -12,6 +12,8 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { lockEditorialEdit, syncPublicationEdit } from "@/lib/editorial/sync-publication-edit";
 
+export const dynamic = "force-dynamic";
+
 const schema = z.object({
   scheduledFor: z.string().datetime()
 });

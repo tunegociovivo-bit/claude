@@ -4,6 +4,7 @@ import { isSameOrigin, requireOperator } from "@/lib/auth";
 import { calculateUsageOverview } from "@/lib/admin/usage";
 import { getGlobalPrompt, saveGlobalPrompt } from "@/lib/admin/config";
 import { readModules } from "@/lib/modules";
+import { readAiLimitUsd } from "@/lib/content/ai-budget";
 
 function madridDayStart() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -73,6 +74,7 @@ export async function GET() {
       adminNotes: workspace.adminNotes ?? "",
       modules: readModules(workspace.settings),
       contentAiCostMonthly: contentAiByWorkspace.get(workspace.id) ?? 0,
+      contentAiLimitUsd: readAiLimitUsd(workspace.settings),
       ...usage,
     };
   });
