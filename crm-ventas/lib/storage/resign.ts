@@ -39,7 +39,15 @@ export function extractS3Key(url: string): string | null {
   };
   const endpointHost = hostOf(process.env.STORAGE_ENDPOINT);
   const publicHost = hostOf(process.env.STORAGE_PUBLIC_URL);
-  if (publicHost && host === publicHost) return path;
+  if (publicHost && host === publicHost) {
+    // STORAGE_PUBLIC_URL puede llevar ruta (https://cdn.x.com/media): se quita.
+    let prefix = "";
+    try {
+      prefix = decodeURIComponent(new URL(process.env.STORAGE_PUBLIC_URL!).pathname).replace(/^\/+|\/+$/g, "");
+    } catch {}
+    if (!prefix) return path;
+    return path.startsWith(prefix + "/") ? path.slice(prefix.length + 1) : null;
+  }
   if (endpointHost && host === endpointHost) return stripBucket(path);
   if (endpointHost && bucket && host === `${bucket.toLowerCase()}.${endpointHost}`) return path;
   if (host.endsWith(".r2.cloudflarestorage.com") || (host.endsWith(".amazonaws.com") && (host.includes(".s3.") || host.startsWith("s3.") || host.includes(".s3-")))) {

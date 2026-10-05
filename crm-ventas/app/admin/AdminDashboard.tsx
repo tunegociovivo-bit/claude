@@ -194,7 +194,7 @@ export default function AdminDashboard() {
                     <div className="mt-3 flex flex-wrap items-end gap-2 text-xs text-slate-500">
                       <span className="mr-auto self-center">IA de contenidos este mes: {money(client.contentAiCostMonthly ?? 0)}</span>
                       <label className="flex items-center gap-1.5">Límite/mes (USD)
-                        <input aria-label={`Límite mensual de IA de ${client.name}`} className="input w-24 py-1" inputMode="decimal" value={aiLimits[client.id] ?? ""} onChange={(event) => setAiLimits((current) => ({ ...current, [client.id]: event.target.value }))} placeholder="60" />
+                        <input aria-label={`Límite mensual de IA de ${client.name}`} className="input py-1" style={{ width: 96 }} inputMode="decimal" value={aiLimits[client.id] ?? ""} onChange={(event) => setAiLimits((current) => ({ ...current, [client.id]: event.target.value }))} placeholder="60" />
                       </label>
                       <button className="btn-ghost min-h-8 py-1" disabled={busy === `ailimit:${client.id}`} onClick={() => saveAiLimit(client)}>{busy === `ailimit:${client.id}` ? "Guardando…" : "Guardar límite"}</button>
                     </div>

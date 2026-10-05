@@ -1,3 +1,4 @@
+import { assertAiBudget } from "@/lib/content/ai-budget";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -63,6 +64,7 @@ export const POST = withApi({ module: "seo" }, async (req, { params, api }) => {
       await set({ status: "propuesta" });
       break;
     case "generate": {
+      await assertAiBudget(ws);
       const from = (STEPS as readonly string[]).includes(String(b.from)) ? String(b.from) : "research";
       if (from !== "research" && !p.brief) throw new ApiError(400, "no_brief", "Este post aún no tiene brief: genera desde el principio.");
       await set({
@@ -87,6 +89,7 @@ export const POST = withApi({ module: "seo" }, async (req, { params, api }) => {
       await set({ status: "revision" });
       break;
     case "regen_image": {
+      await assertAiBudget(ws);
       const site = await getSiteCtx(ws, p.siteId);
       if (!site) throw new ApiError(404, "not_found", "Web no encontrada");
       const index = Math.max(0, Math.min(5, Math.round(Number(b.index) || 0)));

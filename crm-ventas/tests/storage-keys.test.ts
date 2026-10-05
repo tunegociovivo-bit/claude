@@ -38,3 +38,17 @@ test("resignUrlIfNeeded no firma archivos de otro negocio", async () => {
   const fresh = await resignUrlIfNeeded(ownDb, "wsAttacker");
   assert.ok(fresh && fresh !== ownDb && fresh.startsWith("https://app.example.com/api/files/wsAttacker/"));
 });
+
+test("extractS3Key: STORAGE_PUBLIC_URL con ruta", async () => {
+  const prev = process.env.STORAGE_PUBLIC_URL;
+  process.env.STORAGE_PUBLIC_URL = "https://cdn.example.com/media";
+  try {
+    const { extractS3Key, workspaceKeyFromUrl } = await import("../lib/storage/resign");
+    assert.equal(extractS3Key("https://cdn.example.com/media/wsA/brand/x/logo.png"), "wsA/brand/x/logo.png");
+    assert.equal(extractS3Key("https://cdn.example.com/otra/wsA/brand/x/logo.png"), null);
+    assert.equal(workspaceKeyFromUrl("https://cdn.example.com/media/wsA/brand/x/logo.png", "wsA"), "wsA/brand/x/logo.png");
+  } finally {
+    if (prev === undefined) delete process.env.STORAGE_PUBLIC_URL;
+    else process.env.STORAGE_PUBLIC_URL = prev;
+  }
+});

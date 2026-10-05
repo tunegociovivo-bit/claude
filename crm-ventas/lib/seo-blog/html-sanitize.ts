@@ -10,8 +10,42 @@ const ALLOWED_TAGS = new Set([
   "strong", "sub", "summary", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul"
 ]);
 /** Etiquetas cuyo contenido completo se elimina. */
-const DROP_WITH_CONTENT = /<(script|style|iframe|object|embed|template|noscript|textarea|select|svg|math|frameset|frame|applet)\b[\s\S]*?<\/\1\s*>/gi;
-const DROP_OPEN = /<\/?(script|style|iframe|object|embed|template|noscript|textarea|select|svg|math|frameset|frame|applet|base|meta|link)\b[^>]*>/gi;
+const DROP_NAMES = "script|style|iframe|object|embed|template|noscript|textarea|select|svg|math|frameset|frame|applet";
+const DROP_OPEN = /<\/?(script|style|iframe|object|embed|template|noscript|textarea|select|svg|math|frameset|frame|applet|base|meta|link)\b[^<>]*>/gi;
+
+/**
+ * Quita `<script>…</script>` y similares en tiempo lineal: cada apertura busca
+ * su cierre con indexOf y, si un nombre ya no tiene cierre más adelante, no se
+ * vuelve a buscar (un contenido malicioso con miles de aperturas sin cierre no
+ * bloquea el proceso).
+ */
+function dropWithContent(html: string): string {
+  const lower = html.toLowerCase();
+  const open = new RegExp(`<(${DROP_NAMES})\\b`, "gi");
+  const noCloseAfter = new Map<string, number>();
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = open.exec(html))) {
+    const name = m[1].toLowerCase();
+    const from = m.index;
+    if ((noCloseAfter.get(name) ?? Infinity) <= from) continue;
+    const close = lower.indexOf(`</${name}`, from + 1);
+    if (close < 0) {
+      noCloseAfter.set(name, from);
+      continue;
+    }
+    const end = lower.indexOf(">", close);
+    if (end < 0) {
+      noCloseAfter.set(name, from);
+      continue;
+    }
+    out += html.slice(last, from);
+    last = end + 1;
+    open.lastIndex = last;
+  }
+  return out + html.slice(last);
+}
 
 const GLOBAL_ATTRS = new Set(["class", "id", "title", "aria-label", "lang", "dir"]);
 const TAG_ATTRS: Record<string, Set<string>> = {
@@ -82,7 +116,7 @@ function cleanTag(closing: boolean, name: string, attrs: string): string {
   return `<${tag}${out.length ? " " + out.join(" ") : ""}>`;
 }
 
-const TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+const TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^<>"']|"[^"]*"|'[^']*')*)>/g;
 
 function escText(v: string): string {
   return v.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -95,10 +129,8 @@ function escText(v: string): string {
  * una etiqueta nueva (p. ej. `<<x>img onerror=…>`).
  */
 export function sanitizePreviewHtml(html: string): string {
-  const src = String(html ?? "")
-    .replace(/<!--[\s\S]*?(-->|$)/g, "")
-    .replace(DROP_WITH_CONTENT, "")
-    .replace(DROP_OPEN, "");
+  const withoutComments = String(html ?? "").replace(/<!--[\s\S]*?(-->|$)/g, "");
+  const src = dropWithContent(withoutComments).replace(DROP_OPEN, "");
   let out = "";
   let last = 0;
   for (const m of src.matchAll(TAG_RE)) {

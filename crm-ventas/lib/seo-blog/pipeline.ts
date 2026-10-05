@@ -16,7 +16,7 @@ import type { SeoBlogPost } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { complete, completeJson } from "@/lib/ai/anthropic";
 import { logAiUsage } from "@/lib/ai/usage";
-import { getAiBudget } from "@/lib/content/ai-budget";
+import { AI_BUDGET_MESSAGE, getAiBudget } from "@/lib/content/ai-budget";
 import { humanizeAiError } from "@/lib/ai/errors";
 import { appBaseUrl, downloadBuffer, signedDownloadUrl } from "@/lib/storage/r2";
 import { readModules } from "@/lib/modules";
@@ -112,6 +112,11 @@ export async function stepPost(workspaceId: string, postId: string): Promise<Ste
     if (p.status === "aprobada") {
       res = await push(p, site, settings);
     } else if (p.status === "en_cola" || p.status === "generando") {
+      // Tope mensual de IA: no se avanza la redacción (queda en cola y sigue
+      // cuando se renueve o se amplíe el límite). Publicar en WordPress no gasta IA.
+      if ((await getAiBudget(workspaceId)).exceeded) {
+        return { status: p.status, step: p.step, wait: true, error: AI_BUDGET_MESSAGE };
+      }
       if (p.status === "en_cola") {
         await update(p, { status: "generando", step: p.step || "research" });
         p = (await prisma.seoBlogPost.findFirst({ where: { id: postId, workspaceId } }))!;
@@ -428,6 +433,7 @@ async function stepImagesWait(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettings)
 }
 
 export async function regenImage(p: SeoBlogPost, site: SiteCtx, s: SeoBlogSettings, index: number, subject?: string) {
+  if ((await getAiBudget(p.workspaceId)).exceeded) throw new Error(AI_BUDGET_MESSAGE);
   const imgs = asArray<ImgItem>(p.images).map((x) => ({ ...x }));
   const briefImgs = asArray<ImgItem>(asObject<any>(p.brief).images);
   if (!imgs[index]) {

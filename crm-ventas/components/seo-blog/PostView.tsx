@@ -56,7 +56,7 @@ export default function PostView({ id, nav }: { id: string; nav: Nav }) {
         }
         if (stop || !alive.current) return;
         if (r.wait || r.busy) {
-          setLive(r.pending ? `Generando imágenes (${r.pending} pendientes)…` : "Procesando en segundo plano…");
+          setLive(r.error ? r.error : r.pending ? `Generando imágenes (${r.pending} pendientes)…` : "Procesando en segundo plano…");
           await sleep(8000);
         }
         const d = await load().catch(() => null);

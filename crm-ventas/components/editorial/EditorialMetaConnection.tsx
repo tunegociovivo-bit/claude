@@ -172,7 +172,7 @@ export default function EditorialMetaConnection({ onChanged }: { onChanged?: () 
                 {!profile.instagramUserId && <span className="text-slate-500"> · sin Instagram vinculado</span>}
                 {(expired || !profile.metaConnection) && <span className="text-rose-600"> · {expired ? "token caducado" : "sin token"}</span>}
               </span>
-              <button
+              {canManage && <button
                 type="button"
                 disabled={busy}
                 className="text-rose-600 hover:underline disabled:opacity-50"
@@ -186,12 +186,12 @@ export default function EditorialMetaConnection({ onChanged }: { onChanged?: () 
                 }}
               >
                 Quitar
-              </button>
+              </button>}
             </div>
           );
         })}
-        {!activeProfiles.length && <p className="text-[11px] text-slate-500">Todavía no has elegido ninguna página.</p>}
-        <button
+        {!activeProfiles.length && <p className="text-[11px] text-slate-500">Todavía no has elegido ninguna página.{!canManage && " Pide a un administrador de tu cuenta que la elija."}</p>}
+        {canManage && <button
           type="button"
           className={button}
           disabled={busy || !connected}
@@ -205,8 +205,8 @@ export default function EditorialMetaConnection({ onChanged }: { onChanged?: () 
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           Elegir página de Facebook / Instagram
-        </button>
-        {accounts && (
+        </button>}
+        {canManage && accounts && (
           <div className="space-y-1.5 rounded-lg border bg-slate-50 p-2">
             {accounts.map((account) => {
               const linked = activeProfiles.some((profile) => profile.facebookPageId === account.id);

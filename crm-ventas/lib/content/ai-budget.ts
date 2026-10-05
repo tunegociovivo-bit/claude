@@ -37,13 +37,12 @@ export async function getAiBudget(workspaceId: string): Promise<{ limitUsd: numb
   return { limitUsd, spentUsd, exceeded: limitUsd > 0 && spentUsd >= limitUsd };
 }
 
+export const AI_BUDGET_MESSAGE =
+  "Has llegado al límite mensual de IA de tu cuenta. Se renueva el día 1; si necesitas más, avisa a Negocio Vivo.";
+
 export async function assertAiBudget(workspaceId: string): Promise<void> {
   const b = await getAiBudget(workspaceId);
   if (b.exceeded) {
-    throw new ApiError(
-      429,
-      "ai_budget_exceeded",
-      "Has llegado al límite mensual de IA de tu cuenta. Se renueva el día 1; si necesitas más, avisa a Negocio Vivo."
-    );
+    throw new ApiError(429, "ai_budget_exceeded", AI_BUDGET_MESSAGE);
   }
 }

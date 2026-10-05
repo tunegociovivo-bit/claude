@@ -1,3 +1,4 @@
+import { assertAiBudget } from "@/lib/content/ai-budget";
 import { cleanupSeoPostFiles } from "@/lib/content/cleanup";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
@@ -43,6 +44,7 @@ export const POST = withApi({ module: "seo" }, async (req, { api }) => {
     return NextResponse.json({ updated: r.count });
   }
   if (action === "generate") {
+    await assertAiBudget(ws);
     const r = await prisma.seoBlogPost.updateMany({
       where: { ...scope, status: { in: ["propuesta", "planificada", "error"] } },
       data: { status: "en_cola", step: "research", error: null, attempts: 0, fixPasses: 0 }
