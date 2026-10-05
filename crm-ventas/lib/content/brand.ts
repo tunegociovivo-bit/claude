@@ -5,6 +5,20 @@ import { resignUrlIfNeeded } from "@/lib/storage/resign";
 
 /** Validez de las URLs de recursos de marca (logo, referencias): 1 año. */
 export const ASSET_URL_TTL = 365 * 24 * 60 * 60;
+const S3_MAX_TTL = 7 * 24 * 60 * 60;
+
+/**
+ * Firma la URL de un recurso de marca con la validez más larga posible: 1 año
+ * en BD o con URL pública; S3/R2 sin URL pública no admite más de 7 días (al
+ * leer la ficha se vuelve a firmar con resignBrandAssets).
+ */
+export async function signAssetUrl(key: string): Promise<string> {
+  try {
+    return await signedDownloadUrl(key, ASSET_URL_TTL);
+  } catch {
+    return signedDownloadUrl(key, S3_MAX_TTL);
+  }
+}
 
 /**
  * Devuelve (o crea la primera vez) la ficha de marca del negocio. En el CRM
@@ -25,7 +39,7 @@ export async function ensureContentBrand(workspaceId: string) {
       const ext = m[1].includes("png") ? "png" : m[1].includes("webp") ? "webp" : "jpg";
       const key = buildS3Key({ workspaceId, targetType: "brand", targetId: "logo", filename: `logo.${ext}` });
       await uploadBuffer({ s3Key: key, body: Buffer.from(m[2], "base64"), contentType: m[1] });
-      logoUrl = await signedDownloadUrl(key, ASSET_URL_TTL);
+      logoUrl = await signAssetUrl(key);
     } catch (e) {
       console.warn("[content-brand] no se pudo copiar el logo:", (e as Error).message);
     }
