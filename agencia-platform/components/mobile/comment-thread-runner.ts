@@ -35,10 +35,28 @@ const COMPOSER_PLACEHOLDER = /^(Escribe un comentario|Añade un comentario|Añad
 async function readStable(deps: CommentThreadRunnerDependencies, attempts = 2): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    try { return await deps.read(); }
+    try { return await dismissBlockingSheet(deps, await deps.read()); }
     catch (error) { if (error instanceof MobileJobAbortedError) throw error; lastError = error; if (attempt + 1 < attempts) await deps.wait(1_200 + attempt * 600); }
   }
   throw lastError instanceof Error ? lastError : new Error("Android no ha devuelto la estructura de la pantalla.");
+}
+
+/**
+ * Menú que Facebook abre al mantener pulsada una foto («Guardar en el teléfono»,
+ * «Compartir externamente», «Denunciar foto»). En móviles lentos un desplazamiento
+ * puede interpretarse como pulsación larga y este menú tapa los comentarios.
+ */
+const BLOCKING_SHEET = /^(Guardar en el teléfono|Guardar foto|Compartir externamente|Denunciar foto|Copiar enlace a la foto|Save to phone|Save photo|Share externally|Report photo)$/i;
+export function isBlockingSheet(xml: string): boolean {
+  return facebookNodes(xml).filter((node) => BLOCKING_SHEET.test(nodeText(node).trim())).length >= 2;
+}
+async function dismissBlockingSheet(deps: CommentThreadRunnerDependencies, xml: string): Promise<string> {
+  for (let attempt = 0; attempt < 2 && isBlockingSheet(xml); attempt++) {
+    await deps.back();
+    await deps.wait(900);
+    xml = await deps.read();
+  }
+  return xml;
 }
 
 /** ¿Aparece ya este mismo texto publicado (fuera del campo de escribir)? */
@@ -131,11 +149,16 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
       const choices = await readStable(deps);
       const all = namedControl(choices, /^(Todos los comentarios|All comments)(\b|$)/i)
         ?? namedControl(choices, /^(Más recientes|Newest)(\b|$)/i);
-      if (!all) throw new Error("Facebook no permite mostrar todos los comentarios. No se ha publicado nada.");
-      await deps.tap(all.center);
-      await deps.wait(1_200);
-      xml = await readStable(deps);
       sorted = true;
+      if (all) {
+        await deps.tap(all.center);
+        await deps.wait(1_200);
+      } else {
+        // Sin opción «Todos los comentarios»: cerrar el menú y buscar con el orden actual.
+        await deps.back();
+        await deps.wait(900);
+      }
+      xml = await readStable(deps);
     }
     const matches = visibleComments(xml).filter((comment) => normalizeFacebookText(comment.text) === wanted);
     if (matches.length > 1) throw new Error("Hay varios comentarios con el mismo texto. Comprueba el destinatario antes de responder.");

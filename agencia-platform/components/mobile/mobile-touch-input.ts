@@ -46,8 +46,10 @@ export function createMobileTouchInput(deps: Dependencies) {
     try {
       await inject(AndroidMotionEventAction.Down);
       if (to) {
+        // The first move goes out immediately: on slow phones a pause after
+        // touching down is read as a long press (photo menu) instead of a swipe.
         for (let step = 1; step <= 7; step++) {
-          await deps.wait(50);
+          if (step > 1) await deps.wait(40);
           point = position({ x: from.x + (to.x - from.x) * step / 7, y: from.y + (to.y - from.y) * step / 7 });
           await inject(AndroidMotionEventAction.Move);
         }
