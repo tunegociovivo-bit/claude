@@ -377,3 +377,30 @@ describe("localizar el comentario original", () => {
     expect(replyButtonBelowText(xml, normalizeFacebookText(parentText))?.point.y).toBe(290);
   });
 });
+
+describe("visor de foto sin etiquetas", () => {
+  const caption = "💧👑 ¡TU AGUA, DIRECTAMENTE EN CASA! 👑💧 ¿Te imaginas tener siempre agua mineral natural en casa?";
+  const viewer = (bar: string) => `<hierarchy>
+<node package="com.facebook.katana" class="android.widget.Button" text="" content-desc="Atrás" clickable="true" bounds="[0,40][80,120]" />
+<node package="com.facebook.katana" class="android.view.View" text="Foto" content-desc="" clickable="false" bounds="[0,130][480,600]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="Aquaking" content-desc="" clickable="true" bounds="[20,640][200,670]" />
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="${caption}" content-desc="" clickable="true" bounds="[20,680][460,760]" />
+${bar}
+<node package="com.facebook.katana" class="android.view.View" text="" content-desc="" clickable="false" bounds="[0,0][480,900]" />
+</hierarchy>`;
+  it("pulsa el segundo icono de la barra sin etiquetas", async () => {
+    const { photoViewerCommentPoint } = await import("../comment-thread-runner");
+    const bar = [20, 170, 320].map((x) => `<node package="com.facebook.katana" class="android.view.ViewGroup" text="" content-desc="" clickable="true" bounds="[${x},780][${x + 120},830]" />`).join("");
+    expect(photoViewerCommentPoint(viewer(bar))).toEqual({ x: 230, y: 805 });
+  });
+  it("sin barra detectable, toca justo debajo del texto", async () => {
+    const { photoViewerCommentPoint } = await import("../comment-thread-runner");
+    const point = photoViewerCommentPoint(viewer(""));
+    expect(point!.y).toBeGreaterThan(760);
+    expect(point!.y).toBeLessThan(900);
+  });
+  it("no se activa fuera del visor de foto", async () => {
+    const { photoViewerCommentPoint } = await import("../comment-thread-runner");
+    expect(photoViewerCommentPoint(viewer("").replace('text="Foto"', 'text="Vídeo"'))).toBeNull();
+  });
+});
