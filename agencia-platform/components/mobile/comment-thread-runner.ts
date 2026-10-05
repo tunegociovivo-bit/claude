@@ -99,6 +99,38 @@ function commentButton(xml: string) {
       || Number(b.clickable) - Number(a.clickable))[0];
 }
 
+/**
+ * Visor de foto (algunas versiones de Facebook abren así los anuncios con imagen):
+ * la barra «Me gusta · Comentar · Compartir» no tiene etiquetas accesibles. Se
+ * localiza por posición, justo debajo del texto de la publicación.
+ */
+export function photoViewerCommentPoint(xml: string): AndroidUiPoint | null {
+  const nodes = facebookNodes(xml);
+  if (!nodes.some((node) => /^(Foto|Photo)$/i.test(nodeText(node)))) return null;
+  const caption = nodes.filter((node) => nodeText(node).length >= 40 && !COMPOSER.test(node.className))
+    .sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0];
+  if (!caption) return null;
+  const screenBottom = Math.max(...nodes.map((node) => node.bounds.bottom));
+  const screenRight = Math.max(...nodes.map((node) => node.bounds.right));
+  const row = nodes.filter((node) => node.clickable && !nodeText(node) && node.bounds.top >= caption.bounds.bottom - 5
+    && node.bounds.bottom - node.bounds.top < 160 && node.bounds.right - node.bounds.left < screenRight * 0.6)
+    .sort((a, b) => a.bounds.top - b.bounds.top || a.bounds.left - b.bounds.left);
+  const first = row[0];
+  const sameRow = first ? row.filter((node) => Math.abs(node.bounds.top - first.bounds.top) < 25).sort((a, b) => a.bounds.left - b.bounds.left) : [];
+  if (sameRow.length >= 3) return sameRow[1]!.center;
+  const y = Math.min(screenBottom - 20, caption.bounds.bottom + Math.round(screenBottom * 0.035));
+  return { x: Math.round(screenRight * 0.27), y };
+}
+
+function commentEntry(xml: string): { center: AndroidUiPoint } | undefined {
+  const button = commentButton(xml);
+  if (button) return button;
+  const post = visiblePostComments(xml)[0];
+  if (post) return { center: post.point };
+  const photo = photoViewerCommentPoint(xml);
+  return photo ? { center: photo } : undefined;
+}
+
 /** Resumen de lo que hay en pantalla para que el error sea diagnosticable desde el Hub. */
 function screenSummary(xml: string): string {
   const nodes = parseAndroidUiNodes(xml);
@@ -114,7 +146,7 @@ async function revealComposer(deps: CommentThreadRunnerDependencies, reel = fals
   let xml = await readStable(deps);
   for (let step = 0; step < 4; step++) {
     if (composerNode(xml, false)) return xml;
-    const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
+    const button = commentEntry(xml);
     if (button) { await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); continue; }
     const placeholder = placeholderNode(xml);
     if (placeholder) { await deps.tap(placeholder.center); await deps.wait(1_000); xml = await readStable(deps); continue; }
@@ -152,7 +184,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
   let xml = await readStable(deps);
   let openedComments = false;
   if (!visibleComments(xml).length) {
-    const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
+    const button = commentEntry(xml);
     if (button) { openedComments = true; await deps.tap(button.center); await deps.wait(1_500); xml = await readStable(deps); }
   }
   let previous = "";
@@ -202,7 +234,7 @@ async function locateParent(message: CommentThreadMessage, deps: CommentThreadRu
     const more = namedControl(xml, /^(Ver más comentarios|Ver comentarios anteriores|View more comments|View previous comments|Ver (?:\d+|una) respuestas?|Ver respuestas|View \d+ repl(?:y|ies)|View replies)/i);
     if (more) { await deps.tap(more.center); await deps.wait(1_200); xml = await readStable(deps); continue; }
     if (!openedComments && !visibleComments(xml).length && !placeholderNode(xml) && !composerNode(xml, false)) {
-      const entry = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
+      const entry = commentEntry(xml);
       if (entry) {
         openedComments = true;
         await deps.tap(entry.center);
@@ -245,7 +277,7 @@ async function findPublished(text: string, deps: CommentThreadRunnerDependencies
   let xml = await readStable(deps);
   if (textAlreadyVisible(xml, text)) return true;
   if (!visibleComments(xml).length) {
-    const button = commentButton(xml) ?? (visiblePostComments(xml)[0] ? { center: visiblePostComments(xml)[0]!.point } : undefined);
+    const button = commentEntry(xml);
     if (!button) return false;
     await deps.tap(button.center);
     await deps.wait(1_500);
