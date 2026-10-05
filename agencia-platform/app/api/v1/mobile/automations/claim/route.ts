@@ -5,6 +5,7 @@ import { withApi } from "@/lib/api/handler";
 import { loadMobileAutomationAccess, requireSerialLinkedToWorkspace } from "@/lib/mobile/automation-access";
 import { claimNextMobileAutomationJob } from "@/lib/mobile/automation-jobs";
 import { autoResumeStalledThreads } from "@/lib/mobile/thread-resume";
+import { failoverBlockedThreadMessages, markDeviceSeen } from "@/lib/mobile/thread-failover";
 
 const claimSchema = z.object({
   deviceSerial: z.string().trim().min(1).max(160),
@@ -18,6 +19,11 @@ export const POST = withApi({ scope: "*", rate: "mobile_worker" }, async (req, {
     throw new ApiError(400, "validation_error", parsed.error.issues[0]?.message ?? "Claim no válido");
   }
   requireSerialLinkedToWorkspace(phones, parsed.data.deviceSerial);
+  markDeviceSeen(api.workspaceId, parsed.data.deviceSerial);
+  // Si un móvil bloquea un mensaje de conversación, pasa a otro móvil libre.
+  await failoverBlockedThreadMessages(api.workspaceId, phones).catch((error) => {
+    console.warn("[mobile] reasignación de mensajes bloqueados falló", error);
+  });
   // Las conversaciones paradas se reactivan solas tras un rato sin avances.
   await autoResumeStalledThreads(api.workspaceId).catch((error) => {
     console.warn("[mobile] auto-resume de conversaciones falló", error);
