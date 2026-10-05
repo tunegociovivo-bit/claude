@@ -45,7 +45,7 @@ test("clasifica lo que hizo la persona con la propuesta de la IA", () => {
 });
 
 test("detecta bajas explícitas sin confundir un «no me interesa»", () => {
-  for (const text of ["STOP", "Baja", "quiero darme de baja", "No me escribáis más", "dejad de escribirme", "no quiero recibir más mensajes"]) {
+  for (const text of ["STOP", "Baja", "quiero darme de baja", "No me escribáis más", "dejad de escribirme", "no quiero recibir más mensajes", "No me escribas", "no me escribáis por favor"]) {
     assert.equal(isOptOutMessage(text), true, text);
   }
   for (const text of ["no me interesa ahora", "¿Hacéis bajas laborales?", "Hola, quería pedir cita", "no me escribas por la mañana porfa"]) {

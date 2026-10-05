@@ -354,10 +354,29 @@ export async function fetchQrPng(workspaceId: string, session?: string): Promise
 // Nunca se hace logout, restart forzado ni borrado de estas sesiones.
 // ---------------------------------------------------------------------------
 
-const LINKABLE_NAME = /^[a-zA-Z0-9_.-]{1,64}$/;
+const LINKABLE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
+
+// Lista blanca de sesiones enlazables (WAHA_LINKABLE_SESSIONS, separadas por
+// comas). Vacía = no se puede enlazar ninguna (fail closed).
+export function linkableSessionNames(): Set<string> {
+  return new Set(
+    (process.env.WAHA_LINKABLE_SESSIONS || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+  );
+}
 
 async function existingCtx(workspaceId: string, session: string): Promise<WahaCtx> {
-  if (!LINKABLE_NAME.test(session)) throw new WahaSelfServiceError("Nombre de sesión no válido", 400);
+  if (!LINKABLE_NAME.test(session) || session.includes("..")) {
+    throw new WahaSelfServiceError("Nombre de sesión no válido", 400);
+  }
+  if (!linkableSessionNames().has(session)) {
+    throw new WahaSelfServiceError(
+      "Esa sesión no está en la lista de números enlazables (WAHA_LINKABLE_SESSIONS)",
+      403
+    );
+  }
   if (isProtectedSessionName(session)) {
     throw new WahaSelfServiceError(
       "Esa sesión está protegida (default, Sonia o WAHA_PROTECTED_SESSIONS) y no se puede enlazar",
@@ -379,10 +398,11 @@ export async function readSessionState(
 ): Promise<{ status: string; phone: string | null }> {
   const settings = await getWorkspaceSettings(workspaceId);
   const w = settings.whatsapp;
-  if (!w.wahaUrl || !w.wahaApiKeyEnc) return { status: "NOT_CONFIGURED", phone: null };
+  if (!w.wahaUrl) return { status: "NOT_CONFIGURED", phone: null };
+  // Igual que el envío: la API key es opcional (hay WAHA sin clave).
   const ctx: WahaCtx = {
     baseUrl: assertAllowedWahaUrl(w.wahaUrl),
-    apiKey: decryptSecret(w.wahaApiKeyEnc),
+    apiKey: w.wahaApiKeyEnc ? decryptSecret(w.wahaApiKeyEnc) : "",
     session,
   };
   const { status, body } = await getSession(ctx);

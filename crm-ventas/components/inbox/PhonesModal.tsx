@@ -26,6 +26,7 @@ type LineDetail = {
   sessionName?: string;
   mode: "own" | "linked";
   isPrimary: boolean;
+  legacySession: boolean;
   phone: string | null;
   active: boolean;
   aiMode: "auto" | "suggest" | "off";
@@ -136,10 +137,28 @@ function LineCard({
     setBusy(false);
   }
 
-  async function connect() {
+  async function connect(migrate = false) {
+    if (
+      line.lastStatus === "WORKING" &&
+      !migrate &&
+      !confirm("Se reiniciará la sesión de WhatsApp de este número (unos segundos sin recibir mensajes). ¿Continuar?")
+    ) {
+      return;
+    }
+    if (
+      migrate &&
+      !confirm(
+        "Este número usa una sesión antigua. Se creará una sesión propia del negocio y tendrás que escanear un QR nuevo con el móvil. Hasta entonces la IA no podrá responder (los mensajes que lleguen se seguirán guardando). ¿Continuar?"
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError("");
-    const { ok, data } = await jsonFetch(`/api/v1/inbox/lines/${line.id}/connect`, { method: "POST" });
+    const { ok, data } = await jsonFetch(`/api/v1/inbox/lines/${line.id}/connect`, {
+      method: "POST",
+      body: migrate ? JSON.stringify({ migrate: true }) : undefined,
+    });
     if (!ok) setError(data?.error ?? "No se pudo generar el QR");
     else setShowQr(data?.connection?.status !== "WORKING");
     await onChanged();
@@ -257,10 +276,15 @@ function LineCard({
 
       {canManage && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {manageable && (
+          {manageable && !line.legacySession && (
             <button className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 border border-slate-200 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50" disabled={busy} onClick={() => void connect()}>
               {busy ? <Loader2 size={13} className="animate-spin" /> : <QrCode size={13} />}
               {line.lastStatus === "WORKING" ? "Reiniciar sesión" : "Conectar con QR"}
+            </button>
+          )}
+          {manageable && line.legacySession && line.lastStatus !== "WORKING" && (
+            <button className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 border border-amber-200 bg-amber-50 px-3 text-xs text-amber-800 hover:bg-amber-100" disabled={busy} onClick={() => void connect(true)}>
+              <QrCode size={13} /> Pasar a sesión propia (QR nuevo)
             </button>
           )}
           {manageable && line.lastStatus === "WORKING" && !line.isPrimary && (
@@ -521,6 +545,13 @@ export default function PhonesModal({ onClose }: { onClose: () => void }) {
 
   async function linkLine(e: React.FormEvent) {
     e.preventDefault();
+    if (
+      !confirm(
+        `Se añadirá el webhook del CRM a la sesión «${linkForm.sessionName}». WAHA la reinicia unos segundos al cambiar su configuración (el móvil NO se desvincula). ¿Continuar?`
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError("");
     const { ok, data } = await jsonFetch("/api/v1/inbox/lines/link", { method: "POST", body: JSON.stringify(linkForm) });
@@ -602,8 +633,9 @@ export default function PhonesModal({ onClose }: { onClose: () => void }) {
                     <Link2 size={14} /> Enlazar un número que ya funciona en WAHA (solo operadores NV)
                   </div>
                   <p className="text-xs text-indigo-900/70">
-                    Para leer y responder aquí, por ejemplo, los números del Hub. No se desvincula ni se reinicia el móvil: solo se añade el webhook del
-                    CRM a la sesión. Empieza en modo «Propone» para no pisar otras automatizaciones.
+                    Para leer y responder aquí, por ejemplo, los números del Hub. Solo se añade el webhook del CRM a la sesión (WAHA la reinicia unos
+                    segundos; el móvil no se desvincula). Solo sesiones de la lista WAHA_LINKABLE_SESSIONS. Empieza en modo «Propone» para no pisar otras
+                    automatizaciones.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <input

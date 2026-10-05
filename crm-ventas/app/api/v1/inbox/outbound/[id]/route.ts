@@ -28,11 +28,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     if (!isSameOrigin(req)) return Response.json({ error: "Origen no permitido" }, { status: 403 });
     const user = await requireInboxUser();
-    const original = await prisma.outboundMessage.findFirst({
+    // Reclamación atómica: dos clics (o dos personas) no generan dos envíos.
+    const claimed = await prisma.outboundMessage.updateMany({
       where: { id: params.id, workspaceId: user.workspaceId, status: { in: ["failed", "blocked"] } },
+      data: { status: "canceled", lastError: "Reintentado" },
     });
-    if (!original) return Response.json({ error: "No hay nada que reintentar" }, { status: 404 });
-    await prisma.outboundMessage.update({ where: { id: original.id }, data: { status: "canceled" } });
+    if (!claimed.count) return Response.json({ error: "Ya se ha reintentado o no hay nada que reintentar" }, { status: 409 });
+    const original = await prisma.outboundMessage.findUniqueOrThrow({ where: { id: params.id } });
     const { outbound, decision } = await enqueueOutbound({
       workspaceId: user.workspaceId,
       conversationId: original.conversationId,
@@ -40,6 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       origin: "manual",
       userId: user.userId,
       aiDraft: original.aiDraft,
+      idempotencyKey: `retry-${original.id}`,
     });
     const final = await processIfDue(outbound);
     return Response.json(

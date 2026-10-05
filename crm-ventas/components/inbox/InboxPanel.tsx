@@ -170,6 +170,9 @@ export default function InboxPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastMessageCount = useRef(0);
+  const sendKey = useRef<{ text: string; key: string } | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [newChatLine, setNewChatLine] = useState<string>("");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -263,11 +266,14 @@ export default function InboxPanel({
     if (!selectedId || !body.trim() || sending) return;
     setSending(true);
     setNotice(null);
+    // Misma clave mientras el texto no cambie: un reintento de red no duplica.
+    if (!sendKey.current || sendKey.current.text !== body.trim()) sendKey.current = { text: body.trim(), key: randomKey() };
     const { ok, data } = await jsonFetch(`/api/v1/inbox/conversations/${selectedId}/send`, {
       method: "POST",
-      body: JSON.stringify({ text: body.trim(), idempotencyKey: randomKey() }),
+      body: JSON.stringify({ text: body.trim(), idempotencyKey: sendKey.current.key }),
     });
     setSending(false);
+    if (ok) sendKey.current = null;
     if (!ok) {
       setNotice({ tone: "error", text: errorText(data, "No se pudo enviar") });
       await loadThread(selectedId);
@@ -289,7 +295,7 @@ export default function InboxPanel({
   async function startNewChat(e: React.FormEvent) {
     e.preventDefault();
     if (!newChat || !text.trim()) return;
-    const line = lines.find((l) => l.id === (lineFilter !== "all" ? lineFilter : "")) ?? lines.find((l) => l.isPrimary) ?? lines[0];
+    const line = lines.find((l) => l.id === newChatLine) ?? lines.find((l) => l.isPrimary) ?? lines[0];
     if (!line) {
       setNotice({ tone: "error", text: "No hay ningún número de WhatsApp conectado" });
       return;
@@ -340,7 +346,11 @@ export default function InboxPanel({
   }
 
   async function outboundAction(id: string, method: "POST" | "DELETE") {
+    if (retrying) return;
+    if (method === "POST" && !confirm("¿Reintentar el envío? Si el aviso dice que puede haber llegado, revisa antes el chat en el móvil.")) return;
+    setRetrying(id);
     const { ok, data } = await jsonFetch(`/api/v1/inbox/outbound/${id}`, { method });
+    setRetrying(null);
     if (!ok) setNotice({ tone: "error", text: errorText(data, "No se pudo completar") });
     if (selectedId) await loadThread(selectedId);
   }
@@ -495,8 +505,14 @@ export default function InboxPanel({
                     </span>
                     <span className="mt-0.5 flex items-center gap-1.5">
                       <span className={clsx("min-w-0 flex-1 truncate text-xs", c.unread ? "text-slate-700" : "text-slate-500")}>
-                        {c.lastDirection === "out" ? "Tú: " : ""}
-                        {c.lastPreview}
+                        {c.lastPreview ? (
+                          <>
+                            {c.lastDirection === "out" ? "Tú: " : ""}
+                            {c.lastPreview}
+                          </>
+                        ) : (
+                          <span className="italic text-slate-400">Primer mensaje en cola</span>
+                        )}
                       </span>
                       {c.unread > 0 && (
                         <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-semibold text-white">
@@ -577,6 +593,21 @@ export default function InboxPanel({
                 </p>
               </div>
               <form onSubmit={startNewChat} className="border-t border-slate-200 p-3">
+                <label className="mb-2 flex items-center gap-2 text-xs text-slate-600">
+                  Enviar desde
+                  <select
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"
+                    value={newChatLine || lines.find((l) => l.isPrimary)?.id || lines[0]?.id || ""}
+                    onChange={(e) => setNewChatLine(e.target.value)}
+                  >
+                    {lines.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.label}
+                        {l.phone ? ` · ${formatPhone(l.phone)}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="flex items-end gap-2">
                   <textarea
                     ref={textareaRef}
@@ -673,7 +704,14 @@ export default function InboxPanel({
                     <>
                       <Ban size={13} className="text-red-600" />
                       <span className="text-red-700">Este cliente pidió la baja: no se le enviará nada salvo que vuelva a escribir.</span>
-                      <button className="ml-auto font-medium text-slate-600 underline" onClick={() => void patchConversation({ optedOut: false })}>
+                      <button
+                        className="ml-auto font-medium text-slate-600 underline"
+                        onClick={() => {
+                          if (confirm("¿Seguro que este cliente quiere volver a recibir mensajes? Escribir a quien pidió la baja puede provocar denuncias y bloqueos del número.")) {
+                            void patchConversation({ optedOut: false });
+                          }
+                        }}
+                      >
                         Quitar baja
                       </button>
                     </>
@@ -781,8 +819,8 @@ export default function InboxPanel({
                       )}
                       <span className="mt-1.5 flex justify-end gap-3 text-[11px] font-medium">
                         {(o.status === "failed" || o.status === "blocked") && (
-                          <button className="underline" onClick={() => void outboundAction(o.id, "POST")}>
-                            Reintentar
+                          <button className="underline disabled:opacity-50" disabled={retrying === o.id} onClick={() => void outboundAction(o.id, "POST")}>
+                            {retrying === o.id ? "Reintentando…" : "Reintentar"}
                           </button>
                         )}
                         {o.status !== "sending" && (

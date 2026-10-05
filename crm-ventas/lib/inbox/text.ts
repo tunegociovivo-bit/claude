@@ -92,7 +92,9 @@ export function isOptOutMessage(value: string): boolean {
   ) {
     return true;
   }
-  return /\b(?:deja|dejad|dejen)\s+de\s+(?:escribir|escribirme|contactar|contactarme|mandar|enviar)\b/.test(text);
+  if (/\b(?:deja|dejad|dejen)\s+de\s+(?:escribir|escribirme|contactar|contactarme|mandar|enviar)\b/.test(text)) return true;
+  // «No me escribas» a secas (mensaje corto, sin matiz de horario).
+  return /^\s*(?:por favor,?\s*)?no\s+(?:me|nos)\s+(?:escribas|escrib[áa]is|escriban|contactes|contact[ée]is|mandes|mand[ée]is)(?:\s+(?:por favor|gracias))?\s*[.!]*\s*$/.test(text);
 }
 
 // Huella para detectar el mismo texto enviado a muchos chats (números → #).

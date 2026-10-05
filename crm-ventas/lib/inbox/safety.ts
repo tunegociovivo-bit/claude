@@ -80,6 +80,11 @@ export function paceGapMs(origin: "auto" | "manual", cold: boolean, rng: Rng = M
   return origin === "auto" ? between(rng, 6_000, 14_000) : between(rng, 3_000, 8_000);
 }
 
+// Separación mínima garantizada (se comprueba otra vez justo antes de enviar).
+export function paceFloorMs(origin: "auto" | "manual", cold: boolean): number {
+  return paceGapMs(origin, cold, () => 0);
+}
+
 // Tiempo que una persona tardaría en leer el mensaje del cliente antes de contestar.
 export function readingDelayMs(inboundText: string, rng: Rng = Math.random): number {
   const base = Math.min(9_000, Math.max(2_000, 1_500 + (inboundText?.length ?? 0) * 25));
@@ -108,6 +113,8 @@ export function evaluateSend(input: {
   intent: SendIntent;
   now: Date;
   rng?: Rng;
+  // "schedule" (al encolar): separación aleatoria. "floor" (al enviar): mínimo garantizado.
+  pacing?: "schedule" | "floor";
 }): SafetyDecision {
   const { line, counters, conversation, intent, now } = input;
   const rng = input.rng ?? Math.random;
@@ -238,7 +245,8 @@ export function evaluateSend(input: {
   }
 
   if (line.lastSendAt) {
-    const paced = new Date(line.lastSendAt.getTime() + paceGapMs(intent.origin, cold, rng));
+    const gap = input.pacing === "floor" ? paceFloorMs(intent.origin, cold) : paceGapMs(intent.origin, cold, rng);
+    const paced = new Date(line.lastSendAt.getTime() + gap);
     if (paced.getTime() > notBefore.getTime()) notBefore = paced;
   }
 
@@ -299,8 +307,11 @@ export function lineRiskScore(input: {
 }
 
 // Errores de WAHA que indican sesión cerrada o número restringido: pausa larga.
-export function isSevereSendError(message: string): boolean {
-  return /logged ?out|not[- ]?authori[sz]ed|unauthori[sz]ed|banned|restricted|session (?:is )?(?:not|closed)|connection closed|401/i.test(
+// Se mira el código HTTP de forma estructurada (nunca dígitos sueltos del
+// texto, que pueden ser un teléfono) y frases inequívocas.
+export function isSevereSendError(message: string, status: number | null = null): boolean {
+  if (status === 401 || status === 403) return true;
+  return /logged ?out|not[- ]?authori[sz]ed|unauthori[sz]ed|\bbanned\b|account (?:is )?restricted|number (?:is )?restricted/i.test(
     message || ""
   );
 }

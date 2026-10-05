@@ -25,7 +25,12 @@ export async function ensurePrimaryLine(workspaceId: string): Promise<WhatsappLi
         select: { id: true },
       });
       if (!clash) {
-        return prisma.whatsappLine.update({ where: { id: existing.id }, data: { sessionName: configuredSession } });
+        // Se recuerda la sesión anterior: sus eventos se siguen aceptando como
+        // del número principal (no se pierde ningún mensaje en la migración).
+        return prisma.whatsappLine.update({
+          where: { id: existing.id },
+          data: { sessionName: configuredSession, previousSession: existing.sessionName, lastStatusAt: null },
+        });
       }
     }
     return existing;
@@ -41,8 +46,11 @@ export async function ensurePrimaryLine(workspaceId: string): Promise<WhatsappLi
         isPrimary: true,
         mode: "own",
         aiMode: settings.whatsapp.autoReplyEnabled ? "auto" : "suggest",
-        // Número ya en uso: no está "recién conectado".
+        // Número ya en uso por Paula: no está "recién conectado" y responde a
+        // mucha gente, así que sus topes de respuestas son más altos.
         warmupSince: workspace?.createdAt ?? new Date(),
+        dailyLimit: 400,
+        hourlyLimit: 80,
       },
     });
   } catch {
@@ -63,7 +71,7 @@ export async function listLines(workspaceId: string): Promise<WhatsappLine[]> {
 export async function lineForSession(workspaceId: string, session?: string | null): Promise<WhatsappLine | null> {
   const primary = await ensurePrimaryLine(workspaceId);
   if (!session) return primary;
-  if (primary?.sessionName === session) return primary;
+  if (primary && (primary.sessionName === session || primary.previousSession === session)) return primary;
   return prisma.whatsappLine.findFirst({ where: { workspaceId, sessionName: session } });
 }
 
@@ -110,11 +118,18 @@ export async function syncPrimaryAiMode(workspaceId: string, aiMode: AiMode) {
   });
 }
 
+// Solo se llama cuando el interruptor de Ajustes CAMBIA respecto a lo guardado.
 export async function setPrimaryLineAiModeFromSettings(workspaceId: string, autoReplyEnabled: boolean) {
   const primary = await ensurePrimaryLine(workspaceId);
-  if (!primary || primary.aiMode === "off") return;
+  if (!primary) return;
   const aiMode: AiMode = autoReplyEnabled ? "auto" : "suggest";
   if (primary.aiMode !== aiMode) {
     await prisma.whatsappLine.update({ where: { id: primary.id }, data: { aiMode } });
+    if (aiMode !== "auto") {
+      await prisma.outboundMessage.updateMany({
+        where: { lineId: primary.id, origin: "auto", status: "queued", critical: false },
+        data: { status: "canceled", lastError: "Respuesta automática desactivada en Ajustes" },
+      });
+    }
   }
 }

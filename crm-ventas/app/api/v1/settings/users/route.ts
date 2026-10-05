@@ -2,6 +2,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import {
   forbidden,
+  isOperatorEmail,
   isSameOrigin,
   requireWorkspaceAdmin,
   unauthorized,
@@ -50,7 +51,7 @@ const createSchema = z.object({
 export async function POST(request: Request) {
   try {
     if (!isSameOrigin(request)) return forbidden();
-    const { workspaceId } = await requireWorkspaceAdmin();
+    const { workspaceId, userId } = await requireWorkspaceAdmin();
     const parsed = createSchema.safeParse(await request.json().catch(() => ({})));
     if (!parsed.success) {
       return Response.json(
@@ -59,6 +60,14 @@ export async function POST(request: Request) {
       );
     }
     const { email, name, password, role } = parsed.data;
+    // Los emails de operador de Negocio Vivo dan acceso global: solo otro
+    // operador puede darlos de alta (evita que un cliente se los asigne).
+    if (isOperatorEmail(email)) {
+      const creator = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+      if (!isOperatorEmail(creator?.email)) {
+        return Response.json({ error: "Ese email está reservado para Negocio Vivo" }, { status: 403 });
+      }
+    }
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: { workspaceId, email, name: name || null, passwordHash, role },

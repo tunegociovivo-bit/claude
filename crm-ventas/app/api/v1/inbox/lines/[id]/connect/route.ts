@@ -23,10 +23,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const user = await requireInboxAdmin();
     const { line, error } = await ownLine(user.workspaceId, params.id);
     if (error) return error;
-    // Principal con sesión heredada (p.ej. "default"): se migra a la sesión
-    // propia del negocio, igual que en Ajustes → WhatsApp.
+    // Principal con sesión heredada (p.ej. "default"): solo se migra a la
+    // sesión propia del negocio si se pide expresamente (requiere QR nuevo).
     const session = isOwnSessionName(user.workspaceId, line.sessionName) ? line.sessionName : undefined;
     if (!session && !line.isPrimary) return Response.json({ error: "Sesión no gestionable" }, { status: 403 });
+    if (!session) {
+      const body = await req.json().catch(() => ({}));
+      if (body?.migrate !== true) {
+        return Response.json(
+          {
+            error:
+              "Este número usa una sesión antigua. Pasarlo a una sesión propia exige escanear un QR nuevo; mientras tanto la IA no podrá responder. Confírmalo para continuar.",
+            needsMigration: true,
+          },
+          { status: 409 }
+        );
+      }
+    }
     const connection = await ensureSessionStarted(user.workspaceId, session);
     if (line.isPrimary) await ensurePrimaryLine(user.workspaceId);
     await prisma.whatsappLine.update({

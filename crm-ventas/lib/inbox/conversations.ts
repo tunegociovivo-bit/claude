@@ -54,6 +54,7 @@ export async function touchConversationOnOutbound(opts: {
   contactId?: string | null;
   body: string;
   at: Date;
+  keepLine?: boolean; // no cambiar el número de un chat existente
 }) {
   return prisma.conversation.upsert({
     where: { workspaceId_phone: { workspaceId: opts.workspaceId, phone: opts.phone } },
@@ -71,7 +72,7 @@ export async function touchConversationOnOutbound(opts: {
       lastMessageAt: opts.at,
       lastPreview: preview(opts.body),
       lastDirection: "out",
-      ...(opts.lineId ? { lineId: opts.lineId } : {}),
+      ...(opts.lineId && !opts.keepLine ? { lineId: opts.lineId } : {}),
       ...(opts.contactId ? { contactId: opts.contactId } : {}),
     },
   });

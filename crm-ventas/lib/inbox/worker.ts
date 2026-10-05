@@ -13,6 +13,7 @@ const state = globalThis as typeof globalThis & {
   __inboxAiRunning?: boolean;
   __inboxSendRunning?: boolean;
   __inboxStatusAt?: number;
+  __inboxStatusRunning?: boolean;
 };
 
 const BAD_STATUSES = new Set(["FAILED", "STOPPED", "SCAN_QR_CODE", "NO_SESSION"]);
@@ -51,11 +52,15 @@ async function sendPhase() {
   if (state.__inboxSendRunning) return;
   state.__inboxSendRunning = true;
   try {
-    // Un envío interrumpido NO se reintenta a ciegas (podría duplicarse en el
-    // móvil del cliente): queda como fallido para reintentarlo a mano.
+    // Un envío interrumpido (proceso reiniciado a mitad) NO se reintenta a
+    // ciegas: podría duplicarse en el móvil del cliente. Queda como fallido.
+    // Se mide desde que se reclamó (un envío normal tarda < 1 min).
     await prisma.outboundMessage.updateMany({
-      where: { status: "sending", createdAt: { lt: new Date(Date.now() - 5 * 60_000) } },
-      data: { status: "failed", lastError: "Envío interrumpido; revisa el chat antes de reintentar" },
+      where: { status: "sending", claimedAt: { lt: new Date(Date.now() - 3 * 60_000) } },
+      data: {
+        status: "failed",
+        lastError: "Envío interrumpido: puede que haya llegado. Revisa el chat antes de reintentar.",
+      },
     });
     const due = await prisma.outboundMessage.findMany({
       where: { status: "queued", scheduledAt: { lte: new Date() } },
@@ -81,8 +86,18 @@ async function sendPhase() {
 
 async function statusPhase() {
   const now = Date.now();
+  if (state.__inboxStatusRunning) return;
   if (state.__inboxStatusAt && now - state.__inboxStatusAt < 60_000) return;
   state.__inboxStatusAt = now;
+  state.__inboxStatusRunning = true;
+  try {
+    await refreshAllStatuses();
+  } finally {
+    state.__inboxStatusRunning = false;
+  }
+}
+
+async function refreshAllStatuses() {
   const lines = await prisma.whatsappLine.findMany({ where: { active: true } });
   for (const line of lines) {
     const before = line.lastStatus;

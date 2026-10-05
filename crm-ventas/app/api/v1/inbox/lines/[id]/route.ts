@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isSameOrigin } from "@/lib/auth";
 import { inboxError, requireInboxAdmin } from "@/lib/inbox/api";
 import { AI_MODES, syncPrimaryAiMode, type AiMode } from "@/lib/inbox/lines";
+import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
 import { detachCrmWebhook, isOwnSessionName, unlinkSession } from "@/lib/waha-connection";
 
 export const dynamic = "force-dynamic";
@@ -41,11 +42,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (line.isPrimary && rest.aiMode && rest.aiMode !== line.aiMode) {
       await syncPrimaryAiMode(user.workspaceId, rest.aiMode);
     }
-    if (rest.active === false || rest.aiMode === "off") {
-      // Nada pendiente de la IA debe salir por un número apagado.
+    if (rest.active === false) {
+      // Nada debe salir por un número desactivado.
       await prisma.outboundMessage.updateMany({
-        where: { lineId: line.id, status: "queued", ...(rest.active === false ? {} : { origin: "auto" }) },
-        data: { status: "canceled", lastError: "Número desactivado o IA apagada" },
+        where: { lineId: line.id, status: "queued" },
+        data: { status: "canceled", lastError: "Número desactivado" },
+      });
+    } else if (rest.aiMode && rest.aiMode !== "auto") {
+      await cancelQueuedAutoReplies({ lineId: line.id }, "La IA ya no responde sola en este número");
+    }
+    if (resume) {
+      // Lo que esperaba al final de la pausa se reprograma ya (el ritmo
+      // anti-baneo lo vuelve a espaciar al enviar).
+      await prisma.outboundMessage.updateMany({
+        where: { lineId: line.id, status: "queued", scheduledAt: { gt: new Date() } },
+        data: { scheduledAt: new Date() },
       });
     }
     return Response.json({ ok: true, line: { id: updated.id } });

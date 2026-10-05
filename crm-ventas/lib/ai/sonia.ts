@@ -364,6 +364,9 @@ export async function runSoniaWhatsappAgent(opts: {
   phone: string; // teléfono normalizado o chatId
   mode?: "auto" | "suggest";
   extraSystem?: string; // aprendizaje + instrucciones de la línea
+  // Aviso cuando se ejecuta una herramienta con efectos (crear/cancelar cita):
+  // esa respuesta ya no se puede descartar sin más.
+  onSideEffect?: (toolName: string) => void;
 }): Promise<string | null> {
   const { workspaceId, settings, phone } = opts;
   const mode = opts.mode ?? "auto";
@@ -422,6 +425,7 @@ export async function runSoniaWhatsappAgent(opts: {
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
       const allowed = mode === "auto" || SONIA_READONLY_TOOLS.has(tu.name);
+      if (allowed && !SONIA_READONLY_TOOLS.has(tu.name)) opts.onSideEffect?.(tu.name);
       const result = allowed
         ? await executeSoniaTool({
             workspaceId,

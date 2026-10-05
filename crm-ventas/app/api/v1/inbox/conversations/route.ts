@@ -141,12 +141,14 @@ export async function POST(req: NextRequest) {
     });
     const existing = await prisma.conversation.findUnique({
       where: { workspaceId_phone: { workspaceId: user.workspaceId, phone } },
-      select: { id: true },
+      select: { id: true, lastInboundAt: true },
     });
+    // Si el cliente ya escribió a un número, se le contesta por ese mismo
+    // número; si nunca escribió, sale por el número elegido.
     const conversation = await prisma.conversation.upsert({
       where: { workspaceId_phone: { workspaceId: user.workspaceId, phone } },
       create: { workspaceId: user.workspaceId, phone, chatId: phone, lineId: line.id, contactId: contact.id },
-      update: {},
+      update: existing?.lastInboundAt ? {} : { lineId: line.id },
     });
     const { outbound, decision } = await enqueueOutbound({
       workspaceId: user.workspaceId,

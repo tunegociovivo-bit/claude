@@ -231,6 +231,8 @@ model WhatsappLine {
   lastStatus          String?
   lastStatusAt        DateTime?
   lastSentAt          DateTime?
+  sendLockUntil       DateTime? // un solo envío a la vez por número (entre instancias)
+  previousSession     String?   // sesión anterior del principal (sus eventos se siguen aceptando)
   consecutiveFailures Int       @default(0)
   pausedUntil         DateTime?
   pauseReason         String?
@@ -290,11 +292,13 @@ model OutboundMessage {
   chatId         String
   body           String    @db.Text
   origin         String    // auto | manual
+  critical       Boolean   @default(false) // confirma una cita ya creada/cancelada: no se sustituye
   cold           Boolean   @default(false) // conversación iniciada por nosotros (sin mensaje previo del cliente)
   fingerprint    String?   // texto normalizado para detectar envíos idénticos en masa
   status         String    @default("queued") // queued | sending | sent | failed | blocked | canceled
   scheduledAt    DateTime  @default(now())
   attempts       Int       @default(0)
+  claimedAt      DateTime? // cuándo lo tomó un proceso para enviarlo
   lastError      String?   @db.Text
   messageId      String?   // Message creado al enviarse
   aiDraft        String?   @db.Text // borrador que había al enviar (aprendizaje)

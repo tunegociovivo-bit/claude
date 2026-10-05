@@ -32,11 +32,25 @@ export async function POST(req: NextRequest) {
     if (lines.some((l) => l.sessionName === parsed.data.sessionName)) {
       return Response.json({ error: "Ese número ya está en la bandeja" }, { status: 409 });
     }
+    // Nunca la sesión de otro cliente del CRM (paula-<workspace>) ni una que
+    // otro negocio use como principal o tenga ya enlazada.
+    if (parsed.data.sessionName.toLowerCase().startsWith("paula-")) {
+      return Response.json({ error: "Las sesiones de clientes del CRM no se pueden enlazar" }, { status: 403 });
+    }
     const elsewhere = await prisma.whatsappLine.findFirst({
-      where: { sessionName: parsed.data.sessionName, NOT: { workspaceId: user.workspaceId } },
+      where: {
+        OR: [{ sessionName: parsed.data.sessionName }, { previousSession: parsed.data.sessionName }],
+        NOT: { workspaceId: user.workspaceId },
+      },
       select: { id: true },
     });
-    if (elsewhere) return Response.json({ error: "Esa sesión ya está enlazada a otro negocio" }, { status: 409 });
+    const primaryElsewhere = await prisma.workspace.findFirst({
+      where: { id: { not: user.workspaceId }, settings: { path: ["whatsapp", "wahaSession"], equals: parsed.data.sessionName } },
+      select: { id: true },
+    });
+    if (elsewhere || primaryElsewhere) {
+      return Response.json({ error: "Esa sesión ya la usa otro negocio" }, { status: 409 });
+    }
 
     const state = await attachCrmWebhook(user.workspaceId, parsed.data.sessionName);
     const line = await prisma.whatsappLine.create({

@@ -14,6 +14,14 @@ export class WhatsappNotConfiguredError extends Error {
   }
 }
 
+// Error de envío. `ambiguous` = no sabemos si WhatsApp llegó a enviarlo
+// (timeout, red, 5xx, 200 sin id): NUNCA se reintenta solo, para no duplicar.
+export class WahaSendError extends Error {
+  constructor(message: string, public readonly status: number | null, public readonly ambiguous: boolean) {
+    super(message);
+  }
+}
+
 export class WahaUrlNotAllowedError extends Error {
   constructor() {
     super(
@@ -131,27 +139,36 @@ export async function setTyping(opts: {
 }
 
 async function sendTextWithConfig(cfg: WahaConfig, to: string, text: string) {
-  const res = await fetch(`${cfg.baseUrl}/api/sendText`, {
-    method: "POST",
-    headers: headers(cfg),
-    body: JSON.stringify({
-      session: cfg.session,
-      chatId: toChatId(to),
-      text,
-    }),
-    redirect: "error",
-    signal: AbortSignal.timeout(30_000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}/api/sendText`, {
+      method: "POST",
+      headers: headers(cfg),
+      body: JSON.stringify({
+        session: cfg.session,
+        chatId: toChatId(to),
+        text,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    // Conexión rechazada = seguro que no salió; timeout u otro = dudoso.
+    const refused = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(`${reason} ${(error as any)?.cause?.code ?? ""}`);
+    throw new WahaSendError(`WAHA sendText sin respuesta: ${reason}`, null, !refused);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`WAHA sendText ${res.status}: ${body.slice(0, 300)}`);
+    // 4xx = WAHA lo rechazó antes de enviar; 5xx = dudoso.
+    throw new WahaSendError(`WAHA sendText ${res.status}: ${body.slice(0, 300)}`, res.status, res.status >= 500);
   }
   const data = await res.json().catch(() => ({}));
   const messageId = extractMessageId(data);
   // El motor NOWEB de WAHA puede devolver 200 sin id cuando la sesión no está
   // realmente operativa: tratarlo como fallo evita "enviados fantasma".
   if (!messageId) {
-    throw new Error("WAHA devolvió 200 sin id de mensaje: la sesión no parece operativa");
+    throw new WahaSendError("WAHA devolvió 200 sin id de mensaje: la sesión no parece operativa", res.status, true);
   }
   return { messageId };
 }

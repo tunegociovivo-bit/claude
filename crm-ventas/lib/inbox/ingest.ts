@@ -7,6 +7,7 @@ import { lineForSession } from "@/lib/inbox/lines";
 import { touchConversationOnOutbound, upsertConversationOnInbound } from "@/lib/inbox/conversations";
 import { recordHumanReply } from "@/lib/inbox/learning";
 import { scheduleConversationAi } from "@/lib/inbox/ai";
+import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
 import { isOptOutMessage } from "@/lib/inbox/text";
 import {
   extractAck,
@@ -79,8 +80,31 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
   const contactPhone = threadRaw.includes("@lid") ? extractAlternatePhone(payload, countryCode) ?? threadPhone : threadPhone;
 
   if (externalId) {
-    const dupe = await prisma.message.findFirst({ where: { workspaceId: ws.id, externalId }, select: { id: true } });
-    if (dupe) return { ok: true, duplicate: true };
+    const dupe = await prisma.message.findFirst({
+      where: { workspaceId: ws.id, externalId },
+      select: { id: true, direction: true, body: true, createdAt: true, contactId: true },
+    });
+    if (dupe) {
+      // Reintento de WAHA tras un fallo a medias: completar lo que faltase
+      // (conversación y programación de la IA) sin duplicar el mensaje.
+      if (dupe.direction === "in" && !fromMe) {
+        const conv = await prisma.conversation.findUnique({
+          where: { workspaceId_phone: { workspaceId: ws.id, phone: threadPhone } },
+          select: { lastInboundAt: true },
+        });
+        if (!conv?.lastInboundAt || conv.lastInboundAt.getTime() < dupe.createdAt.getTime()) {
+          return finalizeInbound(ws.id, line, {
+            messageId: dupe.id,
+            body: dupe.body,
+            at: dupe.createdAt,
+            phone: threadPhone,
+            chatId: threadRaw,
+            contactId: dupe.contactId,
+          });
+        }
+      }
+      return { ok: true, duplicate: true };
+    }
   }
 
   const now = new Date();
@@ -93,8 +117,7 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
         workspaceId: ws.id,
         phone: threadPhone,
         body: text,
-        status: { in: ["sending", "sent"] },
-        createdAt: { gte: new Date(now.getTime() - 5 * 60_000) },
+        OR: [{ status: "sending" }, { status: "sent", sentAt: { gte: new Date(now.getTime() - 3 * 60_000) } }],
       },
       select: { id: true },
     });
@@ -116,6 +139,8 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
         meta: { fromPhone: true, apiSent: isApiSent(payload) },
       },
     });
+    // No cambia el número del chat: las respuestas siguen saliendo por el
+    // número al que escribió el cliente.
     await touchConversationOnOutbound({
       workspaceId: ws.id,
       phone: threadPhone,
@@ -124,6 +149,7 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
       contactId: previous?.contactId ?? null,
       body: text,
       at: message.createdAt,
+      keepLine: true,
     });
     if (!isApiSent(payload)) {
       // Respuesta escrita a mano en el móvil: la IA también aprende de ella y
@@ -137,6 +163,7 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
           where: { id: conversation.id },
           data: { humanUntil: new Date(now.getTime() + 2 * 3600_000), aiDraft: null, aiDraftForId: null, aiStatus: "idle" },
         });
+        await cancelQueuedAutoReplies({ conversationId: conversation.id }, "Respondido a mano desde el móvil");
       }
       await recordHumanReply({
         workspaceId: ws.id,
@@ -179,7 +206,6 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
   if (contact.stage === "nuevos") await moveContactToStage(contact.id, "conversacion");
 
   const optOut = isOptOutMessage(text);
-  const aiOn = line.aiMode !== "off" && !optOut;
   const message = await prisma.message.create({
     data: {
       workspaceId: ws.id,
@@ -193,32 +219,45 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
         pushName: pushName ?? null,
         from: rawFrom,
         session: line.sessionName,
-        autoReplyStatus: aiOn && line.aiMode === "auto" ? "processing" : optOut ? "opted-out" : "disabled",
+        autoReplyStatus: optOut ? "opted-out" : line.aiMode === "auto" ? "processing" : "disabled",
       },
     },
   });
-  const conversation = await upsertConversationOnInbound({
-    workspaceId: ws.id,
-    phone: threadPhone,
-    chatId: threadRaw,
-    lineId: line.id,
-    contactId: contact.id,
+  return finalizeInbound(ws.id, line, {
     messageId: message.id,
     body: text,
     at: message.createdAt,
+    phone: threadPhone,
+    chatId: threadRaw,
+    contactId: contact.id,
+  });
+}
+
+// Pasos posteriores a guardar un entrante (idempotentes ante reintentos).
+async function finalizeInbound(
+  workspaceId: string,
+  line: { id: string; aiMode: string },
+  m: { messageId: string; body: string; at: Date; phone: string; chatId: string; contactId: string | null }
+): Promise<IngestResult> {
+  const conversation = await upsertConversationOnInbound({
+    workspaceId,
+    phone: m.phone,
+    chatId: m.chatId,
+    lineId: line.id,
+    contactId: m.contactId,
+    messageId: m.messageId,
+    body: m.body,
+    at: m.at,
   });
 
   // Respuesta automática aún no enviada a un mensaje anterior: se cancela y se
   // vuelve a generar con el contexto completo (una sola respuesta, no dos).
-  await prisma.outboundMessage.updateMany({
-    where: { conversationId: conversation.id, origin: "auto", status: "queued" },
-    data: { status: "canceled", lastError: "Sustituida: el cliente escribió de nuevo" },
-  });
+  await cancelQueuedAutoReplies({ conversationId: conversation.id }, "Sustituida: el cliente escribió de nuevo");
 
-  if (optOut) {
+  if (isOptOutMessage(m.body)) {
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { optedOut: true, optedOutAt: now, aiStatus: "idle", aiDraft: null, aiDueAt: null },
+      data: { optedOut: true, optedOutAt: new Date(), aiStatus: "idle", aiDraft: null, aiDueAt: null },
     });
     await prisma.outboundMessage.updateMany({
       where: { conversationId: conversation.id, status: "queued" },
@@ -226,13 +265,9 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
     });
     return { ok: true, optedOut: true };
   }
-  if (conversation.optedOut) {
-    // Volvió a escribir por iniciativa propia: se le puede responder otra vez.
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { optedOut: false, optedOutAt: null } });
-  }
-  if (aiOn) {
-    await scheduleConversationAi(conversation.id, line.aiMode === "auto" ? "auto" : "suggest");
-    return { ok: true, kick: true };
-  }
-  return { ok: true };
+  // Un chat dado de baja sigue de baja aunque el cliente escriba de nuevo:
+  // solo una persona puede reactivarlo («Quitar baja»). La IA no le responde.
+  if (conversation.optedOut || line.aiMode === "off") return { ok: true };
+  await scheduleConversationAi(conversation.id, line.aiMode === "auto" ? "auto" : "suggest");
+  return { ok: true, kick: true };
 }

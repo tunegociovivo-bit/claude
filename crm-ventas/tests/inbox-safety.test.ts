@@ -209,10 +209,26 @@ test("indicador de riesgo", () => {
   assert.ok(bad.reasons.length >= 3);
 });
 
-test("errores graves de WAHA pausan el número", () => {
-  assert.ok(isSevereSendError("WAHA sendText 401: Unauthorized"));
-  assert.ok(isSevereSendError("Session is not authorized, logged out"));
-  assert.equal(isSevereSendError("WAHA sendText 500: timeout"), false);
+test("errores graves de WAHA pausan el número (sin falsos positivos por teléfonos)", () => {
+  assert.ok(isSevereSendError("WAHA sendText 401: Unauthorized", 401));
+  assert.ok(isSevereSendError("Session is not authorized, logged out", 422));
+  assert.equal(isSevereSendError("WAHA sendText 500: timeout", 500), false);
+  assert.equal(isSevereSendError("WAHA sendText 422: chat 34640140123@c.us not found", 422), false);
+  assert.equal(isSevereSendError("connection closed", null), false);
+});
+
+test("al enviar se exige el ritmo mínimo, no uno aleatorio", () => {
+  const last = new Date(NOW.getTime() - 4_000);
+  const d = evaluateSend({
+    line: line({ lastSendAt: last }),
+    counters: counters(),
+    conversation: replying,
+    intent: { origin: "manual", body: "hola" },
+    now: NOW,
+    rng: () => 1,
+    pacing: "floor",
+  });
+  assert.equal(d.kind === "allow" && d.notBefore.getTime(), NOW.getTime());
 });
 
 test("reloj de Madrid: inicio del día y franjas", () => {

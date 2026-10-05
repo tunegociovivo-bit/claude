@@ -6,7 +6,7 @@ import { inboxError, requireInboxAdmin, requireInboxUser } from "@/lib/inbox/api
 import { listLines, MAX_LINES_PER_WORKSPACE, newLineSuffix } from "@/lib/inbox/lines";
 import { lineAgeDays, lineRiskScore, warmupNewChatCap } from "@/lib/inbox/safety";
 import { madridDayStart } from "@/lib/inbox/time";
-import { ensureSessionStarted, extraSessionName } from "@/lib/waha-connection";
+import { ensureSessionStarted, extraSessionName, isOwnSessionName } from "@/lib/waha-connection";
 import { toSafetyState } from "@/lib/inbox/lines";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +41,8 @@ export async function GET() {
           sessionName: user.isOperator ? line.sessionName : undefined,
           mode: line.mode,
           isPrimary: line.isPrimary,
+          // Principal con sesión antigua (p.ej. "default"): no se reinicia desde aquí.
+          legacySession: line.mode === "own" && !isOwnSessionName(user.workspaceId, line.sessionName),
           phone: line.phone,
           active: line.active,
           aiMode: line.aiMode,

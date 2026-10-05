@@ -102,7 +102,7 @@ export async function PUT(req: NextRequest) {
     urgentAlerts: { ...current.urgentAlerts, ...(urgentAlerts ?? {}) },
   });
   // El interruptor de respuesta automática gobierna el número principal de la bandeja.
-  if (typeof whatsapp?.autoReplyEnabled === "boolean") {
+  if (typeof whatsapp?.autoReplyEnabled === "boolean" && whatsapp.autoReplyEnabled !== current.whatsapp.autoReplyEnabled) {
     await setPrimaryLineAiModeFromSettings(workspaceId, whatsapp.autoReplyEnabled);
   }
   return NextResponse.json({ ok: true });

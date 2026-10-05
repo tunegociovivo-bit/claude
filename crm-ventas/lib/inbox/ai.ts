@@ -31,6 +31,7 @@ export async function buildDraft(opts: {
   phone: string;
   lineId: string | null;
   mode: "auto" | "suggest";
+  onSideEffect?: (toolName: string) => void;
 }): Promise<string | null> {
   const [settings, line, lastIn] = await Promise.all([
     getWorkspaceSettings(opts.workspaceId),
@@ -53,6 +54,7 @@ export async function buildDraft(opts: {
     phone: opts.phone,
     mode: opts.mode,
     extraSystem: [lineContext(line), learning].filter(Boolean).join("\n\n"),
+    onSideEffect: opts.onSideEffect,
   });
 }
 
@@ -87,8 +89,17 @@ export async function processConversationAi(conversationId: string) {
 
   let text: string | null = null;
   let failure: string | null = null;
+  let sideEffect = false;
   try {
-    text = await buildDraft({ workspaceId: conversation.workspaceId, phone: conversation.phone, lineId: line.id, mode });
+    text = await buildDraft({
+      workspaceId: conversation.workspaceId,
+      phone: conversation.phone,
+      lineId: line.id,
+      mode,
+      onSideEffect: () => {
+        sideEffect = true;
+      },
+    });
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
     console.error("[inbox-ai] no se pudo generar la respuesta:", failure);
@@ -100,14 +111,19 @@ export async function processConversationAi(conversationId: string) {
     where: { id: conversationId },
     select: { lastInboundId: true, aiStatus: true },
   });
-  if (!fresh || fresh.aiStatus !== "generating") return;
-  if (fresh.lastInboundId !== forId) {
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { aiStatus: "pending", aiDueAt: new Date(Date.now() + 2_000) },
-    });
+  if (!fresh) return;
+  const superseded = fresh.aiStatus !== "generating" || fresh.lastInboundId !== forId;
+  if (superseded && !(mode === "auto" && sideEffect && text)) {
+    if (fresh.aiStatus === "generating") {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { aiStatus: "pending", aiDueAt: new Date(Date.now() + 2_000) },
+      });
+    }
     return;
   }
+  // Si la IA ya creó o canceló una cita, su confirmación se envía aunque el
+  // cliente haya escrito algo más (y después se responde a lo nuevo).
 
   if (mode === "suggest") {
     await prisma.conversation.update({
@@ -121,6 +137,11 @@ export async function processConversationAi(conversationId: string) {
 
   // Modo automático
   const settings = await getWorkspaceSettings(conversation.workspaceId);
+  if (!text && !failure) {
+    // Nada que decir (p. ej. el último mensaje ya era nuestro): no se envía relleno.
+    await prisma.conversation.update({ where: { id: conversationId }, data: { aiStatus: "idle" } });
+    return;
+  }
   if (!text) {
     const previousOut = await prisma.message.count({
       where: { workspaceId: conversation.workspaceId, phone: conversation.phone, direction: "out" },
@@ -138,9 +159,10 @@ export async function processConversationAi(conversationId: string) {
   const { decision } = await enqueueOutbound({
     workspaceId: conversation.workspaceId,
     conversationId,
-    body: text,
+    body: text!,
     origin: "auto",
     replyToId: forId,
+    critical: sideEffect,
     minDelayMs: readingDelayMs(inbound?.body ?? ""),
   });
   if (inbound) {
@@ -153,6 +175,14 @@ export async function processConversationAi(conversationId: string) {
         },
       },
     });
+  }
+  if (superseded) {
+    // Confirmación crítica enviada a la cola: ahora toca responder a lo nuevo.
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { aiStatus: "pending", aiDueAt: new Date(Date.now() + AUTO_DEBOUNCE_MS) },
+    });
+    return;
   }
   await prisma.conversation.update({
     where: { id: conversationId },

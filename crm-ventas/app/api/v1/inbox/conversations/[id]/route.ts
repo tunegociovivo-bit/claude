@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isSameOrigin } from "@/lib/auth";
 import { sendSeen } from "@/lib/waha";
 import { inboxError, requireInboxUser } from "@/lib/inbox/api";
+import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { aiPaused, optedOut, archived, unread } = parsed.data;
     const data: Record<string, unknown> = {};
     if (aiPaused !== undefined) data.humanUntil = aiPaused ? new Date(Date.now() + 7 * 86_400_000) : null;
+    if (aiPaused) await cancelQueuedAutoReplies({ conversationId: conversation.id }, "Una persona ha tomado este chat");
     if (optedOut !== undefined) {
       data.optedOut = optedOut;
       data.optedOutAt = optedOut ? new Date() : null;
