@@ -60,6 +60,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         phone: conversation.phone,
         lineId: conversation.lineId,
         optedOut: conversation.optedOut,
+        // El cliente volvió a escribir tras la baja: una persona puede contestarle.
+        canReplyAfterOptOut: Boolean(
+          conversation.optedOut &&
+            conversation.lastInboundAt &&
+            conversation.optedOutAt &&
+            conversation.lastInboundAt > conversation.optedOutAt
+        ),
         archived: conversation.archived,
         aiStatus: conversation.aiStatus,
         aiError: conversation.aiError,

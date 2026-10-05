@@ -44,7 +44,7 @@ const replying = { optedOut: false, lastInboundAt: new Date(NOW.getTime() - 60_0
 function decide(opts: {
   line?: Partial<LineSafetyState>;
   counters?: Partial<SafetyCounters>;
-  conversation?: { optedOut: boolean; lastInboundAt: Date | null };
+  conversation?: { optedOut: boolean; optedOutAt?: Date | null; lastInboundAt: Date | null };
   origin?: "auto" | "manual";
   body?: string;
   now?: Date;
@@ -72,6 +72,15 @@ test("una baja bloquea cualquier envío, también el manual", () => {
   const d = decide({ conversation: { optedOut: true, lastInboundAt: NOW } });
   assert.equal(d.kind, "block");
   assert.equal(d.kind === "block" && d.code, "OPTED_OUT");
+});
+
+test("tras una baja, una persona puede contestar si el cliente volvió a escribir; la IA nunca", () => {
+  const optedOutAt = new Date(NOW.getTime() - 3600_000);
+  const rewrote = { optedOut: true, optedOutAt, lastInboundAt: new Date(NOW.getTime() - 60_000) };
+  assert.equal(decide({ conversation: rewrote }).kind, "allow");
+  assert.equal(decide({ conversation: rewrote, origin: "auto" }).kind, "block");
+  const silent = { optedOut: true, optedOutAt, lastInboundAt: new Date(optedOutAt.getTime() - 1000) };
+  assert.equal(decide({ conversation: silent }).kind, "block");
 });
 
 test("por defecto los números son de «solo responder»: no se escribe en frío", () => {

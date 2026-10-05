@@ -7,6 +7,7 @@ import { madridDayStart } from "@/lib/inbox/time";
 import {
   evaluateSend,
   isSevereSendError,
+  optOutBlocks,
   typingDelayMs,
   type SafetyCounters,
   type SafetyDecision,
@@ -18,7 +19,7 @@ import { notifyWorkspaceUrgentAlert } from "@/lib/urgent-alert-delivery";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const MAX_ATTEMPTS = 3;
-const LINE_LOCK_MS = 60_000;
+const LINE_LOCK_MS = 150_000; // > peor caso de un envío (avisos + escritura + timeout)
 const PENDING = ["queued", "sending"];
 
 export class OutboundError extends Error {
@@ -136,7 +137,13 @@ export async function enqueueOutbound(opts: {
   if (opts.idempotencyKey) {
     const existing = await prisma.outboundMessage.findUnique({ where: { idempotencyKey: opts.idempotencyKey } });
     if (existing) {
-      if (existing.workspaceId !== opts.workspaceId) throw new OutboundError("Clave de idempotencia no válida", 409);
+      if (
+        existing.workspaceId !== opts.workspaceId ||
+        existing.conversationId !== opts.conversationId ||
+        existing.body !== opts.body.trim()
+      ) {
+        throw new OutboundError("Clave de idempotencia reutilizada para otro mensaje", 409, "IDEMPOTENCY_MISMATCH");
+      }
       return {
         outbound: existing,
         decision: { kind: "allow", notBefore: existing.scheduledAt, cold: existing.cold, warnings: [] },
@@ -187,7 +194,11 @@ export async function enqueueOutbound(opts: {
   const decision = evaluateSend({
     line: toSafetyState(line, await lastScheduledOnLine(line)),
     counters,
-    conversation: { optedOut: conversation.optedOut, lastInboundAt: conversation.lastInboundAt },
+    conversation: {
+      optedOut: conversation.optedOut,
+      optedOutAt: conversation.optedOutAt,
+      lastInboundAt: conversation.lastInboundAt,
+    },
     intent: { origin: opts.origin, body },
     now,
   });
@@ -272,7 +283,9 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
     prisma.whatsappLine.findUnique({ where: { id: outbound.lineId } }),
   ]);
   if (!conversation || !lineRow) return close("failed", "La conversación o el número ya no existen");
-  if (conversation.optedOut) return close("canceled", "OPTED_OUT: el cliente pidió la baja");
+  if (optOutBlocks(conversation, outbound.origin === "auto" ? "auto" : "manual")) {
+    return close("canceled", "OPTED_OUT: el cliente pidió la baja");
+  }
   if (!lineRow.active) return close("blocked", "LINE_INACTIVE: número desactivado");
   if (outbound.origin === "auto" && !outbound.critical) {
     if (lineRow.aiMode !== "auto") return close("canceled", "La IA automática se desactivó en este número");
@@ -283,7 +296,12 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
   if (lineRow.pausedUntil && lineRow.pausedUntil.getTime() > now.getTime()) {
     return requeue(new Date(lineRow.pausedUntil.getTime() + jitter(90_000)), `LINE_PAUSED: ${lineRow.pauseReason ?? "pausa de seguridad"}`);
   }
-  const line = await refreshLineStatus(lineRow, 30_000);
+  let line: WhatsappLine;
+  try {
+    line = await refreshLineStatus(lineRow, 30_000);
+  } catch (error) {
+    return requeue(new Date(now.getTime() + 60_000), `Error interno antes de enviar: ${(error as Error)?.message ?? error}`);
+  }
   if (line.lastStatus !== "WORKING") {
     if (now.getTime() - outbound.createdAt.getTime() > 6 * 3600_000) {
       return close("failed", `SESSION_DOWN: WhatsApp sin conexión (${line.lastStatus})`);
@@ -291,15 +309,20 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
     return requeue(new Date(now.getTime() + 2 * 60_000 + jitter(30_000)), `SESSION_DOWN: WhatsApp sin conexión (${line.lastStatus})`);
   }
 
-  // Un solo envío a la vez por número.
+  // Un solo envío a la vez por número. El valor del bloqueo identifica al
+  // dueño: solo quien lo puso lo libera.
+  const lockValue = new Date(now.getTime() + LINE_LOCK_MS + jitter(999));
   const locked = await prisma.whatsappLine.updateMany({
     where: { id: line.id, OR: [{ sendLockUntil: null }, { sendLockUntil: { lt: now } }] },
-    data: { sendLockUntil: new Date(now.getTime() + LINE_LOCK_MS) },
+    data: { sendLockUntil: lockValue },
   });
   if (locked.count === 0) return requeue(new Date(now.getTime() + 3_000 + jitter(2_000)), outbound.lastError ?? "");
   const unlock = () =>
-    prisma.whatsappLine.update({ where: { id: line.id }, data: { sendLockUntil: null } }).catch(() => undefined);
+    prisma.whatsappLine
+      .updateMany({ where: { id: line.id, sendLockUntil: lockValue }, data: { sendLockUntil: null } })
+      .catch(() => undefined);
 
+  let sendStarted = false;
   try {
     // Comprobación definitiva con lo realmente enviado (límites, ritmo, frío, duplicados).
     const fresh = await prisma.whatsappLine.findUniqueOrThrow({ where: { id: line.id } });
@@ -317,7 +340,11 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
     const decision = evaluateSend({
       line: toSafetyState(fresh, fresh.lastSentAt),
       counters,
-      conversation: { optedOut: conversation.optedOut, lastInboundAt: conversation.lastInboundAt },
+      conversation: {
+        optedOut: conversation.optedOut,
+        optedOutAt: conversation.optedOutAt,
+        lastInboundAt: conversation.lastInboundAt,
+      },
       intent: { origin: outbound.origin === "auto" ? "auto" : "manual", body: outbound.body },
       now,
       pacing: "floor",
@@ -330,13 +357,20 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
       return await requeue(decision.notBefore, outbound.lastError ?? "");
     }
 
-    // Simulación humana: marcar leído, «escribiendo…» y pausa proporcional.
-    await sendSeen({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId });
-    await setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: true });
+    // Simulación humana: marcar leído, «escribiendo…» y pausa proporcional
+    // (señales de cortesía: si fallan, no impiden el envío).
+    const signal = (fn: () => Promise<unknown>) => fn().catch(() => undefined);
+    await signal(() => sendSeen({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId }));
+    await signal(() =>
+      setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: true })
+    );
     await sleep(typingDelayMs(outbound.body, outbound.origin === "auto" ? "auto" : "manual"));
-    await setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: false });
+    await signal(() =>
+      setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: false })
+    );
 
     let messageId: string;
+    sendStarted = true;
     try {
       ({ messageId } = await sendText({
         workspaceId: line.workspaceId,
@@ -358,6 +392,12 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
       console.error("[inbox-outbound] enviado pero no se pudo registrar del todo:", error?.message)
     );
     return prisma.outboundMessage.findUnique({ where: { id } });
+  } catch (error) {
+    // Error ANTES de llamar a WhatsApp: no salió nada, se reprograma.
+    if (!sendStarted) {
+      return requeue(new Date(Date.now() + 60_000), `Error interno antes de enviar: ${(error as Error)?.message ?? error}`);
+    }
+    throw error;
   } finally {
     await unlock();
   }
@@ -377,6 +417,13 @@ async function handleSendFailure(outbound: OutboundMessage, line: WhatsappLine, 
   const attempts = outbound.attempts + 1;
   if (ambiguous) {
     // Puede que haya salido: nunca se reintenta solo (evita duplicados al cliente).
+    if (outbound.origin === "auto") {
+      await notifyWorkspaceUrgentAlert(
+        outbound.workspaceId,
+        "CRM_MESSAGE_ERROR",
+        "Una respuesta automática no se pudo confirmar en WhatsApp; revisa ese chat en la bandeja."
+      ).catch(() => undefined);
+    }
     return prisma.outboundMessage.update({
       where: { id: outbound.id },
       data: {

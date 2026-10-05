@@ -62,15 +62,26 @@ async function sendPhase() {
         lastError: "Envío interrumpido: puede que haya llegado. Revisa el chat antes de reintentar.",
       },
     });
-    const due = await prisma.outboundMessage.findMany({
-      where: { status: "queued", scheduledAt: { lte: new Date() } },
-      orderBy: { scheduledAt: "asc" },
-      take: 20,
-      select: { id: true, lineId: true },
+    // El más antiguo de CADA número: un número con mucha cola no frena a los demás.
+    const now = new Date();
+    const perLine = await prisma.outboundMessage.groupBy({
+      by: ["lineId"],
+      where: { status: "queued", scheduledAt: { lte: now } },
+      _min: { scheduledAt: true },
+      orderBy: { _min: { scheduledAt: "asc" } },
+      take: 40,
     });
-    // Un envío a la vez por número (ritmo humano); números distintos en paralelo.
+    const heads = await Promise.all(
+      perLine.map((g) =>
+        prisma.outboundMessage.findFirst({
+          where: { lineId: g.lineId, status: "queued", scheduledAt: { lte: now } },
+          orderBy: { scheduledAt: "asc" },
+          select: { id: true, lineId: true },
+        })
+      )
+    );
     const byLine = new Map<string, string[]>();
-    for (const item of due) byLine.set(item.lineId, [...(byLine.get(item.lineId) ?? []), item.id]);
+    for (const item of heads) if (item) byLine.set(item.lineId, [item.id]);
     await Promise.all(
       [...byLine.values()].map((ids) =>
         processOutbound(ids[0]).catch((error) => {

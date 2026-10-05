@@ -32,10 +32,7 @@ export async function GET(req: NextRequest) {
     if (filter === "archived") where.archived = true;
     else where.archived = false;
     if (filter === "unread") where.unread = { gt: 0 };
-    if (filter === "pending") {
-      where.lastDirection = "in";
-      where.optedOut = false;
-    }
+    if (filter === "pending") where.lastDirection = "in";
     if (filter === "drafts") where.aiDraft = { not: null };
     if (filter === "optout") where.optedOut = true;
     if (q) {

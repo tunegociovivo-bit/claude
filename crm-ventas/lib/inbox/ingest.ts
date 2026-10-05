@@ -90,8 +90,25 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
       if (dupe.direction === "in" && !fromMe) {
         const conv = await prisma.conversation.findUnique({
           where: { workspaceId_phone: { workspaceId: ws.id, phone: threadPhone } },
-          select: { lastInboundAt: true },
+          select: { id: true, lastInboundAt: true, lastInboundId: true, aiStatus: true, aiDraftForId: true, optedOut: true },
         });
+        if (
+          conv &&
+          conv.lastInboundId === dupe.id &&
+          conv.aiStatus === "idle" &&
+          conv.aiDraftForId !== dupe.id &&
+          line.aiMode !== "off" &&
+          !isOptOutMessage(dupe.body)
+        ) {
+          // Se guardó la conversación pero falló al programar la IA: se programa ahora.
+          const answered = await prisma.outboundMessage.count({
+            where: { conversationId: conv.id, replyToId: dupe.id, status: { not: "canceled" } },
+          });
+          if (!answered) {
+            await scheduleConversationAi(conv.id, line.aiMode === "auto" && !conv.optedOut ? "auto" : "suggest");
+            return { ok: true, duplicate: true, kick: true };
+          }
+        }
         if (!conv?.lastInboundAt || conv.lastInboundAt.getTime() < dupe.createdAt.getTime()) {
           return finalizeInbound(ws.id, line, {
             messageId: dupe.id,
@@ -265,9 +282,9 @@ async function finalizeInbound(
     });
     return { ok: true, optedOut: true };
   }
-  // Un chat dado de baja sigue de baja aunque el cliente escriba de nuevo:
-  // solo una persona puede reactivarlo («Quitar baja»). La IA no le responde.
-  if (conversation.optedOut || line.aiMode === "off") return { ok: true };
-  await scheduleConversationAi(conversation.id, line.aiMode === "auto" ? "auto" : "suggest");
+  // Un chat dado de baja sigue de baja aunque el cliente escriba de nuevo: la
+  // IA nunca le envía nada, pero deja una propuesta para que decida una persona.
+  if (line.aiMode === "off") return { ok: true };
+  await scheduleConversationAi(conversation.id, line.aiMode === "auto" && !conversation.optedOut ? "auto" : "suggest");
   return { ok: true, kick: true };
 }

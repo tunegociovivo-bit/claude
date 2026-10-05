@@ -48,7 +48,15 @@ test("detecta bajas explícitas sin confundir un «no me interesa»", () => {
   for (const text of ["STOP", "Baja", "quiero darme de baja", "No me escribáis más", "dejad de escribirme", "no quiero recibir más mensajes", "No me escribas", "no me escribáis por favor"]) {
     assert.equal(isOptOutMessage(text), true, text);
   }
-  for (const text of ["no me interesa ahora", "¿Hacéis bajas laborales?", "Hola, quería pedir cita", "no me escribas por la mañana porfa"]) {
+  assert.equal(isOptOutMessage("quiero darme de baja de los mensajes"), true);
+  for (const text of [
+    "no me interesa ahora",
+    "¿Hacéis bajas laborales?",
+    "Hola, quería pedir cita",
+    "no me escribas por la mañana porfa",
+    "quiero darme de baja del gimnasio, ¿cómo lo hago?",
+    "solicito la baja de mi bono",
+  ]) {
     assert.equal(isOptOutMessage(text), false, text);
   }
 });

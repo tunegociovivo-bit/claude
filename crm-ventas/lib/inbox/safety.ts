@@ -40,8 +40,18 @@ export type SafetyCounters = {
 
 export type ConversationSafety = {
   optedOut: boolean;
+  optedOutAt?: Date | null;
   lastInboundAt: Date | null;
 };
+
+// Tras una baja, una PERSONA puede contestar si el cliente volvió a escribir
+// por su cuenta; la IA nunca.
+export function optOutBlocks(conv: ConversationSafety, origin: "auto" | "manual"): boolean {
+  if (!conv.optedOut) return false;
+  if (origin === "auto") return true;
+  const rewrote = Boolean(conv.lastInboundAt && conv.optedOutAt && conv.lastInboundAt.getTime() > conv.optedOutAt.getTime());
+  return !rewrote;
+}
 
 export type SendIntent = {
   origin: "auto" | "manual";
@@ -124,7 +134,7 @@ export function evaluateSend(input: {
   if (body.length > 4000) {
     return { kind: "block", code: "TOO_LONG", reason: "El mensaje supera los 4.000 caracteres." };
   }
-  if (conversation.optedOut) {
+  if (optOutBlocks(conversation, intent.origin)) {
     return {
       kind: "block",
       code: "OPTED_OUT",

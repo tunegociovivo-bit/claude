@@ -74,7 +74,7 @@ export async function processConversationAi(conversationId: string) {
     ? await prisma.whatsappLine.findUnique({ where: { id: conversation.lineId } })
     : await ensurePrimaryLine(conversation.workspaceId);
 
-  if (!line || line.aiMode === "off" || conversation.optedOut || !conversation.lastInboundId) {
+  if (!line || line.aiMode === "off" || !conversation.lastInboundId) {
     await prisma.conversation.update({ where: { id: conversationId }, data: { aiStatus: "idle" } });
     return;
   }
@@ -84,7 +84,9 @@ export async function processConversationAi(conversationId: string) {
     !humanActive &&
     line.active &&
     !(line.pausedUntil && line.pausedUntil.getTime() > now.getTime());
-  const mode: "auto" | "suggest" = canAutoSend ? "auto" : "suggest";
+  // Tras una baja la IA nunca envía; si el cliente volvió a escribir, propone
+  // (y es una persona quien decide).
+  const mode: "auto" | "suggest" = canAutoSend && !conversation.optedOut ? "auto" : "suggest";
   const forId = conversation.lastInboundId;
 
   let text: string | null = null;
@@ -177,10 +179,19 @@ export async function processConversationAi(conversationId: string) {
     });
   }
   if (superseded) {
-    // Confirmación crítica enviada a la cola: ahora toca responder a lo nuevo.
+    // Confirmación crítica ya en cola. Si el cliente escribió algo más (y no
+    // es que una persona haya tomado el chat), toca responder a lo nuevo.
+    const latest = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { lastInboundId: true, humanUntil: true },
+    });
+    const human = latest?.humanUntil && latest.humanUntil.getTime() > Date.now();
     await prisma.conversation.update({
       where: { id: conversationId },
-      data: { aiStatus: "pending", aiDueAt: new Date(Date.now() + AUTO_DEBOUNCE_MS) },
+      data:
+        !human && latest?.lastInboundId && latest.lastInboundId !== forId
+          ? { aiStatus: "pending", aiDueAt: new Date(Date.now() + AUTO_DEBOUNCE_MS) }
+          : { aiStatus: "idle" },
     });
     return;
   }

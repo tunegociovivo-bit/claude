@@ -84,6 +84,7 @@ type Thread = {
     phone: string;
     lineId: string | null;
     optedOut: boolean;
+    canReplyAfterOptOut: boolean;
     archived: boolean;
     aiStatus: string;
     aiError: string | null;
@@ -266,13 +267,21 @@ export default function InboxPanel({
     if (!selectedId || !body.trim() || sending) return;
     setSending(true);
     setNotice(null);
-    // Misma clave mientras el texto no cambie: un reintento de red no duplica.
-    if (!sendKey.current || sendKey.current.text !== body.trim()) sendKey.current = { text: body.trim(), key: randomKey() };
-    const { ok, data } = await jsonFetch(`/api/v1/inbox/conversations/${selectedId}/send`, {
-      method: "POST",
-      body: JSON.stringify({ text: body.trim(), idempotencyKey: sendKey.current.key }),
-    });
-    setSending(false);
+    // Misma clave mientras el chat y el texto no cambien: un reintento no duplica.
+    const keyText = `${selectedId}\n${body.trim()}`;
+    if (!sendKey.current || sendKey.current.text !== keyText) sendKey.current = { text: keyText, key: randomKey() };
+    let ok = false;
+    let data: any = null;
+    try {
+      ({ ok, data } = await jsonFetch(`/api/v1/inbox/conversations/${selectedId}/send`, {
+        method: "POST",
+        body: JSON.stringify({ text: body.trim(), idempotencyKey: sendKey.current.key }),
+      }));
+    } catch {
+      data = { error: "Sin conexión con el CRM. Vuelve a pulsar enviar (no se duplicará)." };
+    } finally {
+      setSending(false);
+    }
     if (ok) sendKey.current = null;
     if (!ok) {
       setNotice({ tone: "error", text: errorText(data, "No se pudo enviar") });
@@ -349,9 +358,14 @@ export default function InboxPanel({
     if (retrying) return;
     if (method === "POST" && !confirm("¿Reintentar el envío? Si el aviso dice que puede haber llegado, revisa antes el chat en el móvil.")) return;
     setRetrying(id);
-    const { ok, data } = await jsonFetch(`/api/v1/inbox/outbound/${id}`, { method });
-    setRetrying(null);
-    if (!ok) setNotice({ tone: "error", text: errorText(data, "No se pudo completar") });
+    try {
+      const { ok, data } = await jsonFetch(`/api/v1/inbox/outbound/${id}`, { method });
+      if (!ok) setNotice({ tone: "error", text: errorText(data, "No se pudo completar") });
+    } catch {
+      setNotice({ tone: "error", text: "Sin conexión con el CRM" });
+    } finally {
+      setRetrying(null);
+    }
     if (selectedId) await loadThread(selectedId);
   }
 
@@ -703,7 +717,11 @@ export default function InboxPanel({
                   {conv.optedOut ? (
                     <>
                       <Ban size={13} className="text-red-600" />
-                      <span className="text-red-700">Este cliente pidió la baja: no se le enviará nada salvo que vuelva a escribir.</span>
+                      <span className="text-red-700">
+                        {conv.canReplyAfterOptOut
+                          ? `Pidió la baja, pero ha vuelto a escribir: puedes contestarle tú (${agentName} no responde sola).`
+                          : "Este cliente pidió la baja: no se le enviará nada salvo que vuelva a escribir."}
+                      </span>
                       <button
                         className="ml-auto font-medium text-slate-600 underline"
                         onClick={() => {
@@ -836,7 +854,7 @@ export default function InboxPanel({
               </div>
 
               {/* ------- Propuesta de la IA ------- */}
-              {conv && !conv.optedOut && line?.aiMode !== "off" && (aiBusy || drafting || draft || waitingReply) && (
+              {conv && (!conv.optedOut || conv.canReplyAfterOptOut) && line?.aiMode !== "off" && (aiBusy || drafting || draft || waitingReply) && (
                 <div className="border-t border-violet-100 bg-violet-50/60 px-3 py-2.5 sm:px-4">
                   {aiBusy || drafting ? (
                     <p className="flex items-center gap-2 text-xs text-violet-800">
@@ -894,9 +912,9 @@ export default function InboxPanel({
                     ref={textareaRef}
                     className="input max-h-44 min-h-10 resize-none"
                     rows={1}
-                    placeholder={conv?.optedOut ? "Cliente dado de baja" : "Escribe una respuesta…"}
+                    placeholder={conv?.optedOut && !conv.canReplyAfterOptOut ? "Cliente dado de baja" : "Escribe una respuesta…"}
                     value={text}
-                    disabled={conv?.optedOut}
+                    disabled={conv?.optedOut && !conv.canReplyAfterOptOut}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={onComposerKey}
                   />
@@ -905,7 +923,7 @@ export default function InboxPanel({
                       <Undo2 size={15} />
                     </button>
                   )}
-                  <button className="btn-primary h-10 w-10 shrink-0 px-0" disabled={sending || !text.trim() || conv?.optedOut} aria-label="Enviar">
+                  <button className="btn-primary h-10 w-10 shrink-0 px-0" disabled={sending || !text.trim() || (conv?.optedOut && !conv.canReplyAfterOptOut)} aria-label="Enviar">
                     {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                   </button>
                 </div>

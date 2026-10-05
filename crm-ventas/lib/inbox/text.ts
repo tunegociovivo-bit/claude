@@ -77,12 +77,17 @@ export function isOptOutMessage(value: string): boolean {
   if (!text) return false;
   if (/^\s*(stop|unsubscribe|baja)\s*[.!]*\s*$/.test(text)) return true;
   if (/\bstop\b/.test(text) && text.length <= 40) return true;
-  if (
-    /\b(?:dame|dadme|denme|darme|darnos|solicito|solicitamos|quiero|queremos)\s+(?:(?:darme|darnos)\s+)?(?:de|la)\s+baja\b/.test(
-      text
-    )
-  ) {
-    return true;
+  // «Quiero darme de baja» es baja de mensajes solo si no habla de otra cosa
+  // (p. ej. «la baja del gimnasio» o «de mi bono» es una gestión del servicio).
+  const unsubscribe = text.match(
+    /\b(?:dame|dadme|denme|darme|darnos|solicito|solicitamos|quiero|queremos)\s+(?:(?:darme|darnos)\s+)?(?:de|la)\s+baja\b(.*)$/
+  );
+  if (unsubscribe) {
+    const rest = unsubscribe[1].trim();
+    if (!rest || /^[.!]+$/.test(rest)) return true;
+    if (/^(?:de|del|en)\s+(?:(?:los|estos|vuestros|sus|tus)\s+)?(?:mensajes|whatsapps?|lista|listas|comunicaciones|publicidad|env[ií]os|difusi[oó]n)\b/.test(rest)) {
+      return true;
+    }
   }
   if (/\bno\s+(?:quiero|queremos)\s+(?:recibir\s+)?(?:m[aá]s\s+)?mensajes\b/.test(text)) return true;
   if (

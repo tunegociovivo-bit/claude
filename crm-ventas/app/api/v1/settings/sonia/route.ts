@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireWorkspaceId, unauthorized } from "@/lib/auth";
+import { requireWorkspaceAdmin, requireWorkspaceId, unauthorized } from "@/lib/auth";
 import { randomToken } from "@/lib/crypto";
 import {
   getWorkspaceSettings,
@@ -103,7 +103,16 @@ export async function PUT(req: NextRequest) {
   });
   // El interruptor de respuesta automática gobierna el número principal de la bandeja.
   if (typeof whatsapp?.autoReplyEnabled === "boolean" && whatsapp.autoReplyEnabled !== current.whatsapp.autoReplyEnabled) {
-    await setPrimaryLineAiModeFromSettings(workspaceId, whatsapp.autoReplyEnabled);
+    // Cambiar el modo de la IA del número principal es cosa de administradores.
+    let isAdmin = false;
+    try {
+      await requireWorkspaceAdmin();
+      isAdmin = true;
+    } catch {
+      isAdmin = false;
+    }
+    if (isAdmin) await setPrimaryLineAiModeFromSettings(workspaceId, whatsapp.autoReplyEnabled);
+    else await saveWorkspaceSettings(workspaceId, { whatsapp: { ...current.whatsapp } });
   }
   return NextResponse.json({ ok: true });
 }
