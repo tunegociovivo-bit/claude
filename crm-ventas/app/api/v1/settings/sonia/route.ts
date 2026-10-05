@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireWorkspaceId, unauthorized } from "@/lib/auth";
+import { requireWorkspaceAdmin, requireWorkspaceId, unauthorized } from "@/lib/auth";
 import { randomToken } from "@/lib/crypto";
 import {
   getWorkspaceSettings,
   saveWorkspaceSettings,
   publicBaseUrl,
 } from "@/lib/settings";
+import { setPrimaryLineAiModeFromSettings } from "@/lib/inbox/lines";
 
 // Configuración de SONIA por cliente: prompt, negocio, Vapi, WhatsApp.
 export async function GET() {
@@ -100,5 +101,18 @@ export async function PUT(req: NextRequest) {
     whatsapp: { ...current.whatsapp, ...(whatsapp ?? {}) },
     urgentAlerts: { ...current.urgentAlerts, ...(urgentAlerts ?? {}) },
   });
+  // El interruptor de respuesta automática gobierna el número principal de la bandeja.
+  if (typeof whatsapp?.autoReplyEnabled === "boolean" && whatsapp.autoReplyEnabled !== current.whatsapp.autoReplyEnabled) {
+    // Cambiar el modo de la IA del número principal es cosa de administradores.
+    let isAdmin = false;
+    try {
+      await requireWorkspaceAdmin();
+      isAdmin = true;
+    } catch {
+      isAdmin = false;
+    }
+    if (isAdmin) await setPrimaryLineAiModeFromSettings(workspaceId, whatsapp.autoReplyEnabled);
+    else await saveWorkspaceSettings(workspaceId, { whatsapp: { ...current.whatsapp } });
+  }
   return NextResponse.json({ ok: true });
 }

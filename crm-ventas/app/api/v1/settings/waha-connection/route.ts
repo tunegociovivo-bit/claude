@@ -5,6 +5,7 @@ import {
   unauthorized,
 } from "@/lib/auth";
 import { WahaUrlNotAllowedError } from "@/lib/waha";
+import { ensurePrimaryLine } from "@/lib/inbox/lines";
 import {
   ensureSessionStarted,
   getConnectionState,
@@ -43,7 +44,9 @@ export async function POST(request: Request) {
   try {
     if (!isSameOrigin(request)) return forbidden();
     const { workspaceId } = await requireWorkspaceAdmin();
-    return Response.json({ connection: await ensureSessionStarted(workspaceId) });
+    const connection = await ensureSessionStarted(workspaceId);
+    await ensurePrimaryLine(workspaceId); // la línea principal sigue a la sesión nueva
+    return Response.json({ connection });
   } catch (error) {
     return errorResponse(error);
   }

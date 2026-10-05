@@ -84,9 +84,27 @@ export function derivedSessionName(workspaceId: string): string {
   return name;
 }
 
+// Números adicionales del negocio: paula-<workspace>-<sufijo>. El sufijo lo
+// genera el servidor; nunca se acepta un nombre libre desde la UI.
+export function extraSessionName(workspaceId: string, suffix: string): string {
+  const cleanSuffix = suffix.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10);
+  if (cleanSuffix.length < 3) throw new WahaSelfServiceError("Sufijo de sesión no válido", 400);
+  return `${derivedSessionName(workspaceId)}-${cleanSuffix}`;
+}
+
+// ¿Es una sesión creada por el CRM para este workspace? Solo esas se pueden
+// arrancar, reiniciar o desvincular desde aquí.
+export function isOwnSessionName(workspaceId: string, name: string): boolean {
+  const base = derivedSessionName(workspaceId);
+  if (name === base) return true;
+  if (!name.startsWith(`${base}-`)) return false;
+  const suffix = name.slice(base.length + 1);
+  return /^[a-z0-9]{3,10}$/.test(suffix) && !isProtectedSessionName(name);
+}
+
 type WahaCtx = { baseUrl: string; apiKey: string; session: string };
 
-async function wahaCtx(workspaceId: string): Promise<WahaCtx> {
+async function wahaCtx(workspaceId: string, session?: string): Promise<WahaCtx> {
   const settings = await getWorkspaceSettings(workspaceId);
   const w = settings.whatsapp;
   if (!w.wahaUrl || !w.wahaApiKeyEnc) {
@@ -95,10 +113,14 @@ async function wahaCtx(workspaceId: string): Promise<WahaCtx> {
       409
     );
   }
+  const name = session ?? derivedSessionName(workspaceId);
+  if (!isOwnSessionName(workspaceId, name)) {
+    throw new WahaSelfServiceError("Esa sesión no pertenece a este negocio", 403);
+  }
   return {
     baseUrl: assertAllowedWahaUrl(w.wahaUrl),
     apiKey: decryptSecret(w.wahaApiKeyEnc),
-    session: derivedSessionName(workspaceId),
+    session: name,
   };
 }
 
@@ -141,16 +163,17 @@ export type WahaConnectionState = {
 };
 
 export async function getConnectionState(
-  workspaceId: string
+  workspaceId: string,
+  session?: string
 ): Promise<WahaConnectionState> {
   let ctx: WahaCtx;
   try {
-    ctx = await wahaCtx(workspaceId);
+    ctx = await wahaCtx(workspaceId, session);
   } catch (error) {
     if (error instanceof WahaSelfServiceError && error.status === 409) {
       return {
         configured: false,
-        session: derivedSessionName(workspaceId),
+        session: session ?? derivedSessionName(workspaceId),
         status: "NOT_CONFIGURED",
         phone: null,
       };
@@ -192,9 +215,10 @@ function sessionConfig(webhookUrl: string) {
 // Crea (o reconfigura) y arranca la sesión derivada del workspace. Si ya
 // estaba arrancada, la reinicia para renovar el QR. Nunca toca otra sesión.
 export async function ensureSessionStarted(
-  workspaceId: string
+  workspaceId: string,
+  session?: string
 ): Promise<WahaConnectionState> {
-  const ctx = await wahaCtx(workspaceId);
+  const ctx = await wahaCtx(workspaceId, session);
   const token = await ensureWebhookToken(workspaceId);
   const webhookUrl = `${publicBaseUrl()}/api/webhooks/whatsapp/${token}`;
   const config = sessionConfig(webhookUrl);
@@ -247,18 +271,21 @@ export async function ensureSessionStarted(
     );
   }
 
-  // A partir de ahora este workspace envía por su sesión derivada.
-  await saveWorkspaceSettings(workspaceId, {
-    whatsapp: { wahaSession: ctx.session } as any,
-  });
+  // La sesión principal pasa a ser la derivada; los números adicionales no
+  // cambian la sesión principal del negocio.
+  if (ctx.session === derivedSessionName(workspaceId)) {
+    await saveWorkspaceSettings(workspaceId, {
+      whatsapp: { wahaSession: ctx.session } as any,
+    });
+  }
 
-  return getConnectionState(workspaceId);
+  return getConnectionState(workspaceId, ctx.session);
 }
 
 // Desvincula (logout) la sesión derivada. Fail closed: si no se puede leer el
 // estado, o el teléfono vinculado es un número protegido, se aborta.
-export async function unlinkSession(workspaceId: string): Promise<{ ok: true }> {
-  const ctx = await wahaCtx(workspaceId);
+export async function unlinkSession(workspaceId: string, session?: string): Promise<{ ok: true }> {
+  const ctx = await wahaCtx(workspaceId, session);
   const { status, body } = await getSession(ctx);
 
   if (status === 404) return { ok: true }; // no hay nada que desvincular
@@ -297,8 +324,8 @@ export async function unlinkSession(workspaceId: string): Promise<{ ok: true }> 
 // QR de vinculación, proxied: nunca exponemos la URL ni la API key de WAHA.
 const QR_MAX_BYTES = 1024 * 1024;
 
-export async function fetchQrPng(workspaceId: string): Promise<ArrayBuffer> {
-  const ctx = await wahaCtx(workspaceId);
+export async function fetchQrPng(workspaceId: string, session?: string): Promise<ArrayBuffer> {
+  const ctx = await wahaCtx(workspaceId, session);
   const res = await wahaFetch(
     ctx,
     `/api/${encodeURIComponent(ctx.session)}/auth/qr`,
@@ -319,4 +346,110 @@ export async function fetchQrPng(workspaceId: string): Promise<ArrayBuffer> {
     throw new WahaSelfServiceError("El QR recibido no es válido");
   }
   return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Sesiones WAHA existentes (p.ej. números del Hub) enlazadas por un operador.
+// Solo se añade/retira el webhook del CRM conservando el resto de la config.
+// Nunca se hace logout, restart forzado ni borrado de estas sesiones.
+// ---------------------------------------------------------------------------
+
+const LINKABLE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
+
+// Lista blanca de sesiones enlazables (WAHA_LINKABLE_SESSIONS, separadas por
+// comas). Vacía = no se puede enlazar ninguna (fail closed).
+export function linkableSessionNames(): Set<string> {
+  return new Set(
+    (process.env.WAHA_LINKABLE_SESSIONS || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+  );
+}
+
+async function existingCtx(workspaceId: string, session: string): Promise<WahaCtx> {
+  if (!LINKABLE_NAME.test(session) || session.includes("..")) {
+    throw new WahaSelfServiceError("Nombre de sesión no válido", 400);
+  }
+  if (!linkableSessionNames().has(session)) {
+    throw new WahaSelfServiceError(
+      "Esa sesión no está en la lista de números enlazables (WAHA_LINKABLE_SESSIONS)",
+      403
+    );
+  }
+  if (isProtectedSessionName(session)) {
+    throw new WahaSelfServiceError(
+      "Esa sesión está protegida (default, Sonia o WAHA_PROTECTED_SESSIONS) y no se puede enlazar",
+      403
+    );
+  }
+  const settings = await getWorkspaceSettings(workspaceId);
+  const w = settings.whatsapp;
+  if (!w.wahaUrl || !w.wahaApiKeyEnc) {
+    throw new WahaSelfServiceError("El servicio de WhatsApp aún no está aprovisionado para este negocio", 409);
+  }
+  return { baseUrl: assertAllowedWahaUrl(w.wahaUrl), apiKey: decryptSecret(w.wahaApiKeyEnc), session };
+}
+
+// Estado de solo lectura de cualquier sesión del servidor del workspace.
+export async function readSessionState(
+  workspaceId: string,
+  session: string
+): Promise<{ status: string; phone: string | null }> {
+  const settings = await getWorkspaceSettings(workspaceId);
+  const w = settings.whatsapp;
+  if (!w.wahaUrl) return { status: "NOT_CONFIGURED", phone: null };
+  // Igual que el envío: la API key es opcional (hay WAHA sin clave).
+  const ctx: WahaCtx = {
+    baseUrl: assertAllowedWahaUrl(w.wahaUrl),
+    apiKey: w.wahaApiKeyEnc ? decryptSecret(w.wahaApiKeyEnc) : "",
+    session,
+  };
+  const { status, body } = await getSession(ctx);
+  if (status === 404) return { status: "NO_SESSION", phone: null };
+  if (status < 200 || status >= 300) throw new WahaSelfServiceError(`WAHA devolvió HTTP ${status}`);
+  return { status: String(body?.status ?? "UNKNOWN"), phone: sessionPhoneDigits(body) || null };
+}
+
+function crmWebhookUrl(token: string) {
+  return `${publicBaseUrl()}/api/webhooks/whatsapp/${token}`;
+}
+
+export function mergeWebhooks(current: unknown, url: string, attach: boolean) {
+  const list = Array.isArray(current) ? (current as any[]).filter((h) => h && typeof h.url === "string") : [];
+  const withoutOurs = list.filter((h) => h.url !== url);
+  return attach ? [...withoutOurs, { url, events: WEBHOOK_EVENTS }] : withoutOurs;
+}
+
+async function putWebhooks(workspaceId: string, session: string, attach: boolean) {
+  const ctx = await existingCtx(workspaceId, session);
+  const { status, body } = await getSession(ctx);
+  if (status === 404) throw new WahaSelfServiceError("Esa sesión no existe en el servidor WAHA", 404);
+  if (status < 200 || status >= 300) {
+    throw new WahaSelfServiceError(`No se pudo leer la sesión (HTTP ${status}); operación abortada`);
+  }
+  if (attach && isProtectedPhone(body)) {
+    throw new WahaSelfServiceError("La sesión está vinculada a un número protegido; enlace abortado", 403);
+  }
+  const token = await ensureWebhookToken(workspaceId);
+  const config = (body?.config && typeof body.config === "object" ? body.config : {}) as Record<string, unknown>;
+  const webhooks = mergeWebhooks(config.webhooks, crmWebhookUrl(token), attach);
+  const res = await wahaFetch(ctx, `/api/sessions/${encodeURIComponent(session)}`, {
+    method: "PUT",
+    body: JSON.stringify({ config: { ...config, webhooks } }),
+  });
+  if (!res.ok) {
+    throw new WahaSelfServiceError(
+      `WAHA no aceptó el cambio de webhook (HTTP ${res.status}). La sesión no se ha tocado.`
+    );
+  }
+  return { status: String(body?.status ?? "UNKNOWN"), phone: sessionPhoneDigits(body) || null };
+}
+
+export function attachCrmWebhook(workspaceId: string, session: string) {
+  return putWebhooks(workspaceId, session, true);
+}
+
+export function detachCrmWebhook(workspaceId: string, session: string) {
+  return putWebhooks(workspaceId, session, false);
 }

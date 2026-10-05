@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireWorkspaceId, unauthorized } from "@/lib/auth";
-import { sendText } from "@/lib/waha";
+import { isSameOrigin, requireWorkspaceId, unauthorized } from "@/lib/auth";
+import { backfillConversations } from "@/lib/inbox/conversations";
+import { describeDecision, enqueueOutbound, processIfDue } from "@/lib/inbox/outbound";
 
 // GET  → lista de conversaciones (o mensajes de un hilo con ?phone=)
 // POST → responder manualmente a un hilo
@@ -52,6 +53,8 @@ const replySchema = z.object({
   text: z.string().min(1).max(4000),
 });
 
+// Compatibilidad: la respuesta manual ahora pasa por la cola anti-baneo de la
+// bandeja unificada (mismo número por el que escribió el cliente).
 export async function POST(req: NextRequest) {
   let workspaceId: string;
   try {
@@ -59,36 +62,32 @@ export async function POST(req: NextRequest) {
   } catch {
     return unauthorized();
   }
+  if (!isSameOrigin(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
   const parsed = replySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { phone, text } = parsed.data;
   try {
-    const sent = await sendText({ workspaceId, to: phone, text });
-    const contact = await prisma.contact.findFirst({
-      where: { workspaceId, phone },
-      select: { id: true },
+    await backfillConversations(workspaceId);
+    const conversation = await prisma.conversation.findUnique({
+      where: { workspaceId_phone: { workspaceId, phone } },
+      select: { id: true, aiDraft: true, aiDraftForId: true, lastInboundId: true },
     });
-    const previous = contact
-      ? null
-      : await prisma.message.findFirst({
-          where: { workspaceId, phone, contactId: { not: null } },
-          orderBy: { createdAt: "desc" },
-          select: { contactId: true },
-        });
-    const message = await prisma.message.create({
-      data: {
-        workspaceId,
-        contactId: contact?.id ?? previous?.contactId,
-        phone,
-        direction: "out",
-        body: text,
-        externalId: sent.messageId,
-        meta: { manual: true },
-      },
+    if (!conversation) return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
+    const { outbound, decision } = await enqueueOutbound({
+      workspaceId,
+      conversationId: conversation.id,
+      body: text,
+      origin: "manual",
+      aiDraft:
+        conversation.aiDraft && conversation.aiDraftForId === conversation.lastInboundId ? conversation.aiDraft : null,
     });
-    return NextResponse.json({ message }, { status: 201 });
+    if (decision.kind === "block") {
+      return NextResponse.json({ error: decision.reason, code: decision.code }, { status: 422 });
+    }
+    const final = await processIfDue(outbound);
+    return NextResponse.json({ outbound: final, result: describeDecision(decision) }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(
       { error: err?.message ?? "No se pudo enviar" },

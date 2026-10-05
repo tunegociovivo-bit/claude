@@ -14,6 +14,27 @@ Hub.Negociovivo, empaquetado como producto independiente y multi-cliente.
 | **Llamadas** | Registro de llamadas atendidas por SONIA con transcripción y resumen. |
 | **Ajustes** | Configuración por cliente: información del negocio, prompt específico, horario, voz, Vapi y WAHA. Genera las URLs de webhook a pegar en Vapi y WAHA. |
 
+## Bandeja de WhatsApp unificada (Pipeline → «WhatsApp unificado»)
+
+- **Varios números por negocio**: cada número es una sesión WAHA. Se añaden desde
+  *Teléfonos* con QR (sesión propia `paula-<workspace>-<sufijo>`). Un operador NV
+  puede además enlazar sesiones existentes de la lista `WAHA_LINKABLE_SESSIONS`
+  (p. ej. números del Hub): solo se añade el webhook del CRM, nunca se desvincula.
+- **Una respuesta = el mismo número** por el que escribió el cliente.
+- **IA por número**: *Responde sola*, *Propone* (borrador que una persona envía)
+  o *Apagada*. Espera ~9 s a que el cliente termine de escribir y responde una vez.
+- **Aprendizaje**: cada respuesta humana (aceptada, corregida, reescrita, escrita
+  desde cero o desde el móvil) se guarda en `ReplyLearning`; se usan como ejemplos
+  y se destila una guía de estilo editable (`InboxLearning`).
+- **Anti-baneo** (`lib/inbox/safety.ts`, `lib/inbox/outbound.ts`): todo sale por
+  una cola con lectura + «escribiendo…», ritmo por número, límites hora/día, modo
+  «solo responder» por defecto, calentamiento de chats nuevos, bajas automáticas,
+  bloqueo de envíos idénticos masivos y de enlaces en primer mensaje, tope de
+  mensajes seguidos sin respuesta, comprobación definitiva al enviar con bloqueo
+  por número, sin reintentos ciegos de envíos dudosos y cortacircuitos con alerta.
+- **Worker**: arranca en `instrumentation.ts` (cada 3 s). Las reclamaciones son
+  atómicas, así que varias instancias no duplican envíos.
+
 ## Stack
 
 Next.js 14 (App Router) · TypeScript · Prisma + PostgreSQL · NextAuth ·
