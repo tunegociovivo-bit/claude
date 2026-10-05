@@ -90,7 +90,7 @@ import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-
 import { FacebookNavigationError, launchFacebookForAutomation, openFacebookUrl, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
-import { inspectCommentThreadNavigation, postCommentThreadMessage } from "@/components/mobile/comment-thread-runner";
+import { inspectCommentThreadNavigation, postCommentThreadMessage, threadRunnerDiagnostics } from "@/components/mobile/comment-thread-runner";
 import { createPacedDependencies } from "@/components/mobile/mobile-pace";
 import { createMobileTouchInput } from "@/components/mobile/mobile-touch-input";
 import { abortMobileJob, clearMobileJob, guardDependencies, withTimeout } from "@/components/mobile/mobile-job-guard";
@@ -533,6 +533,29 @@ async function compressScreenshot(
   } finally {
     bitmap.close();
   }
+}
+
+/** Envía al Hub el recorrido, la última pantalla y una captura del fallo (sin bloquear el reintento). */
+async function reportThreadDiagnostics(adb: Adb, jobId: string | undefined, error: unknown) {
+  if (!jobId) return;
+  try {
+    const diagnostics = threadRunnerDiagnostics(error);
+    let screenshot: string | undefined;
+    try {
+      const bytes = await withTimeout(runAdbBinary(adb, ["screencap", "-p"]), 20_000, "captura");
+      if (bytes.byteLength) screenshot = await compressScreenshot(bytes, 450_000);
+    } catch { /* sin captura: se envía el resto */ }
+    await mobileApiJson(`/api/v1/mobile/automations/jobs/${encodeURIComponent(jobId)}/diagnostics`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 2000),
+        trace: (diagnostics?.trace ?? []).map((line) => line.slice(0, 1500)).slice(-60),
+        xml: diagnostics?.xml ? diagnostics.xml.slice(0, 400_000) : undefined,
+        screenshot
+      }),
+      signal: AbortSignal.timeout(20_000)
+    });
+  } catch { /* el diagnóstico nunca impide el reintento */ }
 }
 
 async function readAndroidProxy(adb: Adb): Promise<AndroidHttpProxy | null> {
@@ -1401,7 +1424,13 @@ function MobileDeviceCard({
           }
         }));
         if (inspectOnly) return { outcome: "PREPARED", summary: await inspectCommentThreadNavigation(message, threadDeps) };
-        const result = await postCommentThreadMessage(message, threadDeps);
+        let result;
+        try {
+          result = await postCommentThreadMessage(message, threadDeps);
+        } catch (error) {
+          await reportThreadDiagnostics(adb, job.id, error);
+          throw error;
+        }
         return {
           outcome: result.outcome === "sent" ? "COMPLETED" : "PARTIAL",
           resultText: serializeCommentThreadMessage(result),
