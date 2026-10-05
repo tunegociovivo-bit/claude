@@ -56,14 +56,16 @@ export function assertAllowedWahaUrl(raw: string): string {
   return raw.replace(/\/+$/, "");
 }
 
-export async function getWahaConfig(workspaceId: string): Promise<WahaConfig> {
+// `session` permite enviar por cualquier número (línea) del workspace; sin él
+// se usa la sesión principal guardada en Ajustes.
+export async function getWahaConfig(workspaceId: string, session?: string): Promise<WahaConfig> {
   const settings = await getWorkspaceSettings(workspaceId);
   const w = settings.whatsapp;
   if (!w.wahaUrl) throw new WhatsappNotConfiguredError();
   return {
     baseUrl: assertAllowedWahaUrl(w.wahaUrl),
     apiKey: w.wahaApiKeyEnc ? decryptSecret(w.wahaApiKeyEnc) : "",
-    session: w.wahaSession || "default",
+    session: session || w.wahaSession || "default",
     countryCode: w.countryCode || "34",
   };
 }
@@ -90,9 +92,42 @@ export async function sendText(opts: {
   workspaceId: string;
   to: string; // teléfono normalizado o chatId
   text: string;
+  session?: string;
 }): Promise<{ messageId: string }> {
-  const cfg = await getWahaConfig(opts.workspaceId);
+  const cfg = await getWahaConfig(opts.workspaceId, opts.session);
   return sendTextWithConfig(cfg, opts.to, opts.text);
+}
+
+// Señales "humanas" (best-effort: si WAHA no las soporta, no bloquean el envío).
+async function wahaPost(cfg: WahaConfig, path: string, body: Record<string, unknown>) {
+  try {
+    await fetch(`${cfg.baseUrl}${path}`, {
+      method: "POST",
+      headers: headers(cfg),
+      body: JSON.stringify({ session: cfg.session, ...body }),
+      redirect: "error",
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    // Ignorado a propósito
+  }
+}
+
+export async function sendSeen(opts: { workspaceId: string; session: string; chatId: string }) {
+  const cfg = await getWahaConfig(opts.workspaceId, opts.session);
+  await wahaPost(cfg, "/api/sendSeen", { chatId: toChatId(opts.chatId) });
+}
+
+export async function setTyping(opts: {
+  workspaceId: string;
+  session: string;
+  chatId: string;
+  typing: boolean;
+}) {
+  const cfg = await getWahaConfig(opts.workspaceId, opts.session);
+  await wahaPost(cfg, opts.typing ? "/api/startTyping" : "/api/stopTyping", {
+    chatId: toChatId(opts.chatId),
+  });
 }
 
 async function sendTextWithConfig(cfg: WahaConfig, to: string, text: string) {
@@ -127,9 +162,9 @@ export async function sendOperationalWhatsapp(opts: { workspaceId: string; to: s
   return sendTextWithConfig(cfg, opts.to, opts.text);
 }
 
-export async function getSessionStatus(workspaceId: string): Promise<string | null> {
+export async function getSessionStatus(workspaceId: string, session?: string): Promise<string | null> {
   try {
-    const cfg = await getWahaConfig(workspaceId);
+    const cfg = await getWahaConfig(workspaceId, session);
     const res = await fetch(
       `${cfg.baseUrl}/api/sessions/${encodeURIComponent(cfg.session)}`,
       {

@@ -10,6 +10,8 @@ const LABELS: Record<string, string> = {
   WHATSAPP_DISCONNECTED: "WhatsApp se ha desvinculado o está detenido",
   WHATSAPP_FAILED: "La conexión de WhatsApp está en estado de error",
   CRM_MESSAGE_ERROR: "El CRM no pudo procesar o responder un mensaje",
+  WHATSAPP_LINE_PAUSED: "Un número de WhatsApp se ha pausado por seguridad (anti-baneo)",
+  WHATSAPP_LINE_DOWN: "Un número de WhatsApp se ha desconectado",
 };
 
 export async function notifyWorkspaceUrgentAlert(workspaceId: string, code: string, detail = "") {

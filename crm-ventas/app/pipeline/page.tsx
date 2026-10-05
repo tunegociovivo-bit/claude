@@ -4,12 +4,16 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getWorkspaceSettings } from "@/lib/settings";
 import AppShell from "@/components/AppShell";
-import PipelineClient from "./PipelineClient";
+import PipelineWorkspace from "./PipelineWorkspace";
 import { classifyCallIntent } from "@/lib/calls";
 
 export const dynamic = "force-dynamic";
 
-export default async function PipelinePage() {
+export default async function PipelinePage({
+  searchParams,
+}: {
+  searchParams?: { vista?: string; contacto?: string };
+}) {
   const session = await getServerSession(authOptions);
   const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
   if (!workspaceId) redirect("/login");
@@ -50,9 +54,11 @@ export default async function PipelinePage() {
 
   return (
     <AppShell>
-      <PipelineClient
+      <PipelineWorkspace
         columns={[...settings.pipeline.columns].sort((a, b) => a.order - b.order)}
         initialCards={cards}
+        initialView={searchParams?.vista === "whatsapp" || searchParams?.contacto ? "whatsapp" : "tablero"}
+        initialContactId={typeof searchParams?.contacto === "string" ? searchParams.contacto : null}
       />
     </AppShell>
   );

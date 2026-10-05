@@ -25,6 +25,8 @@ model Workspace {
   appointments Appointment[]
   messages     Message[]
   calls        Call[]
+  whatsappLines  WhatsappLine[]
+  conversations  Conversation[]
   vapiPhoneConnection VapiPhoneConnection?
   googleCalendarConnection GoogleCalendarConnection?
   urgentAlertState UrgentAlertState?
@@ -161,6 +163,10 @@ model Message {
   body        String   @db.Text
   externalId  String?
   meta        Json?
+  // Línea (número de WhatsApp) por la que entró o salió el mensaje.
+  lineId      String?
+  // Último ack de WhatsApp para salientes: -1 error · 1 enviado · 2 entregado · 3 leído
+  ack         Int?
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -168,6 +174,7 @@ model Message {
 
   @@index([workspaceId, phone, createdAt])
   @@index([workspaceId, externalId])
+  @@index([workspaceId, lineId, createdAt])
 }
 
 // Registro de llamadas recibidas por SONIA (Vapi inbound).
@@ -194,4 +201,139 @@ model Call {
 
   @@index([workspaceId, createdAt])
   @@index([providerCallId])
+}
+
+// ---------------------------------------------------------------------------
+// Bandeja unificada de WhatsApp (varios números por negocio)
+// ---------------------------------------------------------------------------
+
+// Un número de WhatsApp del negocio = una sesión WAHA.
+//  - own:    sesión creada por el CRM (paula-<workspace>[-sufijo]); QR de autoservicio.
+//  - linked: sesión WAHA que ya existía (p.ej. números del Hub), enlazada por un
+//            operador NV. El CRM solo añade su webhook: nunca la desvincula ni la borra.
+model WhatsappLine {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  sessionName         String
+  label               String
+  mode                String    @default("own") // own | linked
+  isPrimary           Boolean   @default(false)
+  phone               String?   // dígitos del número vinculado (WAHA me.id)
+  active              Boolean   @default(true) // false = no sale nada por este número
+  aiMode              String    @default("suggest") // auto | suggest | off
+  instructions        String?   @db.Text // contexto extra para la IA de esta línea
+  // Límites anti-baneo (salientes)
+  dailyLimit          Int       @default(200)
+  hourlyLimit         Int       @default(45)
+  newChatsPerDay      Int       @default(0) // conversaciones iniciadas por nosotros/día (0 = solo responder)
+  warmupSince         DateTime  @default(now())
+  // Estado y cortacircuitos
+  lastStatus          String?
+  lastStatusAt        DateTime?
+  lastSentAt          DateTime?
+  consecutiveFailures Int       @default(0)
+  pausedUntil         DateTime?
+  pauseReason         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, sessionName])
+  @@index([workspaceId])
+}
+
+// Estado de cada conversación (un hilo por teléfono del cliente).
+model Conversation {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  phone          String    // mismo identificador que Message.phone (número o chatId @lid)
+  chatId         String?   // chatId real al que responder (respeta @lid)
+  lineId         String?   // número del negocio por el que se habla con este cliente
+  contactId      String?
+  unread         Int       @default(0)
+  lastMessageAt  DateTime  @default(now())
+  lastInboundAt  DateTime?
+  lastInboundId  String?
+  lastPreview    String?
+  lastDirection  String?
+  // IA
+  aiStatus       String    @default("idle") // idle | pending | generating | error
+  aiDueAt        DateTime?
+  aiDraft        String?   @db.Text
+  aiDraftAt      DateTime?
+  aiDraftForId   String?   // mensaje entrante al que responde el borrador
+  aiError        String?
+  humanUntil     DateTime? // la IA automática se pausa mientras una persona lleva el chat
+  // Seguridad
+  optedOut       Boolean   @default(false)
+  optedOutAt     DateTime?
+  archived       Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phone])
+  @@index([workspaceId, lastMessageAt])
+  @@index([aiStatus, aiDueAt])
+}
+
+// Cola de salida: todo lo que se envía por WhatsApp pasa por aquí y por las
+// reglas anti-baneo (ritmo, límites, simulación de escritura).
+model OutboundMessage {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  lineId         String
+  conversationId String
+  phone          String
+  chatId         String
+  body           String    @db.Text
+  origin         String    // auto | manual
+  cold           Boolean   @default(false) // conversación iniciada por nosotros (sin mensaje previo del cliente)
+  fingerprint    String?   // texto normalizado para detectar envíos idénticos en masa
+  status         String    @default("queued") // queued | sending | sent | failed | blocked | canceled
+  scheduledAt    DateTime  @default(now())
+  attempts       Int       @default(0)
+  lastError      String?   @db.Text
+  messageId      String?   // Message creado al enviarse
+  aiDraft        String?   @db.Text // borrador que había al enviar (aprendizaje)
+  replyToId      String?   // entrante al que responde
+  userId         String?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+
+  @@index([status, scheduledAt])
+  @@index([lineId, status, sentAt])
+  @@index([lineId, fingerprint, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+// Cada respuesta escrita por una persona es un ejemplo del que aprende la IA.
+model ReplyLearning {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  lineId       String?
+  phone        String
+  customerText String   @db.Text // lo último que escribió el cliente
+  aiDraft      String?  @db.Text // propuesta de la IA en ese momento (si la había)
+  finalText    String   @db.Text // lo que se envió de verdad
+  outcome      String   // accepted | edited | rewritten | written | phone
+  similarity   Float?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+// Guía de estilo aprendida por negocio (destilada de las respuestas humanas).
+model InboxLearning {
+  id                 String    @id @default(cuid())
+  workspaceId        String    @unique
+  styleGuide         String    @default("") @db.Text
+  locked             Boolean   @default(false) // editada a mano: no se reescribe sola
+  pendingSamples     Int       @default(0)
+  refreshedAt        DateTime?
+  backfilledAt       DateTime?
+  updatedAt          DateTime  @updatedAt
 }

@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CalendarClock, MessageCircle, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
+import { CalendarClock, MessageCircle, MessagesSquare, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import type { PipelineColumn } from "@/lib/settings";
 import { useAgentName } from "@/components/AgentNameContext";
@@ -54,11 +54,13 @@ function ContactCard({
   card,
   onDelete,
   onEdit,
+  onChat,
   dragging,
 }: {
   card: Card;
   onDelete?: (id: string) => void;
   onEdit?: (card: Card) => void;
+  onChat?: (id: string) => void;
   dragging?: boolean;
 }) {
   return (
@@ -77,6 +79,20 @@ function ContactCard({
         </div>
         <div className="flex items-center gap-1">
           {SOURCE_ICON[card.source]}
+          {onChat && card.phone && (
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChat(card.id);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+              title="Abrir chat de WhatsApp"
+              aria-label="Abrir chat de WhatsApp"
+            >
+              <MessagesSquare size={13} />
+            </button>
+          )}
           {onEdit && (
             <button
               onPointerDown={(e) => e.stopPropagation()}
@@ -132,10 +148,12 @@ function SortableCard({
   card,
   onDelete,
   onEdit,
+  onChat,
 }: {
   card: Card;
   onDelete: (id: string) => void;
   onEdit: (card: Card) => void;
+  onChat?: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, data: { type: "card", card } });
@@ -147,7 +165,7 @@ function SortableCard({
       {...attributes}
       {...listeners}
     >
-      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} />
+      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} onChat={onChat} />
     </div>
   );
 }
@@ -158,12 +176,14 @@ function Column({
   onDelete,
   onEdit,
   onAdd,
+  onChat,
 }: {
   column: PipelineColumn;
   cards: Card[];
   onDelete: (id: string) => void;
   onEdit: (card: Card) => void;
   onAdd: (stage: string) => void;
+  onChat?: (id: string) => void;
 }) {
   const { setNodeRef } = useDroppable({
     id: `col-${column.id}`,
@@ -196,7 +216,7 @@ function Column({
       >
         <div ref={setNodeRef} className="flex min-h-[60px] flex-1 flex-col gap-2 p-1">
           {cards.map((card) => (
-            <SortableCard key={card.id} card={card} onDelete={onDelete} onEdit={onEdit} />
+            <SortableCard key={card.id} card={card} onDelete={onDelete} onEdit={onEdit} onChat={onChat} />
           ))}
         </div>
       </SortableContext>
@@ -207,9 +227,11 @@ function Column({
 export default function PipelineClient({
   columns,
   initialCards,
+  onOpenChat,
 }: {
   columns: PipelineColumn[];
   initialCards: Card[];
+  onOpenChat?: (contactId: string) => void;
 }) {
   const [cards, setCards] = useState<Card[]>(initialCards);
   const agentName = useAgentName();
@@ -404,6 +426,7 @@ export default function PipelineClient({
               onDelete={onDelete}
               onEdit={onEdit}
               onAdd={onAdd}
+              onChat={onOpenChat}
             />
           ))}
         </div>

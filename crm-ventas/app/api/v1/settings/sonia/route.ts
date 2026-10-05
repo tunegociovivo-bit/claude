@@ -7,6 +7,7 @@ import {
   saveWorkspaceSettings,
   publicBaseUrl,
 } from "@/lib/settings";
+import { setPrimaryLineAiModeFromSettings } from "@/lib/inbox/lines";
 
 // Configuración de SONIA por cliente: prompt, negocio, Vapi, WhatsApp.
 export async function GET() {
@@ -100,5 +101,9 @@ export async function PUT(req: NextRequest) {
     whatsapp: { ...current.whatsapp, ...(whatsapp ?? {}) },
     urgentAlerts: { ...current.urgentAlerts, ...(urgentAlerts ?? {}) },
   });
+  // El interruptor de respuesta automática gobierna el número principal de la bandeja.
+  if (typeof whatsapp?.autoReplyEnabled === "boolean") {
+    await setPrimaryLineAiModeFromSettings(workspaceId, whatsapp.autoReplyEnabled);
+  }
   return NextResponse.json({ ok: true });
 }

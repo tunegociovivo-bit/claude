@@ -173,6 +173,16 @@ export default function WahaConnectionCard() {
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       {connection?.configured && (
+        <p className="mt-3 text-xs text-slate-500">
+          ¿Más números? Añádelos y respóndelos todos desde{" "}
+          <a href="/pipeline?vista=whatsapp" className="font-medium text-brand-700 underline">
+            Pipeline → WhatsApp unificado → Teléfonos
+          </a>
+          .
+        </p>
+      )}
+
+      {connection?.configured && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-primary" disabled={busy} onClick={() => mutate("POST")}>
             {busy ? "Un momento…" : status === "WORKING" ? "Reiniciar sesión" : "Generar/Renovar QR"}

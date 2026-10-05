@@ -343,12 +343,30 @@ export function whatsappFallbackReply(settings: WorkspaceSettings, firstContact:
     : "Perdona, he tenido un problema momentáneo al procesar tu mensaje. ¿Puedes repetírmelo, por favor?";
 }
 
+// En modo "suggest" (la IA solo propone y una persona envía) únicamente se
+// permiten herramientas de lectura: nunca se reserva ni cancela nada sin humano.
+export const SONIA_READONLY_TOOLS = new Set(["consultar_disponibilidad"]);
+
+export const SUGGEST_MODE_INSTRUCTIONS = [
+  "MODO PROPUESTA: no estás enviando el mensaje. Redactas la respuesta que una persona del equipo revisará y enviará desde este WhatsApp.",
+  "Escribe exactamente el texto que recibiría el cliente: sin comillas, sin notas para el equipo y sin explicar lo que haces.",
+  "No te presentes como asistente virtual ni digas tu nombre salvo que el historial muestre que el equipo lo hace.",
+  "Puedes consultar disponibilidad y proponer horas libres reales. Si el cliente ya ha elegido una hora libre, redacta la confirmación tal como la escribiría el equipo (la persona la anotará en el calendario al enviarla).",
+].join("\n");
+
+export function soniaWhatsappModel() {
+  return process.env.SONIA_MODEL || "claude-opus-5";
+}
+
 export async function runSoniaWhatsappAgent(opts: {
   workspaceId: string;
   settings: WorkspaceSettings;
   phone: string; // teléfono normalizado o chatId
+  mode?: "auto" | "suggest";
+  extraSystem?: string; // aprendizaje + instrucciones de la línea
 }): Promise<string | null> {
   const { workspaceId, settings, phone } = opts;
+  const mode = opts.mode ?? "auto";
 
   // Historial reciente del hilo (el último mensaje "in" es el que respondemos)
   const history = await prisma.message.findMany({
@@ -374,15 +392,23 @@ export async function runSoniaWhatsappAgent(opts: {
   }
   if (messages[messages.length - 1].role !== "user") return null;
 
-  const system = buildSoniaSystemPrompt(settings, "whatsapp", await getGlobalPrompt());
-  const model = process.env.SONIA_MODEL || "claude-opus-5";
+  const system = [
+    buildSoniaSystemPrompt(settings, "whatsapp", await getGlobalPrompt()),
+    opts.extraSystem?.trim() ?? "",
+    mode === "suggest" ? SUGGEST_MODE_INSTRUCTIONS : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const tools =
+    mode === "suggest" ? SONIA_TOOL_SCHEMAS.filter((t) => SONIA_READONLY_TOOLS.has(t.name)) : SONIA_TOOL_SCHEMAS;
+  const model = soniaWhatsappModel();
   const anthropic = new Anthropic({ timeout: 25_000, maxRetries: 0 });
 
   let response = await anthropic.messages.create({
     model,
     max_tokens: 900,
     system,
-    tools: SONIA_TOOL_SCHEMAS,
+    tools,
     messages,
   });
 
@@ -395,14 +421,17 @@ export async function runSoniaWhatsappAgent(opts: {
 
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
-      const result = await executeSoniaTool({
-        workspaceId,
-        settings,
-        name: tu.name,
-        input: tu.input,
-        channel: "whatsapp",
-        callerPhone: phone.includes("@") ? null : phone,
-      });
+      const allowed = mode === "auto" || SONIA_READONLY_TOOLS.has(tu.name);
+      const result = allowed
+        ? await executeSoniaTool({
+            workspaceId,
+            settings,
+            name: tu.name,
+            input: tu.input,
+            channel: "whatsapp",
+            callerPhone: phone.includes("@") ? null : phone,
+          })
+        : JSON.stringify({ error: "En modo propuesta no se pueden crear ni cancelar citas." });
       results.push({ type: "tool_result", tool_use_id: tu.id, content: result });
     }
     messages.push({ role: "user", content: results });
@@ -411,7 +440,7 @@ export async function runSoniaWhatsappAgent(opts: {
       model,
       max_tokens: 900,
       system,
-      tools: SONIA_TOOL_SCHEMAS,
+      tools,
       messages,
     });
   }
