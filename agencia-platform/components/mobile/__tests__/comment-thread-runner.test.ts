@@ -362,3 +362,18 @@ describe("obstáculos en móviles lentos", () => {
     expect(taps[0]).toBe(140);
   });
 });
+
+describe("localizar el comentario original", () => {
+  it("encuentra el texto y usa el Responder más cercano aunque la estructura no encaje", async () => {
+    const { replyButtonBelowText } = await import("../comment-thread-runner");
+    const xml = `<hierarchy>
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="Azu López" content-desc="" clickable="false" bounds="[90,100][400,140]" />
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="${parentText}" content-desc="" clickable="false" bounds="[90,150][900,260]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="" content-desc="Responder al comentario de Azu, botón. Toca dos veces para responder al comentario." clickable="true" bounds="[90,270][200,310]" />
+<node package="com.facebook.katana" class="android.view.ViewGroup" text="Otro comentario cualquiera de otra persona" content-desc="" clickable="false" bounds="[90,400][900,460]" />
+<node package="com.facebook.katana" class="android.widget.Button" text="" content-desc="Responder al comentario de Lorenzo, botón." clickable="true" bounds="[90,470][200,510]" />
+</hierarchy>`;
+    const { normalizeFacebookText } = await import("@/lib/mobile/facebook-conversations");
+    expect(replyButtonBelowText(xml, normalizeFacebookText(parentText))?.point.y).toBe(290);
+  });
+});
