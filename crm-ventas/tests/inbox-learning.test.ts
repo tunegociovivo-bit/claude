@@ -156,3 +156,16 @@ test("avatar neutro cuando no hay nombre real", async () => {
   assert.equal(firstRealName("98765@lid", null, "Chuty"), "Chuty");
   assert.equal(displayName(firstRealName("98765@lid", null), "98765@lid"), "Número oculto (WhatsApp)");
 });
+
+test("WAHA: nombre de perfil y teléfono real de un @lid, y pushName de cada motor", async () => {
+  const { pickContactName, pickLidPhone } = await import("../lib/waha");
+  const { extractPushName } = await import("../lib/inbox/webhook-payload");
+  assert.equal(pickContactName({ id: "1@c.us", pushname: "Chuty", name: null }), "Chuty");
+  assert.equal(pickContactName({ id: "1@c.us" }), null);
+  assert.equal(pickLidPhone({ lid: "98765@lid", pn: "34677123456@c.us" }), "34677123456");
+  assert.equal(pickLidPhone({ lid: "98765@lid", pn: null }), null);
+  assert.equal(extractPushName({ _data: { pushName: "Aom" } }), "Aom");
+  assert.equal(extractPushName({ _data: { Info: { PushName: "Pedro" } } }), "Pedro");
+  assert.equal(extractPushName({ _data: { notifyName: " Ana " } }), "Ana");
+  assert.equal(extractPushName({}), undefined);
+});

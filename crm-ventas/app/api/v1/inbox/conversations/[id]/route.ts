@@ -5,7 +5,12 @@ import { isSameOrigin } from "@/lib/auth";
 import { sendSeen } from "@/lib/waha";
 import { inboxError, requireInboxUser } from "@/lib/inbox/api";
 import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
-import { fillPlaceholderContactNames, isPlaceholderName, latestPushNames } from "@/lib/inbox/conversations";
+import {
+  fillPlaceholderContactNames,
+  isPlaceholderName,
+  latestPushNames,
+  resolveMissingNamesInBackground,
+} from "@/lib/inbox/conversations";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +55,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       if (contact && pushName) {
         await fillPlaceholderContactNames(workspaceId, [contact], new Map([[contact.id, pushName]]));
         contact = { ...contact, name: pushName };
+      } else if (contact) {
+        resolveMissingNamesInBackground(workspaceId, [
+          { phone: conversation.phone, chatId: conversation.chatId, lineId: conversation.lineId, contact },
+        ]);
       }
     }
 

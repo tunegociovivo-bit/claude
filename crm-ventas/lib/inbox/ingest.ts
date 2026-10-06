@@ -14,6 +14,7 @@ import {
   extractAlternatePhone,
   extractBody,
   extractMessageId,
+  extractPushName,
   extractSession,
   isApiSent,
 } from "@/lib/inbox/webhook-payload";
@@ -196,7 +197,7 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
   }
 
   // ---- Mensaje entrante de un cliente ----
-  const pushName: string | undefined = payload?._data?.notifyName ?? payload?.pushName ?? undefined;
+  const pushName = extractPushName(payload);
   const previousThreadMessage = await prisma.message.findFirst({
     where: { workspaceId: ws.id, phone: threadPhone, contactId: { not: null } },
     orderBy: { createdAt: "desc" },
