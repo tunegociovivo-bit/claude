@@ -29,11 +29,15 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [aUrl, setAUrl] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aMsg, setAMsg] = useState("");
 
   const load = async () => {
     const s = await api<Site>(`/sites/${id}`);
     setSite(s);
     setForm({ ...s, wpAppPassword: "" });
+    setAUrl((u) => u || s.siteUrl || "");
   };
   useEffect(() => {
     load().catch((e) => setMsg(e.message));
@@ -68,6 +72,29 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
       setSaving(false);
     }
   };
+  const analyze = async () => {
+    if (!aUrl.trim() || analyzing) return;
+    const hasData = ["sector", "location", "businessInfo", "audience", "tone", "ctaText", "brandVoice", "compliance", "forbidden", "competitors"].some((k) => String(form[k] ?? "").trim());
+    if (hasData && !confirm("La IA va a sustituir los datos de «Negocio y voz» por lo que encuentre en tu web. Los campos que no pueda rellenar se quedan como están. ¿Continuar?")) return;
+    setAnalyzing(true);
+    setAMsg("");
+    setMsg("");
+    try {
+      const r = await api<{ site: Site; pages: string[]; filled: string[]; competitors: { source: string; count: number } }>(`/sites/${id}/analyze`, { method: "POST", body: { url: aUrl } });
+      setSite(r.site);
+      setForm({ ...r.site, wpAppPassword: "" });
+      await nav.reloadSite();
+      const comp =
+        r.competitors.source === "ficha" ? "competidores tomados de tu ficha de marca"
+          : r.competitors.source === "google" ? (r.competitors.count ? `${r.competitors.count} competidores encontrados en Google` : "sin competidores claros en Google")
+            : "competidores sin rellenar (faltan los datos de Google)";
+      setAMsg(`✓ Rellenado y guardado con ${r.pages.length} ${r.pages.length === 1 ? "página" : "páginas"} de tu web · ${comp}. Revisa los campos y ajusta lo que quieras.`);
+    } catch (e: any) {
+      setAMsg(e.message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
   const saveBar = (extra?: React.ReactNode) => (
     <div className="flex items-center justify-end gap-3 mt-4 flex-wrap">
       {msg && <span className="text-xs text-slate-500">{msg}</span>}
@@ -96,6 +123,17 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
 
       {sub === "negocio" && (
         <Card>
+          <div className="mb-5 rounded-xl border border-brand-200 bg-brand-50/60 p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><Sparkles className="h-4 w-4 text-brand-600" /> Rellenar con IA desde tu web</div>
+            <p className="mt-0.5 text-xs text-slate-600">Escribe la dirección de tu web: la IA lee tus páginas, busca a tu competencia en Google y rellena todos los campos.</p>
+            <div className="mt-2 flex flex-col sm:flex-row gap-2">
+              <input type="url" inputMode="url" value={aUrl} disabled={analyzing} onChange={(e) => setAUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && analyze()}
+                placeholder="https://www.tuweb.com" aria-label="Dirección de tu web" className={clsx(inputCls, "flex-1")} />
+              <Btn busy={analyzing} disabled={!aUrl.trim()} onClick={analyze} className="justify-center"><Wand2 className="h-4 w-4" /> {analyzing ? "Analizando…" : "Analizar con IA"}</Btn>
+            </div>
+            {analyzing && <p className="mt-2 text-xs text-brand-700 flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-brand-500 animate-pulse" /> Leyendo tu web y analizando el negocio. Puede tardar hasta un minuto.</p>}
+            {aMsg && !analyzing && <p role="status" className={clsx("mt-2 text-xs", aMsg.startsWith("✓") ? "text-emerald-700" : "text-rose-600")}>{aMsg}</p>}
+          </div>
           <p className="text-xs text-slate-500 mb-4">La IA usa estos datos (y los de tu ficha de marca) para escribir como tu negocio. Cuanto más concretos, mejores artículos.</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {txt("sector", "Sector / actividad", { ph: "Ej: clínica dental, reformas, asesoría…" })}
