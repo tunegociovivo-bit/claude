@@ -1,7 +1,7 @@
 /**
  * Cliente Anthropic de los módulos de contenidos (portado del Hub).
- * La clave la pone Negocio Vivo en el entorno (ANTHROPIC_API_KEY); el cliente
- * del CRM nunca la ve ni la configura.
+ * La clave es la del cliente si el operador le ha puesto una en /admin; si no,
+ * la de Negocio Vivo del entorno (ANTHROPIC_API_KEY). El cliente nunca la ve.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
@@ -12,23 +12,8 @@ import { stripLoneSurrogates, deepSanitizeStrings } from "./sanitize";
 export const DEFAULT_MODEL = process.env.CONTENT_AI_MODEL || "claude-opus-4-7";
 export const FAST_MODEL = process.env.CONTENT_AI_FAST_MODEL || "claude-sonnet-4-6";
 
-export class AIDisabledError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AIDisabledError";
-  }
-}
-
-let cached: { key: string; client: Anthropic } | null = null;
-
-export async function getAnthropicForWorkspace(_workspaceId: string) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new AIDisabledError("La IA no está configurada en este CRM (falta ANTHROPIC_API_KEY). Avisa a Negocio Vivo.");
-  }
-  if (!cached || cached.key !== apiKey) cached = { key: apiKey, client: new Anthropic({ apiKey }) };
-  return cached.client;
-}
+export { AIDisabledError, anthropicClientForKey, anthropicKeyForWorkspace, getAnthropicForWorkspace } from "./anthropic-client";
+import { getAnthropicForWorkspace } from "./anthropic-client";
 
 function logUsage(opts: { workspaceId: string; userId?: string | null; projectId?: string | null; feature: string; model: string; resp: any }) {
   import("./usage")

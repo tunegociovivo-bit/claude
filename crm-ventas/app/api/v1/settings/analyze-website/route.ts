@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicForWorkspace } from "@/lib/ai/anthropic-client";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import http from "node:http";
@@ -195,7 +195,7 @@ export async function POST(request: Request) {
     }
     if (!pages.length) throw new Error("No se ha podido leer contenido público de esa web.");
 
-    const anthropic = new Anthropic();
+    const anthropic = await getAnthropicForWorkspace(workspaceId);
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 3000,

@@ -16,20 +16,23 @@ import { z } from "zod";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { patchWorkspaceSettings, readWorkspaceSettings } from "@/lib/content/settings";
+import { resolveApiKey } from "@/lib/api-keys";
 
 export const dynamic = "force-dynamic";
 
-function availability() {
-  const text = Boolean(process.env.ANTHROPIC_API_KEY);
-  const openai = Boolean(process.env.OPENAI_API_KEY);
-  const freepik = Boolean(process.env.FREEPIK_API_KEY);
+/** Servicios disponibles para el negocio: con su clave propia (/admin) o la de Negocio Vivo. */
+function availability(settings: unknown) {
+  const has = (p: "anthropic" | "openai" | "freepik" | "elevenlabs") => Boolean(resolveApiKey(settings, p).key);
+  const text = has("anthropic");
+  const openai = has("openai");
+  const freepik = has("freepik");
   return {
     text,
     images: openai || freepik,
     imageEditing: openai,
     // El vídeo genera las tomas con gpt-image-2 y las anima con Freepik/Kling.
     video: openai && freepik,
-    voice: Boolean(process.env.ELEVENLABS_API_KEY),
+    voice: has("elevenlabs"),
     subtitles: openai
   };
 }
@@ -38,7 +41,7 @@ export const GET = withApi({ module: "editorial" }, async (_req, { api }) => {
   const settings = await readWorkspaceSettings(api.workspaceId);
   return NextResponse.json({
     imageModel: settings?.editorial?.imageModel ?? "openai-gpt-image-1",
-    availability: availability(),
+    availability: availability(settings),
     canManage: api.role === "ADMIN"
   });
 });
@@ -51,7 +54,7 @@ export const PATCH = withApi({ module: "editorial", admin: true, rate: "admin" }
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
-  if (parsed.data.imageModel.startsWith("freepik") && !process.env.FREEPIK_API_KEY) {
+  if (parsed.data.imageModel.startsWith("freepik") && !resolveApiKey(await readWorkspaceSettings(api.workspaceId), "freepik").key) {
     throw new ApiError(400, "freepik_unavailable", "La generación con Freepik no está disponible; avisa a Negocio Vivo.");
   }
   await patchWorkspaceSettings(api.workspaceId, (settings) => {

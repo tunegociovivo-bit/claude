@@ -1,5 +1,6 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicForWorkspace } from "@/lib/ai/anthropic-client";
 import { prisma } from "@/lib/prisma";
 import { classifyReplyOutcome, type ReplyOutcome } from "@/lib/inbox/text";
 import {
@@ -114,7 +115,7 @@ export async function refreshStyleGuide(workspaceId: string, opts: { force?: boo
         return `${i + 1}. Cliente: ${r.customerText.slice(0, 300)}${draft}\n   Enviado por el equipo: ${r.finalText.slice(0, 500)}`;
       })
       .join("\n");
-    const anthropic = new Anthropic({ timeout: 40_000, maxRetries: 1 });
+    const anthropic = await getAnthropicForWorkspace(workspaceId, { timeout: 40_000, maxRetries: 1 });
     const response = await anthropic.messages.create({
       model: LEARNING_MODEL(),
       max_tokens: 700,

@@ -22,21 +22,23 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { decryptSecret } from "@/lib/ai/crypto";
+import { clientVoiceId, resolveApiKey } from "@/lib/api-keys";
 
 const BASE = "https://api.elevenlabs.io/v1";
 
-// En el CRM la clave la pone Negocio Vivo en el entorno (ELEVENLABS_API_KEY);
+// Clave propia del cliente (panel /admin) o la de Negocio Vivo (ELEVENLABS_API_KEY);
 // un workspace puede sobrescribir voz/modelo en settings.integrations.elevenlabs.
+// Con clave propia no se usa la voz de Negocio Vivo (las voces clonadas solo
+// existen en la cuenta que las creó): su voz o una voz estándar.
 async function getConfig(workspaceId: string) {
-  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-  const cfg = (ws?.settings as any)?.integrations?.elevenlabs ?? {};
-  const apiKey = (cfg.apiKey ? decryptSecret(cfg.apiKey) : null) || process.env.ELEVENLABS_API_KEY || null;
-  if (!apiKey) throw new Error("La locución con ElevenLabs no está configurada (falta ELEVENLABS_API_KEY). Avisa a Negocio Vivo.");
-  cfg.voiceId = cfg.voiceId || process.env.ELEVENLABS_VOICE_ID;
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const cfg = { ...((ws?.settings as any)?.integrations?.elevenlabs ?? {}) };
+  const { key: apiKey, source } = resolveApiKey(ws?.settings, "elevenlabs");
+  if (!apiKey) throw new Error("La locución con ElevenLabs no está configurada (falta la clave de ElevenLabs). Avisa a Negocio Vivo.");
+  const voiceId = clientVoiceId(ws?.settings) || cfg.voiceId || (source === "client" ? null : process.env.ELEVENLABS_VOICE_ID);
   return {
     apiKey,
-    voiceId: cfg.voiceId || "21m00Tcm4TlvDq8ikWAM",
+    voiceId: voiceId || "21m00Tcm4TlvDq8ikWAM",
     // Default a turbo_v2_5 porque soporta language_code y resuelve
     // el bug de "voz inglesa leyendo español con acento yanqui".
     modelId: cfg.modelId || "eleven_turbo_v2_5",

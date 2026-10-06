@@ -2,13 +2,15 @@
  * Ajustes del Publicador SEO → workspace.settings.seoBlog.
  *
  * En el CRM el negocio no ve ni configura claves ni modelos: Anthropic,
- * Freepik y Serper salen del entorno (las pone Negocio Vivo) y los modelos
+ * Freepik y Serper son las suyas si el operador se las ha puesto en /admin o,
+ * si no, las de Negocio Vivo del entorno; los modelos
  * son los del módulo de contenidos (CONTENT_AI_MODEL / CONTENT_AI_FAST_MODEL).
  * El negocio solo ajusta preferencias propias (email de aviso, nota mínima SEO
  * e ideas por tanda).
  */
 import { DEFAULT_MODEL, FAST_MODEL } from "@/lib/ai/anthropic";
 import { patchWorkspaceSettings, readWorkspaceSettings } from "@/lib/content/settings";
+import { resolveApiKey } from "@/lib/api-keys";
 
 export type SeoBlogSettings = {
   serperApiKey: string | null;
@@ -61,7 +63,7 @@ function clampInt(v: unknown, min: number, max: number, def: number): number {
 
 export function seoBlogSettingsFrom(settings: Record<string, any>): SeoBlogSettings {
   const raw: any = settings?.seoBlog ?? {};
-  const out: SeoBlogSettings = { ...SEO_BLOG_DEFAULTS, serperApiKey: process.env.SERPER_API_KEY || null };
+  const out: SeoBlogSettings = { ...SEO_BLOG_DEFAULTS, serperApiKey: resolveApiKey(settings, "serper").key };
   out.seoMinScore = clampInt(raw.seoMinScore, USER_KEYS.seoMinScore.min, USER_KEYS.seoMinScore.max, SEO_BLOG_DEFAULTS.seoMinScore);
   out.ideasPerRun = clampInt(raw.ideasPerRun, USER_KEYS.ideasPerRun.min, USER_KEYS.ideasPerRun.max, SEO_BLOG_DEFAULTS.ideasPerRun);
   out.notifyEmail = typeof raw.notifyEmail === "string" && EMAIL_RE.test(raw.notifyEmail) ? raw.notifyEmail : "";
@@ -74,14 +76,15 @@ export async function getSeoBlogSettings(workspaceId: string): Promise<SeoBlogSe
 
 /** Lo que ve la UI del negocio: sus preferencias y qué servicios están disponibles (sin claves ni modelos). */
 export async function publicSeoBlogSettings(workspaceId: string) {
-  const s = await getSeoBlogSettings(workspaceId);
+  const raw = await readWorkspaceSettings(workspaceId);
+  const s = seoBlogSettingsFrom(raw);
   return {
     seoMinScore: s.seoMinScore,
     ideasPerRun: s.ideasPerRun,
     notifyEmail: s.notifyEmail,
     services: {
-      writing: !!process.env.ANTHROPIC_API_KEY,
-      images: !!process.env.FREEPIK_API_KEY,
+      writing: !!resolveApiKey(raw, "anthropic").key,
+      images: !!resolveApiKey(raw, "freepik").key,
       google: !!s.serperApiKey
     }
   };

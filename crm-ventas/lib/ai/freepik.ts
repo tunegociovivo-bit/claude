@@ -3,28 +3,24 @@
  * que gpt-image-1). Usa el endpoint v1/ai/text-to-image (modelo
  * seedream-v4 por defecto).
  *
- * Auth: header `x-freepik-api-key`. Configurada en
- * workspace.settings.editorial.freepikApiKey (cifrada con la misma
- * crypto que el resto de keys).
+ * Auth: header `x-freepik-api-key`. Clave propia del cliente (panel /admin,
+ * settings.apiKeys.freepik) o la de Negocio Vivo del entorno (FREEPIK_API_KEY).
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { decryptSecret } from "./crypto";
 import { AIDisabledError } from "./anthropic";
+import { resolveApiKey } from "@/lib/api-keys";
 
+/** Clave propia del cliente (/admin o la antigua del Editorial) o la de Negocio Vivo (FREEPIK_API_KEY). */
 export async function getFreepikKeyForWorkspace(workspaceId: string): Promise<string> {
-  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-  const settings: any = ws?.settings ?? {};
-  const encrypted: string | undefined = settings?.editorial?.freepikApiKey;
-  let apiKey: string | null = null;
-  if (encrypted) apiKey = decryptSecret(encrypted);
-  if (!apiKey) apiKey = process.env.FREEPIK_API_KEY ?? null;
-  if (!apiKey) {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { settings: true } });
+  const { key } = resolveApiKey(ws?.settings, "freepik");
+  if (!key) {
     throw new AIDisabledError(
-      "La generación de imágenes con Freepik no está configurada (falta FREEPIK_API_KEY). Avisa a Negocio Vivo."
+      "La generación de imágenes con Freepik no está configurada (falta la clave de Freepik). Avisa a Negocio Vivo."
     );
   }
-  return apiKey;
+  return key;
 }
 
 export type FreepikSize = "square" | "portrait" | "landscape";

@@ -5,6 +5,7 @@ import { calculateUsageOverview } from "@/lib/admin/usage";
 import { getGlobalPrompt, saveGlobalPrompt } from "@/lib/admin/config";
 import { readModules } from "@/lib/modules";
 import { readAiLimitUsd } from "@/lib/content/ai-budget";
+import { API_PROVIDERS, apiKeysStatus } from "@/lib/api-keys";
 
 function madridDayStart() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -75,6 +76,7 @@ export async function GET() {
       modules: readModules(workspace.settings),
       contentAiCostMonthly: contentAiByWorkspace.get(workspace.id) ?? 0,
       contentAiLimitUsd: readAiLimitUsd(workspace.settings),
+      apiKeys: apiKeysStatus(workspace.settings),
       ...usage,
     };
   });
@@ -83,6 +85,9 @@ export async function GET() {
     currency: "EUR",
     rates: { callMinuteRate, whatsappMessageRate },
     globalPrompt: await getGlobalPrompt(),
+    apiProviders: API_PROVIDERS.map(({ id, label, usedFor, placeholder }) => ({
+      id, label, usedFor, placeholder, negocioVivoAvailable: Boolean(process.env[API_PROVIDERS.find((p) => p.id === id)!.env]?.trim()),
+    })),
     clients,
   });
 }
