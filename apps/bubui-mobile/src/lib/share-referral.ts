@@ -32,7 +32,13 @@ export async function shareReferralForOffer(
   }
 
   try {
-    await Share.share({ message, url: link });
+    const res = await Share.share({ message, url: link });
+    if (res?.action !== Share.dismissedAction) {
+      void api.trackShare?.(offer?.offerId ? "offer_shared" : "referral_shared", {
+        offerId: offer?.offerId ?? null,
+        channel: "share_sheet"
+      });
+    }
     return true;
   } catch {
     return false;
@@ -51,5 +57,11 @@ export async function remindFriendForOffer(
   const name = friendName.trim() || "amigo/a";
   const message = `Hola ${name}, te recuerdo el reto de Bubui${offer.businessName ? ` en ${offer.businessName}` : ""}. ` +
     `Te falta usar tu cupón para que ambos consigamos el descuento 🎁 ${link}`;
-  try { await Share.share({ message, url: link }); return true; } catch { return false; }
+  try {
+    const res = await Share.share({ message, url: link });
+    if (res?.action !== Share.dismissedAction) {
+      void api.trackShare?.("challenge_reminder_shared", { offerId: offer.offerId, channel: "share_sheet" });
+    }
+    return true;
+  } catch { return false; }
 }

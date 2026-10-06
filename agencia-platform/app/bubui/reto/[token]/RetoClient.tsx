@@ -7,6 +7,7 @@
  * su descuento se activa. Funciona en navegador (no depende de la app nativa).
  */
 import { useEffect, useState } from "react";
+import { trackBubuiShare } from "@/app/bubui/lib/trackActivity";
 
 type Deal = {
   token: string;
@@ -146,6 +147,8 @@ export default function RetoClient({ token }: { token: string }) {
   if (shareUrl) {
     const waText = `¡Únete a Bubui y consigue un ${deal.friendDiscountPct}%${deal.friendTitle ? ` en ${deal.friendTitle}` : ""} en ${deal.businessName}! 🎁 Usa mi enlace: ${shareUrl}`;
     const waShare = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+    let sharedOfferId: string | null = null;
+    try { sharedOfferId = new URL(shareUrl, window.location.origin).searchParams.get("offer"); } catch {}
     return (
       <Shell>
         <div className="text-center space-y-3">
@@ -155,9 +158,9 @@ export default function RetoClient({ token }: { token: string }) {
             Comparte tu enlace con tus amigos/as. Cuando se unan <b>{deal.friendsRequired}</b>, se activa tu{" "}
             <b>{deal.clientDiscountPct}%{deal.title ? ` en ${deal.title}` : ""}</b>. Cada amigo/a recibe un <b>{deal.friendDiscountPct}%{deal.friendTitle ? ` en ${deal.friendTitle}` : ""}</b>.
           </p>
-          <a href={waShare} target="_blank" rel="noreferrer" className="bubui-btn w-full inline-flex justify-center">📲 Compartir por WhatsApp</a>
+          <a href={waShare} target="_blank" rel="noreferrer" onClick={() => trackBubuiShare("challenge_link_shared", { offerId: sharedOfferId, channel: "whatsapp" })} className="bubui-btn w-full inline-flex justify-center">📲 Compartir por WhatsApp</a>
           <button
-            onClick={() => { navigator.clipboard?.writeText(shareUrl).then(() => alert("Enlace copiado")); }}
+            onClick={() => { navigator.clipboard?.writeText(shareUrl).then(() => { trackBubuiShare("challenge_link_shared", { offerId: sharedOfferId, channel: "copy" }); alert("Enlace copiado"); }); }}
             className="w-full text-sm font-semibold border rounded-full py-2.5 hover:bg-black/5"
           >
             Copiar mi enlace

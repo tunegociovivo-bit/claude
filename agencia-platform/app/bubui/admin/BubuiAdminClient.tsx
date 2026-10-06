@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
+import UserActivityPanel from "./UserActivityPanel";
 
 type Overview = {
   scope: { city: string };
@@ -269,6 +270,8 @@ async function adminFetch(path: string, init?: RequestInit) {
 function UsersPanel() {
   const [rows, setRows] = useState<any[] | null>(null);
   const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => {
     adminFetch("/api/bubui/admin/customers").then((d) => setRows(d.customers)).catch((e) => setErr(String(e)));
   }, []);
@@ -292,9 +295,27 @@ function UsersPanel() {
     return Number(b[0]) - Number(a[0]);
   });
 
+  // Búsqueda por nombre, teléfono o email (sin tildes ni mayúsculas).
+  const norm = (v: unknown) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const needle = norm(q.trim());
+  const visible = needle ? rows.filter((c) => [c.name, c.phone, c.email].some((v) => norm(v).includes(needle))) : rows;
+
   return (
     <section className="bubui-card p-4 mt-4 overflow-x-auto">
-      <h2 className="text-sm font-bold mb-3">Usuarios ({rows.length})</h2>
+      {openId && <UserActivityPanel customerId={openId} onClose={() => setOpenId(null)} />}
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+        <h2 className="text-sm font-bold">
+          Usuarios ({needle ? `${visible.length} de ${rows.length}` : rows.length})
+        </h2>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar por nombre, teléfono o email"
+          className="bubui-input text-sm py-1.5"
+          style={{ width: 260 }}
+        />
+      </div>
+      <p className="text-[12px] text-black/50 mb-3">Pulsa en un usuario para ver su historial: escaneos, compras, cupones, lo que ha compartido, amigos y reseñas.</p>
       <div className="flex flex-wrap items-center gap-2 mb-4 text-[12px]">
         <span className="text-black/45">Versiones:</span>
         {distSorted.map(([build, n]) => {
@@ -311,15 +332,24 @@ function UsersPanel() {
       <table className="w-full text-[13px]" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Nombre", "Fecha alta", "Teléfono", "Email", "Sexo", "Nacim.", "CP", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación"].map((h) => (
+            {["", "Nombre", "Fecha alta", "Teléfono", "Email", "Sexo", "Nacim.", "CP", "Ahorrado", "Compras", "Nivel", "Versión", "Ubicación"].map((h) => (
               <th key={h} className="text-left p-2 border-b-2 border-black/10 whitespace-nowrap text-black/55">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => (
-            <tr key={c.id}>
-              <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.name ?? "—"}</td>
+          {visible.map((c) => (
+            <tr key={c.id} onClick={() => setOpenId(c.id)} className="cursor-pointer hover:bg-pink-50/60">
+              <td className="p-2 border-b border-black/5 whitespace-nowrap">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setOpenId(c.id); }}
+                  className="bubui-chip text-[12px]"
+                  style={{ cursor: "pointer" }}
+                >
+                  Historial
+                </button>
+              </td>
+              <td className="p-2 border-b border-black/5 whitespace-nowrap font-semibold">{c.name ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap font-medium" title={c.createdAt ? new Date(c.createdAt).toLocaleString("es-ES") : ""}>{c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-ES") : "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.phone ?? "—"}</td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">{c.email ?? "—"}</td>
@@ -345,7 +375,7 @@ function UsersPanel() {
               </td>
               <td className="p-2 border-b border-black/5 whitespace-nowrap">
                 {c.lastLat != null && c.lastLng != null ? (
-                  <a href={`https://www.google.com/maps?q=${c.lastLat},${c.lastLng}`} target="_blank" rel="noreferrer" className="text-pink-600">ver</a>
+                  <a href={`https://www.google.com/maps?q=${c.lastLat},${c.lastLng}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-pink-600">ver</a>
                 ) : "—"}
               </td>
             </tr>

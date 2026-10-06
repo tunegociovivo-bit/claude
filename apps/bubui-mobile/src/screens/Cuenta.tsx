@@ -67,7 +67,9 @@ export function Cuenta() {
   function inviteFriends() {
     const link = refCode ? `${API_BASE}/bubui/r/${refCode}` : "https://bubui.app";
     const text = `¡Descubre Bubui y llévate descuentos en negocios del barrio! 🎁 ${link}`;
-    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`).catch(() => {});
+    Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`)
+      .then(() => api.trackShare?.("referral_shared", { channel: "whatsapp" }))
+      .catch(() => {});
   }
 
   async function doDelete(id: string) {
