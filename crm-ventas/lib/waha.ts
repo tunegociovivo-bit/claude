@@ -197,3 +197,56 @@ export async function getSessionStatus(workspaceId: string, session?: string): P
     return null;
   }
 }
+
+// Nombre y número reales de un chat (best-effort). Para identificadores
+// internos (@lid) WAHA conoce el teléfono y, si tiene la agenda activada, el
+// nombre de perfil. Nunca lanza: si algo falla devuelve nulos.
+export function pickContactName(data: any): string | null {
+  const name = data?.pushname ?? data?.pushName ?? data?.name ?? data?.shortName ?? data?.verifiedName ?? null;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+export function pickLidPhone(data: any): string | null {
+  const raw = typeof data === "string" ? data : data?.pn ?? data?.phoneNumber ?? data?.phone ?? null;
+  if (typeof raw !== "string" || /@lid$/i.test(raw)) return null;
+  const digits = raw.replace(/@.*$/, "").replace(/\D/g, "");
+  return digits.length >= 8 && digits.length <= 15 ? digits : null;
+}
+
+export async function lookupWhatsappContact(opts: {
+  workspaceId: string;
+  session: string;
+  chatId: string;
+}): Promise<{ name: string | null; phone: string | null }> {
+  let cfg: WahaConfig;
+  try {
+    cfg = await getWahaConfig(opts.workspaceId, opts.session);
+  } catch {
+    return { name: null, phone: null };
+  }
+  const get = async (path: string) => {
+    try {
+      const res = await fetch(`${cfg.baseUrl}${path}`, {
+        headers: headers(cfg),
+        redirect: "error",
+        signal: AbortSignal.timeout(6_000),
+      });
+      return res.ok ? await res.json().catch(() => null) : null;
+    } catch {
+      return null;
+    }
+  };
+  const session = encodeURIComponent(cfg.session);
+  let phone: string | null = null;
+  if (opts.chatId.endsWith("@lid")) {
+    const lidNum = opts.chatId.replace(/@.*$/, "");
+    phone = pickLidPhone(await get(`/api/${session}/lids/${encodeURIComponent(lidNum)}`));
+  }
+  let name = pickContactName(
+    await get(`/api/contacts?contactId=${encodeURIComponent(opts.chatId)}&session=${session}`)
+  );
+  if (!name && phone) {
+    name = pickContactName(await get(`/api/contacts?contactId=${encodeURIComponent(`${phone}@c.us`)}&session=${session}`));
+  }
+  return { name, phone };
+}

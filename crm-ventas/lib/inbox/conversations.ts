@@ -1,6 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { ensurePrimaryLine } from "@/lib/inbox/lines";
+import { lookupWhatsappContact } from "@/lib/waha";
+import { normalizePhone } from "@/lib/phone";
 import { cleanPushName, isPlaceholderName } from "@/lib/inbox/text";
 
 export { isPlaceholderName };
@@ -189,4 +191,51 @@ export async function fillPlaceholderContactNames(
           .catch(() => undefined)
       )
   );
+}
+
+// Chats antiguos sin nombre: se pregunta a WAHA (nombre de perfil y teléfono
+// real del @lid) en segundo plano, como mucho una vez cada 6 h por chat.
+const lookupState = globalThis as typeof globalThis & { __inboxNameLookups?: Map<string, number> };
+const lookups = (lookupState.__inboxNameLookups ??= new Map<string, number>());
+const LOOKUP_EVERY_MS = 6 * 3600_000;
+
+export function resolveMissingNamesInBackground(
+  workspaceId: string,
+  items: { phone: string; chatId: string | null; lineId: string | null; contact: { id: string; name: string; phone: string | null } | null }[]
+) {
+  const now = Date.now();
+  const pending = items
+    .filter((i) => i.contact && isPlaceholderName(i.contact.name, i.contact.phone))
+    .filter((i) => now - (lookups.get(`${workspaceId}:${i.phone}`) ?? 0) > LOOKUP_EVERY_MS)
+    .slice(0, 8);
+  if (!pending.length) return;
+  for (const i of pending) lookups.set(`${workspaceId}:${i.phone}`, now);
+  void (async () => {
+    const primary = await ensurePrimaryLine(workspaceId).catch(() => null);
+    const sessions = new Map<string, string>();
+    for (const i of pending) {
+      try {
+        let session = primary?.sessionName ?? null;
+        if (i.lineId) {
+          if (!sessions.has(i.lineId)) {
+            const line = await prisma.whatsappLine.findFirst({ where: { id: i.lineId, workspaceId }, select: { sessionName: true } });
+            if (line) sessions.set(i.lineId, line.sessionName);
+          }
+          session = sessions.get(i.lineId) ?? null;
+        }
+        if (!session || !i.contact) continue;
+        const found = await lookupWhatsappContact({ workspaceId, session, chatId: i.chatId || i.phone });
+        const name = cleanPushName(found.name);
+        const phone = found.phone ? normalizePhone(found.phone) : null;
+        const data: { name?: string; phone?: string } = {};
+        if (name) data.name = name;
+        if (phone && (!i.contact.phone || i.contact.phone.includes("@"))) data.phone = phone;
+        if (!data.name && !data.phone) continue;
+        // Solo si la ficha sigue sin nombre real (nadie la ha editado entretanto).
+        await prisma.contact.updateMany({ where: { id: i.contact.id, workspaceId, name: i.contact.name }, data });
+      } catch {
+        // best-effort
+      }
+    }
+  })();
 }

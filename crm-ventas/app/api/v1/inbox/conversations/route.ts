@@ -11,6 +11,7 @@ import {
   fillPlaceholderContactNames,
   isPlaceholderName,
   latestPushNames,
+  resolveMissingNamesInBackground,
 } from "@/lib/inbox/conversations";
 import { listLines } from "@/lib/inbox/lines";
 import { describeDecision, enqueueOutbound, processIfDue } from "@/lib/inbox/outbound";
@@ -90,6 +91,18 @@ export async function GET(req: NextRequest) {
         if (c && isPlaceholderName(c.name, c.phone)) contactById.set(id, { ...c, name });
       }
     }
+    // Los que siguen sin nombre se consultan a WAHA en segundo plano.
+    resolveMissingNamesInBackground(
+      workspaceId,
+      needName
+        .filter((r) => !pushNames.has(r.phone))
+        .map((r) => ({
+          phone: r.phone,
+          chatId: r.chatId,
+          lineId: r.lineId,
+          contact: r.contactId ? contactById.get(r.contactId) ?? null : null,
+        }))
+    );
     const now = Date.now();
 
     return Response.json({

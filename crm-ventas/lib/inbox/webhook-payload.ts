@@ -59,3 +59,19 @@ export function isApiSent(payload: any): boolean {
   const source = String(payload?.source ?? payload?._data?.source ?? "").toLowerCase();
   return source === "api";
 }
+
+// Nombre de perfil del remitente. Cada motor de WAHA lo pone en un sitio:
+// NOWEB → _data.pushName, WEBJS → _data.notifyName, GOWS → _data.Info.PushName.
+export function extractPushName(payload: any): string | undefined {
+  const candidates = [
+    payload?._data?.pushName,
+    payload?._data?.notifyName,
+    payload?._data?.Info?.PushName,
+    payload?.pushName,
+    payload?.notifyName,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return undefined;
+}
