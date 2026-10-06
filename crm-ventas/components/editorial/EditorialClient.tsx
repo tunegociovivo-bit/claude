@@ -1,0 +1,4380 @@
+"use client";
+
+/**
+ * Calendario editorial del negocio (módulo Editorial del CRM). Portado de
+ * components/admin/EditorialClient.tsx del Hub Negocio Vivo con la misma
+ * estructura, aspecto y flujos de IA. Cambios: una sola marca por negocio
+ * (sin selector de cliente ni multi-cliente), sin hilo de aprobación por
+ * enlace, sin importaciones del WordPress del Hub ni diagnóstico de huérfanos,
+ * sin claves de API ni webhooks en la UI, y con acceso directo a la ficha de
+ * marca y a la conexión con Facebook/Instagram.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import PageHeader from "@/components/PageHeader";
+import Modal from "@/components/ui/Modal";
+import EditorialJobsToast from "@/components/editorial/EditorialJobsToast";
+import EditorialMonthBrief, { emptyMonthBrief, type MonthBrief } from "@/components/editorial/EditorialMonthBrief";
+import EditorialContentUsage from "@/components/editorial/EditorialContentUsage";
+import EditorialMediaHistory from "@/components/editorial/EditorialMediaHistory";
+import EditorialResizePreview from "@/components/editorial/EditorialResizePreview";
+import { EditorialMetaPanel } from "@/components/editorial/EditorialMetaPanel";
+import EditorialMetaConnection from "@/components/editorial/EditorialMetaConnection";
+import BrandEditorialModal from "@/components/editorial/BrandEditorialForm";
+import {
+  Plus,
+  Loader2,
+  Trash2,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  Copy,
+  Calendar as CalendarIcon,
+  List as ListIcon,
+  FileDown,
+  Mail,
+  Image as ImageIcon,
+  Video,
+  Film,
+  FileText as FileTextIcon,
+  Pencil,
+  Eye,
+  Hourglass,
+  CheckCheck,
+  Palette,
+  RefreshCw
+} from "lucide-react";
+import { VISUAL_PATTERNS } from "@/lib/editorial/client-meta";
+
+type EditorialPost = {
+  id: string;
+  clientId?: string | null;
+  title: string;
+  content: string | null;
+  excerpt: string | null;
+  scheduledFor: string | null;
+  publishedAt: string | null;
+  status: string;
+  format: string | null;
+  networks: string;
+  thumbnail: string | null;
+  mediaUrls: string;
+  hashtags?: string | null;
+  firstComment?: string | null;
+  visualPattern?: string | null;
+  patternStrength?: number | null;
+  patternTemplateId?: string | null;
+  aspectRatio?: string | null;
+  copyByNetwork?: Record<string, string> | null;
+  metaJson?: any;
+  mediaVersions?: Array<{
+    id: string;
+    kind: string;
+    source: string;
+    url: string;
+    width: number | null;
+    height: number | null;
+    prompt: string | null;
+    createdAt: string;
+  }>;
+  publications?: Array<{
+    id: string;
+    network: string;
+    status: string;
+    scheduledFor: string | null;
+    publishedAt: string | null;
+    externalUrl: string | null;
+    lastError: string | null;
+    profile?: { label: string | null; facebookPageName?: string | null; instagramName?: string | null } | null;
+  }>;
+  revisions?: Array<{
+    id: string;
+    body: string | null;
+    changeSummary: string | null;
+    createdAt: string;
+    authorId: string | null;
+  }>;
+  client?: { id: string; name: string } | null;
+  _count?: { revisions: number };
+};
+
+const STATUS_OPTIONS = [
+  { value: "DRAFT", label: "Borrador", color: "bg-slate-100 text-slate-700 border-slate-200", dot: "bg-slate-400" },
+  { value: "REVIEW", label: "Revisión", color: "bg-amber-100 text-amber-800 border-amber-200", dot: "bg-amber-500" },
+  { value: "APPROVED", label: "Aprobada", color: "bg-sky-100 text-sky-800 border-sky-200", dot: "bg-sky-500" },
+  { value: "SCHEDULED", label: "Programada", color: "bg-indigo-100 text-indigo-800 border-indigo-200", dot: "bg-indigo-500" },
+  { value: "PUBLISHED", label: "Publicada", color: "bg-emerald-100 text-emerald-800 border-emerald-200", dot: "bg-emerald-500" },
+  { value: "ARCHIVED", label: "Archivada", color: "bg-rose-50 text-rose-700 border-rose-200", dot: "bg-rose-400" }
+];
+
+const NETWORK_OPTIONS = ["instagram", "facebook", "linkedin", "tiktok", "x", "youtube", "blog", "email"];
+
+function parseNetworks(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function localDateTimeInput(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function buildCalendarCells(year: number, month: number) {
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const firstWeekday = (first.getUTCDay() + 6) % 7; // lunes=0
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells: ({ date: Date } | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(Date.UTC(year, month - 1, d)) });
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+// Extrae hashtags de un post: primero el campo dedicado, luego claves típicas
+// en metaJson, luego regex sobre content/excerpt.
+function extractHashtags(post: EditorialPost): string[] {
+  // 0) Campo dedicado (nuevo schema)
+  if (post.hashtags && post.hashtags.trim()) {
+    const tokens = post.hashtags
+      .split(/[\s,;\n]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => (t.startsWith("#") ? t : `#${t}`));
+    if (tokens.length > 0) return Array.from(new Set(tokens));
+  }
+
+  const meta: any = post.metaJson ?? {};
+
+  // 1) Recorrer recursivamente metaJson buscando:
+  //   a) claves cuyo nombre contenga hashtag/etiqueta/tag
+  //   b) valores que contengan al menos 2 tokens "#palabra"
+  const found: string[] = [];
+
+  function pushTokens(raw: string) {
+    const tokens = raw
+      .split(/[\s,;\n]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => (t.startsWith("#") ? t : `#${t}`));
+    for (const t of tokens) if (/^#[\p{L}0-9_]+$/u.test(t)) found.push(t);
+  }
+
+  function walk(node: any, parentKey: string) {
+    if (node === null || node === undefined) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, parentKey);
+      return;
+    }
+    if (typeof node === "object") {
+      for (const [k, v] of Object.entries(node)) {
+        if (k.startsWith("_") || k.startsWith("field_")) continue;
+        walk(v, k);
+      }
+      return;
+    }
+    if (typeof node !== "string") return;
+    const looksLikeKey = /hashtag|etiqueta|^tags?$|_tags?$|tags_/i.test(parentKey);
+    if (looksLikeKey) {
+      pushTokens(node);
+      return;
+    }
+    // Valor que ya viene con varios #algo → tomarlo
+    const inline = node.match(/#[\p{L}0-9_]+/gu);
+    if (inline && inline.length >= 2) {
+      for (const m of inline) found.push(m);
+    }
+  }
+  walk(meta, "");
+
+  if (found.length > 0) {
+    return Array.from(new Set(found));
+  }
+
+  // 2) Fallback: regex sobre content/excerpt completo
+  const text = `${post.content ?? ""}\n${post.excerpt ?? ""}`;
+  const matches = text.match(/#[\p{L}0-9_]+/gu);
+  return matches ? Array.from(new Set(matches)) : [];
+}
+
+// Quita los hashtags del final del copy (no se ven duplicados en preview)
+function stripTrailingHashtags(text: string): string {
+  if (!text) return "";
+  // Elimina líneas finales que solo contengan hashtags
+  return text.replace(/(?:\s*#[\p{L}0-9_]+)+\s*$/gu, "").trim();
+}
+
+/** Detecta si una URL de media es un vídeo (ignora el query string de las
+ *  URLs firmadas de R2/S3). */
+function isVideoUrl(url: string): boolean {
+  if (!url) return false;
+  const path = url.split("?")[0].toLowerCase();
+  return /\.(mp4|webm|mov|m4v)$/.test(path);
+}
+
+function formatIcon(format: string | null) {
+  const f = (format ?? "").toLowerCase();
+  if (f.includes("reel") || f.includes("video")) return Film;
+  if (f.includes("story") || f.includes("historia")) return Video;
+  if (f.includes("blog") || f.includes("articulo")) return FileTextIcon;
+  return ImageIcon;
+}
+
+// Estilo por formato: color de fondo + texto + dot + label, para que cada
+// tipo de publicación sea reconocible de un vistazo en el calendario.
+const FORMAT_STYLES: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+  imagen:   { bg: "bg-sky-50 border-sky-200",       text: "text-sky-800",      dot: "bg-sky-500",      label: "Imagen" },
+  post:     { bg: "bg-sky-50 border-sky-200",       text: "text-sky-800",      dot: "bg-sky-500",      label: "Imagen" },
+  reel:     { bg: "bg-pink-50 border-pink-200",     text: "text-pink-800",     dot: "bg-pink-500",     label: "Reel" },
+  video:    { bg: "bg-rose-50 border-rose-200",     text: "text-rose-800",     dot: "bg-rose-500",     label: "Video" },
+  carrusel: { bg: "bg-violet-50 border-violet-200", text: "text-violet-800",   dot: "bg-violet-500",   label: "Carrusel" },
+  carousel: { bg: "bg-violet-50 border-violet-200", text: "text-violet-800",   dot: "bg-violet-500",   label: "Carrusel" },
+  story:    { bg: "bg-amber-50 border-amber-200",   text: "text-amber-800",    dot: "bg-amber-500",    label: "Story" },
+  blog:     { bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-800", dot: "bg-emerald-500", label: "Blog" },
+  email:    { bg: "bg-indigo-50 border-indigo-200", text: "text-indigo-800",   dot: "bg-indigo-500",   label: "Email" }
+};
+
+function formatStyle(format: string | null) {
+  const f = (format ?? "imagen").toLowerCase();
+  return FORMAT_STYLES[f] ?? FORMAT_STYLES.imagen;
+}
+
+// Considera "aprobado" cualquier estado igual o posterior a APPROVED
+function isApprovedStatus(status: string): boolean {
+  return ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(status);
+}
+
+function formatNetworkColor(n: string): string {
+  const k = n.toLowerCase();
+  if (k.includes("instagram")) return "bg-pink-50 text-pink-700 border-pink-200";
+  if (k.includes("facebook")) return "bg-blue-50 text-blue-700 border-blue-200";
+  if (k.includes("linkedin")) return "bg-sky-50 text-sky-700 border-sky-200";
+  if (k.includes("tiktok")) return "bg-slate-900/5 text-slate-800 border-slate-300";
+  if (k.includes("x") || k.includes("twitter")) return "bg-slate-100 text-slate-800 border-slate-300";
+  if (k.includes("youtube")) return "bg-red-50 text-red-700 border-red-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
+}
+
+/** Ficha de marca del negocio que usa el Editorial (GET /api/v1/brand). */
+type BrandInfo = {
+  id: string;
+  name: string;
+  brandBrief: string | null;
+  logoUrl: string | null;
+  styleGuideCached: string | null;
+  referenceImages: Array<{ url: string; type?: string; personName?: string }> | null;
+  patternTemplates: PatternTemplateUi[] | null;
+  editorialDefaults: Record<string, any> | null;
+};
+
+/** Qué funciones de IA ha activado Negocio Vivo (GET /api/v1/editorial/settings). */
+type AiAvailability = {
+  text: boolean;
+  images: boolean;
+  imageEditing: boolean;
+  video: boolean;
+  voice: boolean;
+  subtitles: boolean;
+};
+
+function rosterNames(brand: BrandInfo | null): string[] {
+  const refs = Array.isArray(brand?.referenceImages) ? brand!.referenceImages! : [];
+  return Array.from(new Set(refs.map((r) => (r?.personName ?? "").toString().trim()).filter((n) => n.length > 0)));
+}
+
+function pushRunningJob(job: { id: string; clientName?: string; month?: string }) {
+  try {
+    const existing = JSON.parse(localStorage.getItem("editorial.runningJobs") ?? "[]");
+    existing.push({ id: job.id, startedAt: Date.now(), clientName: job.clientName, month: job.month });
+    localStorage.setItem("editorial.runningJobs", JSON.stringify(existing));
+    window.dispatchEvent(new CustomEvent("editorial:job-started", { detail: { id: job.id } }));
+  } catch {}
+}
+
+export default function EditorialClient() {
+  const today = useMemo(() => new Date(), []);
+  const [cursor, setCursor] = useState(() => new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)));
+  const [view, setView] = useState<"calendar" | "list">("calendar");
+
+  const [posts, setPosts] = useState<EditorialPost[]>([]);
+  const [brand, setBrand] = useState<BrandInfo | null>(null);
+  const [availability, setAvailability] = useState<AiAvailability | null>(null);
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState("ALL");
+  const [filterFormat, setFilterFormat] = useState("ALL");
+  const [formOpen, setFormOpen] = useState(false);
+  // Fecha preseleccionada cuando se abre el modal tras clic en un día del
+  // calendario (YYYY-MM-DD). null = modo manual / botón "Nueva publicación".
+  const [newPostDate, setNewPostDate] = useState<string | null>(null);
+  const [editing, setEditing] = useState<EditorialPost | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [competitorsOpen, setCompetitorsOpen] = useState(false);
+  const [metricoolOpen, setMetricoolOpen] = useState(false);
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [editorialSettingsOpen, setEditorialSettingsOpen] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const month = monthKey(cursor);
+  const year = cursor.getUTCFullYear();
+  const monthNum = cursor.getUTCMonth() + 1;
+  const cells = useMemo(() => buildCalendarCells(year, monthNum), [year, monthNum]);
+
+  async function load() {
+    setLoading(true);
+    const qs = `?month=${month}`;
+    const [pr, sr] = await Promise.all([
+      fetch(`/api/v1/editorial/posts${qs}`),
+      fetch(`/api/v1/editorial/stats${qs}`)
+    ]);
+    if (pr.ok) setPosts((await pr.json()).items ?? []);
+    if (sr.ok) setStats(await sr.json());
+    setLoading(false);
+  }
+
+  async function loadBrand() {
+    const r = await fetch("/api/v1/brand");
+    if (r.ok) setBrand(await r.json());
+  }
+
+  useEffect(() => {
+    load();
+  }, [month]);
+
+  useEffect(() => {
+    loadBrand().catch(() => {});
+    fetch("/api/v1/editorial/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.availability && setAvailability(d.availability))
+      .catch(() => {});
+  }, []);
+
+  async function deletePost(id: string, title: string) {
+    if (!confirm(`¿Eliminar "${title}"?`)) return;
+    const r = await fetch(`/api/v1/editorial/posts/${id}`, { method: "DELETE" });
+    if (r.ok) load();
+  }
+
+  async function doMonthAction(action: "approve" | "schedule" | "publish" | "archive" | "duplicate") {
+    if (action === "duplicate") {
+      // Abre modal dedicado en lugar de prompt
+      setDuplicateOpen(true);
+      return;
+    }
+    const labels: Record<string, string> = {
+      approve: "aprobar TODAS las publicaciones del mes",
+      schedule: "marcar como programadas todas las aprobadas",
+      publish: "marcar como publicadas manualmente las aprobadas/programadas, sin enviarlas a Meta, y cancelar sus envíos pendientes",
+      archive: "archivar TODAS las publicaciones del mes"
+    };
+    if (!confirm(`¿Confirmas ${labels[action]}?`)) return;
+
+    const r = await fetch("/api/v1/editorial/month-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, month })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) {
+      setActionMsg(`✓ ${labels[action]}: ${j.affected ?? j.created ?? 0} publicaciones afectadas`);
+      setTimeout(() => setActionMsg(null), 4000);
+      load();
+    } else {
+      alert(j?.error?.message ?? "Error");
+    }
+  }
+
+  const filtered = posts.filter(
+    (p) =>
+      (filterStatus === "ALL" || p.status === filterStatus) &&
+      (filterFormat === "ALL" || (p.format ?? "imagen").toLowerCase() === filterFormat)
+  );
+
+  const postsByDay = useMemo(() => {
+    const m = new Map<string, EditorialPost[]>();
+    for (const p of filtered) {
+      if (!p.scheduledFor) continue;
+      const key = p.scheduledFor.slice(0, 10);
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(p);
+    }
+    return m;
+  }, [filtered]);
+
+  const brandIncomplete = brand && !brand.brandBrief?.trim() && !(brand.referenceImages?.length ?? 0);
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      <PageHeader
+        title="Calendario editorial"
+        description="Genera, aprueba, programa y publica contenido en Facebook e Instagram, con imágenes y vídeos creados con IA."
+        actions={
+          <>
+            <button
+              onClick={() => setBrandOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Brief, colores, logo, fotos y guía de estilo que usa la IA"
+            >
+              <Palette className="h-4 w-4" />
+              Ficha de marca
+            </button>
+            <button
+              onClick={() => setGenerateOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium"
+            >
+              <Sparkles className="h-4 w-4" />
+              Generar mes con IA
+            </button>
+            <button
+              onClick={() => setCompetitorsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Analizar competencia con IA"
+            >
+              🔍 Competencia
+            </button>
+            <button
+              onClick={() => setMetricoolOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Exportar las publicaciones del mes al formato CSV de Metricool"
+            >
+              <FileDown className="h-4 w-4" />
+              Metricool
+            </button>
+            <button
+              onClick={() => setEditorialSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+              title="Conexión con Facebook/Instagram y funciones de IA disponibles"
+            >
+              ⚙️
+            </button>
+            <button
+              onClick={() => { setEditing(null); setFormOpen(true); }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            >
+              <Plus className="h-4 w-4" />
+              Nueva publicación
+            </button>
+          </>
+        }
+      />
+
+      {brandIncomplete && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm text-brand-800">
+          <span>Completa la ficha de tu marca (brief, colores, logo y fotos) para que la IA genere publicaciones con tu estilo.</span>
+          <button onClick={() => setBrandOpen(true)} className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700">
+            Completar ficha
+          </button>
+        </div>
+      )}
+      {availability && !availability.text && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          La generación con IA no está disponible ahora mismo; avisa a Negocio Vivo. Puedes seguir creando y programando publicaciones a mano.
+        </div>
+      )}
+      {availability && availability.text && !availability.images && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          La generación de imágenes no está disponible; avisa a Negocio Vivo. Puedes subir tus propias imágenes.
+        </div>
+      )}
+      {actionMsg && (
+        <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-800">
+          {actionMsg}
+        </div>
+      )}
+
+      {/* Estadísticas del mes */}
+      {stats && stats.total > 0 && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 mb-3">
+            <StatCard label="Total mes" value={stats.total} accent="bg-brand-50 text-brand-700" />
+            {STATUS_OPTIONS.map((s) => (
+              <StatCard key={s.value} label={s.label} value={stats.byStatus[s.value] ?? 0} accent={s.color} />
+            ))}
+          </div>
+          <details className="bg-white rounded-xl border mb-4">
+            <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-slate-700 select-none">
+              📊 Desglose detallado (red, formato, día de la semana)
+            </summary>
+            <div className="p-4 border-t space-y-4">
+              {/* Por red */}
+              {Object.keys(stats.byNetwork ?? {}).length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Publicaciones por red</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(stats.byNetwork as Record<string, number>)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([n, v]) => (
+                        <div key={n} className="px-2.5 py-1 rounded-md border bg-slate-50 text-xs">
+                          <span className="capitalize">{n}</span>{" "}
+                          <span className="font-semibold text-slate-700">{v}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {/* Por formato */}
+              {Object.keys(stats.byFormat ?? {}).length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Publicaciones por formato</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(stats.byFormat as Record<string, number>)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([n, v]) => (
+                        <div key={n} className="px-2.5 py-1 rounded-md border bg-slate-50 text-xs">
+                          <span className="capitalize">{n}</span>{" "}
+                          <span className="font-semibold text-slate-700">{v}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {/* Matriz red × formato */}
+              {stats.networkFormatMatrix && Object.keys(stats.networkFormatMatrix).length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Matriz red × formato</div>
+                  <div className="overflow-x-auto">
+                    <table className="text-xs border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="text-left px-2 py-1 text-slate-500 font-medium">Red</th>
+                          {Array.from(
+                            new Set(
+                              Object.values(stats.networkFormatMatrix as Record<string, Record<string, number>>)
+                                .flatMap((m) => Object.keys(m))
+                            )
+                          ).map((f) => (
+                            <th key={f} className="text-center px-2 py-1 text-slate-500 font-medium capitalize">
+                              {f}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(stats.networkFormatMatrix as Record<string, Record<string, number>>).map(
+                          ([net, fmts]) => (
+                            <tr key={net} className="border-t">
+                              <td className="px-2 py-1 capitalize font-medium">{net}</td>
+                              {Array.from(
+                                new Set(
+                                  Object.values(stats.networkFormatMatrix as Record<string, Record<string, number>>)
+                                    .flatMap((m) => Object.keys(m))
+                                )
+                              ).map((f) => {
+                                const v = fmts[f] ?? 0;
+                                return (
+                                  <td
+                                    key={f}
+                                    className={"text-center px-2 py-1 " + (v > 0 ? "bg-brand-50 text-brand-800 font-medium" : "text-slate-300")}
+                                  >
+                                    {v}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {/* Día de la semana */}
+              {Array.isArray(stats.byDayOfWeek) && (
+                <div>
+                  <div className="text-xs font-medium text-slate-700 mb-1.5">Publicaciones por día de la semana</div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {["L", "M", "X", "J", "V", "S", "D"].map((d, i) => {
+                      const v = stats.byDayOfWeek[i] ?? 0;
+                      const max = Math.max(...(stats.byDayOfWeek as number[]), 1);
+                      const pct = Math.round((v / max) * 100);
+                      return (
+                        <div key={d} className="text-center">
+                          <div className="h-16 flex items-end justify-center">
+                            <div
+                              className="w-6 bg-brand-500/70 rounded-t"
+                              style={{ height: `${pct}%` }}
+                              title={`${v} publicaciones`}
+                            />
+                          </div>
+                          <div className="text-[10px] text-slate-500">{d}</div>
+                          <div className="text-[10px] text-slate-700 font-medium">{v}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        </>
+      )}
+
+      {/* Navegación de mes + filtros + acciones */}
+      <div className="flex items-center flex-wrap gap-2 mb-4">
+        <div className="inline-flex items-center bg-white border rounded-lg p-0.5">
+          <button
+            onClick={() => setCursor(new Date(Date.UTC(year, monthNum - 2, 1)))}
+            className="h-7 w-7 grid place-items-center rounded hover:bg-slate-100"
+            aria-label="Mes anterior"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-semibold px-3 first-letter:uppercase">
+            {cursor.toLocaleDateString("es-ES", { month: "long", year: "numeric", timeZone: "UTC" })}
+          </span>
+          <button
+            onClick={() => setCursor(new Date(Date.UTC(year, monthNum, 1)))}
+            className="h-7 w-7 grid place-items-center rounded hover:bg-slate-100"
+            aria-label="Mes siguiente"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex items-center bg-white border rounded-lg p-0.5">
+          <button
+            onClick={() => setView("calendar")}
+            className={
+              "px-2.5 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1 " +
+              (view === "calendar" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900")
+            }
+          >
+            <CalendarIcon className="h-3 w-3" />
+            Calendario
+          </button>
+          <button
+            onClick={() => setView("list")}
+            className={
+              "px-2.5 py-1.5 rounded-md text-xs font-medium inline-flex items-center gap-1 " +
+              (view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900")
+            }
+          >
+            <ListIcon className="h-3 w-3" />
+            Lista
+          </button>
+        </div>
+
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
+          <span className="text-slate-500">Estado:</span>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="bg-transparent font-medium focus:outline-none"
+          >
+            <option value="ALL">Todos</option>
+            {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border text-xs">
+          <span className="text-slate-500">Formato:</span>
+          <select
+            value={filterFormat}
+            onChange={(e) => setFilterFormat(e.target.value)}
+            className="bg-transparent font-medium focus:outline-none"
+          >
+            <option value="ALL">Todos</option>
+            <option value="imagen">Imagen</option>
+            <option value="reel">Reel</option>
+            <option value="carrusel">Carrusel</option>
+            <option value="story">Story</option>
+            <option value="video">Video</option>
+            <option value="blog">Blog</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+
+        <div className="md:ml-auto flex flex-wrap items-center gap-1">
+          <ActionButton onClick={() => doMonthAction("approve")} icon={<CheckCircle2 className="h-3 w-3" />}>Aprobar mes</ActionButton>
+          <ActionButton onClick={() => setActionMsg("Para programar en Meta, abre cada publicación, guarda su aprobación y fecha, y elige sus cuentas de destino.")} icon={<CalendarIcon className="h-3 w-3" />}>Programar en Meta</ActionButton>
+          <ActionButton onClick={() => doMonthAction("publish")} icon={<CheckCheck className="h-3 w-3" />}>Marcar publicadas manualmente</ActionButton>
+          <ActionButton onClick={() => doMonthAction("duplicate")} icon={<Copy className="h-3 w-3" />}>Duplicar</ActionButton>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="bg-white rounded-xl border p-8 text-sm text-slate-500 flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+        </div>
+      ) : view === "calendar" ? (
+        <div className="bg-white rounded-xl border overflow-x-auto">
+          {/* Leyenda de formatos */}
+          <div className="flex flex-wrap gap-2 px-3 py-2 border-b bg-slate-50/50 text-[10px]">
+            <span className="text-slate-500 uppercase tracking-wide">Leyenda:</span>
+            {(["imagen", "reel", "carrusel", "story", "video"] as const).map((k) => {
+              const fs = FORMAT_STYLES[k];
+              return (
+                <span key={k} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${fs.bg} ${fs.text}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${fs.dot}`} />
+                  {fs.label}
+                </span>
+              );
+            })}
+            <span className="ml-2 text-slate-400">·</span>
+            <span className="text-slate-500">✓ checkbox para aprobar · arrastra para reprogramar</span>
+          </div>
+          <div className="min-w-[720px]">
+          <div className="grid grid-cols-7 text-xs uppercase tracking-wide text-slate-500 border-b bg-slate-50">
+            {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
+              <div key={d} className="px-3 py-2 border-r last:border-r-0">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 auto-rows-[130px]">
+            {cells.map((cell, idx) => {
+              if (!cell) return <div key={idx} className="border-r border-b last:border-r-0 bg-slate-50/30" />;
+              const iso = cell.date.toISOString().slice(0, 10);
+              const dayPosts = postsByDay.get(iso) ?? [];
+              const isToday = iso === today.toISOString().slice(0, 10);
+              return (
+                <div
+                  key={idx}
+                  className="border-r border-b last:border-r-0 p-1.5 overflow-hidden hover:bg-brand-50/20 transition cursor-pointer"
+                  onClick={() => {
+                    setEditing(null);
+                    setNewPostDate(iso);
+                    setFormOpen(true);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.add("bg-brand-100/50");
+                  }}
+                  onDragLeave={(e) => {
+                    e.currentTarget.classList.remove("bg-brand-100/50");
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.currentTarget.classList.remove("bg-brand-100/50");
+                    const postId = e.dataTransfer.getData("text/post-id");
+                    const oldIso = e.dataTransfer.getData("text/orig-iso");
+                    if (!postId || oldIso === iso) return;
+                    // Mantener hora original; sólo cambiar la fecha
+                    const orig = posts.find((p) => p.id === postId);
+                    if (!orig?.scheduledFor) return;
+                    const origDate = new Date(orig.scheduledFor);
+                    const newDate = new Date(cell.date);
+                    newDate.setUTCHours(origDate.getUTCHours(), origDate.getUTCMinutes(), 0, 0);
+                    const r = await fetch(`/api/v1/editorial/posts/${postId}/reschedule`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ scheduledFor: newDate.toISOString() })
+                    });
+                    if (!r.ok) {
+                      const j = await r.json().catch(() => ({}));
+                      alert(j?.error?.message ?? `Error ${r.status}`);
+                    }
+                    load();
+                  }}
+                >
+                  <div className={"text-xs font-medium mb-1 " + (isToday ? "text-brand-600" : "text-slate-700")}>
+                    <span
+                      className={
+                        isToday
+                          ? "inline-block h-5 w-5 rounded-full bg-brand-600 text-white grid place-items-center leading-5 text-center"
+                          : ""
+                      }
+                    >
+                      {cell.date.getUTCDate()}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {dayPosts.slice(0, 3).map((p) => {
+                      const fs = formatStyle(p.format);
+                      const Icon = formatIcon(p.format);
+                      const approved = isApprovedStatus(p.status);
+                      const st = STATUS_OPTIONS.find((s) => s.value === p.status) ?? STATUS_OPTIONS[0];
+                      const isPublished = p.status === "PUBLISHED";
+                      const isScheduled = p.status === "SCHEDULED";
+                      return (
+                        <div
+                          key={p.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/post-id", p.id);
+                            e.dataTransfer.setData("text/orig-iso", iso);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditing(p);
+                            setFormOpen(true);
+                          }}
+                          className={`group flex items-center gap-1 text-[11px] px-1 py-0.5 rounded border ${fs.bg} ${fs.text} hover:opacity-80 cursor-move`}
+                          title={`${p.title} · ${fs.label} · ${st.label} (arrastra para reprogramar)`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={approved}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={async (e) => {
+                              e.stopPropagation();
+                              const checked = e.currentTarget.checked;
+                              const r = await fetch(`/api/v1/editorial/posts/${p.id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ status: checked ? "APPROVED" : "DRAFT" })
+                              });
+                              if (!r.ok) {
+                                const j = await r.json().catch(() => ({}));
+                                alert(j?.error?.message ?? `Error ${r.status}`);
+                              }
+                              load();
+                            }}
+                            className="h-3 w-3 shrink-0 accent-emerald-600"
+                            title={approved ? "Desaprobar" : "Aprobar"}
+                          />
+                          <Icon className="h-3 w-3 shrink-0 opacity-75" />
+                          <span className="flex-1 min-w-0">
+                            <span className="truncate block">{p.title}</span>
+                          </span>
+                          {isPublished && <span className="shrink-0 text-emerald-600" title="Publicada">●</span>}
+                          {isScheduled && <span className="shrink-0 text-indigo-600" title="Programada">▶</span>}
+                        </div>
+                      );
+                    })}
+                    {dayPosts.length > 3 && (
+                      <div className="text-[10px] text-slate-500 pl-1">+{dayPosts.length - 3} más</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </div>
+          <CalendarTrashZone onDropped={() => load()} />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border p-10 text-center text-sm text-slate-500">
+          {posts.length === 0
+            ? "Sin publicaciones este mes. Genera un mes con IA o crea una manualmente."
+            : "Ninguna publicación coincide con el filtro de estado."}
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="text-left px-5 py-3">Título</th>
+                <th className="text-left px-3 py-3">Fecha</th>
+                <th className="text-left px-3 py-3">Estado</th>
+                <th className="text-left px-3 py-3">Formato</th>
+                <th className="text-right px-5 py-3">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.map((p) => {
+                const st = STATUS_OPTIONS.find((s) => s.value === p.status) ?? STATUS_OPTIONS[0];
+                return (
+                  <tr key={p.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => { setEditing(p); setFormOpen(true); }}>
+                    <td className="px-5 py-3 font-medium truncate max-w-xs">{p.title}</td>
+                    <td className="px-3 py-3 text-xs text-slate-600 whitespace-nowrap">
+                      {p.scheduledFor ? new Date(p.scheduledFor).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-md border ${st.color}`}>{st.label}</span>
+                    </td>
+                    <td className="px-3 py-3 text-xs text-slate-500 capitalize">{p.format ?? "—"}</td>
+                    <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => deletePost(p.id, p.title)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-rose-600 hover:bg-rose-50"
+                        aria-label="Eliminar"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <PostFormModal
+        open={formOpen}
+        onClose={() => { setFormOpen(false); setNewPostDate(null); load(); }}
+        post={editing}
+        brand={brand}
+        availability={availability}
+        defaultMonth={month}
+        defaultDateIso={newPostDate ?? undefined}
+        onOpenBrand={() => setBrandOpen(true)}
+        onSaved={() => { setFormOpen(false); setNewPostDate(null); load(); }}
+      />
+
+      <GenerateMonthModal
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        brand={brand}
+        availability={availability}
+        month={month}
+        onBrandChanged={() => loadBrand()}
+        onOpenBrand={() => setBrandOpen(true)}
+        onDone={() => { setGenerateOpen(false); load(); }}
+      />
+
+      <DuplicateMonthModal
+        open={duplicateOpen}
+        onClose={() => setDuplicateOpen(false)}
+        sourceMonth={month}
+        onDone={() => { setDuplicateOpen(false); load(); }}
+      />
+
+      <CompetitorsModal
+        open={competitorsOpen}
+        onClose={() => setCompetitorsOpen(false)}
+        onOpenBrand={() => setBrandOpen(true)}
+      />
+
+      <MetricoolExportModal
+        open={metricoolOpen}
+        onClose={() => setMetricoolOpen(false)}
+        month={month}
+        onDone={() => load()}
+      />
+
+      <EditorialSettingsModal
+        open={editorialSettingsOpen}
+        onClose={() => setEditorialSettingsOpen(false)}
+        availability={availability}
+      />
+
+      <BrandEditorialModal
+        open={brandOpen}
+        onClose={() => setBrandOpen(false)}
+        onSaved={() => loadBrand()}
+      />
+
+      <EditorialJobsToast onJobCompleted={() => load()} />
+    </div>
+  );
+}
+
+function MetricoolExportModal({
+  open,
+  onClose,
+  month,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  month: string;
+  onDone: () => void;
+}) {
+  const [targetMonth, setTargetMonth] = useState(month);
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [statuses, setStatuses] = useState<string[]>(["APPROVED", "SCHEDULED"]);
+  const [onlyNotExported, setOnlyNotExported] = useState(false);
+  const [markScheduled, setMarkScheduled] = useState(true);
+  const [email, setEmail] = useState("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setTargetMonth(month);
+    setStatuses(["APPROVED", "SCHEDULED"]);
+    setOnlyNotExported(false);
+    setMarkScheduled(true);
+    setResult(null);
+    setError(null);
+    // Prefill email con el del usuario actual y comprobar si el envío está activo.
+    fetch("/api/v1/editorial/export-metricool").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d?.email) setEmail(d.email);
+      setEmailEnabled(d?.emailEnabled !== false);
+    }).catch(() => {});
+  }, [open, month]);
+
+  function toggleStatus(s: string) {
+    setStatuses((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]));
+  }
+
+  async function run(sendEmail: boolean) {
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await fetch("/api/v1/editorial/export-metricool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          month: targetMonth,
+          statuses,
+          onlyNotExported,
+          markAsScheduled: markScheduled,
+          email: sendEmail ? email : undefined,
+          sendEmail
+        })
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        setError(data?.error?.message ?? `Error ${r.status}`);
+        setRunning(false);
+        return;
+      }
+      setResult(data);
+      onDone();
+      // Si NO se mandó por email, descargamos directamente
+      if (!sendEmail) {
+        const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = data.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Exportar a Metricool"
+      size="lg"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">
+            Cerrar
+          </button>
+          <button
+            onClick={() => run(false)}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border text-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+            Descargar CSV
+          </button>
+          <button
+            onClick={() => run(true)}
+            disabled={running || !email || !emailEnabled}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            Enviar por email
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Genera un CSV con las publicaciones del calendario en el formato que el importador de Metricool acepta (una fila por publicación; las redes van marcadas con TRUE/FALSE). Puedes <strong>descargarlo y subirlo manualmente</strong>, o <strong>mandártelo por email</strong>. Al importar en Metricool, elige el formato de fecha <strong>YYYY-MM-DD</strong> y de hora <strong>HH:MM:SS</strong>.
+        </p>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Mes</label>
+          <input
+            type="month"
+            value={targetMonth}
+            onChange={(e) => setTargetMonth(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Estados a incluir</label>
+          <div className="flex flex-wrap gap-1.5">
+            {["DRAFT", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED"].map((s) => {
+              const sel = statuses.includes(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggleStatus(s)}
+                  className={
+                    "px-2.5 py-1 rounded-md text-xs transition border " +
+                    (sel
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={onlyNotExported}
+            onChange={(e) => setOnlyNotExported(e.target.checked)}
+            className="rounded"
+          />
+          Solo publicaciones no exportadas antes (incremental)
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={markScheduled}
+            onChange={(e) => setMarkScheduled(e.target.checked)}
+            className="rounded"
+          />
+          Marcar como "Programadas" tras exportar
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Email destino <span className="text-slate-400 font-normal">(para "Enviar por email")</span>
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@email.com"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          {!emailEnabled && (
+            <p className="text-[11px] text-slate-500 mt-1">
+              El envío por email no está disponible; avisa a Negocio Vivo. Mientras tanto usa "Descargar CSV".
+            </p>
+          )}
+        </div>
+
+        {result && (
+          <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+            ✓ {result.rowCount} filas generadas ({result.postCount} publicaciones).
+            {result.emailSent ? " Email enviado correctamente." : " CSV descargado."}
+          </div>
+        )}
+        {error && (
+          <div className="px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: number; accent: string }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${accent}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-80">{label}</div>
+      <div className="text-xl font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function ActionButton({ onClick, icon, children }: { onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-xs bg-white border hover:bg-slate-50"
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function GenerateMonthModal({
+  open,
+  onClose,
+  brand,
+  availability,
+  month,
+  onBrandChanged,
+  onOpenBrand,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  brand: BrandInfo | null;
+  availability: AiAvailability | null;
+  month: string;
+  onBrandChanged: () => void;
+  onOpenBrand: () => void;
+  onDone: () => void;
+}) {
+  // CRM: una sola marca; su id solo sirve para habilitar la subida de referencias.
+  const clientId = brand?.id ?? "";
+  const [count, setCount] = useState(14);
+  const [networks, setNetworks] = useState<string[]>(["instagram", "facebook"]);
+  const [mix, setMix] = useState({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
+  const [copyLength, setCopyLength] = useState(50);
+  // Por defecto activado (recomendación del usuario) — copy nativo por red
+  // suele dar mejor resultado y los pocos tokens extra valen la pena.
+  const [perNetworkCopy, setPerNetworkCopy] = useState(true);
+  const [extraGuidance, setExtraGuidance] = useState("");
+  const [monthBrief, setMonthBrief] = useState<MonthBrief>(emptyMonthBrief);
+  const [uploadingReferences, setUploadingReferences] = useState(false);
+  useEffect(() => { setMonthBrief(emptyMonthBrief); }, [clientId, month, open]);
+  const [imageIncludeHint, setImageIncludeHint] = useState("");
+  const [imageAvoidHint, setImageAvoidHint] = useState("");
+  // Pillars temáticos. Sliders 0-100 con valores no normalizados —
+  // backend normaliza. Default razonable.
+  const [pillars, setPillars] = useState({ educativo: 30, producto: 30, testimonio: 20, social: 20 });
+  // Días de la semana permitidos (0=domingo..6=sábado). Default lun-vie.
+  const [allowedDays, setAllowedDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  // Horas preferidas. Default plugin (10/12/18).
+  const [preferredHours, setPreferredHours] = useState<number[]>([10, 12, 18]);
+  // Personas del roster que SÍ deben aparecer (forzadas).
+  const [forcedRoster, setForcedRoster] = useState<string[]>([]);
+  const [rosterOptions, setRosterOptions] = useState<string[]>([]);
+  const [status, setStatus] = useState<"DRAFT" | "REVIEW">("DRAFT");
+  // Pedido por el usuario: la generación de imagen siempre marcada por
+  // defecto.
+  const [generateImages, setGenerateImages] = useState(true);
+  const [imageQuality, setImageQuality] = useState<"low" | "medium" | "high">("medium");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+  // Preset persistido en la ficha de marca: al abrir hacemos GET de
+  // /api/v1/brand y aplicamos editorialDefaults si existe.
+  const [presetLoaded, setPresetLoaded] = useState(false);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetSavedMsg, setPresetSavedMsg] = useState<string | null>(null);
+
+  // Aplica un preset (parcial) sobre los estados, ignorando keys ausentes.
+  function applyPreset(p: any) {
+    if (!p || typeof p !== "object") return;
+    if (typeof p.count === "number") setCount(Math.max(1, Math.min(40, p.count)));
+    if (Array.isArray(p.networks) && p.networks.length > 0) setNetworks(p.networks);
+    if (p.mix && typeof p.mix === "object") {
+      setMix({
+        imagen: Number(p.mix.imagen ?? 50),
+        reel: Number(p.mix.reel ?? 25),
+        carrusel: Number(p.mix.carrusel ?? 15),
+        story: Number(p.mix.story ?? 10),
+        video: Number(p.mix.video ?? 0)
+      });
+    }
+    if (typeof p.copyLength === "number") setCopyLength(Math.max(0, Math.min(100, p.copyLength)));
+    if (typeof p.perNetworkCopy === "boolean") setPerNetworkCopy(p.perNetworkCopy);
+    if (typeof p.extraGuidance === "string") setExtraGuidance(p.extraGuidance);
+    if (typeof p.imageIncludeHint === "string") setImageIncludeHint(p.imageIncludeHint);
+    if (typeof p.imageAvoidHint === "string") setImageAvoidHint(p.imageAvoidHint);
+    if (p.pillars && typeof p.pillars === "object") {
+      setPillars({
+        educativo: Number(p.pillars.educativo ?? 30),
+        producto: Number(p.pillars.producto ?? 30),
+        testimonio: Number(p.pillars.testimonio ?? 20),
+        social: Number(p.pillars.social ?? 20)
+      });
+    }
+    if (Array.isArray(p.allowedDays)) setAllowedDays(p.allowedDays.filter((d: any) => Number.isInteger(d) && d >= 0 && d <= 6));
+    if (Array.isArray(p.preferredHours)) setPreferredHours(p.preferredHours.filter((h: any) => Number.isInteger(h) && h >= 0 && h <= 23));
+    if (Array.isArray(p.forcedRoster)) setForcedRoster(p.forcedRoster.filter((n: any) => typeof n === "string"));
+    if (p.status === "DRAFT" || p.status === "REVIEW") setStatus(p.status);
+    if (typeof p.generateImages === "boolean") setGenerateImages(p.generateImages);
+    if (p.imageQuality === "low" || p.imageQuality === "medium" || p.imageQuality === "high") {
+      setImageQuality(p.imageQuality);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    setCount(14);
+    setNetworks(["instagram", "facebook"]);
+    setMix({ imagen: 50, reel: 25, carrusel: 15, story: 10, video: 0 });
+    setCopyLength(50);
+    setPerNetworkCopy(true);
+    setExtraGuidance("");
+    setImageIncludeHint("");
+    setImageAvoidHint("");
+    setPillars({ educativo: 30, producto: 30, testimonio: 20, social: 20 });
+    setAllowedDays([1, 2, 3, 4, 5]);
+    setPreferredHours([10, 12, 18]);
+    setForcedRoster([]);
+    setRosterOptions([]);
+    setStatus("DRAFT");
+    setGenerateImages(true);
+    setImageQuality("medium");
+    setError(null);
+    setResult(null);
+    setPresetLoaded(false);
+    setPresetSavedMsg(null);
+  }, [open]);
+
+  // Al abrir, traemos los editorialDefaults de la marca y los aplicamos
+  // encima del estado actual.
+  useEffect(() => {
+    if (!open) return;
+    let aborted = false;
+    setPresetLoaded(false);
+    fetch("/api/v1/brand")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (aborted) return;
+        applyPreset(data?.editorialDefaults);
+        // Roster: extraemos nombres únicos de referenceImages que tengan
+        // personName, para pintar los chips de "personas a forzar".
+        const refs: any[] = Array.isArray(data?.referenceImages) ? data.referenceImages : [];
+        const names = Array.from(
+          new Set(
+            refs
+              .map((r) => (r?.personName ?? "").toString().trim())
+              .filter((n: string) => n.length > 0)
+          )
+        );
+        setRosterOptions(names);
+        setPresetLoaded(true);
+      })
+      .catch(() => setPresetLoaded(true));
+    return () => {
+      aborted = true;
+    };
+  }, [open]);
+
+  async function savePreset() {
+    setSavingPreset(true);
+    setPresetSavedMsg(null);
+    const preset = {
+      count,
+      networks,
+      mix,
+      copyLength,
+      perNetworkCopy,
+      extraGuidance,
+      imageIncludeHint,
+      imageAvoidHint,
+      pillars,
+      allowedDays,
+      preferredHours,
+      forcedRoster,
+      status,
+      generateImages,
+      imageQuality
+    };
+    try {
+      const r = await fetch("/api/v1/brand", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ editorialDefaults: preset })
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => null);
+        setPresetSavedMsg(`Error: ${data?.error?.message ?? r.status}`);
+      } else {
+        setPresetSavedMsg("Preset guardado para tu marca ✓");
+        onBrandChanged();
+      }
+    } catch (e) {
+      setPresetSavedMsg(`Error: ${(e as Error).message}`);
+    } finally {
+      setSavingPreset(false);
+      setTimeout(() => setPresetSavedMsg(null), 3500);
+    }
+  }
+
+  function toggle(n: string) {
+    setNetworks((arr) => (arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n]));
+  }
+
+  const mixTotal = mix.imagen + mix.reel + mix.carrusel + mix.story + mix.video;
+  const lengthLabel = copyLength < 25
+    ? "ultra-directo (40-100 palabras)"
+    : copyLength < 50
+      ? "corto (60-180 palabras)"
+      : copyLength < 75
+        ? "medio (100-300 palabras)"
+        : "largo (200-450 palabras)";
+
+  // Estimación de coste. Modelo simple:
+  //   - Claude (entrada+salida): ~$0.02/post de media (Opus, copy
+  //     estructurado + headlines + image_prompt)
+  //   - Imagen: low=$0.02 · medium=$0.04 · high=$0.17 por imagen
+  // Sirve para que el user no dispare un "high × 30 pubs" sin querer.
+  const imgPerUnit = imageQuality === "low" ? 0.02 : imageQuality === "high" ? 0.17 : 0.04;
+  const claudeCost = count * 0.02;
+  const imageCost = generateImages ? count * imgPerUnit : 0;
+  const totalCost = claudeCost + imageCost;
+
+  async function run() {
+    if (uploadingReferences) { setError("Espera a que terminen de subir las referencias."); return; }
+    if (networks.length === 0) {
+      setError("Selecciona al menos una red");
+      return;
+    }
+    if (mixTotal === 0) {
+      setError("El mix de formatos debe sumar > 0");
+      return;
+    }
+    if (allowedDays.length === 0) {
+      setError("Selecciona al menos un día de la semana permitido");
+      return;
+    }
+    if (preferredHours.length === 0) {
+      setError("Selecciona al menos una hora preferida");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    // Mapeamos pillars del UI (keys españolas) a tal cual al backend —
+    // se normalizan allí.
+    const pillarsBody = Object.fromEntries(
+      Object.entries(pillars).filter(([, v]) => v > 0)
+    );
+    const r = await fetch("/api/v1/editorial/generate-month", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        month,
+        count,
+        networks,
+        mix,
+        copyLength,
+        perNetworkCopy,
+        ...monthBrief,
+        extraGuidance: extraGuidance || undefined,
+        imageIncludeHint: imageIncludeHint || undefined,
+        imageAvoidHint: imageAvoidHint || undefined,
+        pillars: Object.keys(pillarsBody).length > 0 ? pillarsBody : undefined,
+        allowedDaysOfWeek: allowedDays.length === 7 ? undefined : allowedDays,
+        preferredHours,
+        useRosterPersons: forcedRoster.length > 0 ? forcedRoster : undefined,
+        status,
+        generateImages,
+        imageQuality
+      })
+    });
+    setRunning(false);
+    const data = await r.json();
+    if (!r.ok) {
+      setError(data?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    // El backend devuelve un jobId que se procesa en segundo plano.
+    // Persistimos en localStorage y emitimos evento custom para que el
+    // toast global haga polling. Cerramos el modal de inmediato.
+    pushRunningJob({ id: data.jobId, clientName: brand?.name, month });
+    setResult({ count: count, model: "background", jobId: data.jobId });
+    setTimeout(() => onDone(), 600);
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Generar mes con IA — ${month}`}
+      size="lg"
+      footer={
+        <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={savePreset}
+              disabled={savingPreset}
+              title="Guardar la configuración actual como predeterminada para tu marca"
+              className="px-3 py-2 rounded-lg text-xs border bg-white hover:bg-slate-50 disabled:opacity-50"
+            >
+              {savingPreset ? "Guardando…" : "Guardar como predeterminado"}
+            </button>
+            {presetSavedMsg && (
+              <span className={"text-xs " + (presetSavedMsg.startsWith("Error") ? "text-red-600" : "text-emerald-700")}>
+                {presetSavedMsg}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+            <button
+              onClick={run}
+              disabled={running || availability?.text === false}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generar
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-xs text-slate-500">
+          La IA leerá el <strong>brief</strong>, los <strong>colores</strong>, los <strong>competidores</strong> y la
+          <strong> guía de estilo</strong> de tu marca, y generará {count} publicaciones para {month}.{" "}
+          <button type="button" onClick={onOpenBrand} className="text-brand-600 hover:underline">Revisar ficha de marca</button>
+        </p>
+        {availability?.text === false && (
+          <AiErrorBanner message="La generación con IA no está disponible ahora mismo; avisa a Negocio Vivo." />
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Nº publicaciones</label>
+            <input
+              type="number"
+              min={1}
+              max={40}
+              value={count}
+              onChange={(e) => setCount(Math.max(1, Math.min(40, Number(e.target.value))))}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Redes destino</label>
+          <div className="flex flex-wrap gap-1.5">
+            {NETWORK_OPTIONS.map((n) => {
+              const sel = networks.includes(n);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => toggle(n)}
+                  className={
+                    "px-2.5 py-1 rounded-md text-xs capitalize transition border " +
+                    (sel
+                      ? "bg-violet-50 border-violet-300 text-violet-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+          {networks.length > 1 && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={perNetworkCopy}
+                onChange={(e) => setPerNetworkCopy(e.target.checked)}
+                className="accent-violet-600"
+              />
+              Generar copy adaptado por cada red (más tokens pero más nativo)
+            </label>
+          )}
+        </div>
+
+        {/* Imagen IA */}
+        <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={generateImages}
+              onChange={(e) => setGenerateImages(e.target.checked)}
+              className="accent-sky-600"
+            />
+            <span className="font-medium text-sky-900">Generar también imagen IA para cada publicación</span>
+          </label>
+          <p className="mt-1 text-[11px] text-slate-600 ml-6">
+            Crea la imagen con IA usando el brief, los colores y la guía de estilo de tu marca. Si falla en alguna, la generación continúa y podrás reintentarla.
+          </p>
+          {availability && !availability.images && (
+            <p className="mt-1 ml-6 text-[11px] text-amber-700">La generación de imágenes no está disponible; avisa a Negocio Vivo.</p>
+          )}
+          {generateImages && (
+            <div className="mt-2 ml-6 flex gap-1">
+              {(["low", "medium", "high"] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setImageQuality(q)}
+                  className={
+                    "px-2 py-1 rounded-md text-[11px] border " +
+                    (imageQuality === q
+                      ? "bg-sky-100 border-sky-300 text-sky-800 font-medium"
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Mix de formatos · <span className="text-slate-500">total {mixTotal}%</span>
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {(["imagen", "reel", "carrusel", "story", "video"] as const).map((k) => (
+              <div key={k} className="bg-slate-50 rounded-lg p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-700 capitalize">{k}</span>
+                  <span className="text-[11px] text-violet-600 font-medium">{mix[k]}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={mix[k]}
+                  onChange={(e) => setMix({ ...mix, [k]: Number(e.target.value) })}
+                  className="w-full accent-violet-600"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Longitud del copy · <span className="text-violet-600">{copyLength}%</span> ({lengthLabel})
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={copyLength}
+            onChange={(e) => setCopyLength(Number(e.target.value))}
+            className="w-full accent-violet-600"
+          />
+        </div>
+
+        {/* Pillars temáticos */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Pillars temáticos <span className="text-slate-500">· se reparten proporcionalmente</span>
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(["educativo", "producto", "testimonio", "social"] as const).map((k) => (
+              <div key={k} className="bg-slate-50 rounded-lg p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-700 capitalize">{k}</span>
+                  <span className="text-[11px] text-violet-600 font-medium">{pillars[k]}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={pillars[k]}
+                  onChange={(e) => setPillars({ ...pillars, [k]: Number(e.target.value) })}
+                  className="w-full accent-violet-600"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Días permitidos + horas preferidas */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Días permitidos
+              {allowedDays.length === 7 && <span className="ml-1 text-[11px] text-slate-500">· todos</span>}
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { d: 1, label: "L" },
+                { d: 2, label: "M" },
+                { d: 3, label: "X" },
+                { d: 4, label: "J" },
+                { d: 5, label: "V" },
+                { d: 6, label: "S" },
+                { d: 0, label: "D" }
+              ].map(({ d, label }) => {
+                const sel = allowedDays.includes(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() =>
+                      setAllowedDays((prev) =>
+                        prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
+                      )
+                    }
+                    className={
+                      "w-8 h-8 rounded-md text-xs font-medium border " +
+                      (sel
+                        ? "bg-violet-50 border-violet-300 text-violet-700"
+                        : "bg-white border-slate-200 text-slate-400 hover:bg-slate-50")
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Horas preferidas
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {[8, 9, 10, 11, 12, 14, 16, 18, 20, 21].map((h) => {
+                const sel = preferredHours.includes(h);
+                return (
+                  <button
+                    key={h}
+                    type="button"
+                    onClick={() =>
+                      setPreferredHours((prev) =>
+                        prev.includes(h) ? prev.filter((x) => x !== h) : [...prev, h].sort((a, b) => a - b)
+                      )
+                    }
+                    className={
+                      "px-2 py-1 rounded-md text-[11px] font-medium border tabular-nums " +
+                      (sel
+                        ? "bg-violet-50 border-violet-300 text-violet-700"
+                        : "bg-white border-slate-200 text-slate-400 hover:bg-slate-50")
+                    }
+                  >
+                    {h.toString().padStart(2, "0")}h
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Personas del roster forzadas */}
+        {rosterOptions.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              Personas de tu equipo que deben salir <span className="text-slate-500">· aparecerán en TODAS las imágenes</span>
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {rosterOptions.map((name) => {
+                const sel = forcedRoster.includes(name);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() =>
+                      setForcedRoster((prev) =>
+                        prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+                      )
+                    }
+                    className={
+                      "px-2.5 py-1 rounded-md text-xs transition border " +
+                      (sel
+                        ? "bg-violet-50 border-violet-300 text-violet-700 font-medium"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                    }
+                  >
+                    {sel ? "✓ " : ""}{name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Si no marcas a nadie, la IA no usará sus fotos ni meterá a esas personas en las imágenes.
+            </p>
+          </div>
+        )}
+
+        {/* Guías de imagen positivo/negativo */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-emerald-800 mb-1">
+              Qué SÍ debe aparecer (positivo, opcional)
+            </label>
+            <textarea
+              value={imageIncludeHint}
+              onChange={(e) => setImageIncludeHint(e.target.value)}
+              rows={2}
+              placeholder="Ej. ambiente luminoso, vegetación, instrumentos médicos modernos…"
+              className="w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-rose-800 mb-1">
+              Qué NO debe aparecer (negativo, opcional)
+            </label>
+            <textarea
+              value={imageAvoidHint}
+              onChange={(e) => setImageAvoidHint(e.target.value)}
+              rows={2}
+              placeholder="Ej. nada de jeringuillas a la vista, sin logos de competidor…"
+              className="w-full px-3 py-2 rounded-lg border border-rose-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Instrucción extra (opcional)</label>
+          <textarea
+            value={extraGuidance}
+            onChange={(e) => setExtraGuidance(e.target.value)}
+            rows={3}
+            placeholder="Ej. enfoca el mes en sostenibilidad. Incluye 2 testimonios. Evita hablar de precios."
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        <EditorialMonthBrief clientId={clientId} value={monthBrief} onChange={setMonthBrief} onBusyChange={setUploadingReferences} />
+
+        {/* Estimación de coste */}
+        <div className="rounded-lg border bg-amber-50/40 border-amber-200 px-3 py-2 text-xs text-amber-900 flex flex-wrap items-center gap-3">
+          <span className="font-medium">Coste estimado de IA:</span>
+          <span>
+            Textos ~${claudeCost.toFixed(2)}
+            {generateImages && <> · Imágenes ~${imageCost.toFixed(2)} ({imageQuality})</>}
+          </span>
+          <span className="ml-auto font-bold tabular-nums">≈ ${totalCost.toFixed(2)}</span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-slate-700">Estado inicial</label>
+          <div className="flex gap-2">
+            {(["DRAFT", "REVIEW"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatus(s)}
+                className={
+                  "px-3 py-1.5 rounded-md text-xs transition border " +
+                  (status === s
+                    ? "bg-violet-50 border-violet-300 text-violet-700 font-medium"
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                }
+              >
+                {s === "DRAFT" ? "Borrador" : "Revisión"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <AiErrorBanner message={error} />}
+        {result && (
+          <p className="text-xs text-emerald-700">
+            ✓ Generación de {result.count} publicaciones iniciada en segundo plano. Cerrando…
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function PostFormModal({
+  open,
+  onClose,
+  post: initialPost,
+  brand,
+  availability,
+  defaultMonth,
+  defaultDateIso,
+  onOpenBrand,
+  onSaved
+}: {
+  open: boolean;
+  onClose: () => void;
+  post: EditorialPost | null;
+  brand: BrandInfo | null;
+  availability: AiAvailability | null;
+  defaultMonth: string;
+  onOpenBrand: () => void;
+  /** Si se abre el modal en modo "nuevo" tras hacer clic en un día del
+   *  calendario, ese día llega aquí (YYYY-MM-DD) para preseleccionar la
+   *  fecha en lugar del default genérico del día 15 del mes. */
+  defaultDateIso?: string;
+  onSaved: () => void;
+}) {
+  const [createdPost, setCreatedPost] = useState<EditorialPost | null>(null);
+  const post = initialPost ?? createdPost;
+  useEffect(() => { setCreatedPost(null); }, [open, initialPost?.id]);
+  const isEdit = !!post;
+  // Detalle recargado del servidor al abrir el modal, para asegurar que
+  // tenemos metaJson y los campos más recientes aunque el listado tuviera
+  // datos desactualizados.
+  const [fullPost, setFullPost] = useState<EditorialPost | null>(null);
+  async function refreshDetail() {
+    if (!post) return;
+    const response = await fetch(`/api/v1/editorial/posts/${post.id}`);
+    if (response.ok) {
+      const fresh = await response.json();
+      setFullPost(fresh);
+      setForm(previous => ({ ...previous,
+        status: previous.status === fullPost?.status ? fresh.status : previous.status,
+        scheduledFor: previous.scheduledFor === localDateTimeInput(fullPost?.scheduledFor ?? null) ? localDateTimeInput(fresh.scheduledFor) : previous.scheduledFor
+      }));
+    }
+  }
+  // Modo del modal: en edición se abre primero la vista preview (como el plugin)
+  // y desde ahí se puede pasar a editar; al crear nuevo va directo a edit.
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  const [form, setForm] = useState({
+    title: "",
+    content: "",
+    excerpt: "",
+    scheduledFor: "",
+    status: "DRAFT",
+    format: "post",
+    networks: [] as string[],
+    hashtags: "",
+    firstComment: "",
+    aspectRatio: "auto",
+    copyByNetwork: {} as Record<string, string>
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Estado del panel "Generar con IA" — sólo aplica en modo creación.
+  // El usuario rellena título + ajustes y pulsa el botón; backend crea
+  // la publicación + imagen en background.
+  const [aiCopyLength, setAiCopyLength] = useState(50);
+  const [aiPerNetworkCopy, setAiPerNetworkCopy] = useState(true);
+  const [aiExtraGuidance, setAiExtraGuidance] = useState("");
+  const [aiImageInclude, setAiImageInclude] = useState("");
+  const [aiImageAvoid, setAiImageAvoid] = useState("");
+  const [aiImageQuality, setAiImageQuality] = useState<"low" | "medium" | "high">("medium");
+  const [aiForcedRoster, setAiForcedRoster] = useState<string[]>([]);
+  const [aiRosterOptions, setAiRosterOptions] = useState<string[]>([]);
+  const [aiRunning, setAiRunning] = useState(false);
+  const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+  const [createImageEditPrompt, setCreateImageEditPrompt] = useState("");
+  const [createSavedPostId, setCreateSavedPostId] = useState<string | null>(null);
+
+  // Cuando abrimos el modal para editar, refrescamos detalle desde el servidor
+  useEffect(() => {
+    if (!open || !post) {
+      setFullPost(null);
+      return;
+    }
+    setFullPost(post); // pinta inmediato con lo del listado
+    fetch(`/api/v1/editorial/posts/${post.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setFullPost(d as EditorialPost);
+      })
+      .catch(() => {});
+  }, [open, post?.id]);
+
+  // Reset del modo cuando se abre el modal: edit por defecto si es nuevo,
+  // preview si estamos viendo uno existente.
+  useEffect(() => {
+    if (!open) return;
+    setMode(initialPost ? "preview" : "edit");
+  }, [open, post?.id]);
+
+  // Cuando fullPost se actualiza (con metaJson, etc.), si los campos del form
+  // estaban vacíos, los rellenamos con la nueva info.
+  useEffect(() => {
+    if (!fullPost || !open) return;
+    setForm((prev) => ({
+      ...prev,
+      content: prev.content || (fullPost.content ?? ""),
+      excerpt: prev.excerpt || (fullPost.excerpt ?? ""),
+      hashtags: prev.hashtags || (fullPost.hashtags ?? ""),
+      firstComment: prev.firstComment || (fullPost.firstComment ?? ""),
+      copyByNetwork:
+        Object.keys(prev.copyByNetwork).length > 0
+          ? prev.copyByNetwork
+          : (fullPost.copyByNetwork as Record<string, string> | null) ?? {},
+      networks:
+        prev.networks.length > 0
+          ? prev.networks
+          : (() => {
+              try {
+                return JSON.parse(fullPost.networks);
+              } catch {
+                return [];
+              }
+            })()
+    }));
+  }, [fullPost, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setError(null);
+    if (post) {
+      const nets = (() => { try { return JSON.parse(post.networks); } catch { return []; } })();
+      setForm({
+        title: post.title,
+        content: post.content ?? "",
+        excerpt: post.excerpt ?? "",
+        scheduledFor: localDateTimeInput(post.scheduledFor),
+        status: post.status,
+        format: post.format ?? "post",
+        networks: nets,
+        hashtags: post.hashtags ?? "",
+        firstComment: post.firstComment ?? "",
+        aspectRatio: post.aspectRatio ?? "auto",
+        copyByNetwork: (post.copyByNetwork as Record<string, string> | null) ?? {}
+      });
+    } else {
+      const [y, m] = defaultMonth.split("-").map(Number);
+      // Si el modal se abrió tras hacer clic en un día concreto del
+      // calendario, usamos ese día (a las 10:00). Si no, el 15 del mes.
+      const dateForNew = defaultDateIso ?? `${defaultMonth}-15`;
+      setForm({
+        title: "",
+        content: "",
+        excerpt: "",
+        scheduledFor: `${dateForNew}T10:00`,
+        status: "DRAFT",
+        format: "post",
+        networks: ["instagram"],
+        hashtags: "",
+        firstComment: "",
+        aspectRatio: "auto",
+        copyByNetwork: {}
+      });
+      setCreateImageFile(null);
+      setCreateImageEditPrompt("");
+      setCreateSavedPostId(null);
+    }
+  }, [open, post, defaultMonth, defaultDateIso]);
+
+  function toggleNetwork(n: string) {
+    setForm((f) => ({ ...f, networks: f.networks.includes(n) ? f.networks.filter((x) => x !== n) : [...f.networks, n] }));
+  }
+
+  // Al crear, cargamos los editorialDefaults + roster (referenceImages)
+  // de la marca para precargar el panel IA. Las redes manuales sólo si
+  // están vacías.
+  useEffect(() => {
+    if (!open || isEdit) return;
+    let aborted = false;
+    fetch("/api/v1/brand")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (aborted) return;
+        // Roster de la marca
+        const refs: any[] = Array.isArray(data?.referenceImages) ? data.referenceImages : [];
+        const names = Array.from(
+          new Set(
+            refs
+              .map((r) => (r?.personName ?? "").toString().trim())
+              .filter((n: string) => n.length > 0)
+          )
+        );
+        setAiRosterOptions(names);
+        // Preset
+        const p = data?.editorialDefaults;
+        if (!p) return;
+        if (typeof p.copyLength === "number") setAiCopyLength(Math.max(0, Math.min(100, p.copyLength)));
+        if (typeof p.perNetworkCopy === "boolean") setAiPerNetworkCopy(p.perNetworkCopy);
+        if (typeof p.extraGuidance === "string") setAiExtraGuidance(p.extraGuidance);
+        if (typeof p.imageIncludeHint === "string") setAiImageInclude(p.imageIncludeHint);
+        if (typeof p.imageAvoidHint === "string") setAiImageAvoid(p.imageAvoidHint);
+        if (Array.isArray(p.forcedRoster)) setAiForcedRoster(p.forcedRoster.filter((n: any) => typeof n === "string"));
+        if (p.imageQuality === "low" || p.imageQuality === "medium" || p.imageQuality === "high") {
+          setAiImageQuality(p.imageQuality);
+        }
+        if (Array.isArray(p.networks) && p.networks.length > 0) {
+          setForm((f) => (f.networks.length === 0 ? { ...f, networks: p.networks } : f));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      aborted = true;
+    };
+  }, [open, isEdit]);
+
+  // Mapea el formato del form (post/carousel) al formato AI/imagen.
+  function formatToAi(fmt: string): string {
+    if (fmt === "post") return "imagen";
+    if (fmt === "carousel") return "carrusel";
+    return fmt;
+  }
+
+  async function generateWithAi() {
+    if (!form.title.trim()) {
+      setError("El título es obligatorio para generar con IA.");
+      return;
+    }
+    if (form.networks.length === 0) {
+      setError("Selecciona al menos una red.");
+      return;
+    }
+    if (createImageEditPrompt.trim() && !createImageFile) {
+      setError("Sube una imagen para que el prompt pueda usarse como referencia al generar con IA.");
+      return;
+    }
+    setError(null);
+    setAiRunning(true);
+    const scheduledIso = form.scheduledFor
+      ? new Date(form.scheduledFor).toISOString()
+      : new Date().toISOString();
+    try {
+      const payload = {
+        title: form.title.trim(),
+        format: formatToAi(form.format),
+        networks: form.networks,
+        scheduledFor: scheduledIso,
+        copyLength: aiCopyLength,
+        perNetworkCopy: aiPerNetworkCopy,
+        extraGuidance: aiExtraGuidance || undefined,
+        imageIncludeHint: aiImageInclude || undefined,
+        imageAvoidHint: aiImageAvoid || undefined,
+        useRosterPersons: aiForcedRoster.length > 0 ? aiForcedRoster : undefined,
+        status: form.status === "REVIEW" ? "REVIEW" : "DRAFT",
+        imageQuality: aiImageQuality,
+        referenceInstruction: createImageEditPrompt.trim() || undefined,
+        // Si el usuario eligió un aspect ratio en el modal (1:1, 9:16, …),
+        // se lo pasamos al generador para que respete las dimensiones tanto
+        // en la imagen como en el storyboard del vídeo.
+        aspectRatio:
+          form.aspectRatio && form.aspectRatio !== "auto" ? form.aspectRatio : undefined
+      };
+      const requestInit: RequestInit = createImageFile
+        ? (() => {
+            const fd = new FormData();
+            fd.append("payload", JSON.stringify(payload));
+            fd.append("referenceImage", createImageFile);
+            return { method: "POST", body: fd };
+          })()
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          };
+      const r = await fetch("/api/v1/editorial/generate-single", {
+        ...requestInit
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) {
+        setError(data?.error?.message ?? `Error ${r.status}`);
+        setAiRunning(false);
+        return;
+      }
+      // El toast global se ocupa del polling/notif (mostramos el tema).
+      pushRunningJob({ id: data.jobId, clientName: brand?.name, month: form.title.slice(0, 30) });
+      setAiRunning(false);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+      setAiRunning(false);
+    }
+  }
+
+  async function submit(e: React.FormEvent, openTools = false) {
+    e.preventDefault();
+    if (!form.title.trim()) { setError("Indica un título."); return; }
+    if (!isEdit && createImageEditPrompt.trim() && !createImageFile) {
+      setError("Sube una imagen para poder modificarla con un prompt al crear la publicacion.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const payload: any = {
+      title: form.title,
+      content: form.content || undefined,
+      excerpt: form.excerpt || undefined,
+      status: openTools ? "DRAFT" : form.status,
+      format: form.format || undefined,
+      networks: form.networks,
+      hashtags: form.hashtags || null,
+      firstComment: form.firstComment || null,
+      aspectRatio: form.aspectRatio && form.aspectRatio !== "auto" ? form.aspectRatio : null,
+      copyByNetwork: Object.keys(form.copyByNetwork).length > 0 ? form.copyByNetwork : null
+    };
+    if (form.scheduledFor) payload.scheduledFor = new Date(form.scheduledFor).toISOString();
+    const draftPostId = !isEdit ? createSavedPostId : null;
+    const url = isEdit
+      ? `/api/v1/editorial/posts/${post!.id}`
+      : draftPostId
+        ? `/api/v1/editorial/posts/${draftPostId}`
+        : "/api/v1/editorial/posts";
+    const method = isEdit || draftPostId ? "PATCH" : "POST";
+    try {
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const saved = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(saved?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+
+      const savedPostId = !isEdit ? (saved?.id ?? draftPostId) : null;
+      if (!isEdit && savedPostId) {
+        setCreateSavedPostId(savedPostId);
+      }
+
+      if (!isEdit && createImageFile && savedPostId) {
+        const uploadBody = new FormData();
+        uploadBody.append("file", createImageFile);
+        const uploadRes = await fetch(`/api/v1/editorial/posts/${savedPostId}/media/upload`, {
+          method: "POST",
+          body: uploadBody
+        });
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setError(uploadData?.error?.message ?? `Error ${uploadRes.status} subiendo la imagen`);
+          return;
+        }
+
+        const prompt = createImageEditPrompt.trim();
+        if (prompt) {
+          const editRes = await fetch(`/api/v1/editorial/posts/${savedPostId}/edit-image`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, quality: "medium" })
+          });
+          const editData = await editRes.json().catch(() => ({}));
+          if (!editRes.ok) {
+            setError(editData?.error?.message ?? `Error ${editRes.status} modificando la imagen`);
+            return;
+          }
+        }
+      }
+
+      if (openTools && savedPostId) {
+        const detail = await fetch(`/api/v1/editorial/posts/${savedPostId}`);
+        if (!detail.ok) throw new Error("El borrador se guardó, pero no se pudo cargar. Vuelve a abrirlo desde el calendario.");
+        const next = await detail.json();
+        setCreatedPost(next); setFullPost(next); setMode("edit");
+      } else if (isEdit) {
+        await refreshDetail();
+      } else onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Vista previa estilo plugin: imagen grande + copy + hashtags
+  if (isEdit && mode === "preview" && fullPost) {
+    const networks: string[] = (() => {
+      try { return JSON.parse(fullPost.networks); } catch { return []; }
+    })();
+    let images: string[] = [];
+    try {
+      const parsed = JSON.parse(fullPost.mediaUrls);
+      if (Array.isArray(parsed)) images = parsed.filter((u) => typeof u === "string");
+    } catch {}
+    if (fullPost.thumbnail && !images.includes(fullPost.thumbnail)) {
+      images.unshift(fullPost.thumbnail);
+    }
+    const hashtags = extractHashtags(fullPost);
+    const copyRaw = fullPost.content ?? fullPost.excerpt ?? "";
+    const copyClean = hashtags.length > 0 ? stripTrailingHashtags(copyRaw) : copyRaw;
+    const copyByNet: Record<string, string> =
+      (fullPost.copyByNetwork as Record<string, string> | null) ?? {};
+    const netsWithOwnCopy = networks.filter((n) => (copyByNet[n] ?? "").trim());
+    const Icon = formatIcon(fullPost.format);
+    const formatLabel = (fullPost.format ?? "").toUpperCase() || "POST";
+    const statusOpt = STATUS_OPTIONS.find((s) => s.value === fullPost.status);
+    const isApproved = ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(fullPost.status);
+    const scheduledLabel = fullPost.scheduledFor
+      ? new Date(fullPost.scheduledFor).toLocaleString("es-ES", {
+          day: "numeric", month: "numeric", year: "numeric",
+          hour: "2-digit", minute: "2-digit", second: "2-digit"
+        })
+      : null;
+
+    return (
+      <Modal
+        open={open}
+        onClose={onClose}
+        title={fullPost.title}
+        size="xl"
+        footer={
+          <>
+            <div className="flex-1 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+              {statusOpt && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${statusOpt.dot}`} />
+                  Estado: <span className="font-medium">{statusOpt.label.toLowerCase()}</span>
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1">
+                Aprobado:{" "}
+                {isApproved ? <CheckCheck className="h-4 w-4 text-emerald-600" /> : <Hourglass className="h-4 w-4 text-amber-500" />}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMode("edit")}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
+            >
+              <Pencil className="h-4 w-4" />
+              Editar publicación
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <EditorialContentUsage post={fullPost} onChanged={refreshDetail} />
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Icon className="h-4 w-4 text-slate-400" />
+            <span className="font-medium tracking-wide">{formatLabel}</span>
+            {scheduledLabel && <><span>·</span><span>{scheduledLabel}</span></>}
+            {fullPost.client && (
+              <>
+                <span>·</span>
+                <button
+                  type="button"
+                  onClick={onOpenBrand}
+                  className="font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                  title="Ver ficha de marca"
+                >
+                  {fullPost.client.name}
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="grid md:grid-cols-[minmax(0,400px)_1fr] gap-5 items-start">
+            <div>
+              {images[0] ? (
+                isVideoUrl(images[0]) ? (
+                  <video
+                    src={images[0]}
+                    controls
+                    playsInline
+                    className="w-full max-h-[560px] object-contain rounded-xl border bg-black"
+                  />
+                ) : (
+                  <a href={images[0]} target="_blank" rel="noreferrer" className="block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={images[0]}
+                      alt={fullPost.title}
+                      className="w-full max-h-[560px] object-contain rounded-xl border bg-slate-50 hover:opacity-95 transition"
+                    />
+                  </a>
+                )
+              ) : (
+                <div className="space-y-2">
+                  <div className="w-full aspect-square rounded-xl border bg-slate-50 flex items-center justify-center text-slate-400">
+                    <ImageIcon className="h-10 w-10" />
+                  </div>
+                  {/* Si es un post de vídeo y NO tiene vídeo adjunto, ofrecemos
+                      relanzar la generación directamente desde el preview, para
+                      que el usuario no tenga que abrir el modal de edición. */}
+                  {fullPost && ["video", "reel", "story"].includes(fullPost.format ?? "") && (
+                    <RetryVideoButton
+                      postId={fullPost.id}
+                      onDone={() => {
+                        // Refresca el detalle para que aparezca el vídeo nuevo
+                        // sin cerrar el modal de preview.
+                        fetch(`/api/v1/editorial/posts/${fullPost.id}`)
+                          .then((r) => (r.ok ? r.json() : null))
+                          .then((d) => d && setFullPost(d))
+                          .catch(() => {});
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+              {images.length > 1 && (
+                <div className="mt-2 flex gap-1.5 overflow-x-auto">
+                  {images.slice(1).map((u, i) => (
+                    <a key={`${u}-${i}`} href={u} target="_blank" rel="noreferrer" className="shrink-0">
+                      {isVideoUrl(u) ? (
+                        <video
+                          src={u}
+                          muted
+                          className="h-14 w-14 object-cover rounded-md border bg-black"
+                        />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={u} alt={`media-${i + 1}`} className="h-14 w-14 object-cover rounded-md border" />
+                      )}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {networks.length > 0 && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-1.5">Redes:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {networks.map((n) => (
+                      <span key={n} className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${formatNetworkColor(n)}`}>
+                        {n}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="text-sm font-semibold text-slate-700 mb-1.5">Copy:</div>
+                {copyClean ? (
+                  <div className="rounded-lg border bg-slate-50/60 p-3 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                    {copyClean}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed bg-slate-50 p-3 text-xs text-slate-400">
+                    Sin copy.
+                  </div>
+                )}
+                {netsWithOwnCopy.length > 0 && (
+                  <details className="mt-2 rounded-lg border bg-amber-50/40 border-amber-200">
+                    <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-amber-900">
+                      ✏️ Copy adaptado por red ({netsWithOwnCopy.length})
+                    </summary>
+                    <div className="px-3 py-2 border-t border-amber-200 bg-white space-y-2">
+                      {netsWithOwnCopy.map((n) => (
+                        <div key={n}>
+                          <div className="text-[11px] font-semibold uppercase text-slate-500 mb-0.5">{n}</div>
+                          <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                            {copyByNet[n]}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {fullPost.firstComment && fullPost.firstComment.trim() && (
+                  <div className="mt-2">
+                    <div className="text-[11px] font-semibold uppercase text-slate-500 mb-0.5">Primer comentario</div>
+                    <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-2.5 text-xs text-slate-700 whitespace-pre-wrap">
+                      {fullPost.firstComment}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {hashtags.length > 0 && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-1.5">Hashtags:</div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-1 text-sm text-brand-600">
+                    {hashtags.map((h, i) => (
+                      <span key={`${h}-${i}`}>{h}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isEdit ? "Editar publicación" : "Nueva publicación"}
+      size="xl"
+      footer={
+        <>
+          {isEdit && post && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm(`¿Eliminar la publicación "${post.title}"?\n\nEsta acción no se puede deshacer.`)) return;
+                const r = await fetch(`/api/v1/editorial/posts/${post.id}`, { method: "DELETE" });
+                if (r.ok) {
+                  onSaved();
+                  onClose();
+                } else {
+                  const j = await r.json().catch(() => ({}));
+                  alert(j?.error?.message ?? `Error ${r.status}`);
+                }
+              }}
+              className="px-3 py-2 rounded-lg text-sm border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700 inline-flex items-center gap-1.5"
+              title="Eliminar permanentemente"
+            >
+              <Trash2 className="h-4 w-4" />
+              Eliminar
+            </button>
+          )}
+          {isEdit && (
+            <button
+              type="button"
+              onClick={() => setMode("preview")}
+              className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50 inline-flex items-center gap-1.5"
+            >
+              <Eye className="h-4 w-4" />
+              Vista previa
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          {!isEdit && (
+            <button type="button" disabled={saving || aiRunning || !form.title.trim()} onClick={e => submit(e, true)} className="rounded-lg border border-violet-300 px-3 py-2 text-sm text-violet-800 disabled:opacity-50">
+              Guardar borrador y crear vídeo / adaptar imagen
+            </button>
+          )}
+          {!isEdit && (
+            <button
+              type="button"
+              onClick={generateWithAi}
+              disabled={aiRunning || !form.title.trim() || availability?.text === false}
+              title={
+                !form.title.trim()
+                  ? "Escribe un título/tema arriba para activar"
+                  : "La IA redacta copy + hashtags + comentario y crea la imagen"
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {aiRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generar con IA
+            </button>
+          )}
+          <button
+            type="submit"
+            form="editorial-form"
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar
+          </button>
+        </>
+      }
+    >
+      <form id="editorial-form" onSubmit={submit} className="space-y-3">
+        <input
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          required
+          placeholder="Título"
+          className="w-full text-lg font-semibold px-0 py-1 bg-transparent border-0 border-b border-transparent focus:border-brand-500 focus:outline-none focus:ring-0"
+        />
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Estado</label>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+              {STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Formato</label>
+            <select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })} className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+              {["post", "reel", "story", "video", "blog", "email", "carousel"].map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 mb-1">Medida / aspect ratio</label>
+            <select
+              value={form.aspectRatio}
+              onChange={(e) => setForm({ ...form, aspectRatio: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              title="Si lo dejas en 'auto' se usa el de la ficha de marca/formato"
+            >
+              <option value="auto">Auto (ficha de marca)</option>
+              <option value="1:1">1:1 · Cuadrado</option>
+              <option value="2:1">2:1 · Horizontal</option>
+              <option value="3:1">3:1 · Banner</option>
+              <option value="2:3">2:3 · Retrato</option>
+              <option value="3:2">3:2 · Estándar</option>
+              <option value="3:4">3:4 · Tradicional</option>
+              <option value="4:3">4:3 · Clásico</option>
+              <option value="16:9">16:9 · Panorámico</option>
+              <option value="9:16">9:16 · Story / Reel</option>
+              <option value="21:9">21:9 · Ultrapanorámico</option>
+            </select>
+          </div>
+        </div>
+        <input
+          type="datetime-local"
+          value={form.scheduledFor}
+          onChange={(e) => setForm({ ...form, scheduledFor: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Redes destino</label>
+          <div className="flex flex-wrap gap-1.5">
+            {NETWORK_OPTIONS.map((n) => {
+              const sel = form.networks.includes(n);
+              return (
+                <button key={n} type="button" onClick={() => toggleNetwork(n)}
+                  className={"px-2.5 py-1 rounded-md text-xs capitalize transition border " + (sel ? "bg-brand-50 border-brand-300 text-brand-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")}>
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Panel "Generar con IA" — solo en modo creación. El usuario
+            rellena título + ajustes y pulsa el botón del footer. */}
+        {!isEdit && (
+          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+              <span className="text-sm font-medium text-violet-900">Generar con IA (opcional)</span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Rellena el título con el tema/idea y pulsa <strong>Generar con IA</strong> abajo. La IA redactará copy + hashtags + primer comentario y creará la imagen usando las fotos de referencia de tu marca. Deja todo en blanco si prefieres escribir la publicación a mano y pulsar <strong>Guardar</strong>.
+            </p>
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                Longitud del copy · <span className="text-violet-600">{aiCopyLength}%</span>{" "}
+                <span className="text-slate-500">
+                  ({aiCopyLength < 25
+                    ? "ultra-directo (40-100 palabras)"
+                    : aiCopyLength < 50
+                      ? "corto (60-180 palabras)"
+                      : aiCopyLength < 75
+                        ? "medio (100-300 palabras)"
+                        : "largo (200-450 palabras)"})
+                </span>
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={aiCopyLength}
+                onChange={(e) => setAiCopyLength(Number(e.target.value))}
+                className="w-full accent-violet-600"
+              />
+            </div>
+
+            {form.networks.length > 1 && (
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiPerNetworkCopy}
+                  onChange={(e) => setAiPerNetworkCopy(e.target.checked)}
+                  className="accent-violet-600"
+                />
+                Generar copy adaptado por cada red (más tokens, más nativo)
+              </label>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                Instrucción extra (opcional)
+              </label>
+              <textarea
+                value={aiExtraGuidance}
+                onChange={(e) => setAiExtraGuidance(e.target.value)}
+                rows={2}
+                placeholder="Ej. tono cercano, evita hablar de precios, incluye CTA a llamada gratuita…"
+                className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            {aiRosterOptions.length > 0 && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Personas de tu equipo que deben salir <span className="text-slate-500">· aparecerán en la imagen</span>
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {aiRosterOptions.map((name) => {
+                    const sel = aiForcedRoster.includes(name);
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() =>
+                          setAiForcedRoster((prev) =>
+                            prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+                          )
+                        }
+                        className={
+                          "px-2 py-1 rounded-md text-[11px] transition border " +
+                          (sel
+                            ? "bg-violet-50 border-violet-300 text-violet-700 font-medium"
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                        }
+                      >
+                        {sel ? "✓ " : ""}{name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Si no marcas a nadie, la IA generará la imagen sin usar a esas personas como referencia.
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-emerald-800 mb-1">
+                  Qué SÍ debe aparecer en la imagen (opcional)
+                </label>
+                <textarea
+                  value={aiImageInclude}
+                  onChange={(e) => setAiImageInclude(e.target.value)}
+                  rows={3}
+                  placeholder="Ej. ambiente luminoso, tu producto en uso real, colores cálidos…"
+                  className="w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-rose-800 mb-1">
+                  Qué NO debe aparecer (negativo, opcional)
+                </label>
+                <textarea
+                  value={aiImageAvoid}
+                  onChange={(e) => setAiImageAvoid(e.target.value)}
+                  rows={3}
+                  placeholder="Ej. ningún logo de competidor, nada de ventanas con rejas…"
+                  className="w-full px-3 py-2 rounded-lg border border-rose-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="text-[11px] font-medium text-slate-700">Calidad imagen:</label>
+              <div className="flex gap-1">
+                {(["low", "medium", "high"] as const).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setAiImageQuality(q)}
+                    className={
+                      "px-2 py-1 rounded-md text-[11px] border " +
+                      (aiImageQuality === q
+                        ? "bg-violet-100 border-violet-300 text-violet-800 font-medium"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                    }
+                  >
+                    {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isEdit && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="h-4 w-4 text-sky-700" />
+              <span className="text-sm font-medium text-sky-950">Imagen inicial y modificación con IA</span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Sube una imagen para esta publicación. Si escribes un prompt, la IA la modificará automáticamente al guardar y dejará la versión editada como imagen principal.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-[220px,1fr] gap-3">
+              <label className="flex min-h-[90px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sky-300 bg-white px-3 py-4 text-center text-xs text-slate-600 hover:bg-sky-50">
+                <ImageIcon className="mb-2 h-5 w-5 text-sky-600" />
+                <span className="font-medium text-sky-800">
+                  {createImageFile ? createImageFile.name : "Subir imagen"}
+                </span>
+                <span className="mt-1 text-[10px] text-slate-500">PNG, JPG o WEBP</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => setCreateImageFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Prompt para modificar la imagen subida
+                </label>
+                <textarea
+                  value={createImageEditPrompt}
+                  onChange={(e) => setCreateImageEditPrompt(e.target.value)}
+                  rows={4}
+                  placeholder="Ej. cambia el fondo por un salón luminoso, mantén el producto igual, añade sensación premium y colores de marca..."
+                  className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Si dejas el prompt vacío, solo se sube la imagen original.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <textarea
+          value={form.excerpt}
+          onChange={(e) => setForm({ ...form, excerpt: e.target.value })}
+          rows={2}
+          placeholder="Excerpt"
+          className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Copy principal (común a todas las redes)</label>
+          <textarea
+            value={form.content}
+            onChange={(e) => setForm({ ...form, content: e.target.value })}
+            rows={10}
+            placeholder="Contenido completo de la publicación"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        {/* Copy por red (opcional, plegable) */}
+        {form.networks.length > 0 && (
+          <details className="rounded-lg border bg-slate-50">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700 select-none">
+              ✏️ Copy distinto por red ({Object.keys(form.copyByNetwork).filter((k) => (form.copyByNetwork[k] ?? "").trim()).length}/
+              {form.networks.length} configurados)
+            </summary>
+            <div className="px-3 py-2 border-t bg-white space-y-2">
+              <p className="text-[11px] text-slate-500">
+                Si una red queda vacía, se usa el copy principal. Útil cuando el tono o el formato cambia entre IG y LinkedIn.
+              </p>
+              {form.networks.map((net) => (
+                <div key={net}>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1 capitalize">{net}</label>
+                  <textarea
+                    value={form.copyByNetwork[net] ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        copyByNetwork: { ...form.copyByNetwork, [net]: e.target.value }
+                      })
+                    }
+                    rows={4}
+                    placeholder={`Copy específico para ${net}. Vacío = se usa el copy principal.`}
+                    className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Hashtags</label>
+          <textarea
+            value={form.hashtags}
+            onChange={(e) => setForm({ ...form, hashtags: e.target.value })}
+            rows={2}
+            placeholder="#hashtag1 #hashtag2 #hashtag3 …"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          <p className="mt-1 text-[11px] text-slate-500">Se incluyen al final del copy al publicar en cada red.</p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Primer comentario (opcional)</label>
+          <textarea
+            value={form.firstComment}
+            onChange={(e) => setForm({ ...form, firstComment: e.target.value })}
+            rows={2}
+            placeholder="Comentario que se publica auto al subir (útil para hashtags adicionales en IG)"
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        {/* Acciones rápidas IA */}
+        {isEdit && post && (
+          <AiActionsBar
+            postId={post.id}
+            currentContent={form.content}
+            currentHashtags={form.hashtags}
+            onApplyContent={(v) => setForm((f) => ({ ...f, content: v }))}
+            onApplyHashtags={(v) => setForm((f) => ({ ...f, hashtags: v }))}
+          />
+        )}
+
+        {isEdit && post && (
+          <UploadImageBar postId={post.id} onUploaded={refreshDetail} />
+        )}
+
+        {isEdit && post && fullPost?.thumbnail && (
+          <EditorialResizePreview key={fullPost.thumbnail} postId={post.id} imageUrl={fullPost.thumbnail} onApplied={refreshDetail} />
+        )}
+
+        {isEdit && post && fullPost && (
+          <EditorialContentUsage post={fullPost} onChanged={refreshDetail} />
+        )}
+
+        {isEdit && post && fullPost && (
+          <fieldset disabled={saving || form.status !== fullPost.status || form.content !== (fullPost.content ?? "") || form.title !== fullPost.title || form.scheduledFor !== localDateTimeInput(fullPost.scheduledFor) || form.format !== (fullPost.format ?? "post") || form.hashtags !== (fullPost.hashtags ?? "") || JSON.stringify(form.copyByNetwork) !== JSON.stringify(fullPost.copyByNetwork ?? {})}>
+            <p className="mb-2 text-xs text-slate-500">Guarda los cambios de texto, estado y fecha antes de programar o publicar. La hora se muestra en tu zona horaria.</p>
+            <EditorialMetaPanel post={fullPost} onChanged={refreshDetail} />
+          </fieldset>
+        )}
+
+        {/* Generar imagen con IA */}
+        {isEdit && post && (
+          <GenerateImageBar
+            postId={post.id}
+            templates={Array.isArray(brand?.patternTemplates) ? brand!.patternTemplates! : []}
+            available={availability?.images !== false}
+            initialPattern={(post as any).visualPattern ?? null}
+            initialStrength={(post as any).patternStrength ?? null}
+            initialTemplateId={(post as any).patternTemplateId ?? null}
+            onGenerated={refreshDetail}
+          />
+        )}
+
+        {/* Modificar la imagen actual con un prompt (img2img) */}
+        {isEdit && post && fullPost?.thumbnail && (
+          <EditImageBar
+            postId={post.id}
+            thumbnail={fullPost.thumbnail}
+            available={availability?.imageEditing !== false}
+            onEdited={refreshDetail}
+          />
+        )}
+
+        {/* Generar vídeo con IA (reel/story/video) */}
+        {isEdit && post && (
+          <GenerateVideoBar postId={post.id} thumbnail={fullPost?.thumbnail ?? null} availability={availability} onGenerated={refreshDetail} />
+        )}
+
+        {/* Re-aplicar overlay (logo + headlines) sobre imagen existente */}
+        {isEdit && post && fullPost?.thumbnail && (
+          <ReapplyOverlayBar
+            postId={post.id}
+            currentTitle={form.title}
+            currentContent={form.content}
+            onApplied={refreshDetail}
+          />
+        )}
+
+        {/* Adaptar formato (regenerar imagen en otro aspect ratio) */}
+        {isEdit && post && (
+          <AdaptFormatBar
+            postId={post.id}
+            currentFormat={form.format}
+            onAdapted={refreshDetail}
+          />
+        )}
+
+        {/* Regenerar la publicación entera con IA (copy + plan visual + imagen) */}
+        {isEdit && post && (
+          <RegeneratePostBar
+            postId={post.id}
+            title={form.title}
+            rosterOptions={rosterNames(brand)}
+            available={availability?.text !== false}
+            onStarted={() => { onSaved(); onClose(); }}
+          />
+        )}
+
+        {/* Historial de revisiones (incluye acciones IA aplicadas) */}
+        {isEdit && fullPost?.revisions && fullPost.revisions.length > 0 && (
+          <details className="rounded-lg border bg-slate-50">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-700 select-none">
+              📚 Historial de cambios ({fullPost.revisions.length})
+            </summary>
+            <div className="px-3 py-2 border-t bg-white max-h-64 overflow-y-auto">
+              <ol className="space-y-2 text-xs">
+                {fullPost.revisions.map((r) => (
+                  <li key={r.id} className="border-l-2 border-slate-200 pl-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-medium text-slate-700">
+                        {r.changeSummary ?? "(sin descripción)"}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(r.createdAt).toLocaleString("es-ES")}
+                      </span>
+                    </div>
+                    {r.body && (
+                      <pre className="mt-0.5 whitespace-pre-wrap font-sans text-slate-600 text-[11px] line-clamp-3">
+                        {r.body.length > 240 ? r.body.slice(0, 240) + "…" : r.body}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </details>
+        )}
+
+        {isEdit && post && <EditorialMediaHistory key={`${post.id}:${fullPost?.thumbnail}:${fullPost?.mediaUrls}`} postId={post.id} onApplied={refreshDetail} />}
+
+        {/* Preview de imágenes asociadas */}
+        {fullPost && <MediaPreview post={fullPost} />}
+
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+      </form>
+    </Modal>
+  );
+}
+
+function MediaPreview({ post }: { post: EditorialPost }) {
+  let urls: string[] = [];
+  try {
+    const parsed = JSON.parse(post.mediaUrls);
+    if (Array.isArray(parsed)) urls = parsed.filter((u) => typeof u === "string");
+  } catch {}
+  if (post.thumbnail && !urls.includes(post.thumbnail)) urls.unshift(post.thumbnail);
+  if (urls.length === 0) return null;
+  const hasVideo = urls.some(isVideoUrl);
+  return (
+    <div>
+      <div className="text-xs font-medium text-slate-700 mb-1.5">
+        {hasVideo ? "Media" : "Imágenes"} ({urls.length})
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {urls.map((u, i) =>
+          isVideoUrl(u) ? (
+            <video
+              key={`${u}-${i}`}
+              src={u}
+              controls
+              playsInline
+              className="h-24 w-40 object-cover rounded-lg border bg-black shrink-0"
+            />
+          ) : (
+            <a
+              key={`${u}-${i}`}
+              href={u}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={u}
+                alt={`media-${i}`}
+                className="h-24 w-24 object-cover rounded-lg border hover:border-brand-300"
+              />
+            </a>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+type AiActionKey =
+  | "improve"
+  | "casual"
+  | "corporate"
+  | "shorter"
+  | "longer"
+  | "hashtags"
+  | "variants"
+  | "translate_en"
+  | "custom";
+
+const AI_ACTION_BUTTONS: { key: AiActionKey; emoji: string; label: string }[] = [
+  { key: "improve", emoji: "✍️", label: "Mejorar" },
+  { key: "casual", emoji: "😊", label: "Casual" },
+  { key: "corporate", emoji: "💼", label: "Corporate" },
+  { key: "shorter", emoji: "📏", label: "Acortar" },
+  { key: "longer", emoji: "📐", label: "Alargar" },
+  { key: "hashtags", emoji: "#️⃣", label: "Hashtags" },
+  { key: "variants", emoji: "🔀", label: "3 variantes" },
+  { key: "translate_en", emoji: "🌐", label: "EN" }
+];
+
+function AiActionsBar({
+  postId,
+  currentContent,
+  currentHashtags,
+  onApplyContent,
+  onApplyHashtags
+}: {
+  postId: string;
+  currentContent: string;
+  currentHashtags: string;
+  onApplyContent: (v: string) => void;
+  onApplyHashtags: (v: string) => void;
+}) {
+  const [running, setRunning] = useState<AiActionKey | null>(null);
+  const [preview, setPreview] = useState<{ action: AiActionKey; result: string; variants?: string[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [custom, setCustom] = useState("");
+
+  async function run(action: AiActionKey, customInstruction?: string) {
+    setRunning(action);
+    setError(null);
+    setPreview(null);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/ai-action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, customInstruction, apply: false })
+    });
+    setRunning(null);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setPreview({ action, result: j.result, variants: j.variants });
+  }
+
+  function applyPreview(text?: string) {
+    if (!preview) return;
+    const v = text ?? preview.result;
+    if (preview.action === "hashtags") {
+      onApplyHashtags(v);
+    } else {
+      onApplyContent(v);
+    }
+    setPreview(null);
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Acciones rápidas con IA</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {AI_ACTION_BUTTONS.map((b) => (
+          <button
+            key={b.key}
+            type="button"
+            onClick={() => run(b.key)}
+            disabled={running !== null}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border bg-white hover:bg-violet-50 border-violet-200 text-violet-800 disabled:opacity-50"
+          >
+            {running === b.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{b.emoji}</span>}
+            {b.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          placeholder="Instrucción libre (ej. añade emoji al inicio)"
+          className="flex-1 px-2 py-1 rounded-md border bg-white text-[11px] focus:outline-none focus:ring-2 focus:ring-violet-500"
+        />
+        <button
+          type="button"
+          onClick={() => custom.trim() && run("custom", custom)}
+          disabled={running !== null || !custom.trim()}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50"
+        >
+          {running === "custom" ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>✨</span>}
+          Aplicar
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {preview && (
+        <div className="rounded-md border bg-white p-2.5 space-y-2">
+          <div className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold">
+            Resultado de "{AI_ACTION_BUTTONS.find((b) => b.key === preview.action)?.label ?? preview.action}"
+          </div>
+          {preview.variants && preview.variants.length > 0 ? (
+            <div className="space-y-2">
+              {preview.variants.map((v, i) => (
+                <div key={i} className="rounded border bg-slate-50/60 p-2">
+                  <div className="text-[10px] text-slate-500 mb-1">Variante {i + 1}</div>
+                  <div className="text-xs whitespace-pre-wrap text-slate-800">{v}</div>
+                  <button
+                    type="button"
+                    onClick={() => applyPreview(v)}
+                    className="mt-1 text-[11px] text-violet-700 hover:underline"
+                  >
+                    Aplicar esta variante
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs whitespace-pre-wrap text-slate-800">{preview.result}</div>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setPreview(null)}
+              className="text-[11px] text-slate-500 hover:text-slate-700"
+            >
+              Descartar
+            </button>
+            {!preview.variants && (
+              <button
+                type="button"
+                onClick={() => applyPreview()}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-violet-600 hover:bg-violet-700 text-white"
+              >
+                ✓ Sustituir en el form
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdaptFormatBar({
+  postId,
+  currentFormat,
+  onAdapted
+}: {
+  postId: string;
+  currentFormat: string;
+  onAdapted: () => void;
+}) {
+  const [target, setTarget] = useState<"imagen" | "reel" | "carrusel" | "story" | "video">("reel");
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  const [changePostFormat, setChangePostFormat] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/adapt-format`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format: target, quality, changePostFormat })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setDone(true);
+    onAdapted();
+  }
+
+  return (
+    <div className="rounded-lg border bg-fuchsia-50/40 border-fuchsia-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-fuchsia-600" />
+        <span className="text-xs font-semibold text-fuchsia-900">Adaptar a otro formato</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Regenera la imagen con el mismo prompt pero en el aspect ratio del formato elegido (usa las
+        dimensiones por formato de la ficha de marca). Útil para tener feed 4:5 + Reel 9:16 de la misma idea.
+      </p>
+      <div className="flex flex-wrap gap-2 items-center">
+        <select
+          value={target}
+          onChange={(e) => setTarget(e.target.value as any)}
+          className="px-2 py-1 rounded-md border bg-white text-xs"
+        >
+          {["imagen", "reel", "carrusel", "story", "video"].map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+        <div className="flex gap-1">
+          {(["low", "medium", "high"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuality(q)}
+              className={
+                "px-2 py-1 rounded-md text-[11px] border " +
+                (quality === q
+                  ? "bg-fuchsia-100 border-fuchsia-300 text-fuchsia-800 font-medium"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+              }
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1 text-[11px] cursor-pointer ml-auto">
+          <input
+            type="checkbox"
+            checked={changePostFormat}
+            onChange={(e) => setChangePostFormat(e.target.checked)}
+            className="accent-fuchsia-600"
+          />
+          También cambiar formato del post
+        </label>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Adaptar a {target}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ Imagen adaptada al formato {target}.</p>}
+    </div>
+  );
+}
+
+function CompetitorsModal({
+  open,
+  onClose,
+  onOpenBrand
+}: {
+  open: boolean;
+  onClose: () => void;
+  onOpenBrand: () => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{ topics: any[]; competitorsList: string[] } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setData(null);
+      setError(null);
+    }
+  }, [open]);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    const r = await fetch("/api/v1/brand/analyze-competitors", { method: "POST" });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setData(j);
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="🔍 Análisis de competencia con IA" size="lg">
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          La IA leerá los competidores configurados en la{" "}
+          <button type="button" onClick={onOpenBrand} className="text-brand-600 hover:underline">ficha de tu marca</button> y devolverá temas
+          que funcionan en tu sector con sugerencias concretas de publicaciones. Si el campo competidores está vacío, los infiere por sector.
+        </p>
+        {!data && (
+          <div className="text-center py-6">
+            <button
+              type="button"
+              onClick={run}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {running && <Loader2 className="h-4 w-4 animate-spin" />}
+              Analizar
+            </button>
+          </div>
+        )}
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {data && (
+          <>
+            {data.competitorsList.length > 0 && (
+              <div className="text-[11px] text-slate-500">
+                Analizados: {data.competitorsList.join(" · ")}
+              </div>
+            )}
+            <div className="space-y-2 max-h-[460px] overflow-y-auto">
+              {data.topics.map((t, i) => (
+                <div key={i} className="rounded-lg border bg-violet-50/40 border-violet-200 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-sm text-violet-900">{t.topic}</div>
+                    <div className="flex gap-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-800">
+                        {t.tone}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {t.suggestedFormat}
+                      </span>
+                    </div>
+                  </div>
+                  {t.suggestions?.length > 0 && (
+                    <ul className="mt-1.5 list-disc pl-5 text-xs text-slate-700 space-y-0.5">
+                      {t.suggestions.map((s: string, j: number) => (
+                        <li key={j}>{s}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={run}
+              disabled={running}
+              className="text-xs text-violet-600 hover:underline disabled:opacity-50"
+            >
+              Re-analizar
+            </button>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function EditorialSettingsModal({
+  open,
+  onClose,
+  availability
+}: {
+  open: boolean;
+  onClose: () => void;
+  availability: AiAvailability | null;
+}) {
+  const items: Array<{ key: keyof AiAvailability; label: string }> = [
+    { key: "text", label: "Textos con IA" },
+    { key: "images", label: "Imágenes con IA" },
+    { key: "imageEditing", label: "Modificar imágenes con IA" },
+    { key: "video", label: "Vídeos con IA" },
+    { key: "voice", label: "Voz en off" },
+    { key: "subtitles", label: "Subtítulos automáticos" }
+  ];
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="⚙️ Ajustes del Editorial"
+      size="lg"
+      footer={<button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cerrar</button>}
+    >
+      <div className="space-y-5">
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">Facebook e Instagram</h3>
+          <p className="text-xs text-slate-500">
+            Conecta la página de Facebook (y su Instagram profesional vinculado) para publicar o programar desde el calendario.
+          </p>
+          {open && <EditorialMetaConnection />}
+        </section>
+        <section className="space-y-2 border-t pt-4">
+          <h3 className="text-sm font-semibold">Funciones de IA</h3>
+          <p className="text-xs text-slate-500">Las activa Negocio Vivo para tu cuenta. Si alguna no está disponible, avísales.</p>
+          {!availability ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Comprobando…</div>
+          ) : (
+            <ul className="grid gap-1.5 sm:grid-cols-2">
+              {items.map((item) => (
+                <li key={item.key} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-xs">
+                  <span>{item.label}</span>
+                  <span className={availability[item.key] ? "text-emerald-700" : "text-slate-400"}>
+                    {availability[item.key] ? "Disponible" : "No disponible"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </Modal>
+  );
+}
+
+function ReapplyOverlayBar({
+  postId,
+  currentTitle,
+  currentContent,
+  onApplied
+}: {
+  postId: string;
+  currentTitle: string;
+  currentContent: string;
+  onApplied: () => void;
+}) {
+  const [headline1, setHeadline1] = useState("");
+  const [headline2, setHeadline2] = useState("");
+  const [logoVisible, setLogoVisible] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    setHeadline1(currentTitle.slice(0, 80));
+    const firstSentence = currentContent.split(/[.!?\n]/)[0]?.trim();
+    setHeadline2(firstSentence && firstSentence !== currentTitle ? firstSentence.slice(0, 80) : "");
+  }, [currentTitle, currentContent]);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    const headlines = [headline1, headline2].filter((s) => s.trim());
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/reapply-overlay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ headlines, logoVisible })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setDone(true);
+    onApplied();
+  }
+
+  return (
+    <div className="rounded-lg border bg-amber-50/40 border-amber-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Pencil className="h-4 w-4 text-amber-600" />
+        <span className="text-xs font-semibold text-amber-900">Re-aplicar overlay (logo + texto sobre la imagen actual)</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Recompone la imagen ACTUAL con titulares y logo de tu marca. Sin regenerar (rápido y gratis). Usa los colores
+        y el patrón visual configurados en la ficha de marca.
+      </p>
+      <input
+        value={headline1}
+        onChange={(e) => setHeadline1(e.target.value)}
+        placeholder="Línea principal (grande)"
+        className="w-full px-2 py-1.5 rounded-md border bg-white text-xs"
+      />
+      <input
+        value={headline2}
+        onChange={(e) => setHeadline2(e.target.value)}
+        placeholder="Línea secundaria (opcional)"
+        className="w-full px-2 py-1.5 rounded-md border bg-white text-xs"
+      />
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={logoVisible}
+            onChange={(e) => setLogoVisible(e.target.checked)}
+            className="accent-amber-600"
+          />
+          Mostrar logo
+        </label>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Re-aplicar overlay
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ Overlay aplicado.</p>}
+    </div>
+  );
+}
+
+type PatternTemplateUi = { id: string; url: string; name: string; notes?: string };
+
+function GenerateImageBar({
+  postId,
+  templates,
+  available = true,
+  initialPattern,
+  initialStrength,
+  initialTemplateId,
+  onGenerated
+}: {
+  postId: string;
+  /** Plantillas visuales de la ficha de marca. */
+  templates: PatternTemplateUi[];
+  available?: boolean;
+  initialPattern?: string | null;
+  initialStrength?: number | null;
+  initialTemplateId?: string | null;
+  onGenerated: () => void;
+}) {
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  // Selección unificada: "" = por defecto de la marca, "preset:<key>" =
+  // patrón predefinido, "tpl:<id>" = plantilla subida en la ficha de marca.
+  const [selection, setSelection] = useState<string>(
+    initialTemplateId ? `tpl:${initialTemplateId}` : initialPattern ? `preset:${initialPattern}` : ""
+  );
+  const [strength, setStrength] = useState<number>(
+    typeof initialStrength === "number" ? initialStrength : 50
+  );
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  const presetKey = selection.startsWith("preset:") ? selection.slice(7) : "";
+  const templateId = selection.startsWith("tpl:") ? selection.slice(4) : "";
+  const selectedPattern = VISUAL_PATTERNS.find((p) => p.key === presetKey);
+  const selectedTemplate = templates.find((t) => t.id === templateId);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quality,
+        // Mandamos override explícito de patrón/plantilla. null limpia.
+        visualPattern: presetKey || null,
+        patternTemplateId: templateId || null,
+        patternStrength: strength
+      })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setLastUrl(j.url);
+    onGenerated();
+  }
+
+  return (
+    <div className="rounded-lg border bg-sky-50/40 border-sky-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-sky-600" />
+        <span className="text-xs font-semibold text-sky-900">Generar imagen con IA</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Usa el brief, los colores y la guía de estilo de tu marca. El formato y aspect ratio se decide por el tipo
+        configurado en la ficha de marca.
+      </p>
+      {!available && <p className="text-[11px] text-amber-700">La generación de imágenes no está disponible; avisa a Negocio Vivo.</p>}
+
+      {/* Patrón / plantilla visual + intensidad */}
+      <div className="space-y-1.5">
+        <label className="block text-[11px] font-medium text-slate-700">Patrón / plantilla visual</label>
+        <select
+          value={selection}
+          onChange={(e) => setSelection(e.target.value)}
+          className="w-full px-2 py-1.5 rounded-md border border-slate-200 bg-white text-[12px] focus:outline-none focus:ring-2 focus:ring-sky-400"
+        >
+          <option value="">Por defecto de la marca</option>
+          {templates.length > 0 && (
+            <optgroup label="Plantillas de tu marca">
+              {templates.map((t) => (
+                <option key={t.id} value={`tpl:${t.id}`}>
+                  🎨 {t.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Estilos predefinidos">
+            {VISUAL_PATTERNS.map((p) => (
+              <option key={p.key} value={`preset:${p.key}`}>
+                {p.label}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        {selectedTemplate && (
+          <div className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={selectedTemplate.url}
+              alt={selectedTemplate.name}
+              className="h-12 w-12 rounded object-cover border bg-white"
+            />
+            <p className="text-[10.5px] text-slate-500 leading-snug">
+              La IA usará esta plantilla como guía de estilo/layout.
+              {selectedTemplate.notes ? ` ${selectedTemplate.notes}` : ""}
+            </p>
+          </div>
+        )}
+        {selectedPattern && (
+          <p className="text-[10.5px] text-slate-500 leading-snug">{selectedPattern.description}</p>
+        )}
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="text-[11px] text-slate-600 whitespace-nowrap">Intensidad</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={strength}
+            onChange={(e) => setStrength(Number(e.target.value))}
+            className="flex-1 accent-sky-600"
+          />
+          <span className="text-[11px] font-semibold text-sky-800 tabular-nums w-9 text-right">{strength}%</span>
+        </div>
+        <p className="text-[10px] text-slate-400 leading-snug">
+          0% = foto editorial neutra · 50% = aplica el estilo · 100% = lo replica con fuerza.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1">
+          {(["low", "medium", "high"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuality(q)}
+              className={
+                "px-2 py-1 rounded-md text-[11px] border " +
+                (quality === q
+                  ? "bg-sky-100 border-sky-300 text-sky-800 font-medium"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+              }
+            >
+              {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running || !available}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {running ? "Generando…" : "Generar imagen"}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {lastUrl && (
+        <div className="text-[11px] text-emerald-700">✓ Imagen generada y asociada al post.</div>
+      )}
+    </div>
+  );
+}
+
+/** Botón compacto para relanzar la generación de vídeo desde el preview de
+ *  un post de vídeo que se quedó sin media (porque la primera ejecución
+ *  falló). Muestra el error inline para que el usuario sepa qué pasó.
+ */
+function RetryVideoButton({ postId, onDone }: { postId: string; onDone: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  // CRM: el vídeo se genera como trabajo en segundo plano (async) y se
+  // consulta su estado, para no mantener abierta una petición de varios
+  // minutos que el proxy podría cortar.
+  async function waitForJob(): Promise<void> {
+    for (let i = 0; i < 160; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const response = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`);
+      if (!response.ok) continue;
+      const { job } = await response.json();
+      if (!job || ["PENDING", "RUNNING"].includes(job.status)) {
+        if (job?.message) setDone(job.message);
+        continue;
+      }
+      if (job.status === "FAILED") throw new Error(job.error ?? "No se pudo generar el vídeo.");
+      return;
+    }
+    throw new Error("El vídeo sigue generándose. Vuelve a abrir la publicación en unos minutos.");
+  }
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(null);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shots: 2, voiceover: true, subtitles: true, async: true })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      if (j?.jobId) {
+        setDone("Creando vídeo. Puede tardar varios minutos…");
+        await waitForJob();
+      }
+      setDone("Vídeo generado y adjuntado.");
+      onDone();
+    } catch (e: any) {
+      setError(e?.message ?? "Error de red");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={run}
+        disabled={running}
+        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-60"
+      >
+        {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
+        {running ? "Generando vídeo (1-5 min)…" : "Generar vídeo ahora"}
+      </button>
+      {error && (
+        <div className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded p-2 whitespace-pre-wrap">
+          {error}
+        </div>
+      )}
+      {done && (
+        <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+          {done}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Barra "Modificar imagen con IA": el usuario escribe qué cambiar de la
+ *  imagen ACTUAL del post (img2img). Conserva composición, marca y texto,
+ *  y aplica solo la modificación pedida. Solo visible si hay thumbnail. */
+function EditImageBar({
+  postId,
+  thumbnail,
+  available = true,
+  onEdited
+}: {
+  postId: string;
+  thumbnail: string;
+  available?: boolean;
+  onEdited: () => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function run() {
+    if (!prompt.trim()) return;
+    setRunning(true);
+    setError(null);
+    setDone(false);
+    const r = await fetch(`/api/v1/editorial/posts/${postId}/edit-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt.trim(), quality })
+    });
+    setRunning(false);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setDone(true);
+    setPrompt("");
+    onEdited();
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Pencil className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Modificar imagen con IA</span>
+      </div>
+      <div className="flex gap-2 items-start">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={thumbnail} alt="Imagen actual" className="h-14 w-14 rounded object-cover border bg-white shrink-0" />
+        <p className="text-[11px] text-slate-600">
+          Escribe qué quieres cambiar de la imagen actual y la IA aplicará <strong>solo ese cambio</strong>,
+          conservando composición, colores, texto y logo. La versión anterior queda guardada en el historial de medios.
+        </p>
+      </div>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        rows={2}
+        placeholder='p. ej. "Quita el portátil de la mesa", "Haz el cielo de atardecer", "Que la persona sonría mirando a cámara"'
+        className="w-full px-2 py-1.5 rounded-md border border-slate-200 bg-white text-[12px] focus:outline-none focus:ring-2 focus:ring-violet-400 resize-y"
+      />
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1">
+          {(["low", "medium", "high"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuality(q)}
+              className={
+                "px-2 py-1 rounded-md text-[11px] border " +
+                (quality === q
+                  ? "bg-violet-100 border-violet-300 text-violet-800 font-medium"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+              }
+            >
+              {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={running || !prompt.trim() || !available}
+          title={!prompt.trim() ? "Escribe primero qué quieres cambiar" : "Modificar la imagen actual"}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
+        >
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {running ? "Modificando…" : "Modificar imagen"}
+        </button>
+      </div>
+      {!available && <p className="text-[11px] text-amber-700">La edición de imágenes con IA no está disponible; avisa a Negocio Vivo.</p>}
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ Imagen modificada y asociada al post.</p>}
+    </div>
+  );
+}
+
+function UploadImageBar({ postId, onUploaded }: { postId: string; onUploaded: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function onFile(file: File | null) {
+    if (!file) return;
+    setRunning(true);
+    setError(null);
+    setDone(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/media/upload`, { method: "POST", body: form });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      setDone("Imagen subida y asociada al post.");
+      onUploaded();
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-slate-50 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <ImageIcon className="h-4 w-4 text-slate-600" />
+        <span className="text-xs font-semibold text-slate-800">Subir imagen propia</span>
+      </div>
+      <input
+        type="file"
+        accept="image/*"
+        disabled={running}
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        className="block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white disabled:opacity-50"
+      />
+      {running && <p className="text-[11px] text-slate-500">Subiendo imagen...</p>}
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <p className="text-[11px] text-emerald-700">✓ {done}</p>}
+    </div>
+  );
+}
+
+function GenerateVideoBar({ postId, thumbnail, availability, onGenerated }: { postId: string; thumbnail?: string | null; availability?: AiAvailability | null; onGenerated: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [extra, setExtra] = useState("");
+  const [shots, setShots] = useState(2);
+  const [durationSeconds, setDurationSeconds] = useState(5);
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [style, setStyle] = useState("Natural y realista");
+  const [voiceover, setVoiceover] = useState(true);
+  const [subtitles, setSubtitles] = useState(true);
+  const [useThumbnail, setUseThumbnail] = useState(Boolean(thumbnail));
+  const [done, setDone] = useState<string | null>(null);
+  const onGeneratedRef = useRef(onGenerated);
+  onGeneratedRef.current = onGenerated;
+  const [jobId, setJobId] = useState<string | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let sawRunning = false;
+    async function poll() {
+      try {
+        const response = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`);
+        if (!response.ok) throw new Error("No se pudo consultar el progreso del vídeo.");
+        const { job } = await response.json();
+        if (stopped) return;
+        const active = job && ["PENDING", "RUNNING"].includes(job.status);
+        setRunning(Boolean(active));
+        if (active) {
+          sawRunning = true; setDone(job.message); timer = setTimeout(poll, 5000);
+        } else if (job?.status === "FAILED") { setError(job.error ?? "No se pudo generar el vídeo."); setDone(null); }
+        else if (job?.status === "COMPLETED" && (sawRunning || jobId)) { setDone("Vídeo listo. Puedes previsualizarlo y elegir una versión en el historial."); onGeneratedRef.current(); }
+      } catch (e) {
+        if (!stopped) { setError(e instanceof Error ? e.message : "Error consultando el vídeo."); timer = setTimeout(poll, 10000); }
+      }
+    }
+    void poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [postId, jobId]);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    setDone(null);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/generate-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          extraGuidance: extra.trim() || undefined,
+          shots,
+          durationSeconds,
+          aspectRatio,
+          style,
+          async: true,
+          voiceover,
+          subtitles,
+          useCurrentImage: useThumbnail && Boolean(thumbnail)
+        })
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      if (j.jobId) { setJobId(j.jobId); setDone("Creando vídeo. Puedes cerrar la publicación y volver más tarde."); }
+      else { setDone(j?.note ?? "Vídeo generado y adjuntado al post."); onGenerated(); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo iniciar el vídeo.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Film className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Crear vídeo con IA</span>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Anima la imagen que hayas subido o crea un vídeo a partir de tus instrucciones.
+        Podrás previsualizarlo, crear otra versión y elegir cuál adjuntar desde el historial.
+      </p>
+      {availability && !availability.video && (
+        <p className="text-[11px] text-amber-700">La generación de vídeo no está disponible; avisa a Negocio Vivo.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[11px] text-slate-600">Tomas</label>
+        <select
+          value={shots}
+          onChange={(e) => setShots(Number(e.target.value))}
+          className="px-2 py-1.5 rounded-md border border-slate-200 text-[11px] bg-white"
+        >
+          {[1, 2, 3, 4].map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <label className="text-[11px]">Duración por toma <select aria-label="Duración por toma" value={durationSeconds} onChange={e => setDurationSeconds(Number(e.target.value))} className="rounded border p-1"><option value={5}>5 segundos</option><option value={10}>10 segundos</option></select></label>
+        <label className="text-[11px]">Formato <select aria-label="Formato del vídeo" value={aspectRatio} onChange={e => setAspectRatio(e.target.value)} className="rounded border p-1"><option value="9:16">Vertical 9:16</option><option value="16:9">Horizontal 16:9</option><option value="1:1">Cuadrado 1:1</option></select></label>
+      </div>
+      <label className="block text-xs">Estilo visual<input value={style} onChange={e => setStyle(e.target.value)} className="mt-1 w-full rounded border p-2" placeholder="Cinematográfico, natural, animación…" /></label>
+      <p className="text-[11px] text-slate-500">Duración aproximada: {shots * durationSeconds} segundos antes de añadir voz.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        {thumbnail && (
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+            <input type="checkbox" checked={useThumbnail} onChange={(e) => setUseThumbnail(e.target.checked)} className="accent-violet-600" />
+            Animar imagen actual
+          </label>
+        )}
+        <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+          <input type="checkbox" checked={voiceover} onChange={(e) => setVoiceover(e.target.checked)} className="accent-violet-600" />
+          Voz en off
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer">
+          <input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} className="accent-violet-600" />
+          Subtítulos
+        </label>
+      </div>
+      <input
+        value={extra}
+        onChange={(e) => setExtra(e.target.value)}
+        placeholder="Describe el vídeo: plano cenital del plato, movimiento suave de cámara…"
+        className="w-full px-2 py-1.5 rounded-md border border-slate-200 text-[11px]"
+      />
+      <button
+        type="button"
+        onClick={run}
+        disabled={running || availability?.video === false}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
+      >
+        {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {running ? "Generando vídeo… (varios min)" : "Generar vídeo"}
+      </button>
+      {error && <p className="text-[11px] text-rose-600">{error}</p>}
+      {done && <div className="text-[11px] text-emerald-700">✓ {done}</div>}
+    </div>
+  );
+}
+
+/**
+ * Regenera la publicación entera con IA (copy + plan visual + imagen) en
+ * segundo plano, conservando título, formato, redes y fecha. Usa el endpoint
+ * /regenerate del Hub; el progreso aparece en el toast de generaciones.
+ */
+function RegeneratePostBar({
+  postId,
+  title,
+  rosterOptions,
+  available,
+  onStarted
+}: {
+  postId: string;
+  title: string;
+  rosterOptions: string[];
+  available: boolean;
+  onStarted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [extraGuidance, setExtraGuidance] = useState("");
+  const [imageIncludeHint, setImageIncludeHint] = useState("");
+  const [imageAvoidHint, setImageAvoidHint] = useState("");
+  const [forced, setForced] = useState<string[]>([]);
+  const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    if (!confirm("Se sustituirá esta publicación por una nueva versión generada con IA (copy, imagen y plan visual). ¿Continuar?")) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/v1/editorial/posts/${postId}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          extraGuidance: extraGuidance.trim() || undefined,
+          imageIncludeHint: imageIncludeHint.trim() || undefined,
+          imageAvoidHint: imageAvoidHint.trim() || undefined,
+          useRosterPersons: forced.length > 0 ? forced : undefined,
+          imageQuality: quality
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(j?.error?.message ?? `Error ${r.status}`);
+        return;
+      }
+      pushRunningJob({ id: j.jobId, month: `Regenerar: ${title.slice(0, 30)}` });
+      onStarted();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo iniciar la regeneración.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-violet-50/40 border-violet-200 p-3 space-y-2">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 text-left">
+        <RefreshCw className="h-4 w-4 text-violet-600" />
+        <span className="text-xs font-semibold text-violet-900">Regenerar publicación con IA</span>
+        <span className="ml-auto text-[11px] text-violet-700">{open ? "Ocultar" : "Abrir"}</span>
+      </button>
+      {open && (
+        <>
+          <p className="text-[11px] text-slate-600">
+            Vuelve a redactar el copy, los titulares y la imagen con el mismo título, formato, redes y fecha. Útil cuando una publicación no ha quedado bien.
+          </p>
+          <textarea
+            value={extraGuidance}
+            onChange={(e) => setExtraGuidance(e.target.value)}
+            rows={2}
+            placeholder="Instrucción extra (opcional): más cercano, menciona la oferta de primavera…"
+            className="w-full px-2 py-1.5 rounded-md border border-slate-200 bg-white text-[12px] focus:outline-none focus:ring-2 focus:ring-violet-400"
+          />
+          <div className="grid gap-2 md:grid-cols-2">
+            <input
+              value={imageIncludeHint}
+              onChange={(e) => setImageIncludeHint(e.target.value)}
+              placeholder="Qué SÍ debe aparecer en la imagen (opcional)"
+              className="w-full px-2 py-1.5 rounded-md border border-emerald-200 bg-white text-[12px]"
+            />
+            <input
+              value={imageAvoidHint}
+              onChange={(e) => setImageAvoidHint(e.target.value)}
+              placeholder="Qué NO debe aparecer (opcional)"
+              className="w-full px-2 py-1.5 rounded-md border border-rose-200 bg-white text-[12px]"
+            />
+          </div>
+          {rosterOptions.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {rosterOptions.map((name) => {
+                const sel = forced.includes(name);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setForced((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]))}
+                    className={
+                      "px-2 py-1 rounded-md text-[11px] transition border " +
+                      (sel ? "bg-violet-50 border-violet-300 text-violet-700 font-medium" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                    }
+                  >
+                    {sel ? "✓ " : ""}{name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1">
+              {(["low", "medium", "high"] as const).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setQuality(q)}
+                  className={
+                    "px-2 py-1 rounded-md text-[11px] border " +
+                    (quality === q ? "bg-violet-100 border-violet-300 text-violet-800 font-medium" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {q === "low" ? "Baja (~$0.02)" : q === "medium" ? "Media (~$0.04)" : "Alta (~$0.17)"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={run}
+              disabled={running || !available}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium disabled:opacity-50"
+            >
+              {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Regenerar
+            </button>
+          </div>
+          {error && <p className="text-[11px] text-rose-600">{error}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Zona de papelera al pie del calendario. Recibe drops de publicaciones
+ * (mismo dataTransfer que el drag&drop de reprogramar) y las borra.
+ *
+ * Highlight rojo + escala al pasar por encima; confirm() antes de borrar.
+ */
+function CalendarTrashZone({ onDropped }: { onDropped: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      className={
+        "mt-2 mx-1 mb-1 rounded-lg border-2 border-dashed transition-all hidden md:flex items-center justify-center gap-2 text-sm select-none " +
+        (hover
+          ? "border-rose-400 bg-rose-50 text-rose-700 py-6 scale-[1.01]"
+          : "border-slate-200 bg-slate-50/50 text-slate-400 py-3")
+      }
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("text/post-id")) {
+          e.preventDefault();
+          setHover(true);
+        }
+      }}
+      onDragLeave={() => setHover(false)}
+      onDrop={async (e) => {
+        e.preventDefault();
+        setHover(false);
+        const postId = e.dataTransfer.getData("text/post-id");
+        if (!postId) return;
+        if (!confirm("¿Eliminar esta publicación?\n\nEsta acción no se puede deshacer.")) return;
+        const r = await fetch(`/api/v1/editorial/posts/${postId}`, { method: "DELETE" });
+        if (r.ok) {
+          onDropped();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          alert(j?.error?.message ?? `Error ${r.status}`);
+        }
+      }}
+    >
+      <Trash2 className={"h-4 w-4 " + (hover ? "animate-bounce" : "")} />
+      <span className="font-medium">
+        {hover ? "Suelta aquí para eliminar" : "Arrastra una publicación aquí para eliminarla"}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Muestra un mensaje de error IA con estilo según el contenido.
+ */
+function AiErrorBanner({ message }: { message: string }) {
+  const noCredits =
+    /credit balance|too low|billing|saldo/i.test(message);
+  const badKey = /api key|authentication|invalid/i.test(message);
+  // CRM: el negocio no gestiona claves ni saldo; se le pide avisar a Negocio Vivo.
+  if (noCredits || badKey) {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs space-y-1.5">
+        <div className="font-semibold text-amber-900">La IA no está disponible ahora mismo</div>
+        <p className="text-amber-900">{message}</p>
+        <p className="text-amber-900">Avisa a Negocio Vivo para que lo revise.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-2.5 text-xs text-rose-700">
+      {message}
+    </div>
+  );
+}
+
+function DuplicateMonthModal({
+  open,
+  onClose,
+  sourceMonth,
+  onDone
+}: {
+  open: boolean;
+  onClose: () => void;
+  sourceMonth: string;
+  onDone: () => void;
+}) {
+  const [targetMonth, setTargetMonth] = useState("");
+  const [resetStatus, setResetStatus] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // mes siguiente como sugerencia
+    const [y, m] = sourceMonth.split("-").map(Number);
+    const next = new Date(Date.UTC(y, m, 1));
+    setTargetMonth(`${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`);
+    setResetStatus(true);
+    setRunning(false);
+    setError(null);
+    setResult(null);
+  }, [open, sourceMonth]);
+
+  async function run() {
+    if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
+      setError("Formato de mes destino inválido (YYYY-MM)");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    const r = await fetch("/api/v1/editorial/duplicate-month", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceMonth, targetMonth, resetStatus })
+    });
+    setRunning(false);
+    const j = await r.json();
+    if (!r.ok) {
+      setError(j?.error?.message ?? `Error ${r.status}`);
+      return;
+    }
+    setResult(j);
+    setTimeout(() => onDone(), 1500);
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Duplicar mes — ${sourceMonth}`}
+      size="md"
+      footer={
+        <>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cancelar</button>
+          <button
+            onClick={run}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+            Duplicar
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Copia todas las publicaciones de <strong>{sourceMonth}</strong> al mes destino, manteniendo
+          copy, hashtags, copy por red, formato e imagen.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">Mes destino *</label>
+          <input
+            type="month"
+            value={targetMonth}
+            onChange={(e) => setTargetMonth(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetStatus}
+            onChange={(e) => setResetStatus(e.target.checked)}
+            className="accent-brand-600"
+          />
+          Crear todas como borrador (recomendado)
+        </label>
+        {error && <p className="text-xs text-rose-600">{error}</p>}
+        {result && (
+          <p className="text-xs text-emerald-700">
+            ✓ {result.created} publicaciones duplicadas al mes {targetMonth}.
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}

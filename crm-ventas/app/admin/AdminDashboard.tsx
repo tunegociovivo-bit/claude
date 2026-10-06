@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { Ban, Bot, Building2, CheckCircle2, LogOut, MessageCircle, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
+import { Ban, Bot, Building2, CalendarRange, CheckCircle2, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
 
 type Client = {
   id: string; name: string; slug: string; email: string; isBlocked: boolean; adminNotes: string;
@@ -11,7 +11,15 @@ type Client = {
   callCost: number; whatsappCost: number; totalCost: number;
   callCostToday: number; whatsappCostToday: number; totalCostToday: number;
   callCostMonthly: number; whatsappCostMonthly: number; totalCostMonthly: number;
+  modules: { editorial: boolean; seo: boolean };
+  contentAiCostMonthly: number;
+  contentAiLimitUsd: number;
 };
+
+const MODULES: Array<{ key: "editorial" | "seo"; label: string; hint: string; icon: typeof Newspaper }> = [
+  { key: "editorial", label: "Editorial", hint: "Calendario de redes con IA y publicación en Facebook/Instagram", icon: CalendarRange },
+  { key: "seo", label: "Publicador SEO", hint: "Artículos de blog con IA publicados en su WordPress", icon: Newspaper },
+];
 type Overview = {
   globalPrompt: string;
   currency: string;
@@ -26,6 +34,7 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [names, setNames] = useState<Record<string, string>>({});
+  const [aiLimits, setAiLimits] = useState<Record<string, string>>({});
   const [showCreate, setShowCreate] = useState(false);
   const [newClient, setNewClient] = useState({ name: "", contactName: "", email: "", password: "" });
 
@@ -36,6 +45,7 @@ export default function AdminDashboard() {
     setData(next); setPrompt(next.globalPrompt ?? "");
     setNotes(Object.fromEntries(next.clients.map((client: Client) => [client.id, client.adminNotes ?? ""])));
     setNames(Object.fromEntries(next.clients.map((client: Client) => [client.id, client.name])));
+    setAiLimits(Object.fromEntries(next.clients.map((client: Client) => [client.id, String(client.contentAiLimitUsd ?? "")])));
   }
   useEffect(() => { void load(); }, []);
   const totals = useMemo(() => (data?.clients ?? []).reduce((acc, client) => ({
@@ -65,6 +75,31 @@ export default function AdminDashboard() {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isBlocked: !client.isBlocked }),
     });
     setBusy(null);
+    if (response.ok) await load();
+  }
+
+  async function toggleModule(client: Client, key: "editorial" | "seo") {
+    const enable = !client.modules?.[key];
+    setBusy(`module:${client.id}:${key}`); setNotice("");
+    const response = await fetch(`/api/v1/admin/clients/${client.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modules: { [key]: enable } }),
+    });
+    setBusy(null);
+    const label = MODULES.find((module) => module.key === key)?.label ?? key;
+    setNotice(response.ok ? `${label} ${enable ? "activado" : "desactivado"} para ${client.name}.` : `No se pudo cambiar ${label}.`);
+    if (response.ok) await load();
+  }
+
+  async function saveAiLimit(client: Client) {
+    const raw = (aiLimits[client.id] ?? "").trim().replace(",", ".");
+    const value = raw === "" ? null : Number(raw);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) { setNotice("Indica un límite válido en USD (0 = sin límite)."); return; }
+    setBusy(`ailimit:${client.id}`); setNotice("");
+    const response = await fetch(`/api/v1/admin/clients/${client.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentAiMonthlyLimitUsd: value }),
+    });
+    setBusy(null);
+    setNotice(response.ok ? `Límite de IA de ${client.name} guardado.` : "No se pudo guardar el límite de IA.");
     if (response.ok) await load();
   }
 
@@ -142,6 +177,29 @@ export default function AdminDashboard() {
               <article key={client.id} className={`card p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>
                 <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label={`Nombre de ${client.name}`} className="input min-w-0 flex-1 font-semibold" maxLength={120} value={names[client.id] ?? ""} onChange={(event) => setNames((current) => ({ ...current, [client.id]: event.target.value }))} /><button className="btn-ghost shrink-0" disabled={busy === `name:${client.id}`} onClick={() => saveName(client)}>{busy === `name:${client.id}` ? "Guardando…" : "Guardar nombre"}</button>{client.isBlocked ? <span className="w-fit rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="mt-1 truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">{[["Llamadas totales", client.callsTotal], ["Minutos totales", client.minutesTotal], ["WhatsApp totales", client.whatsappTotal], ["Coste hoy", money(client.totalCostToday)], ["Coste mensual", money(client.totalCostMonthly)], ["Coste total", money(client.totalCost)]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3 ring-1 ring-slate-100"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold">{value}</p></div>)}</div>
+                <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Módulos de contenidos</p>
+                  <div className="flex flex-wrap gap-2">
+                    {MODULES.map(({ key, label, hint, icon: Icon }) => {
+                      const on = Boolean(client.modules?.[key]);
+                      return (
+                        <button key={key} type="button" title={hint} aria-pressed={on} disabled={busy === `module:${client.id}:${key}`} onClick={() => toggleModule(client, key)}
+                          className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ring-1 transition ${on ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-600 ring-slate-200 hover:ring-slate-300"}`}>
+                          <Icon size={15} />{label}<span className={`ml-1 rounded px-1.5 text-[10px] font-semibold ${on ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>{on ? "ON" : "OFF"}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(client.modules?.editorial || client.modules?.seo) && (
+                    <div className="mt-3 flex flex-wrap items-end gap-2 text-xs text-slate-500">
+                      <span className="mr-auto self-center">IA de contenidos este mes: {money(client.contentAiCostMonthly ?? 0)}</span>
+                      <label className="flex items-center gap-1.5">Límite/mes (USD)
+                        <input aria-label={`Límite mensual de IA de ${client.name}`} className="input py-1" style={{ width: 96 }} inputMode="decimal" value={aiLimits[client.id] ?? ""} onChange={(event) => setAiLimits((current) => ({ ...current, [client.id]: event.target.value }))} placeholder="60" />
+                      </label>
+                      <button className="btn-ghost min-h-8 py-1" disabled={busy === `ailimit:${client.id}`} onClick={() => saveAiLimit(client)}>{busy === `ailimit:${client.id}` ? "Guardando…" : "Guardar límite"}</button>
+                    </div>
+                  )}
+                </div>
                 <p className="mt-3 text-xs text-slate-400">Voz {money(client.callCost)} · WhatsApp {money(client.whatsappCost)}</p>
                 <p className="mt-2 text-xs text-slate-400">Hoy: {client.callsToday} llamadas, {client.minutesToday} min, {client.whatsappToday} WhatsApp y {money(client.totalCostToday)} de coste.</p>
                 <p className="mt-1 text-xs text-slate-400">Coste acumulado estimado: {money(client.totalCost)}</p>

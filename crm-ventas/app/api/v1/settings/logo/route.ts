@@ -6,6 +6,7 @@ import {
   unauthorized,
 } from "@/lib/auth";
 import { getWorkspaceSettings, saveWorkspaceSettings } from "@/lib/settings";
+import { getEnabledModules } from "@/lib/modules";
 
 export const dynamic = "force-dynamic";
 
@@ -44,11 +45,13 @@ function authError(error: unknown) {
 export async function GET() {
   try {
     const workspaceId = await requireWorkspaceId();
-    const settings = await getWorkspaceSettings(workspaceId);
+    const [settings, modules] = await Promise.all([getWorkspaceSettings(workspaceId), getEnabledModules(workspaceId)]);
     return Response.json({
       logoDataUrl: settings.branding.logoDataUrl || null,
       businessName: settings.sonia.businessName || null,
       agentName: settings.sonia.agentName,
+      // Módulos opcionales activos (el menú solo muestra los activos).
+      modules,
     });
   } catch (error) {
     return authError(error) || Response.json({ error: "Error interno" }, { status: 500 });

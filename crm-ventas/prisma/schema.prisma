@@ -10,26 +10,36 @@ datasource db {
 // Un Workspace = un cliente del CRM (multi-tenant). Su configuración de SONIA
 // (prompt, teléfono, WhatsApp, columnas del pipeline) vive en `settings`.
 model Workspace {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  settings  Json     @default("{}")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  isBlocked Boolean  @default(false)
-  blockedAt DateTime?
-  adminNotes String?  @db.Text
+  id         String    @id @default(cuid())
+  name       String
+  slug       String    @unique
+  settings   Json      @default("{}")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  isBlocked  Boolean   @default(false)
+  blockedAt  DateTime?
+  adminNotes String?   @db.Text
 
-  users        User[]
-  contacts     Contact[]
-  appointments Appointment[]
-  messages     Message[]
-  calls        Call[]
-  whatsappLines  WhatsappLine[]
-  conversations  Conversation[]
-  vapiPhoneConnection VapiPhoneConnection?
+  users                    User[]
+  contacts                 Contact[]
+  appointments             Appointment[]
+  messages                 Message[]
+  calls                    Call[]
+  whatsappLines            WhatsappLine[]
+  conversations            Conversation[]
+  vapiPhoneConnection      VapiPhoneConnection?
   googleCalendarConnection GoogleCalendarConnection?
-  urgentAlertState UrgentAlertState?
+  urgentAlertState         UrgentAlertState?
+
+  // Módulos de contenidos (Editorial + Publicador SEO). Se activan por
+  // workspace desde el panel de operador (settings.modules).
+  contentBrand           ContentBrand?
+  editorialPosts         EditorialPost[]
+  editorialMediaVersions EditorialMediaVersion[]
+  editorialMetaProfiles  EditorialMetaProfile[]
+  editorialPublications  EditorialPublication[]
+  metaConnections        MetaConnection[]
+  seoBlogSites           SeoBlogSite[]
 }
 
 model UrgentAlertState {
@@ -44,15 +54,15 @@ model UrgentAlertState {
 }
 
 model GoogleCalendarConnection {
-  id              String   @id @default(cuid())
-  workspaceId     String   @unique
+  id              String    @id @default(cuid())
+  workspaceId     String    @unique
   googleEmail     String?
-  calendarId      String   @default("primary")
-  refreshTokenEnc String   @db.Text
-  accessTokenEnc  String?  @db.Text
+  calendarId      String    @default("primary")
+  refreshTokenEnc String    @db.Text
+  accessTokenEnc  String?   @db.Text
   expiresAt       DateTime?
-  connectedAt     DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  connectedAt     DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
@@ -68,17 +78,17 @@ model GlobalAdminConfig {
 // mode MANAGED: el cliente solo indica su móvil público (publicE164) y
 // Negocio Vivo crea el número puente (bridgeE164) y lo registra aquí.
 model VapiPhoneConnection {
-  id                String   @id @default(cuid())
-  workspaceId       String   @unique
+  id                String    @id @default(cuid())
+  workspaceId       String    @unique
   mode              String
-  status            String   @default("PENDING")
+  status            String    @default("PENDING")
   providerKind      String?
-  vapiPhoneNumberId String?  @unique
+  vapiPhoneNumberId String?   @unique
   e164              String?
   publicE164        String?
   bridgeE164        String?
   label             String?
-  operationKey      String   @unique
+  operationKey      String    @unique
   lastErrorCode     String?
   lastErrorMessage  String?
   // Aviso operativo a Negocio Vivo: último móvil notificado con éxito. Si
@@ -86,8 +96,8 @@ model VapiPhoneConnection {
   notifiedE164      String?
   notifiedAt        DateTime?
   notifyError       String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
@@ -218,7 +228,7 @@ model WhatsappLine {
   label               String
   mode                String    @default("own") // own | linked
   isPrimary           Boolean   @default(false)
-  phone               String?   // dígitos del número vinculado (WAHA me.id)
+  phone               String? // dígitos del número vinculado (WAHA me.id)
   active              Boolean   @default(true) // false = no sale nada por este número
   aiMode              String    @default("suggest") // auto | suggest | off
   instructions        String?   @db.Text // contexto extra para la IA de esta línea
@@ -232,7 +242,7 @@ model WhatsappLine {
   lastStatusAt        DateTime?
   lastSentAt          DateTime?
   sendLockUntil       DateTime? // un solo envío a la vez por número (entre instancias)
-  previousSession     String?   // sesión anterior del principal (sus eventos se siguen aceptando)
+  previousSession     String? // sesión anterior del principal (sus eventos se siguen aceptando)
   consecutiveFailures Int       @default(0)
   pausedUntil         DateTime?
   pauseReason         String?
@@ -247,32 +257,32 @@ model WhatsappLine {
 
 // Estado de cada conversación (un hilo por teléfono del cliente).
 model Conversation {
-  id             String    @id @default(cuid())
-  workspaceId    String
-  phone          String    // mismo identificador que Message.phone (número o chatId @lid)
-  chatId         String?   // chatId real al que responder (respeta @lid)
-  lineId         String?   // número del negocio por el que se habla con este cliente
-  contactId      String?
-  unread         Int       @default(0)
-  lastMessageAt  DateTime  @default(now())
-  lastInboundAt  DateTime?
-  lastInboundId  String?
-  lastPreview    String?
-  lastDirection  String?
+  id            String    @id @default(cuid())
+  workspaceId   String
+  phone         String // mismo identificador que Message.phone (número o chatId @lid)
+  chatId        String? // chatId real al que responder (respeta @lid)
+  lineId        String? // número del negocio por el que se habla con este cliente
+  contactId     String?
+  unread        Int       @default(0)
+  lastMessageAt DateTime  @default(now())
+  lastInboundAt DateTime?
+  lastInboundId String?
+  lastPreview   String?
+  lastDirection String?
   // IA
-  aiStatus       String    @default("idle") // idle | pending | generating | error
-  aiDueAt        DateTime?
-  aiDraft        String?   @db.Text
-  aiDraftAt      DateTime?
-  aiDraftForId   String?   // mensaje entrante al que responde el borrador
-  aiError        String?
-  humanUntil     DateTime? // la IA automática se pausa mientras una persona lleva el chat
+  aiStatus      String    @default("idle") // idle | pending | generating | error
+  aiDueAt       DateTime?
+  aiDraft       String?   @db.Text
+  aiDraftAt     DateTime?
+  aiDraftForId  String? // mensaje entrante al que responde el borrador
+  aiError       String?
+  humanUntil    DateTime? // la IA automática se pausa mientras una persona lleva el chat
   // Seguridad
-  optedOut       Boolean   @default(false)
-  optedOutAt     DateTime?
-  archived       Boolean   @default(false)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  optedOut      Boolean   @default(false)
+  optedOutAt    DateTime?
+  archived      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -291,18 +301,18 @@ model OutboundMessage {
   phone          String
   chatId         String
   body           String    @db.Text
-  origin         String    // auto | manual
+  origin         String // auto | manual
   critical       Boolean   @default(false) // confirma una cita ya creada/cancelada: no se sustituye
   cold           Boolean   @default(false) // conversación iniciada por nosotros (sin mensaje previo del cliente)
-  fingerprint    String?   // texto normalizado para detectar envíos idénticos en masa
+  fingerprint    String? // texto normalizado para detectar envíos idénticos en masa
   status         String    @default("queued") // queued | sending | sent | failed | blocked | canceled
   scheduledAt    DateTime  @default(now())
   attempts       Int       @default(0)
   claimedAt      DateTime? // cuándo lo tomó un proceso para enviarlo
   lastError      String?   @db.Text
-  messageId      String?   // Message creado al enviarse
+  messageId      String? // Message creado al enviarse
   aiDraft        String?   @db.Text // borrador que había al enviar (aprendizaje)
-  replyToId      String?   // entrante al que responde
+  replyToId      String? // entrante al que responde
   userId         String?
   idempotencyKey String?   @unique
   createdAt      DateTime  @default(now())
@@ -323,7 +333,7 @@ model ReplyLearning {
   customerText String   @db.Text // lo último que escribió el cliente
   aiDraft      String?  @db.Text // propuesta de la IA en ese momento (si la había)
   finalText    String   @db.Text // lo que se envió de verdad
-  outcome      String   // accepted | edited | rewritten | written | phone
+  outcome      String // accepted | edited | rewritten | written | phone
   similarity   Float?
   createdAt    DateTime @default(now())
 
@@ -332,12 +342,436 @@ model ReplyLearning {
 
 // Guía de estilo aprendida por negocio (destilada de las respuestas humanas).
 model InboxLearning {
+  id             String    @id @default(cuid())
+  workspaceId    String    @unique
+  styleGuide     String    @default("") @db.Text
+  locked         Boolean   @default(false) // editada a mano: no se reescribe sola
+  pendingSamples Int       @default(0)
+  refreshedAt    DateTime?
+  backfilledAt   DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+// ===========================================================================
+// MÓDULOS DE CONTENIDOS (portados del Hub Negocio Vivo)
+//   · Editorial: calendario de publicaciones para redes con IA (copy,
+//     imágenes, vídeo) y publicación directa en Facebook/Instagram.
+//   · Publicador SEO: artículos de blog para la web WordPress del negocio.
+// Se activan por workspace (Workspace.settings.modules). En el Hub cada
+// agencia gestiona muchos clientes; aquí el negocio ES el workspace, así que
+// hay una única ContentBrand por workspace. Las columnas `clientId` de las
+// tablas portadas apuntan a ContentBrand.id (nombre heredado del Hub para no
+// reescribir la lógica probada).
+// ===========================================================================
+
+// Ficha de marca del negocio para generar contenido: brief, colores, logo,
+// referencias visuales, plantillas, fuentes y guía de estilo.
+model ContentBrand {
   id                 String    @id @default(cuid())
   workspaceId        String    @unique
-  styleGuide         String    @default("") @db.Text
-  locked             Boolean   @default(false) // editada a mano: no se reescribe sola
-  pendingSamples     Int       @default(0)
-  refreshedAt        DateTime?
-  backfilledAt       DateTime?
+  name               String
+  industry           String?
+  website            String?
+  infoGeneral        String?   @db.Text
+  notes              String?   @db.Text
+  brandBrief         String?   @db.Text
+  brandColorPrimary  String    @default("#1F2937")
+  brandColorAccent   String    @default("#2563EB")
+  brandColorText     String    @default("#FFFFFF")
+  logoUrl            String?
+  logoPosition       String    @default("br") // br | bl | tr | tl
+  visualPattern      String    @default("clean")
+  refsFidelity       Int       @default(50) // 0-100
+  competitors        String?   @db.Text
+  dimensionsByFormat Json?
+  referenceImages    Json? // [{ url, type, personName }]
+  patternTemplates   Json? // [{ id, url, name, notes? }]
+  fonts              Json? // [{ url, name, weight }]
+  styleGuideCached   String?   @db.Text
+  styleGuideHash     String?
+  driveMode          String    @default("no_drive_refs")
+  driveRootId        String?
+  driveSubfolders    Json?
+  imageModel         String? // "openai-gpt-image-1" | "freepik-seedream-v4" | null
+  editorialDefaults  Json? // preset del modal «Generar mes con IA»
+  imageGlobalAvoid   String?   @db.Text
+  metaAdAccountId    String?
+  metaPageId         String?
+  metaInstagramId    String?
+  metaLeadEmails     String?
+  createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  editorialPosts        EditorialPost[]
+  editorialMetaProfiles EditorialMetaProfile[]
+  seoBlogSites          SeoBlogSite[]
+}
+
+model EditorialPost {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  clientId          String? // ContentBrand.id
+  title             String
+  content           String?   @db.Text
+  excerpt           String?   @db.Text
+  scheduledFor      DateTime?
+  publishedAt       DateTime?
+  status            String    @default("DRAFT") // DRAFT|REVIEW|APPROVED|SCHEDULED|PUBLISHED|ARCHIVED
+  format            String? // post|reel|story|video|blog|email|carousel
+  networks          String    @default("[]") // JSON array de redes destino
+  thumbnail         String?
+  mediaUrls         String    @default("[]") // JSON array
+  copyByNetwork     Json?
+  hashtags          String?   @db.Text
+  firstComment      String?   @db.Text
+  headlineLines     Json?
+  imagePrompt       String?   @db.Text
+  textPlacement     String?
+  visualPattern     String?
+  patternStrength   Int?
+  patternTemplateId String?
+  aspectRatio       String?
+  metaJson          Json?
+  lastExportedAt    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace     Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client        ContentBrand?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  revisions     EditorialRevision[]
+  mediaVersions EditorialMediaVersion[]
+  publications  EditorialPublication[]
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+  @@index([scheduledFor])
+}
+
+model EditorialMediaVersion {
+  id          String   @id @default(cuid())
+  workspaceId String
+  postId      String
+  kind        String   @default("image") // image|video
+  source      String   @default("generated") // uploaded|generated|edited|resized|video
+  url         String
+  s3Key       String?
+  width       Int?
+  height      Int?
+  prompt      String?  @db.Text
+  metaJson    Json?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post      EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, postId, createdAt])
+  @@index([postId, kind])
+}
+
+// Token de Meta (página de Facebook / cuenta de Instagram) del negocio,
+// cifrado. Se pega desde el Business Manager (como en el Hub).
+model MetaConnection {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  userId         String?
+  accessTokenEnc String    @db.Text
+  metaUserId     String?
+  displayName    String?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  editorialMetaProfiles EditorialMetaProfile[]
+
+  @@unique([workspaceId, metaUserId])
+  @@index([workspaceId])
+}
+
+model EditorialMetaProfile {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  clientId         String // ContentBrand.id
+  metaConnectionId String?
+  label            String
+  facebookPageId   String?
+  facebookPageName String?
+  instagramUserId  String?
+  instagramName    String?
+  active           Boolean   @default(true)
+  lastSyncAt       DateTime?
+  lastError        String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client         ContentBrand           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  metaConnection MetaConnection?        @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
+  publications   EditorialPublication[]
+
+  @@unique([workspaceId, clientId, facebookPageId, instagramUserId])
+  @@index([workspaceId, clientId, active])
+  @@index([metaConnectionId])
+}
+
+model EditorialPublication {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  postId         String
+  profileId      String?
+  network        String // facebook|instagram
+  status         String    @default("PENDING") // PENDING|SCHEDULED|PUBLISHING|PUBLISHED|FAILED|CANCELLED
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+  externalPostId String?
+  externalUrl    String?
+  attempts       Int       @default(0)
+  lastError      String?   @db.Text
+  idempotencyKey String
+  metaJson       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post      EditorialPost         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile   EditorialMetaProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, status, scheduledFor])
+  @@index([postId, network])
+  @@index([profileId])
+}
+
+model EditorialRevision {
+  id            String   @id @default(cuid())
+  postId        String
+  authorId      String?
+  body          String?  @db.Text
+  changeSummary String?
+  createdAt     DateTime @default(now())
+
+  post EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+// Tareas largas en segundo plano (p. ej. «Generar mes con IA»); la UI hace
+// polling del progreso.
+model BackgroundJob {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  userId          String?
+  kind            String // editorial.generate_month | ...
+  status          String    @default("PENDING") // PENDING|RUNNING|COMPLETED|FAILED|CANCELLED
+  progressPct     Int       @default(0)
+  progressMsg     String?
+  request         Json?
+  result          Json?
+  events          Json?
+  systemPrompt    String?   @db.Text
+  userPrompt      String?   @db.Text
+  cancelRequested Boolean   @default(false)
+  errorCode       String?
+  errorMessage    String?   @db.Text
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([workspaceId, kind, status])
+  @@index([workspaceId, createdAt])
+}
+
+// Consumo de IA de los módulos de contenidos (coste estimado por cliente).
+model AiUsage {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  userId       String?
+  projectId    String?
+  feature      String
+  provider     String // anthropic | openai | freepik | elevenlabs
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costMicros   Int      @default(0) // micros de USD
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+// Archivos (imágenes/vídeos generados, referencias) cuando no hay un bucket
+// S3/R2 configurado: se guardan en la base de datos y se sirven por URL
+// firmada desde /api/files.
+model StoredFile {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  workspaceId String?
+  contentType String
+  size        Int
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Exclusión entre instancias para los procesos periódicos (publicador SEO).
+model CronHeartbeat {
+  name       String    @id
+  lastRunAt  DateTime  @default(now())
+  runs       Int       @default(0)
+  leaseOwner String?
+  leaseUntil DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// PUBLICADOR SEO (blog WordPress del negocio)
+// ---------------------------------------------------------------------------
+
+model SeoBlogSite {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  clientId         String // ContentBrand.id
+  siteUrl          String    @default("")
+  wpUser           String    @default("")
+  wpAppPasswordEnc String?   @db.Text
+  language         String    @default("es-ES")
+  location         String    @default("")
+  sector           String    @default("")
+  businessInfo     String?   @db.Text
+  audience         String?   @db.Text
+  tone             String    @default("")
+  brandVoice       String?   @db.Text
+  compliance       String?   @db.Text
+  forbidden        String?   @db.Text
+  ctaText          String    @default("")
+  ctaUrl           String    @default("")
+  competitors      String?   @db.Text
+  wpAuthorId       Int       @default(0)
+  defaultCategory  String    @default("")
+  autoPublish      Boolean   @default(false)
+  leadDays         Int       @default(3)
+  publishTime      String    @default("09:00")
+  wordsMin         Int       @default(1400)
+  wordsMax         Int       @default(2200)
+  imagesPerPost    Int       @default(3)
+  imageAspect      String    @default("widescreen_16_9")
+  visualStyle      String?   @db.Text
+  visualNotes      String?   @db.Text
+  color            String    @default("#C9962E")
+  bridgeDetected   Boolean   @default(false)
+  pairTokenHash    String?
+  pairTokenAt      DateTime?
+  pairedAt         DateTime?
+  siteCache        Json?
+  siteCacheAt      DateTime?
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client    ContentBrand     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  keywords  SeoBlogKeyword[]
+  refs      SeoBlogRef[]
+  posts     SeoBlogPost[]
+
+  @@unique([workspaceId, clientId])
+  @@index([workspaceId, active])
+}
+
+model SeoBlogKeyword {
+  id          String    @id @default(cuid())
+  workspaceId String
+  siteId      String
+  keyword     String
+  kwType      String    @default("principal") // principal|secundaria|longtail
+  intent      String    @default("")
+  priority    Int       @default(2) // 1 alta · 2 media · 3 baja
+  volume      Int?
+  notes       String?   @db.Text
+  serp        Json?
+  serpAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  site SeoBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, siteId])
+}
+
+model SeoBlogRef {
+  id          String   @id @default(cuid())
+  workspaceId String
+  siteId      String
+  s3Key       String
+  width       Int?
+  height      Int?
+  label       String   @default("")
+  createdAt   DateTime @default(now())
+
+  site SeoBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, siteId])
+}
+
+model SeoBlogPost {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  siteId            String
+  keywordId         String?
+  keyword           String    @default("")
+  title             String
+  angle             String?   @db.Text
+  intent            String    @default("")
+  funnel            String    @default("")
+  secondaryKeywords Json?
+  rationale         String?   @db.Text
+  notes             String?   @db.Text
+  // propuesta|planificada|en_cola|generando|revision|aprobada|programada|publicada|error|descartada
+  status            String    @default("propuesta")
+  step              String    @default("")
+  publishAt         DateTime?
+  research          Json?
+  brief             Json?
+  content           String?   @db.Text
+  metaTitle         String    @default("")
+  metaDescription   String    @default("")
+  slug              String    @default("")
+  excerpt           String?   @db.Text
+  faq               Json?
+  schemaJson        Json?
+  images            Json?
+  category          String    @default("")
+  tags              Json?
+  seoScore          Int       @default(0)
+  seoReport         Json?
+  fixPasses         Int       @default(0)
+  remoteId          Int       @default(0)
+  remoteUrl         String    @default("")
+  error             String?   @db.Text
+  attempts          Int       @default(0)
+  lockedUntil       DateTime?
+  createdById       String?
+  generatedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  site SeoBlogSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, siteId, status])
+  @@index([status, publishAt])
+}
+
+model SeoBlogLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  siteId      String?
+  postId      String?
+  level       String   @default("info")
+  message     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([postId, createdAt])
+  @@index([workspaceId, createdAt])
 }
