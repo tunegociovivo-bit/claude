@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicForWorkspace } from "@/lib/ai/anthropic-client";
 import { prisma } from "@/lib/prisma";
 import {
   appointmentsOfDay,
@@ -405,7 +406,8 @@ export async function runSoniaWhatsappAgent(opts: {
   const tools =
     mode === "suggest" ? SONIA_TOOL_SCHEMAS.filter((t) => SONIA_READONLY_TOOLS.has(t.name)) : SONIA_TOOL_SCHEMAS;
   const model = soniaWhatsappModel();
-  const anthropic = new Anthropic({ timeout: 25_000, maxRetries: 0 });
+  // Clave del negocio si el operador le ha puesto una; si no, la de Negocio Vivo.
+  const anthropic = await getAnthropicForWorkspace(workspaceId, { timeout: 25_000, maxRetries: 0 });
 
   let response = await anthropic.messages.create({
     model,

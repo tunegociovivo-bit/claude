@@ -4,6 +4,7 @@ import { isSameOrigin, requireOperator } from "@/lib/auth";
 import { normalizeAdminNotes, normalizeClientName } from "@/lib/admin/usage";
 import { CONTENT_MODULES, setModules, type EnabledModules } from "@/lib/modules";
 import { patchWorkspaceSettings } from "@/lib/content/settings";
+import { ApiKeyValidationError, apiKeysStatus, applyApiKeysPatch } from "@/lib/api-keys";
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try { await requireOperator(); } catch { return NextResponse.json({ error: "No autorizado" }, { status: 403 }); }
@@ -25,9 +26,21 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (changesAiLimit && aiLimit !== null && (!Number.isFinite(aiLimit) || aiLimit < 0 || aiLimit > 100000)) {
     return NextResponse.json({ error: "Límite de IA no válido" }, { status: 400 });
   }
-  if (!changesBlock && !changesNotes && !changesName && !changesModules && !changesAiLimit) return NextResponse.json({ error: "No hay cambios válidos" }, { status: 400 });
+  // Claves de API propias del cliente: { anthropic: "sk-…" } guarda; null/"" vuelve a la de Negocio Vivo.
+  const changesApiKeys = Boolean(body.apiKeys && typeof body.apiKeys === "object" && !Array.isArray(body.apiKeys));
+  if (!changesBlock && !changesNotes && !changesName && !changesModules && !changesAiLimit && !changesApiKeys) return NextResponse.json({ error: "No hay cambios válidos" }, { status: 400 });
   if (!(await prisma.workspace.findUnique({ where: { id: params.id }, select: { id: true } }))) {
     return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+  }
+  let apiKeys: ReturnType<typeof apiKeysStatus> | undefined;
+  if (changesApiKeys) {
+    try {
+      const settings = await patchWorkspaceSettings(params.id, (settings) => { applyApiKeysPatch(settings, body.apiKeys); });
+      apiKeys = apiKeysStatus(settings);
+    } catch (error) {
+      if (error instanceof ApiKeyValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
+      throw error;
+    }
   }
   const modules = changesModules ? await setModules(params.id, modulesPatch) : undefined;
   if (changesAiLimit) {
@@ -36,7 +49,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       else settings.contentAiMonthlyLimitUsd = aiLimit;
     });
   }
-  if (!changesBlock && !changesNotes && !changesName) return NextResponse.json({ ok: true, modules });
+  if (!changesBlock && !changesNotes && !changesName) return NextResponse.json({ ok: true, modules, apiKeys });
   const workspace = await prisma.workspace.update({
     where: { id: params.id },
     data: {
@@ -46,5 +59,5 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     },
     select: { id: true, name: true, isBlocked: true, adminNotes: true },
   });
-  return NextResponse.json({ ok: true, workspace, modules });
+  return NextResponse.json({ ok: true, workspace, modules, apiKeys });
 }

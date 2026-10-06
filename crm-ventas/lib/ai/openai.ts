@@ -1,15 +1,16 @@
 /**
- * OpenAI (imágenes gpt-image y chat ligero). La clave la pone Negocio Vivo en
- * el entorno (OPENAI_API_KEY).
+ * OpenAI (imágenes gpt-image y chat ligero). Clave propia del cliente (/admin)
+ * o la de Negocio Vivo del entorno (OPENAI_API_KEY).
  */
 import { AIDisabledError } from "./anthropic";
+import { getApiKey } from "@/lib/api-keys";
 
-export async function getOpenAiKeyForWorkspace(_workspaceId: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new AIDisabledError("La generación de imágenes con OpenAI no está configurada (falta OPENAI_API_KEY). Avisa a Negocio Vivo.");
+export async function getOpenAiKeyForWorkspace(workspaceId: string): Promise<string> {
+  const { key } = await getApiKey(workspaceId, "openai");
+  if (!key) {
+    throw new AIDisabledError("La generación de imágenes con OpenAI no está configurada (falta la clave de OpenAI). Avisa a Negocio Vivo.");
   }
-  return apiKey;
+  return key;
 }
 
 export async function openaiChatCompletion(opts: {

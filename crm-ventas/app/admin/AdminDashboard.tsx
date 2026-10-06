@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { Ban, Bot, Building2, CalendarRange, CheckCircle2, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
+import { Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, KeyRound, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
+
+type KeySource = "client" | "negociovivo" | "none";
+type KeyStatus = { source: KeySource; masked: string; negocioVivoAvailable: boolean };
+type ApiProviderInfo = { id: string; label: string; usedFor: string; placeholder: string; negocioVivoAvailable: boolean };
+type ClientApiKeys = { keys: Record<string, KeyStatus>; elevenlabsVoiceId: string };
 
 type Client = {
   id: string; name: string; slug: string; email: string; isBlocked: boolean; adminNotes: string;
@@ -14,6 +19,7 @@ type Client = {
   modules: { editorial: boolean; seo: boolean };
   contentAiCostMonthly: number;
   contentAiLimitUsd: number;
+  apiKeys?: ClientApiKeys;
 };
 
 const MODULES: Array<{ key: "editorial" | "seo"; label: string; hint: string; icon: typeof Newspaper }> = [
@@ -24,6 +30,7 @@ type Overview = {
   globalPrompt: string;
   currency: string;
   rates: { callMinuteRate: number; whatsappMessageRate: number };
+  apiProviders?: ApiProviderInfo[];
   clients: Client[];
 };
 
@@ -200,6 +207,7 @@ export default function AdminDashboard() {
                     </div>
                   )}
                 </div>
+                <ApiKeysPanel client={client} providers={data?.apiProviders ?? []} onSaved={load} onNotice={setNotice} />
                 <p className="mt-3 text-xs text-slate-400">Voz {money(client.callCost)} · WhatsApp {money(client.whatsappCost)}</p>
                 <p className="mt-2 text-xs text-slate-400">Hoy: {client.callsToday} llamadas, {client.minutesToday} min, {client.whatsappToday} WhatsApp y {money(client.totalCostToday)} de coste.</p>
                 <p className="mt-1 text-xs text-slate-400">Coste acumulado estimado: {money(client.totalCost)}</p>
@@ -215,5 +223,151 @@ export default function AdminDashboard() {
         </section>
       </div>
     </main>
+  );
+}
+
+const SOURCE_LABEL: Record<KeySource, string> = { client: "propia del cliente", negociovivo: "de Negocio Vivo", none: "sin clave" };
+
+/**
+ * Claves de API del cliente. Sin clave propia, el cliente usa la de Negocio Vivo
+ * (variables del servidor). Las claves se guardan cifradas y nunca se vuelven a
+ * mostrar: solo su máscara.
+ */
+function ApiKeysPanel({ client, providers, onSaved, onNotice }: {
+  client: Client; providers: ApiProviderInfo[]; onSaved: () => Promise<void>; onNotice: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [voice, setVoice] = useState(client.apiKeys?.elevenlabsVoiceId ?? "");
+  const [busy, setBusy] = useState("");
+  const [tests, setTests] = useState<Record<string, { ok: boolean; message: string; source?: KeySource }>>({});
+  const [error, setError] = useState("");
+  useEffect(() => { setVoice(client.apiKeys?.elevenlabsVoiceId ?? ""); }, [client.apiKeys?.elevenlabsVoiceId]);
+  if (!providers.length) return null;
+  const status = (id: string): KeyStatus => client.apiKeys?.keys?.[id] ?? { source: "none", masked: "", negocioVivoAvailable: false };
+  const own = providers.filter((p) => status(p.id).source === "client").length;
+  const missing = providers.filter((p) => status(p.id).source === "none").length;
+
+  async function patch(apiKeys: Record<string, string | null>) {
+    const response = await fetch(`/api/v1/admin/clients/${client.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKeys }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "No se pudo guardar la clave.");
+  }
+
+  async function test(provider: ApiProviderInfo) {
+    setBusy(`test:${provider.id}`);
+    try {
+      const response = await fetch(`/api/v1/admin/clients/${client.id}/api-keys/test`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: provider.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      setTests((current) => ({ ...current, [provider.id]: response.ok ? result : { ok: false, message: result.error || "No se pudo comprobar." } }));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function save(provider: ApiProviderInfo) {
+    const value = (inputs[provider.id] ?? "").trim();
+    if (!value) return;
+    setBusy(`save:${provider.id}`); setError("");
+    try {
+      await patch({ [provider.id]: value });
+      setInputs((current) => ({ ...current, [provider.id]: "" }));
+      await onSaved();
+      onNotice(`Clave de ${provider.label} guardada para ${client.name}.`);
+      setBusy("");
+      await test(provider);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function remove(provider: ApiProviderInfo) {
+    const fallback = provider.negocioVivoAvailable ? "Volverá a usar la de Negocio Vivo." : "No hay clave de Negocio Vivo: el servicio dejará de funcionar para este cliente.";
+    if (!window.confirm(`¿Quitar la clave propia de ${provider.label} de ${client.name}? ${fallback}`)) return;
+    setBusy(`remove:${provider.id}`); setError("");
+    try {
+      await patch({ [provider.id]: null });
+      setTests((current) => { const next = { ...current }; delete next[provider.id]; return next; });
+      await onSaved();
+      onNotice(`Clave propia de ${provider.label} quitada para ${client.name}.`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveVoice() {
+    setBusy("voice"); setError("");
+    try {
+      await patch({ elevenlabsVoiceId: voice.trim() });
+      await onSaved();
+      onNotice(`Voz de ElevenLabs de ${client.name} guardada.`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl bg-slate-50 ring-1 ring-slate-100">
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+        <KeyRound size={15} className="shrink-0 text-slate-500" />
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Claves de API</span>
+        <span className="ml-auto truncate text-xs text-slate-500">
+          {own ? `${own} propia${own === 1 ? "" : "s"}` : "Usa las de Negocio Vivo"}{missing ? <span className="text-red-600"> · {missing} sin clave</span> : null}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="space-y-2 px-3 pb-3">
+          <p className="text-xs text-slate-500">Si un servicio no tiene clave propia, el cliente usa la de Negocio Vivo. Las claves se guardan cifradas y no se vuelven a mostrar. Si el cliente paga su propia IA, pon su límite de IA a 0.</p>
+          {providers.map((provider) => {
+            const st = status(provider.id);
+            const result = tests[provider.id];
+            return (
+              <div key={provider.id} className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-slate-800">{provider.label}</p>
+                  {st.source === "client" ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Propia · <span className="font-mono">{st.masked}</span></span>
+                    : st.source === "negociovivo" ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">De Negocio Vivo</span>
+                      : <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">Sin clave</span>}
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500">{provider.usedFor}</p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <input type="password" autoComplete="off" spellCheck={false} aria-label={`Clave de ${provider.label} de ${client.name}`}
+                    className="input min-w-0 flex-1 py-1.5 font-mono text-xs" value={inputs[provider.id] ?? ""}
+                    onChange={(event) => setInputs((current) => ({ ...current, [provider.id]: event.target.value }))}
+                    onKeyDown={(event) => { if (event.key === "Enter") void save(provider); }}
+                    placeholder={st.source === "client" ? "Nueva clave para cambiarla" : provider.placeholder} />
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" className="btn-primary min-h-8 flex-1 py-1 sm:flex-none" disabled={!(inputs[provider.id] ?? "").trim() || Boolean(busy)} onClick={() => save(provider)}>{busy === `save:${provider.id}` ? "Guardando…" : "Guardar"}</button>
+                    <button type="button" className="btn-ghost min-h-8 flex-1 py-1 sm:flex-none" disabled={st.source === "none" || Boolean(busy)} onClick={() => test(provider)}>{busy === `test:${provider.id}` ? "Probando…" : "Probar"}</button>
+                    {st.source === "client" && <button type="button" className="btn-ghost min-h-8 flex-1 py-1 !text-red-600 sm:flex-none" disabled={Boolean(busy)} onClick={() => remove(provider)}>{busy === `remove:${provider.id}` ? "Quitando…" : "Quitar"}</button>}
+                  </div>
+                </div>
+                {result && <p role="status" className={`mt-1.5 text-xs ${result.ok ? "text-emerald-700" : "text-red-600"}`}>{result.ok ? "✓" : "✗"} {result.message}{result.source ? ` (clave ${SOURCE_LABEL[result.source]})` : ""}</p>}
+                {provider.id === "elevenlabs" && (
+                  <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-2 sm:flex-row sm:items-center">
+                    <label className="text-xs text-slate-500 sm:w-28" htmlFor={`voice-${client.id}`}>ID de voz (opcional)</label>
+                    <input id={`voice-${client.id}`} className="input min-w-0 flex-1 py-1.5 font-mono text-xs" value={voice} maxLength={64} onChange={(event) => setVoice(event.target.value)} placeholder={st.source === "client" ? "Voz de su cuenta de ElevenLabs" : "Vacío = voz de Negocio Vivo"} />
+                    <button type="button" className="btn-ghost min-h-8 py-1" disabled={Boolean(busy) || voice.trim() === (client.apiKeys?.elevenlabsVoiceId ?? "")} onClick={saveVoice}>{busy === "voice" ? "Guardando…" : "Guardar voz"}</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+        </div>
+      )}
+    </div>
   );
 }
