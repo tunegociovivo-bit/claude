@@ -6094,6 +6094,27 @@ model BubuiReferralClick {
   createdAt DateTime @default(now())
 
   @@index([ipHash, createdAt])
+  @@index([code, createdAt])
+}
+
+/// Acción de un cliente que NO queda registrada en ninguna otra tabla (compartir
+/// una oferta o su enlace de invitación, iniciar sesión…). El historial de
+/// actividad del panel admin combina estos eventos con los que ya se deducen de
+/// compras, cupones, reseñas, retos, mesas y citas (lib/bubui/activity.ts).
+model BubuiActivityEvent {
+  id         String   @id @default(cuid())
+  customerId String
+  type       String // offer_shared | referral_shared | business_shared | challenge_reminder_shared | login
+  businessId String?
+  offerId    String?
+  channel    String? // whatsapp | share_sheet | copy
+  platform   String? // web | android | ios
+  appBuild   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([type, createdAt])
 }
 
 model BubuiCustomDeal {

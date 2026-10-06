@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Linking, Share, Platform } from "react-native";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { API_BASE } from "../lib/api";
+import { API_BASE, api } from "../lib/api";
 import { BusinessIcon } from "../components/BusinessIcon";
 import { businessContactLinks, businessDiscountCopy, couponExpiryCopy, resolveBusinessHero } from "../lib/business-detail-presentation";
 import { FadeIn } from "../components/FadeIn";
@@ -96,20 +96,27 @@ export function Negocio() {
     // en Android evita los problemas de visibilidad de paquetes de canOpenURL.
     try {
       await Linking.openURL(`whatsapp://send?text=${encodeURIComponent(msg)}`);
+      if (!b.isPromo) void api.trackShare?.("business_shared", { businessId: b.id, channel: "whatsapp" });
       return;
     } catch {}
     try {
-      await Share.share({ message: msg, url: webUrl });
+      const res = await Share.share({ message: msg, url: webUrl });
+      if (!b.isPromo && res?.action !== Share.dismissedAction) {
+        void api.trackShare?.("business_shared", { businessId: b.id, channel: "share_sheet" });
+      }
     } catch {}
   }
 
   async function share() {
     const pct = discount ? ` Tienen hasta -${discount}% con Bubui.` : "";
     try {
-      await Share.share({
+      const res = await Share.share({
         message: `Mira ${b.name} en Bubui.${pct} ${webUrl}`,
         url: webUrl // iOS usa este campo aparte
       });
+      if (!b.isPromo && res?.action !== Share.dismissedAction) {
+        void api.trackShare?.("business_shared", { businessId: b.id, channel: "share_sheet" });
+      }
     } catch {}
   }
 
