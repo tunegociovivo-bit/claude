@@ -165,6 +165,7 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
 
       {sub === "negocio" && (
         <Card>
+          <AutofillBar site={site} form={form} setForm={setForm} />
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {txt("sector", "Sector / actividad", { ph: "Clínica de injerto capilar" })}
             {txt("location", "Ubicación / zona de servicio", { ph: "Marbella y Costa del Sol" })}
@@ -205,6 +206,54 @@ function SiteDetail({ nav, id, sub }: { nav: Nav; id: string; sub: string }) {
           </div>
           {saveBar()}
         </Card>
+      )}
+    </div>
+  );
+}
+
+/** Analiza la web del cliente con IA y rellena la ficha (el usuario revisa y guarda). */
+function AutofillBar({ site, form, setForm }: { site: Site; form: Record<string, any>; setForm: (f: (x: Record<string, any>) => Record<string, any>) => void }) {
+  const [url, setUrl] = useState<string>(site.siteUrl || "");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<any>(null);
+  useEffect(() => { if (!url && site.siteUrl) setUrl(site.siteUrl); }, [site.siteUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filled = (v: any) => (typeof v === "string" ? v.trim().length > 0 : false);
+  return (
+    <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-[260px]">
+          <label className="block text-xs font-medium text-slate-600 mb-1">Rellenar la ficha analizando la web del cliente</label>
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.cliente.com" className={inputCls} />
+        </div>
+        <Btn busy={busy} onClick={async () => {
+          setBusy(true);
+          setRes(null);
+          try {
+            const r = await api(`/sites/${site.id}/autofill`, { method: "POST", body: { url } });
+            if (!r.ok) {
+              setRes({ ok: false, error: r.error });
+            } else {
+              const keys = ["sector", "location", "language", "businessInfo", "audience", "tone", "brandVoice", "ctaText", "ctaUrl", "compliance", "forbidden", "competitors"];
+              setForm((f) => {
+                const n = { ...f };
+                for (const k of keys) if (filled(r[k])) n[k] = r[k];
+                if (!f.siteUrl && r.siteUrl) n.siteUrl = r.siteUrl;
+                return n;
+              });
+              setRes({ ok: true, summary: r.summary, pages: r.pagesRead?.length ?? 0, note: r.note });
+            }
+          } catch (e: any) {
+            setRes({ ok: false, error: e.message });
+          } finally {
+            setBusy(false);
+          }
+        }}><Sparkles className="h-4 w-4" /> Analizar la web y rellenar</Btn>
+      </div>
+      <p className="text-xs text-slate-500 mt-2">La IA lee la portada y las páginas clave (sobre nosotros, servicios, contacto, legal) y rellena los campos solo con datos que aparecen en la web. Revisa el resultado y pulsa «Guardar cambios».</p>
+      {res && (
+        <div className={clsx("mt-3 rounded-lg p-3 text-sm", res.ok ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200")}>
+          {res.ok ? <>✅ Ficha rellenada a partir de {res.pages} página(s). {res.summary}{res.note ? <span className="text-xs text-slate-600"> ({res.note})</span> : null} <b>Revisa y pulsa «Guardar cambios».</b></> : <>❌ {res.error}</>}
+        </div>
       )}
     </div>
   );
