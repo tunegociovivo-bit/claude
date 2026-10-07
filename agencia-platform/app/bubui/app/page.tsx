@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
+import { trackBubuiShare } from "@/app/bubui/lib/trackActivity";
 import { applyPendingWebReferral, rememberWebReferral } from "@/lib/bubui/web-referral";
 import { WebFriendChallenge } from "./WebFriendChallenge";
 
@@ -576,6 +577,7 @@ function OffersFeed({ customer, coords, onLocate }: { customer: Customer; coords
       if (navigator.share) {
         try {
           await navigator.share({ title: `Oferta en ${o.business.name}`, text, url });
+          trackBubuiShare("offer_shared", { offerId: o.offerId, channel: "share_sheet" });
           return;
         } catch {
           // El usuario canceló el share nativo → no hacemos fallback.
@@ -585,10 +587,12 @@ function OffersFeed({ customer, coords, onLocate }: { customer: Customer; coords
       // Fallback sin Web Share API: copia el enlace al portapapeles.
       try {
         await navigator.clipboard.writeText(`${text} ${url}`);
+        trackBubuiShare("offer_shared", { offerId: o.offerId, channel: "copy" });
         setShareToast("Enlace copiado. ¡Pégalo y compártelo!");
         setTimeout(() => setShareToast(null), 2500);
       } catch {
         // Último recurso: abre WhatsApp Web.
+        trackBubuiShare("offer_shared", { offerId: o.offerId, channel: "whatsapp" });
         window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, "_blank");
       }
     } finally {

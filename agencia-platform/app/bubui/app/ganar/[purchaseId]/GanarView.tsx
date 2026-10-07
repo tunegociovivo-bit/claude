@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
+import { trackBubuiShare } from "@/app/bubui/lib/trackActivity";
 
 type Action = { key: "share" | "review" | "follow" | "photo"; label: string; pct: number; done: boolean; blocked: boolean };
 type Data = {
@@ -63,6 +64,7 @@ export default function GanarView({ purchaseId }: { purchaseId: string }) {
 
   function shareWhatsApp() {
     const text = `Te recomiendo Bubui: descuentos en negocios de mi zona. Descárgala 👉 ${window.location.origin}/bubui/app`;
+    trackBubuiShare("referral_shared", { businessId: data?.business.id, channel: "whatsapp" });
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   }
 

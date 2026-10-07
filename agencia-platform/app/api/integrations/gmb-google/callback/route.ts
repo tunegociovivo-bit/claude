@@ -39,9 +39,10 @@ export async function GET(req: NextRequest) {
     const tokens = await exchangeGbpCode(code, req.nextUrl.origin);
     if (!tokens.refresh_token) return done("no_refresh");
     const business = hasBusinessScope(tokens.scope);
-    const email = emailFromIdToken(tokens.id_token);
+    const email = emailFromIdToken(tokens.id_token) || "cuenta-sin-email";
+    // Una fila por cuenta de Google: conectar otra cuenta AÑADE (no sustituye) la anterior.
     await prisma.gmbGoogleConnection.upsert({
-      where: { workspaceId: state.workspaceId },
+      where: { workspaceId_email: { workspaceId: state.workspaceId, email } },
       create: {
         workspaceId: state.workspaceId,
         refreshTokenEnc: encryptSecret(tokens.refresh_token),

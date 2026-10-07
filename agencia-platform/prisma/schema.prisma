@@ -4626,6 +4626,7 @@ model GmbClient {
   //   execute_safe    → ejecuta SOLO acciones internas seguras; lo externo sensible sigue pidiendo aprobación
   autopilotMode String   @default("suggest_only")
   connectionId  String   @default("") // override de connection de Make
+  googleConnectionId String @default("") // GmbGoogleConnection (OAuth propio) con la que se vinculó la ficha
   frequency     Int      @default(15) // minutos
   scenarioId    String   @default("") // id del escenario de Make
   status        String   @default("active") // active|paused
@@ -5060,9 +5061,10 @@ model GmbAction {
 
 // Conexión Google DEDICADA a Business Profile (scope business.manage). Separada de GoogleAdsConnection
 // para NO mezclar scopes. refreshToken cifrado; el token de acceso se refresca en servidor.
+// Cuentas de Google conectadas con OAuth propio del Hub (una por cuenta de Google; varias por workspace).
 model GmbGoogleConnection {
   id               String    @id @default(cuid())
-  workspaceId      String    @unique
+  workspaceId      String
   refreshTokenEnc  String    @db.Text
   email            String    @default("")
   scope            String    @default("")
@@ -5073,6 +5075,9 @@ model GmbGoogleConnection {
   createdById      String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
 }
 
 // Estado OAuth de un solo uso (anti-replay). Se consume en el callback y expira.
@@ -6094,6 +6099,27 @@ model BubuiReferralClick {
   createdAt DateTime @default(now())
 
   @@index([ipHash, createdAt])
+  @@index([code, createdAt])
+}
+
+/// Acción de un cliente que NO queda registrada en ninguna otra tabla (compartir
+/// una oferta o su enlace de invitación, iniciar sesión…). El historial de
+/// actividad del panel admin combina estos eventos con los que ya se deducen de
+/// compras, cupones, reseñas, retos, mesas y citas (lib/bubui/activity.ts).
+model BubuiActivityEvent {
+  id         String   @id @default(cuid())
+  customerId String
+  type       String // offer_shared | referral_shared | business_shared | challenge_reminder_shared | login
+  businessId String?
+  offerId    String?
+  channel    String? // whatsapp | share_sheet | copy
+  platform   String? // web | android | ios
+  appBuild   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([type, createdAt])
 }
 
 model BubuiCustomDeal {

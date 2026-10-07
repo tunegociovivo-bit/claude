@@ -91,7 +91,7 @@ describe("authorize url + scope", () => {
   it("incluye scope business.manage y prompt=consent, sin mezclar scopes", () => {
     const url = new URL(gbpAuthorizeUrl("STATE123"));
     expect(url.searchParams.get("scope")).toBe(GBP_SCOPE);
-    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("false");
     expect(url.searchParams.get("state")).toBe("STATE123");

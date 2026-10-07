@@ -230,7 +230,28 @@ export async function publishReplyViaMake(opts: {
   reply: string;
 }): Promise<{ sentToGoogle: boolean; error?: string }> {
   const cfg = await getGmbConfig(opts.workspaceId);
-  if (!cfg.replyWebhookUrl) return { sentToGoogle: false };
+  if (!cfg.replyWebhookUrl) {
+    // Sin webhook de respuestas: se publica directamente con la cuenta de Google de la ficha
+    // (OAuth del Hub o su conexión de Make vía pasarela).
+    try {
+      const { gmbLocationPath, gmbReplyReview, gbpSourceForClient } = await import("@/lib/integrations/gmb");
+      const path = gmbLocationPath(opts.accountId, opts.locationId);
+      if (!path || !opts.reviewId) return { sentToGoogle: false, error: "ficha sin cuenta/ubicación de Google" };
+      const client = await prisma.gmbClient.findFirst({
+        where: { workspaceId: opts.workspaceId, locationId: { in: [path, path.split("/").pop() as string] } },
+        select: { connectionId: true, googleConnectionId: true }
+      });
+      await gmbReplyReview({
+        workspaceId: opts.workspaceId,
+        reviewName: `${path}/reviews/${opts.reviewId}`,
+        comment: opts.reply,
+        source: client ? gbpSourceForClient(client) : null
+      });
+      return { sentToGoogle: true };
+    } catch (e: any) {
+      return { sentToGoogle: false, error: String(e?.message ?? e).slice(0, 200) };
+    }
+  }
   try {
     const r = await fetch(cfg.replyWebhookUrl, {
       method: "POST",

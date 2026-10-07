@@ -209,6 +209,33 @@ export const api = {
     }
     return { ok: true };
   },
+  /** Registra en el historial del panel admin que el cliente ha compartido
+   *  algo (oferta, enlace de invitación, ficha de un comercio, reto).
+   *  Best-effort y DESACOPLADA de la auth, como traceDeal: un fallo o un 401
+   *  aquí nunca cierra la sesión ni interrumpe el compartir. */
+  trackShare: async (
+    type: "offer_shared" | "referral_shared" | "business_shared" | "challenge_link_shared" | "challenge_reminder_shared",
+    extra: { offerId?: string | null; businessId?: string | null; channel?: "whatsapp" | "share_sheet" | "copy" } = {}
+  ) => {
+    if (!auth) return;
+    try {
+      await fetch(`${API_BASE}/api/bubui/activity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          customerId: auth.customerId,
+          type,
+          platform: Platform.OS === "ios" ? "ios" : "android",
+          ...(APP_BUILD ? { appBuild: APP_BUILD } : {}),
+          ...(extra.offerId ? { offerId: extra.offerId } : {}),
+          ...(extra.businessId ? { businessId: extra.businessId } : {}),
+          ...(extra.channel ? { channel: extra.channel } : {})
+        })
+      });
+    } catch {
+      /* historial best-effort: se ignora cualquier fallo */
+    }
+  },
   // Stats vivas del cliente (total ahorrado, compras…). El total guardado en
   // la sesión local se queda obsoleto en cuanto el negocio confirma una
   // compra; esto lo refresca.

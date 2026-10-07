@@ -23,6 +23,8 @@
  * arrastrar el prefijo.
  */
 
+import { GBP_DOMAINS, defaultMakeConnId, gbpViaMake } from "@/lib/gmb/make-gateway";
+import { makeListConnections } from "@/lib/integrations/make";
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/ai/crypto";
 
@@ -78,8 +80,12 @@ async function refreshAccessToken(refreshToken: string, clientId: string, client
  * cae a la conexión legacy de Google Ads. Detecta permisos revocados/caducados
  * y los marca en la conexión para que la UI lo muestre honestamente.
  */
-async function getAccessToken(workspaceId: string): Promise<string> {
-  const gbp = await prisma.gmbGoogleConnection.findUnique({ where: { workspaceId } });
+async function getAccessToken(workspaceId: string, connectionId?: string | null): Promise<string> {
+  const gbp = await prisma.gmbGoogleConnection.findFirst({
+    where: { workspaceId, revokedAt: null, ...(connectionId ? { id: connectionId } : {}) },
+    orderBy: { updatedAt: "desc" }
+  });
+  if (connectionId && !gbp) throw new Error("La cuenta de Google de esta ficha ya no está conectada. Vuelve a conectarla.");
   if (gbp && !gbp.revokedAt) {
     const refreshToken = decryptSecret(gbp.refreshTokenEnc);
     if (!refreshToken) throw new Error("refresh token Google inválido");
@@ -91,7 +97,7 @@ async function getAccessToken(workspaceId: string): Promise<string> {
     } catch (e: any) {
       if (String(e?.message) === "GMB_REVOKED") {
         await prisma.gmbGoogleConnection.updateMany({
-          where: { workspaceId },
+          where: { workspaceId, id: gbp.id },
           data: { revokedAt: new Date(), lastError: "revoked_or_expired" },
         }).catch(() => {});
         throw new Error("La conexión de Google se revocó o caducó. Vuelve a conectar con Google.");
@@ -180,21 +186,105 @@ async function resolveLocation(opts: {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// ORIGEN DE LA CONEXIÓN (cuenta de Google) + RESPALDO VÍA MAKE
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Cuenta de Google con la que se habla con Google:
+ *  - hub:<id>  → OAuth propio del Hub (GmbGoogleConnection). Necesita que Google haya aprobado
+ *                el acceso del proyecto a las APIs de Perfiles de Empresa.
+ *  - make:<id> → conexión «Google Business Profile» de Make (app de Google ya aprobada), usada a
+ *                través de un escenario pasarela.
+ */
+export type GbpSource = { kind: "hub"; connectionId?: string | null } | { kind: "make"; connId: number };
+
+export function parseGbpSource(s?: string | null): GbpSource | null {
+  const v = String(s ?? "").trim();
+  if (v.startsWith("make:") && Number(v.slice(5)) > 0) return { kind: "make", connId: Number(v.slice(5)) };
+  if (v.startsWith("hub:")) return { kind: "hub", connectionId: v.slice(4) || null };
+  return null;
+}
+
+export const gbpSourceKey = (s: GbpSource) => (s.kind === "make" ? `make:${s.connId}` : `hub:${s.connectionId ?? ""}`);
+
+/** Origen de una ficha vinculada: su cuenta OAuth del Hub, su conexión de Make o el de por defecto. */
+export function gbpSourceForClient(c: { googleConnectionId?: string | null; connectionId?: string | null }): GbpSource | null {
+  if (c.googleConnectionId) return { kind: "hub", connectionId: c.googleConnectionId };
+  const n = Number(c.connectionId);
+  if (Number.isFinite(n) && n > 0) return { kind: "make", connId: n };
+  return null;
+}
+
+const DOMAIN = { accounts: GBP_DOMAINS.accounts, info: GBP_DOMAINS.info, v4: GBP_DOMAINS.v4 } as const;
+
+/**
+ * Llamada a una API de Perfiles de Empresa con el origen indicado. `path` incluye la versión
+ * (/v1/… o /v4/…). Con OAuth propio, si Google lo rechaza (p. ej. cuota 0 del proyecto), se
+ * repite con la conexión de Make de la MISMA cuenta de Google (o la de por defecto si no se
+ * indicó origen).
+ */
+export async function gbpCall(
+  workspaceId: string,
+  source: GbpSource | null | undefined,
+  req: { api: keyof typeof DOMAIN; method?: string; path: string; body?: unknown }
+): Promise<any> {
+  const domain = DOMAIN[req.api];
+  const viaMake = (connId: number | null) =>
+    gbpViaMake(workspaceId, { domain, method: req.method ?? "GET", url: req.path, body: req.body, connId });
+  if (source?.kind === "make") return viaMake(source.connId);
+  try {
+    const token = await getAccessToken(workspaceId, source?.connectionId ?? null);
+    return await gFetch(token, `${domain}${req.path}`, {
+      method: req.method ?? "GET",
+      ...(req.body !== undefined ? { body: JSON.stringify(req.body) } : {})
+    });
+  } catch (e) {
+    let connId: number | null = null;
+    if (source?.kind === "hub" && source.connectionId) {
+      const row = await prisma.gmbGoogleConnection.findFirst({ where: { workspaceId, id: source.connectionId }, select: { email: true } });
+      if (row?.email) {
+        const conns = await makeListConnections(workspaceId, ["google-my-business2"]).catch(() => []);
+        connId = conns.find((c) => c.email.toLowerCase() === row.email.toLowerCase())?.id ?? null;
+      }
+    } else {
+      connId = await defaultMakeConnId(workspaceId).catch(() => null);
+    }
+    if (!connId) throw e;
+    try {
+      return await viaMake(connId);
+    } catch (e2) {
+      throw new Error(`${(e as Error).message} · Respaldo vía Make: ${(e2 as Error).message}`);
+    }
+  }
+}
+
+/** ¿Funciona el OAuth propio del Hub con Google (proyecto aprobado)? */
+export async function gmbDirectAccess(workspaceId: string, connectionId?: string | null): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const token = await getAccessToken(workspaceId, connectionId ?? null);
+    await gFetch(token, `${ACCOUNTS_BASE}/accounts?pageSize=1`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
 // CUENTAS + UBICACIONES
 // ────────────────────────────────────────────────────────────────────
 
-export async function gmbListAccounts(workspaceId: string): Promise<GmbAccountSummary[]> {
+export async function gmbListAccounts(workspaceId: string, source?: GbpSource | null): Promise<GmbAccountSummary[]> {
   const now = Date.now();
-  const cached = accountsCache.get(workspaceId);
+  const ck = `${workspaceId}|${source ? gbpSourceKey(source) : ""}`;
+  const cached = accountsCache.get(ck);
   if (cached && cached.freshUntil > now) return cached.value;
 
-  const running = accountsInflight.get(workspaceId);
+  const running = accountsInflight.get(ck);
   if (running) return running;
 
   const request = (async () => {
     try {
-      const token = await getAccessToken(workspaceId);
-      const data = await gFetch(token, `${ACCOUNTS_BASE}/accounts?pageSize=20`);
+      const data = await gbpCall(workspaceId, source, { api: "accounts", path: "/v1/accounts?pageSize=20" });
       const accounts: GmbAccountSummary[] = (data.accounts ?? []).map((a: any) => ({
         accountId: String(a.name ?? "").split("/").pop() ?? "",
         name: a.accountName ?? a.name,
@@ -202,7 +292,7 @@ export async function gmbListAccounts(workspaceId: string): Promise<GmbAccountSu
         role: a.role,
         state: a.state?.status
       }));
-      accountsCache.set(workspaceId, {
+      accountsCache.set(ck, {
         value: accounts,
         freshUntil: Date.now() + ACCOUNTS_CACHE_FRESH_MS,
         staleUntil: Date.now() + ACCOUNTS_CACHE_STALE_MS
@@ -213,22 +303,31 @@ export async function gmbListAccounts(workspaceId: string): Promise<GmbAccountSu
       if (cached && cached.staleUntil > Date.now()) return cached.value;
       throw error;
     } finally {
-      accountsInflight.delete(workspaceId);
+      accountsInflight.delete(ck);
     }
   })();
-  accountsInflight.set(workspaceId, request);
+  accountsInflight.set(ck, request);
   return request;
 }
 
-export async function gmbListLocations(opts: { workspaceId: string; accountId: string }) {
-  const token = await getAccessToken(opts.workspaceId);
+export async function gmbListLocations(opts: { workspaceId: string; accountId: string; source?: GbpSource | null }) {
   // readMask es OBLIGATORIO en businessinformation v1
   const readMask = "name,title,storeCode,websiteUri,phoneNumbers,categories,storefrontAddress,metadata";
-  const data = await gFetch(
-    token,
-    `${INFO_BASE}/accounts/${opts.accountId}/locations?pageSize=100&readMask=${encodeURIComponent(readMask)}`
-  );
-  return (data.locations ?? []).map((l: any) => ({
+  const acc = String(opts.accountId).replace(/^accounts\//, "");
+  const page = async (fetchPath: (path: string) => Promise<any>) => {
+    const out: any[] = [];
+    let token = "";
+    for (let i = 0; i < 10; i++) {
+      const path = `/v1/accounts/${acc}/locations?pageSize=100&readMask=${encodeURIComponent(readMask)}${token ? `&pageToken=${encodeURIComponent(token)}` : ""}`;
+      const data = await fetchPath(path);
+      out.push(...(data.locations ?? []));
+      token = data.nextPageToken ?? "";
+      if (!token) break;
+    }
+    return out;
+  };
+  const locations = await page((path) => gbpCall(opts.workspaceId, opts.source, { api: "info", path }));
+  return locations.map((l: any) => ({
     locationId: String(l.name ?? "").split("/").pop() ?? "",
     title: l.title,
     storeCode: l.storeCode,
@@ -318,14 +417,20 @@ export type GmbFullReview = GmbReview & { profilePhotoUrl: string; isAnonymous: 
  * Todas las reseñas de una ficha propia por la API oficial (gratis y completa), paginando.
  * `maxPages` × 50 reseñas. Lanza si la conexión con Google no está disponible.
  */
-export async function gmbListAllReviews(opts: { workspaceId: string; locationPath: string; maxPages?: number; orderBy?: string }): Promise<GmbFullReview[]> {
-  const token = await getAccessToken(opts.workspaceId);
+export async function gmbListAllReviews(opts: {
+  workspaceId: string;
+  locationPath: string;
+  maxPages?: number;
+  orderBy?: string;
+  source?: GbpSource | null;
+}): Promise<GmbFullReview[]> {
+  const call = (qs: URLSearchParams) => gbpCall(opts.workspaceId, opts.source, { api: "v4", path: `/v4/${opts.locationPath}/reviews?${qs}` });
   const out: GmbFullReview[] = [];
   let pageToken = "";
   for (let i = 0; i < (opts.maxPages ?? 20); i++) {
     const qs = new URLSearchParams({ pageSize: "50", orderBy: opts.orderBy ?? "updateTime desc" });
     if (pageToken) qs.set("pageToken", pageToken);
-    const data = await gFetch(token, `${V4_BASE}/${opts.locationPath}/reviews?${qs}`);
+    const data = await call(qs);
     for (const r of data.reviews ?? []) {
       out.push({
         reviewName: r.name,
@@ -355,6 +460,7 @@ export async function gmbReplyReview(opts: {
   clientId?: string;
   reviewId?: string;
   comment: string;
+  source?: GbpSource | null;
 }): Promise<{ comment: string; updateTime: string }> {
   let path = opts.reviewName;
   if (!path) {
@@ -362,11 +468,7 @@ export async function gmbReplyReview(opts: {
     if (!opts.reviewId) throw new Error("reviewId requerido si no pasas reviewName completo");
     path = `accounts/${accountId}/locations/${locationId}/reviews/${opts.reviewId}`;
   }
-  const token = await getAccessToken(opts.workspaceId);
-  const data = await gFetch(token, `${V4_BASE}/${path}/reply`, {
-    method: "PUT",
-    body: JSON.stringify({ comment: opts.comment })
-  });
+  const data = await gbpCall(opts.workspaceId, opts.source, { api: "v4", method: "PUT", path: `/v4/${path}/reply`, body: { comment: opts.comment } });
   return { comment: data.comment, updateTime: data.updateTime };
 }
 

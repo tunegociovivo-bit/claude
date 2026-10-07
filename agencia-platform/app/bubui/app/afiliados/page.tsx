@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { customerAuthHeaders } from "@/app/bubui/lib/customerAuth";
+import { trackBubuiShare } from "@/app/bubui/lib/trackActivity";
 
 type Milestone = { n: number; reward: string; unlocked: boolean };
 type Friend = { initial: string; verified: boolean; joinedAt: string };
@@ -66,6 +67,7 @@ export default function AfiliadosPage() {
 
   function shareWhatsApp() {
     const text = `¡Únete a Bubui y llévate descuentos en negocios del barrio! 🎁 ${link}`;
+    trackBubuiShare("referral_shared", { channel: "whatsapp" });
     window.location.href = `https://wa.me/?text=${encodeURIComponent(text)}`;
   }
   async function copy() {

@@ -17,6 +17,7 @@ import { prisma } from "@/lib/db/prisma";
 import { toE164, checkVerification, isReviewPhone } from "@/lib/bubui/twilio";
 import { issueCustomerToken } from "@/lib/bubui/customer-auth";
 import { rateLimit } from "@/lib/api/rate-limit";
+import { logBubuiActivity, platformFromUserAgent } from "@/lib/bubui/activity";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
   }
   // Emite/renueva el token de sesión para esta (re)entrada.
   const token = await issueCustomerToken(c.id);
+  await logBubuiActivity({ customerId: c.id, type: "login", platform: platformFromUserAgent(req.headers.get("user-agent")) });
   return NextResponse.json({
     ok: true,
     customerId: c.id,

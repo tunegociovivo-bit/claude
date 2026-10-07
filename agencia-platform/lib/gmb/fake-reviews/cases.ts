@@ -102,7 +102,7 @@ export async function verifyPlace(workspaceId: string, placeKey: string, cases: 
     const loc = await managedLocationFor(workspaceId, { placeId: pid.place_id } as any).catch(() => null);
     if (loc) {
       try {
-        const list = await gmbListAllReviews({ workspaceId, locationPath: loc, maxPages: 40 });
+        const list = await gmbListAllReviews({ workspaceId, locationPath: loc.path, source: loc.source, maxPages: 40 });
         seen = list.map((r) => ({ reviewId: `gbp:${r.reviewId}`, author: r.reviewer, rating: r.rating, date: r.createTime?.slice(0, 10), text: r.comment ?? "" }));
         source = "gbp";
       } catch {
@@ -241,12 +241,12 @@ export async function publishReply(workspaceId: string, c: NonNullable<CaseRow>,
   const pid = placeIdFromKey(c.placeKey);
   const loc = pid?.place_id ? await managedLocationFor(workspaceId, { placeId: pid.place_id } as any).catch(() => null) : null;
   if (!loc) return { ok: false, error: "Esta ficha no está conectada al hub con Google: copia la respuesta y publícala desde el Perfil de Empresa." };
-  const list = await gmbListAllReviews({ workspaceId, locationPath: loc, maxPages: 40 });
+  const list = await gmbListAllReviews({ workspaceId, locationPath: loc.path, source: loc.source, maxPages: 40 });
   const a = norm(c.author);
   const t0 = c.reviewDate ? Date.parse(c.reviewDate) : 0;
   const match = list.find((r) => norm(r.reviewer) === a && r.rating === c.rating && (!t0 || Math.abs(Date.parse(r.createTime) - t0) <= 3 * DAY_MS));
   if (!match) return { ok: false, error: "No se ha encontrado la reseña en la API de Google (puede que ya no exista)." };
-  await gmbReplyReview({ workspaceId, reviewName: match.reviewName, comment: text });
+  await gmbReplyReview({ workspaceId, reviewName: match.reviewName, comment: text, source: loc.source });
   return { ok: true };
 }
 

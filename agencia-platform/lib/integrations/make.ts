@@ -366,3 +366,60 @@ export async function makeRawCall(opts: {
     responseText: text.slice(0, 4000)
   };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// CONEXIONES + SOLICITUDES DE CREDENCIALES (vinculación de cuentas de clientes)
+// ────────────────────────────────────────────────────────────────────
+
+/** Team por defecto: el configurado o el primero de la organización. */
+export async function makeDefaultTeamId(workspaceId: string): Promise<number> {
+  const cfg = await getConfig(workspaceId);
+  if (cfg.teamId) return cfg.teamId;
+  const teams = await makeListTeams(workspaceId);
+  if (!teams.length) throw new Error("La cuenta de Make no tiene equipos.");
+  return teams[0].id;
+}
+
+export type MakeConnection = { id: number; name: string; accountName: string; email: string; expire: string | null };
+
+/** Conexiones del team (opcionalmente filtradas por tipo, p. ej. "google-my-business2"). */
+export async function makeListConnections(workspaceId: string, types: string[] = []): Promise<MakeConnection[]> {
+  const teamId = await makeDefaultTeamId(workspaceId);
+  const qs = new URLSearchParams({ teamId: String(teamId) });
+  for (const t of types) qs.append("type[]", t);
+  const data = await makeFetch<any>(workspaceId, `/connections?${qs}`);
+  return (data.connections ?? [])
+    .filter((c: any) => !types.length || types.includes(c.accountName))
+    .map((c: any) => ({
+      id: Number(c.id),
+      name: String(c.name ?? ""),
+      accountName: String(c.accountName ?? ""),
+      email: String(c.metadata?.value ?? ""),
+      expire: c.expire ?? null
+    }));
+}
+
+/**
+ * Solicitud de credenciales de Make: devuelve un enlace donde se inicia sesión con la cuenta de
+ * Google del cliente y Make crea la conexión (con su app de Google ya aprobada).
+ */
+export async function makeCreateCredentialRequest(
+  workspaceId: string,
+  opts: { name: string; description?: string; appName: string; appVersion: number; nameOverride?: string }
+): Promise<{ id: string; url: string }> {
+  const teamId = await makeDefaultTeamId(workspaceId);
+  const credentials = [
+    { appName: opts.appName, appVersion: opts.appVersion, appModules: ["*"], ...(opts.nameOverride ? { nameOverride: opts.nameOverride } : {}), ...(opts.description ? { description: opts.description } : {}) }
+  ];
+  const body = { teamId, name: opts.name, description: opts.description ?? "", credentials };
+  let r = await makeRawCall({ workspaceId, method: "POST", path: "/credential-requests/requests", body });
+  if (!r.ok) {
+    const me = await makeRawCall({ workspaceId, method: "GET", path: "/users/me" });
+    const uid = me.data?.authUser?.id ?? me.data?.user?.id;
+    r = await makeRawCall({ workspaceId, method: "POST", path: "/credential-requests/requests/v2", body: { ...body, ...(uid ? { provider: { providerMakeUserId: uid } } : {}) } });
+  }
+  if (!r.ok) throw new Error(`Make ${r.status}: ${String(r.responseText).slice(0, 300)}`);
+  const url = r.data?.publicUri ?? r.data?.request?.publicUri;
+  if (!url) throw new Error("Make no devolvió el enlace de vinculación.");
+  return { id: String(r.data?.request?.id ?? ""), url };
+}
