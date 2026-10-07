@@ -9,7 +9,7 @@ import CommandPalette from "@/components/CommandPalette";
 import MetaCooldownVoiceNotifier from "@/components/MetaCooldownVoiceNotifier";
 import FlashTaskVoiceNotifier from "@/components/FlashTaskVoiceNotifier";
 
-const NO_CHROME_PREFIXES = ["/login", "/r/", "/g/", "/v/", "/p/", "/widget", "/bubui", "/bipi", "/informe-resenas"];
+const NO_CHROME_PREFIXES = ["/login", "/r/", "/g/", "/v/", "/p/", "/widget", "/bubui", "/bipi", "/informe-resenas", "/opina/", "/gmb-review/", "/gmb-optout/", "/gmb-widget/"];
 
 export default function AppChrome({
   children,
