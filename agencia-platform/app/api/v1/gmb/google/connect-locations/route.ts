@@ -8,6 +8,7 @@
  * Cada ficha guarda la cuenta de Google con la que se vinculó (source) y la ruta completa
  * accounts/X/locations/Y. Con automate:true crea además su automatización de reseñas en Make.
  */
+import { publicBaseUrl } from "@/lib/public-url";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -88,7 +89,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   const automation: { name: string; ok: boolean; scenarioId?: number; error?: string }[] = [];
   for (const c of toAutomate) {
     try {
-      const sc = await createReviewsScenario(api.workspaceId, c.id, new URL(req.url).origin);
+      const sc = await createReviewsScenario(api.workspaceId, c.id, publicBaseUrl(req));
       automation.push({ name: c.name, ok: true, scenarioId: sc.id });
     } catch (e: any) {
       automation.push({ name: c.name, ok: false, error: String(e?.message ?? e).slice(0, 200) });

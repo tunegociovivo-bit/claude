@@ -4,6 +4,7 @@
  *    solo se guarda el hash. GET → lista de enlaces (sin token). DELETE ?shareId= → revoca.
  * Tenant-scoped. Sin PII por defecto.
  */
+import { publicBaseUrl } from "@/lib/public-url";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
@@ -25,7 +26,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   const { token, hash } = generateShareToken();
   const expiresAt = expiryFromDays(parsed.data.expiryDays ?? 30);
   await prisma.gmbReportShare.create({ data: { workspaceId: api.workspaceId, clientId: client.id, tokenHash: hash, month: parsed.data.month ?? null, includePII: parsed.data.includePII ?? false, expiresAt, createdById: api.userId ?? null } });
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   // El token en claro se devuelve SOLO aquí; nunca se vuelve a mostrar ni se guarda.
   return NextResponse.json({ ok: true, url: `${origin}/gmb-report/${token}`, apiUrl: `${origin}/api/v1/gmb/public/report/${token}`, expiresAt, includePII: parsed.data.includePII ?? false });
 });

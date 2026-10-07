@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { publicBaseUrl } from "@/lib/public-url";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { ensureGmbClient } from "@/lib/gmb/server";
@@ -19,7 +20,7 @@ const schema = z.object({ name: z.string().min(1).max(120), channel: z.enum(["qr
 export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
   const client = await ensureGmbClient(prisma, api.workspaceId, params.id);
   if (!client) throw new ApiError(404, "not_found", "Ficha no encontrada");
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   const campaigns = await prisma.gmbReviewCampaign.findMany({ where: { workspaceId: api.workspaceId, clientId: client.id }, orderBy: { createdAt: "desc" }, take: 100 });
   const items = await Promise.all(campaigns.map(async (c: any) => {
     const [contacts, sent, clicked] = await Promise.all([
@@ -43,6 +44,6 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   // La URL de reseña va a Google (placeId de la ficha) — para todos, sin gating.
   const reviewUrl = (client.placeId ? buildGmbReviewUrl(client.placeId) : "") || "";
   const c = await prisma.gmbReviewCampaign.create({ data: { workspaceId: api.workspaceId, clientId: client.id, name: parsed.data.name, channel: parsed.data.channel ?? "link", message, reviewUrl, createdById: api.userId ?? null } });
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   return NextResponse.json({ ok: true, campaign: { ...c, publicUrl: `${origin}/gmb-review/${c.publicSlug}`, qrUrl: `${origin}/api/v1/gmb/review-campaigns/${c.id}/qr` }, reviewUrlReady: !!reviewUrl });
 });

@@ -5,6 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { publicBaseUrl } from "@/lib/public-url";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { canSend, renderTemplate } from "@/lib/gmb/review-acquisition";
@@ -30,7 +31,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
     return NextResponse.json({ ok: true, blocked: true, reason: "sin_adapter", note: "WhatsApp (WAHA) no está conectado. Configúralo para enviar. No se simula ningún envío." });
   }
 
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   const suppressed = new Set((await prisma.gmbSuppression.findMany({ where: { workspaceId: api.workspaceId }, select: { contactHash: true } })).map((s: any) => s.contactHash));
   const contacts = await prisma.gmbReviewContact.findMany({ where: { workspaceId: api.workspaceId, campaignId: campaign.id, status: { in: ["queued", "sent"] } }, take: 50 });
 

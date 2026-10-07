@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { publicBaseUrl } from "@/lib/public-url";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { buildGmbReviewUrl } from "@/lib/reviews/gmb-link";
@@ -42,7 +43,7 @@ async function metrics(workspaceId: string, ids: string[]) {
 }
 
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   const funnels = await prisma.gmbReviewFunnel.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" }, take: 200 });
   const m = await metrics(api.workspaceId, funnels.map((f) => f.id));
   return NextResponse.json({
@@ -82,6 +83,6 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       createdById: api.userId ?? null
     }
   });
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   return NextResponse.json({ ok: true, funnel: { ...funnel, publicUrl: funnelPublicUrl(origin, funnel.slug), qrUrl: `${origin}/api/v1/gmb/review-funnels/${funnel.id}/qr` } });
 });

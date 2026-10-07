@@ -4,6 +4,7 @@
  * (cuenta/ubicación, conexión de Google de la ficha, webhook del Hub), la crea, la activa y
  * guarda su id. Requiere Make configurado en /admin/make-settings + los IDs en Ajustes GMB.
  */
+import { publicBaseUrl } from "@/lib/public-url";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -17,7 +18,7 @@ export const POST = withApi({ scope: "admin", admin: true }, async (req, { param
   const client = await prisma.gmbClient.findFirst({ where: { id: params.id, workspaceId: api.workspaceId }, select: { id: true } });
   if (!client) throw new ApiError(404, "not_found", "Ficha no encontrada");
   try {
-    const s = await createReviewsScenario(api.workspaceId, client.id, new URL(req.url).origin);
+    const s = await createReviewsScenario(api.workspaceId, client.id, publicBaseUrl(req));
     return NextResponse.json({ ok: true, scenarioId: s.id, name: s.name });
   } catch (e: any) {
     const msg = String(e?.message ?? e);

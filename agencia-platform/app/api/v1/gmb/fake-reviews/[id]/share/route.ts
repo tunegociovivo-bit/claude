@@ -3,6 +3,7 @@
  *        (el token en claro se devuelve UNA vez; en BD sólo su hash)
  * DELETE /api/v1/gmb/fake-reviews/[id]/share → revoca el enlace
  */
+import { publicBaseUrl } from "@/lib/public-url";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -22,7 +23,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
     where: { id: row.id, workspaceId: api.workspaceId },
     data: { shareTokenHash: hash, shareExpiresAt: expiresAt }
   });
-  const origin = process.env.NEXTAUTH_URL?.replace(/\/+$/, "") ?? new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   return NextResponse.json({ url: `${origin}/informe-resenas/${token}`, expiresAt });
 });
 

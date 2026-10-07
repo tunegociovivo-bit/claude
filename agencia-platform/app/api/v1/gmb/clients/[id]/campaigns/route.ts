@@ -2,6 +2,7 @@
  * Campañas / UTM builder por ficha. GET → lista. POST → crea (valida UTMs, devuelve URL + trackURL).
  * DELETE ?campaignId= → elimina. Tenant-scoped. trackId alimenta el tracker público de clicks.
  */
+import { publicBaseUrl } from "@/lib/public-url";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
@@ -27,7 +28,7 @@ const schema = z.object({
 export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
   const client = await ensureGmbClient(prisma, api.workspaceId, params.id);
   if (!client) throw new ApiError(404, "not_found", "Ficha no encontrada");
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   const campaigns = await prisma.gmbCampaign.findMany({ where: { workspaceId: api.workspaceId, clientId: client.id }, orderBy: { createdAt: "desc" }, take: 100 });
   const items = campaigns.map((c: any) => ({
     ...c,
@@ -45,7 +46,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
   const v = validateUtm(parsed.data.landingUrl, { source: parsed.data.utmSource, medium: parsed.data.utmMedium, campaign: parsed.data.utmCampaign, term: parsed.data.utmTerm, content: parsed.data.utmContent });
   if (!v.ok) throw new ApiError(400, "validation_error", v.errors.join(" "));
   const c = await prisma.gmbCampaign.create({ data: { workspaceId: api.workspaceId, clientId: client.id, name: parsed.data.name, channel: parsed.data.channel ?? "web", landingUrl: parsed.data.landingUrl, utmSource: parsed.data.utmSource, utmMedium: parsed.data.utmMedium, utmCampaign: parsed.data.utmCampaign, utmTerm: parsed.data.utmTerm ?? "", utmContent: parsed.data.utmContent ?? "", note: parsed.data.note ?? null, createdById: api.userId ?? null } });
-  const origin = new URL(req.url).origin;
+  const origin = publicBaseUrl(req);
   return NextResponse.json({ ok: true, campaign: { ...c, utmUrl: v.url, trackUrl: `${origin}/api/v1/gmb/public/track/${c.trackId}?type=click` } });
 });
 

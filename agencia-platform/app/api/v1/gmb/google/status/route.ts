@@ -3,6 +3,7 @@
  * Nunca expone tokens. Incluye si faltan credenciales del servidor (para que la UI muestre
  * la guía al ADMIN y un mensaje simple al usuario normal). Tenant-scoped.
  */
+import { publicBaseUrl } from "@/lib/public-url";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
@@ -21,7 +22,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     ok: true,
     configured: issue === null,
     // Solo el ADMIN recibe el tipo de problema y el redirect a documentar; el usuario normal no.
-    setup: issue ? { issue, isAdmin, redirectUri: isAdmin ? gbpRedirectUri(new URL(req.url).origin) : undefined } : null,
+    setup: issue ? { issue, isAdmin, redirectUri: isAdmin ? gbpRedirectUri(publicBaseUrl(req)) : undefined } : null,
     connection: conn
       ? {
           connected: !conn.revokedAt,
