@@ -4,7 +4,7 @@
  */
 import { createHash } from "crypto";
 import { prisma } from "@/lib/db/prisma";
-import { gmbListAllReviews, gmbLocationPath } from "@/lib/integrations/gmb";
+import { gbpSourceForClient, gmbListAllReviews, gmbLocationPath, type GbpSource } from "@/lib/integrations/gmb";
 import { LEVEL_MEDIUM, type AnalysisResults } from "./analyzer";
 import { buildGoogleCase } from "./google";
 import { placeKeyOf } from "./network";
@@ -367,22 +367,21 @@ export async function afterAnalysis(workspaceId: string, analysisId: string, res
 /* ───────────────────────── API oficial de Google ───────────────────────── */
 
 /** Ficha del hub conectada a Google para este lugar (por Place ID o nombre), si la hay. */
-export async function managedLocationFor(workspaceId: string, place: Place, gmbClientId?: string | null): Promise<string | null> {
-  const conn = await prisma.gmbGoogleConnection.findUnique({ where: { workspaceId }, select: { revokedAt: true, hasBusinessScope: true } }).catch(() => null);
-  if (!conn || conn.revokedAt) return null;
-  const where = gmbClientId
-    ? { id: gmbClientId, workspaceId }
-    : place.placeId
-      ? { workspaceId, placeId: place.placeId }
-      : null;
+export async function managedLocationFor(
+  workspaceId: string,
+  place: Place,
+  gmbClientId?: string | null
+): Promise<{ path: string; source: GbpSource | null } | null> {
+  const where = gmbClientId ? { id: gmbClientId, workspaceId } : place.placeId ? { workspaceId, placeId: place.placeId } : null;
   if (!where) return null;
-  const c = await prisma.gmbClient.findFirst({ where, select: { accountId: true, locationId: true } });
-  return c ? gmbLocationPath(c.accountId, c.locationId) : null;
+  const c = await prisma.gmbClient.findFirst({ where, select: { accountId: true, locationId: true, connectionId: true, googleConnectionId: true } });
+  const path = c ? gmbLocationPath(c.accountId, c.locationId) : null;
+  return path && c ? { path, source: gbpSourceForClient(c) } : null;
 }
 
 /** Reseñas de una ficha propia por la API oficial, en el formato del detector (sin id de autor). */
-export async function officialReviews(workspaceId: string, locationPath: string, maxPages = 20) {
-  const list = await gmbListAllReviews({ workspaceId, locationPath, maxPages });
+export async function officialReviews(workspaceId: string, loc: { path: string; source: GbpSource | null }, maxPages = 20) {
+  const list = await gmbListAllReviews({ workspaceId, locationPath: loc.path, maxPages, source: loc.source });
   return list.map((r) => {
     const ts = r.createTime ? Math.floor(Date.parse(r.createTime) / 1000) : 0;
     return {

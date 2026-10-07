@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   gmbGoogleConnection: {
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
     updateMany: vi.fn(),
   },
+  workspace: { findUnique: vi.fn(async () => ({ settings: {} })) },
   googleAdsConnection: { findUnique: vi.fn() },
 }));
 
@@ -24,10 +26,9 @@ describe("Google Business Profile account quota protection", () => {
     vi.restoreAllMocks();
     process.env.GOOGLE_CLIENT_ID = "client-id";
     process.env.GOOGLE_CLIENT_SECRET = "client-secret";
-    db.gmbGoogleConnection.findUnique.mockResolvedValue({
-      refreshTokenEnc: "encrypted",
-      revokedAt: null,
-    });
+    const row = { refreshTokenEnc: "encrypted", revokedAt: null };
+    db.gmbGoogleConnection.findUnique.mockResolvedValue(row);
+    db.gmbGoogleConnection.findFirst.mockResolvedValue(row);
     db.gmbGoogleConnection.updateMany.mockResolvedValue({ count: 0 });
   });
 

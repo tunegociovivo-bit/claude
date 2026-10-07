@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const issue = gbpOAuthConfigurationIssue();
   const isAdmin = await callerIsAdmin(api).catch(() => false);
-  const conn = await prisma.gmbGoogleConnection.findUnique({ where: { workspaceId: api.workspaceId } });
+  const conn = await prisma.gmbGoogleConnection.findFirst({ where: { workspaceId: api.workspaceId }, orderBy: { updatedAt: "desc" } });
   const linkedClients = await prisma.gmbClient.count({ where: { workspaceId: api.workspaceId, locationId: { not: "" } } });
 
   return NextResponse.json({

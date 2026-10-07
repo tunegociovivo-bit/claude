@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
-import { gmbListLocations } from "@/lib/integrations/gmb";
+import { gmbListLocations, parseGbpSource } from "@/lib/integrations/gmb";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -16,11 +16,15 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const accountId = new URL(req.url).searchParams.get("accountId")?.trim();
   if (!accountId) throw new ApiError(400, "bad_request", "Falta accountId");
   try {
-    const locations = await gmbListLocations({ workspaceId: api.workspaceId, accountId });
+    const source = parseGbpSource(new URL(req.url).searchParams.get("source"));
+    const locations = await gmbListLocations({ workspaceId: api.workspaceId, accountId, source });
+    // Las fichas pueden guardar el id corto o la ruta completa accounts/X/locations/Y.
     const linked = new Set(
-      (await prisma.gmbClient.findMany({ where: { workspaceId: api.workspaceId, locationId: { not: "" } }, select: { locationId: true } })).map((c) => c.locationId)
+      (await prisma.gmbClient.findMany({ where: { workspaceId: api.workspaceId, locationId: { not: "" } }, select: { locationId: true } })).map((c) =>
+        c.locationId.split("/").pop()
+      )
     );
-    return NextResponse.json({ ok: true, locations: locations.map((l: any) => ({ ...l, linked: linked.has(l.locationId) })) });
+    return NextResponse.json({ ok: true, locations: locations.map((l: any) => ({ ...l, linked: linked.has(String(l.locationId)) })) });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: "gmb_unavailable", message: String(e?.message ?? "error").slice(0, 240) }, { status: 200 });
   }

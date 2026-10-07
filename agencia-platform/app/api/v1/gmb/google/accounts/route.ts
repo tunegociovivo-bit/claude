@@ -5,14 +5,15 @@
  */
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api/handler";
-import { gmbListAccounts } from "@/lib/integrations/gmb";
+import { gmbListAccounts, parseGbpSource } from "@/lib/integrations/gmb";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
+export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   try {
-    const accounts = await gmbListAccounts(api.workspaceId);
+    const source = parseGbpSource(new URL(req.url).searchParams.get("source"));
+    const accounts = await gmbListAccounts(api.workspaceId, source);
     return NextResponse.json({ ok: true, accounts });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: "gmb_unavailable", message: String(e?.message ?? "error").slice(0, 240) }, { status: 200 });

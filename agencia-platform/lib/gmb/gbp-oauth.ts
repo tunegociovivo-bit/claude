@@ -68,7 +68,8 @@ export function gbpAuthorizeUrl(state: string, fallbackOrigin?: string): string 
     scope: GBP_SCOPE,
     access_type: "offline",
     include_granted_scopes: "false", // no mezclar scopes de otras conexiones sin consentimiento
-    prompt: "consent",
+    // select_account: permite elegir/añadir otra cuenta de Google (la del cliente) en cada conexión.
+    prompt: "consent select_account",
     state
   });
   return `${AUTH_URL}?${p}`;

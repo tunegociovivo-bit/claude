@@ -11,6 +11,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimitPublic } from "@/lib/api/handler";
+import { parseLenient } from "@/lib/gmb/lenient-json";
 import { prisma } from "@/lib/db/prisma";
 import {
   upsertIncomingReview,
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
   const limited = rateLimitPublic(req, { tag: "gmb-webhook", limit: 120 });
   if (limited) return limited;
 
-  const body = await req.json().catch(() => null);
+  const body = parseLenient(await req.text().catch(() => ""));
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "bad_body" }, { status: 400 });
   }
@@ -127,3 +128,4 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, inserted: ok, failed });
 }
+
