@@ -960,19 +960,19 @@ model Client {
   deletedAt   DateTime?
   deletedById String?
 
-  workspace      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  projects       Project[]
-  tasks          Task[]
-  events         CalendarEvent[]
-  editorialPosts EditorialPost[]
+  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects              Project[]
+  tasks                 Task[]
+  events                CalendarEvent[]
+  editorialPosts        EditorialPost[]
   editorialMetaProfiles EditorialMetaProfile[]
-  seoBlogSites   SeoBlogSite[]
-  deliverables   Deliverable[]
-  aiMemory       AiClientMemory?
-  aiOwnership    AiOwnership?
-  aiWorkflows    AiClientWorkflow[]
-  invoices       Invoice[]
-  issuers        InvoiceIssuer[]    @relation("IssuerClients")
+  seoBlogSites          SeoBlogSite[]
+  deliverables          Deliverable[]
+  aiMemory              AiClientMemory?
+  aiOwnership           AiOwnership?
+  aiWorkflows           AiClientWorkflow[]
+  invoices              Invoice[]
+  issuers               InvoiceIssuer[]        @relation("IssuerClients")
 
   @@index([workspaceId])
 }
@@ -1198,12 +1198,12 @@ model EditorialPost {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  client    Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  revisions EditorialRevision[]
-  messages  EditorialPostMessage[]
+  workspace     Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client        Client?                 @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  revisions     EditorialRevision[]
+  messages      EditorialPostMessage[]
   mediaVersions EditorialMediaVersion[]
-  publications EditorialPublication[]
+  publications  EditorialPublication[]
 
   @@index([workspaceId, status])
   @@index([clientId])
@@ -1225,7 +1225,7 @@ model EditorialMediaVersion {
   createdById String?
   createdAt   DateTime @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   post      EditorialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, postId, createdAt])
@@ -1233,7 +1233,7 @@ model EditorialMediaVersion {
 }
 
 model EditorialMetaProfile {
-  id               String  @id @default(cuid())
+  id               String    @id @default(cuid())
   workspaceId      String
   clientId         String
   metaConnectionId String?
@@ -1242,15 +1242,15 @@ model EditorialMetaProfile {
   facebookPageName String?
   instagramUserId  String?
   instagramName    String?
-  active           Boolean @default(true)
+  active           Boolean   @default(true)
   lastSyncAt       DateTime?
-  lastError        String? @db.Text
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  lastError        String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  metaConnection MetaConnection? @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  client         Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  metaConnection MetaConnection?        @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
   publications   EditorialPublication[]
 
   @@unique([workspaceId, clientId, facebookPageId, instagramUserId])
@@ -1260,25 +1260,25 @@ model EditorialMetaProfile {
 
 model EditorialPublication {
   metaJson       Json?
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   workspaceId    String
   postId         String
   profileId      String?
   network        String // facebook|instagram
-  status         String   @default("PENDING") // PENDING|SCHEDULED|PUBLISHING|PUBLISHED|FAILED|CANCELLED
+  status         String    @default("PENDING") // PENDING|SCHEDULED|PUBLISHING|PUBLISHED|FAILED|CANCELLED
   scheduledFor   DateTime?
   publishedAt    DateTime?
   externalPostId String?
   externalUrl    String?
-  attempts       Int      @default(0)
-  lastError      String?  @db.Text
+  attempts       Int       @default(0)
+  lastError      String?   @db.Text
   idempotencyKey String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  post      EditorialPost          @relation(fields: [postId], references: [id], onDelete: Cascade)
-  profile   EditorialMetaProfile?  @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post      EditorialPost         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  profile   EditorialMetaProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, idempotencyKey])
   @@index([workspaceId, status, scheduledFor])
@@ -1678,83 +1678,83 @@ model LeadQueryCache {
 }
 
 model Lead {
-  id                        String    @id @default(cuid())
-  workspaceId               String
-  searchId                  String?
-  placeId                   String
+  id                               String    @id @default(cuid())
+  workspaceId                      String
+  searchId                         String?
+  placeId                          String
   // Datos básicos del negocio (Google Places)
-  name                      String
-  address                   String?
-  formattedAddress          String?
-  province                  String?
-  phone                     String?
-  internationalPhone        String?
-  website                   String?
+  name                             String
+  address                          String?
+  formattedAddress                 String?
+  province                         String?
+  phone                            String?
+  internationalPhone               String?
+  website                          String?
   // Email de contacto del negocio (extraído de su web / aviso legal). Que esté
   // publicado no constituye por sí solo autorización para marketing.
-  email                     String?
-  emailSource               String?
-  emailVerificationStatus   String? // syntax_valid|mx_valid|mx_missing|invalid|unknown
-  emailVerifiedAt           DateTime?
-  emailEnrichmentStatus     String    @default("not_requested") // not_requested|queued|processing|found|no_email|no_website|failed
-  emailEnrichmentAttempts   Int       @default(0)
-  emailEnrichmentNextAt     DateTime?
-  emailEnrichmentLeaseUntil DateTime?
-  emailEnrichmentLeaseOwner String?
-  emailEnrichmentError      String?   @db.Text
+  email                            String?
+  emailSource                      String?
+  emailVerificationStatus          String? // syntax_valid|mx_valid|mx_missing|invalid|unknown
+  emailVerifiedAt                  DateTime?
+  emailEnrichmentStatus            String    @default("not_requested") // not_requested|queued|processing|found|no_email|no_website|failed
+  emailEnrichmentAttempts          Int       @default(0)
+  emailEnrichmentNextAt            DateTime?
+  emailEnrichmentLeaseUntil        DateTime?
+  emailEnrichmentLeaseOwner        String?
+  emailEnrichmentError             String?   @db.Text
   multichannelEnrollmentStatus     String    @default("not_ready") // not_ready|queued|processing|enrolled|skipped|failed
   multichannelEnrollmentAttempts   Int       @default(0)
   multichannelEnrollmentNextAt     DateTime?
   multichannelEnrollmentLeaseUntil DateTime?
   multichannelEnrollmentError      String?   @db.Text
-  category                  String?
-  types                     Json?
-  latitude                  Float?
-  longitude                 Float?
-  position                  Int?
-  gmbUrl                    String?
-  businessStatus            String?
-  priceLevel                Int?
+  category                         String?
+  types                            Json?
+  latitude                         Float?
+  longitude                        Float?
+  position                         Int?
+  gmbUrl                           String?
+  businessStatus                   String?
+  priceLevel                       Int?
   // Reviews
-  rating                    Float?
-  reviewsCount              Int       @default(0)
-  reviewsJson               Json?
-  positivePct               Float?
-  negativePct               Float?
-  neutralPct                Float?
+  rating                           Float?
+  reviewsCount                     Int       @default(0)
+  reviewsJson                      Json?
+  positivePct                      Float?
+  negativePct                      Float?
+  neutralPct                       Float?
   // Datos crudos completos del API
-  rawData                   Json?
+  rawData                          Json?
   // Lead scorer (heurística)
-  score                     Int? // 0-100
-  urgency                   String? // critica | alta | media | baja | descartar
-  scoreBreakdown            Json?
+  score                            Int? // 0-100
+  urgency                          String? // critica | alta | media | baja | descartar
+  scoreBreakdown                   Json?
   // Ticket score: VALOR estimado del lead (sector premium, ya hace anuncios,
   // precio €€€, tamaño). Distinto del score de "dolor ahora". Para priorizar
   // captación de ticket alto.
-  ticketScore               Int? // 0-100
-  ticketTier                String? // premium | alto | medio | bajo
+  ticketScore                      Int? // 0-100
+  ticketTier                       String? // premium | alto | medio | bajo
   // IA
-  aiOpener                  String?   @db.Text
-  aiOpenerGeneratedAt       DateTime?
+  aiOpener                         String?   @db.Text
+  aiOpenerGeneratedAt              DateTime?
   // WhatsApp
-  hasWhatsapp               Boolean   @default(false)
-  whatsappChecked           Boolean   @default(false)
-  whatsappCheckedAt         DateTime?
+  hasWhatsapp                      Boolean   @default(false)
+  whatsappChecked                  Boolean   @default(false)
+  whatsappCheckedAt                DateTime?
   // Estado del contacto
-  contactStatus             String    @default("pending") // pending|contacted|responded|client|excluded|discarded
-  notes                     String?   @db.Text
+  contactStatus                    String    @default("pending") // pending|contacted|responded|client|excluded|discarded
+  notes                            String?   @db.Text
   // Si el lead se convirtió en cliente del Hub, su id (para enlazar y evitar
   // duplicar al pulsar "Convertir en cliente" más de una vez).
-  convertedClientId         String?
+  convertedClientId                String?
   // Derivación manual al equipo comercial. `commercialTaskId` permite que
   // el flujo sea idempotente; `commercialSentAt` solo se completa cuando el
   // aviso de WhatsApp al comercial ha salido correctamente.
-  commercialTaskId          String?
-  commercialSendingAt       DateTime?
-  commercialSentAt          DateTime?
-  legacyWpId                Int?      @unique
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  commercialTaskId                 String?
+  commercialSendingAt              DateTime?
+  commercialSentAt                 DateTime?
+  legacyWpId                       Int?      @unique
+  createdAt                        DateTime  @default(now())
+  updatedAt                        DateTime  @updatedAt
 
   workspace     Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   search        LeadSearch?              @relation(fields: [searchId], references: [id], onDelete: SetNull)
@@ -2132,6 +2132,7 @@ model ProspectingProspect {
   activities ProspectingActivity[]
   messages   ProspectingMessage[]
 
+  @@unique([campaignId, leadId])
   @@index([workspaceId, status, nextActionAt])
   @@index([campaignId, status])
   @@index([workspaceId, email])
@@ -2139,7 +2140,6 @@ model ProspectingProspect {
   @@index([workspaceId, phone])
   @@index([resolutionStatus, nextResolutionAt])
   @@index([workspaceId, leadId])
-  @@unique([campaignId, leadId])
 }
 
 model ProspectingMessage {
@@ -2561,15 +2561,15 @@ model Task {
 model TaskProject {
   taskId    String
   projectId String
-  order     Int @default(-1)
+  order     Int      @default(-1)
   sharedAt  DateTime @default(now())
   // Estado/columna en ESTE proyecto extra. Una tarea con
   // proyecto principal A (status="EN_CURSO") puede aparecer en
   // proyecto B en cualquier columna distinta (p.ej. "REVISION").
   // Si null, en B aparece en la primera columna del proyecto.
   status    String?
-  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([taskId, projectId])
   @@index([projectId])
@@ -4053,10 +4053,10 @@ model MetaConnection {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaigns    MetaCampaign[]
-  commentFeeds MetaCommentFeed[]
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns             MetaCampaign[]
+  commentFeeds          MetaCommentFeed[]
   editorialMetaProfiles EditorialMetaProfile[]
 
   @@unique([workspaceId, metaUserId])
@@ -4608,39 +4608,39 @@ model TaskTemplate {
 // ============================================================================
 
 model GmbClient {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  name          String
-  category      String   @default("")
-  description   String?  @db.Text
-  tone          String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
-  customTone    String?  @db.Text
-  accountId     String   @default("") // GMB "accounts/XXX"
-  locationId    String   @default("") // GMB "accounts/XXX/locations/YYY"
-  emails        String   @default("") // emails de notificación, separados por coma
-  mainKeyword   String   @default("")
-  autoReply     String   @default("manual") // manual|auto
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  name               String
+  category           String   @default("")
+  description        String?  @db.Text
+  tone               String   @default("profesional") // profesional|cercano|formal|entusiasta|custom
+  customTone         String?  @db.Text
+  accountId          String   @default("") // GMB "accounts/XXX"
+  locationId         String   @default("") // GMB "accounts/XXX/locations/YYY"
+  emails             String   @default("") // emails de notificación, separados por coma
+  mainKeyword        String   @default("")
+  autoReply          String   @default("manual") // manual|auto
   // Piloto automático (por ficha): qué puede hacer el sistema sin intervención.
   //   suggest_only    → solo sugiere acciones
   //   prepare_drafts  → prepara borradores (posts/respuestas/paquetes de alta)
   //   execute_safe    → ejecuta SOLO acciones internas seguras; lo externo sensible sigue pidiendo aprobación
-  autopilotMode String   @default("suggest_only")
-  connectionId  String   @default("") // override de connection de Make
-  googleConnectionId String @default("") // GmbGoogleConnection (OAuth propio) con la que se vinculó la ficha
-  frequency     Int      @default(15) // minutos
-  scenarioId    String   @default("") // id del escenario de Make
-  status        String   @default("active") // active|paused
+  autopilotMode      String   @default("suggest_only")
+  connectionId       String   @default("") // override de connection de Make
+  googleConnectionId String   @default("") // GmbGoogleConnection (OAuth propio) con la que se vinculó la ficha
+  frequency          Int      @default(15) // minutos
+  scenarioId         String   @default("") // id del escenario de Make
+  status             String   @default("active") // active|paused
   // Campos geo/SEO (el plugin los usa pero no estaban en el CREATE original)
-  placeId       String   @default("")
-  latitude      Float?
-  longitude     Float?
-  rating        Float    @default(0)
-  reviewCount   Int      @default(0)
-  phone         String   @default("")
-  website       String   @default("")
-  address       String   @default("")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  placeId            String   @default("")
+  latitude           Float?
+  longitude          Float?
+  rating             Float    @default(0)
+  reviewCount        Int      @default(0)
+  phone              String   @default("")
+  website            String   @default("")
+  address            String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   reviews       GmbReview[]
   activities    GmbActivity[]
@@ -5740,33 +5740,33 @@ model BubuiCustomer {
 ///   confirmed → negocio aprobó. Descuento aplicado, ofertas desbloqueadas.
 ///   rejected  → negocio rechazó (importe incorrecto o no es válido).
 model BubuiPurchase {
-  id              String    @id @default(cuid())
-  customerId      String
-  businessId      String
-  amount          Float // importe bruto pagado en caja
-  discountPct     Int // descuento aplicado %
-  discountAmount  Float // € de descuento
-  status          String    @default("pending") // pending | confirmed | rejected
+  id                   String    @id @default(cuid())
+  customerId           String
+  businessId           String
+  amount               Float // importe bruto pagado en caja
+  discountPct          Int // descuento aplicado %
+  discountAmount       Float // € de descuento
+  status               String    @default("pending") // pending | confirmed | rejected
   // Si vino vía un cupón cruzado, link al BubuiOffer que se canjeó.
   challengeProcessedAt DateTime? // recuperación del avance del reto tras confirmar
-  walletPctUsed   Int      @default(0) // saldo presupuestado; se cobra al confirmar
-  redeemedOfferId String?
+  walletPctUsed        Int       @default(0) // saldo presupuestado; se cobra al confirmar
+  redeemedOfferId      String?
   // Geolocalización al escanear (anti-fraude).
-  scanLat         Float?
-  scanLng         Float?
-  scanDistanceM   Float? // distancia al local en metros
+  scanLat              Float?
+  scanLng              Float?
+  scanDistanceM        Float? // distancia al local en metros
   // Razón si rejected.
-  rejectionReason String?
+  rejectionReason      String?
   // Foto del ticket de compra (si el cliente la subió para leer el importe con IA).
-  ticketUrl       String?
-  scannedAt       DateTime  @default(now())
-  confirmedAt     DateTime?
+  ticketUrl            String?
+  scannedAt            DateTime  @default(now())
+  confirmedAt          DateTime?
   // Cuándo se envió el push de "déjanos una reseña en Google" (~10 min tras
   // escanear). null = pendiente de enviar; lo procesa el cron review-requests.
-  reviewPushedAt  DateTime?
+  reviewPushedAt       DateTime?
   // Cuándo se envió el push de acciones post-compra (~1 h tras la compra
   // confirmada). null = pendiente; lo procesa el cron de acciones.
-  actionPushedAt  DateTime?
+  actionPushedAt       DateTime?
 
   customer BubuiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   business BubuiBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -6192,7 +6192,7 @@ model BubuiDealTrace {
 /// comparten Bubui y/o dejan reseña en Google. El dueño la verifica desde su
 /// panel y la canjea. status: open → verified → redeemed | expired.
 model BubuiTableSession {
-  termsSnapshot Json?
+  termsSnapshot  Json?
   id             String    @id @default(cuid())
   businessId     String
   code           String // código corto de unión (único entre sesiones abiertas)
@@ -6454,7 +6454,6 @@ model BubuiSubvencionProposal {
   @@index([status])
 }
 
-
 // ====================================================================
 // PUBLICADOR SEO (blog WordPress de clientes)
 // Plataforma "Publicador SEO" (/publicador-seo). Por cliente: web WP
@@ -6494,7 +6493,7 @@ model SeoBlogSite {
   visualNotes      String?   @db.Text
   color            String    @default("#C9962E")
   bridgeDetected   Boolean   @default(false)
-  pairTokenHash    String?   // sha256 del código de conexión (emparejamiento con el plugin puente)
+  pairTokenHash    String? // sha256 del código de conexión (emparejamiento con el plugin puente)
   pairTokenAt      DateTime?
   pairedAt         DateTime?
   siteCache        Json?
@@ -6651,23 +6650,23 @@ model GmbSerpCache {
 
 // Base propia de perfiles sospechosos: cada análisis/vigilancia alimenta la ficha del perfil.
 model GmbReviewerProfile {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   workspaceId   String
   contributorId String
-  name          String    @default("")
-  link          String    @default("")
-  maxScore      Int       @default(0)
-  level         String    @default("bajo") // alto|medio|bajo
-  status        String    @default("sospechoso") // sospechoso|confirmado|descartado
-  timesFlagged  Int       @default(0)
+  name          String   @default("")
+  link          String   @default("")
+  maxScore      Int      @default(0)
+  level         String   @default("bajo") // alto|medio|bajo
+  status        String   @default("sospechoso") // sospechoso|confirmado|descartado
+  timesFlagged  Int      @default(0)
   places        Json? // [{key,title,analysisId,at,score}]
   networks      Json? // ids de red en los que ha aparecido
   signals       Json? // últimas señales
-  removedCount  Int       @default(0) // reseñas suyas retiradas por Google
-  notes         String?   @db.Text
-  firstSeenAt   DateTime  @default(now())
-  lastSeenAt    DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  removedCount  Int      @default(0) // reseñas suyas retiradas por Google
+  notes         String?  @db.Text
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([workspaceId, contributorId])
   @@index([workspaceId, level])
@@ -6708,46 +6707,46 @@ model GmbReviewWatch {
 
 // Centro de retiradas: una reseña a denunciar y todo su ciclo (denuncia → decisión → apelación).
 model GmbReviewCase {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  analysisId    String?
-  watchId       String?
-  target        String    @default("cliente") // cliente|competidor
-  placeKey      String
-  placeTitle    String    @default("")
-  placeUrl      String    @default("")
-  reviewId      String
-  reviewLink    String    @default("")
-  author        String    @default("")
-  authorLink    String    @default("")
-  contributorId String    @default("")
-  rating        Int       @default(0)
-  reviewDate    String    @default("")
-  text          String?   @db.Text
-  reasons       Json? // [{kind:"policy"|"fake"|"network"|"known", category, label, policy, detail}]
-  score         Int       @default(0)
-  likelihood    String    @default("media") // alta|media|baja
-  googleOption  String    @default("") // opción a marcar en el formulario de Google
-  status        String    @default("preparada") // preparada|denunciada|rechazada|apelada|retirada|legal|descartada
-  channel       String    @default("") // tool|maps|legal
-  reportText    String?   @db.Text
-  appealText    String?   @db.Text
-  legalText     String?   @db.Text
-  replyDraft    String?   @db.Text
+  id               String    @id @default(cuid())
+  workspaceId      String
+  analysisId       String?
+  watchId          String?
+  target           String    @default("cliente") // cliente|competidor
+  placeKey         String
+  placeTitle       String    @default("")
+  placeUrl         String    @default("")
+  reviewId         String
+  reviewLink       String    @default("")
+  author           String    @default("")
+  authorLink       String    @default("")
+  contributorId    String    @default("")
+  rating           Int       @default(0)
+  reviewDate       String    @default("")
+  text             String?   @db.Text
+  reasons          Json? // [{kind:"policy"|"fake"|"network"|"known", category, label, policy, detail}]
+  score            Int       @default(0)
+  likelihood       String    @default("media") // alta|media|baja
+  googleOption     String    @default("") // opción a marcar en el formulario de Google
+  status           String    @default("preparada") // preparada|denunciada|rechazada|apelada|retirada|legal|descartada
+  channel          String    @default("") // tool|maps|legal
+  reportText       String?   @db.Text
+  appealText       String?   @db.Text
+  legalText        String?   @db.Text
+  replyDraft       String?   @db.Text
   replyPublishedAt DateTime?
-  appealBatch   String?
-  reportedAt    DateTime?
-  rejectedAt    DateTime?
-  appealedAt    DateTime?
-  removedAt     DateTime?
-  lastCheckedAt DateTime?
-  nextCheckAt   DateTime?
-  checkMisses   Int       @default(0)
-  checkLog      Json?
-  notes         String?   @db.Text
-  createdById   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  appealBatch      String?
+  reportedAt       DateTime?
+  rejectedAt       DateTime?
+  appealedAt       DateTime?
+  removedAt        DateTime?
+  lastCheckedAt    DateTime?
+  nextCheckAt      DateTime?
+  checkMisses      Int       @default(0)
+  checkLog         Json?
+  notes            String?   @db.Text
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([workspaceId, placeKey, reviewId])
   @@index([workspaceId, status])
@@ -6771,17 +6770,79 @@ model GmbEvidence {
 
 /// Durable operational notices; scoped to the business/customer named on each row.
 model BubuiOperation {
-  id String @id
-  kind String
-  businessId String?
-  customerId String?
-  payload Json
-  status String @default("pending")
-  attempts Int @default(0)
-  lastError String?
+  id            String   @id
+  kind          String
+  businessId    String?
+  customerId    String?
+  payload       Json
+  status        String   @default("pending")
+  attempts      Int      @default(0)
+  lastError     String?
   nextAttemptAt DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   @@index([status, nextAttemptAt])
   @@index([businessId, status])
+}
+
+// Embudo de reseñas (GMB Hub → «Enlace de reseñas»): página pública con 5 estrellas.
+// 4-5 → enlace directo de reseña en Google. 1-3 → primero formulario de queja (llega al
+// correo del dueño) pero con el acceso a Google SIEMPRE visible (sin review gating).
+model GmbReviewFunnel {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  slug         String   @unique
+  clientId     String   @default("")
+  businessName String
+  placeId      String
+  address      String   @default("")
+  phone        String   @default("")
+  website      String   @default("")
+  category     String   @default("")
+  rating       Float?
+  ratingCount  Int      @default(0)
+  mapsUrl      String   @default("")
+  reviewUrl    String
+  ownerEmail   String   @default("")
+  headline     String   @default("")
+  color        String   @default("#F4600C")
+  logoUrl      String   @default("")
+  active       Boolean  @default(true)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+// Eventos del embudo: view | star | google | complaint (con estrellas si aplica).
+model GmbReviewFunnelEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  funnelId    String
+  type        String
+  stars       Int?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([funnelId, type])
+}
+
+// Queja privada enviada desde el embudo (1-3 estrellas).
+model GmbReviewFunnelFeedback {
+  id          String   @id @default(cuid())
+  workspaceId String
+  funnelId    String
+  stars       Int
+  name        String   @default("")
+  email       String   @default("")
+  phone       String   @default("")
+  message     String   @db.Text
+  emailed     Boolean  @default(false)
+  status      String   @default("new") // new | contacted | resolved
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([funnelId])
 }

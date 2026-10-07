@@ -44,6 +44,8 @@ const PUBLIC_PATHS = [
   "/api/v1/gmb/widget/",
   "/api/v1/gmb/public/",
   "/gmb-review/",
+  // Página pública de valoración (embudo de reseñas del GMB Hub).
+  "/opina/",
   // Informe de reseñas falsas: /informe-resenas/<token> valida su token firmado;
   // /informe-resenas/i/<id> comprueba la sesión en la propia página.
   "/informe-resenas/",

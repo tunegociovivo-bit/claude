@@ -6,6 +6,7 @@ import GrowthCenter from "@/components/gmb/GrowthCenter";
 import PortfolioView from "@/components/gmb/PortfolioView";
 import AlertsView from "@/components/gmb/AlertsView";
 import FakeReviewsView from "@/components/gmb/FakeReviewsView";
+import ReviewLinkView from "@/components/gmb/ReviewLinkView";
 import GbpConnectWizard from "@/components/gmb/GbpConnectWizard";
 import {
   Loader2,
@@ -77,11 +78,11 @@ export default function GmbHubClient() {
   const [showImport, setShowImport] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const [connectBanner, setConnectBanner] = useState<string | null>(null);
-  const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento" | "resenas-falsas">("fichas");
+  const [view, setView] = useState<"fichas" | "portfolio" | "alertas" | "buscador" | "crecimiento" | "resenas-falsas" | "enlace-resenas">("fichas");
   useEffect(() => {
     // Enlaces profundos (p. ej. desde las alertas): /gmb-hub?view=resenas-falsas&sub=retiradas
     const v = new URLSearchParams(window.location.search).get("view");
-    if (v === "resenas-falsas" || v === "alertas" || v === "portfolio" || v === "buscador" || v === "crecimiento") setView(v);
+    if (v === "resenas-falsas" || v === "enlace-resenas" || v === "alertas" || v === "portfolio" || v === "buscador" || v === "crecimiento") setView(v);
   }, []);
 
   async function load() {
@@ -182,7 +183,8 @@ export default function GmbHubClient() {
           ["alertas", "Alertas"],
           ["crecimiento", "Crecimiento local"],
           ["buscador", "Buscador GMB"],
-          ["resenas-falsas", "Reseñas falsas"]
+          ["resenas-falsas", "Reseñas falsas"],
+          ["enlace-resenas", "Enlace de reseñas"]
         ] as const).map(([k, label]) => (
           <button
             key={k}
@@ -206,6 +208,8 @@ export default function GmbHubClient() {
       {view === "crecimiento" && <GrowthCenter />}
 
       {view === "resenas-falsas" && <FakeReviewsView />}
+
+      {view === "enlace-resenas" && <ReviewLinkView />}
 
       {view === "fichas" && (
       <>
