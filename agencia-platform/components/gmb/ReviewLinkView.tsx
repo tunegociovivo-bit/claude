@@ -6,7 +6,7 @@
  * 2) Crea la página de valoración con 5 estrellas: 4-5 → Google; 1-3 → opinión privada al dueño,
  *    con el acceso a Google siempre visible (cumple la política de Google: sin review gating).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Search, Loader2, Copy, Check, ExternalLink, Star, QrCode, Trash2, MapPin, Mail, MessageSquareWarning, ChevronDown, ChevronUp, Download
 } from "lucide-react";
@@ -74,6 +74,8 @@ export default function ReviewLinkView() {
   const [draft, setDraft] = useState({ ownerEmail: "", headline: "", color: "#F4600C", logoUrl: "" });
   const [saving, setSaving] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
+  const [brand, setBrand] = useState<{ loading: boolean; emails: string[]; logos: string[]; website: string; found: string[] } | null>(null);
+  const brandReq = useRef(0);
   const [funnels, setFunnels] = useState<Funnel[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -98,10 +100,45 @@ export default function ReviewLinkView() {
       const d = await r.json();
       if (!d.ok) throw new Error(d?.error?.message || d.message || "No se pudo analizar el negocio.");
       setPlaces(d.places ?? []);
+      if (d.places?.[0]) openCreate(d.places[0]);
     } catch (err: any) {
       setAnalyzeErr(err.message);
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  const defaultHeadline = (name: string) => `¿Qué tal ha sido tu experiencia con ${name}?`;
+
+  /** Abre el formulario y autorrellena email, logo y color desde la web del negocio. */
+  async function openCreate(p: Place) {
+    const req = ++brandReq.current;
+    setCreatingFor(p.placeId);
+    setCreateErr(null);
+    setDraft({ ownerEmail: "", headline: defaultHeadline(p.name), color: "#F4600C", logoUrl: "" });
+    if (!p.website) {
+      setBrand({ loading: false, emails: [], logos: [], website: "", found: [] });
+      return;
+    }
+    setBrand({ loading: true, emails: [], logos: [], website: p.website, found: [] });
+    try {
+      const r = await fetch("/api/v1/gmb/review-link/brand", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ website: p.website }) });
+      const d = await r.json().catch(() => ({}));
+      if (req !== brandReq.current) return;
+      const b = d?.brand;
+      const found: string[] = [];
+      if (b?.email) found.push("email");
+      if (b?.logoUrl) found.push("logo");
+      if (b?.color) found.push("color");
+      setDraft((cur) => ({
+        ...cur,
+        ownerEmail: cur.ownerEmail || b?.email || "",
+        logoUrl: cur.logoUrl || b?.logoUrl || "",
+        color: cur.color === "#F4600C" && b?.color ? b.color : cur.color
+      }));
+      setBrand({ loading: false, emails: b?.emails ?? [], logos: b?.logos ?? [], website: p.website, found });
+    } catch {
+      if (req === brandReq.current) setBrand({ loading: false, emails: [], logos: [], website: p.website, found: [] });
     }
   }
 
@@ -186,35 +223,77 @@ export default function ReviewLinkView() {
                 </div>
                 {creatingFor !== p.placeId ? (
                   <button
-                    onClick={() => { setCreatingFor(p.placeId); setCreateErr(null); }}
+                    onClick={() => openCreate(p)}
                     className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[13px] font-medium"
                   >
                     <Star className="h-4 w-4" /> Crear página de valoración con 5 estrellas
                   </button>
                 ) : (
                   <div className="mt-3 rounded-lg border bg-slate-50 p-3 space-y-2.5">
+                    {brand?.loading && (
+                      <div className="flex items-center gap-2 text-[12px] text-slate-500">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analizando la web del negocio para sacar email, logo y color…
+                      </div>
+                    )}
+                    {brand && !brand.loading && (
+                      <div className="text-[11px] text-slate-500">
+                        {!brand.website
+                          ? "Este negocio no tiene web en Google: completa el email y el logo a mano."
+                          : brand.found.length
+                            ? `Rellenado desde ${brand.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}: ${brand.found.join(", ")}. Revísalo antes de crear.`
+                            : "No hemos encontrado email, logo ni color en su web: complétalos a mano."}
+                      </div>
+                    )}
                     <div>
                       <label className="block text-[12px] font-medium text-slate-600 mb-1">Email del dueño (recibe las opiniones de 1 a 3 estrellas)</label>
                       <input type="email" value={draft.ownerEmail} onChange={(e) => setDraft({ ...draft, ownerEmail: e.target.value })} placeholder="dueño@negocio.com" className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
+                      {brand && brand.emails.length > 1 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {brand.emails.map((e) => (
+                            <button key={e} type="button" onClick={() => setDraft({ ...draft, ownerEmail: e })} className={"px-2 py-0.5 rounded-full border text-[11px] " + (draft.ownerEmail === e ? "bg-slate-800 text-white border-slate-800" : "bg-white hover:bg-slate-50")}>
+                              {e}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div>
-                      <label className="block text-[12px] font-medium text-slate-600 mb-1">Pregunta (opcional)</label>
-                      <input value={draft.headline} onChange={(e) => setDraft({ ...draft, headline: e.target.value })} placeholder={`¿Qué tal ha sido tu experiencia con ${p.name}?`} className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
+                      <label className="block text-[12px] font-medium text-slate-600 mb-1">Pregunta</label>
+                      <input value={draft.headline} onChange={(e) => setDraft({ ...draft, headline: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
                     </div>
                     <div className="flex gap-3">
                       <div>
                         <label className="block text-[12px] font-medium text-slate-600 mb-1">Color</label>
                         <input type="color" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} className="h-9 w-14 border rounded-lg bg-white" />
                       </div>
-                      <div className="flex-1">
-                        <label className="block text-[12px] font-medium text-slate-600 mb-1">URL del logo (opcional)</label>
-                        <input value={draft.logoUrl} onChange={(e) => setDraft({ ...draft, logoUrl: e.target.value })} placeholder="https://…/logo.png" className="w-full border rounded-lg px-3 py-2 text-sm bg-white" />
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-[12px] font-medium text-slate-600 mb-1">Logo (URL)</label>
+                        <div className="flex gap-2 items-center">
+                          {draft.logoUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={draft.logoUrl} alt="" className="h-9 w-16 object-contain border rounded-lg bg-white shrink-0" />
+                          )}
+                          <input value={draft.logoUrl} onChange={(e) => setDraft({ ...draft, logoUrl: e.target.value })} placeholder="https://…/logo.png" className="flex-1 min-w-0 border rounded-lg px-3 py-2 text-sm bg-white" />
+                        </div>
                       </div>
                     </div>
-                    {!draft.ownerEmail && <div className="text-[11px] text-amber-700">Sin email del dueño, las opiniones privadas solo se verán aquí en el Hub.</div>}
+                    {brand && brand.logos.length > 1 && (
+                      <div>
+                        <div className="text-[11px] text-slate-500 mb-1">Otros logos encontrados en su web:</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {brand.logos.map((l) => (
+                            <button key={l} type="button" onClick={() => setDraft({ ...draft, logoUrl: l })} className={"h-10 w-16 border rounded-lg bg-white p-1 " + (draft.logoUrl === l ? "ring-2 ring-brand-500" : "hover:bg-slate-50")} title={l}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={l} alt="" className="h-full w-full object-contain" onError={(e) => ((e.currentTarget.parentElement as HTMLElement).style.display = "none")} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {!brand?.loading && !draft.ownerEmail && <div className="text-[11px] text-amber-700">Sin email del dueño, las opiniones privadas solo se verán aquí en el Hub.</div>}
                     {createErr && <div className="text-[12px] text-rose-700">{createErr}</div>}
                     <div className="flex gap-2">
-                      <button onClick={() => create(p)} disabled={saving} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-[13px] font-medium">
+                      <button onClick={() => create(p)} disabled={saving || !!brand?.loading} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-[13px] font-medium">
                         {saving && <Loader2 className="h-4 w-4 animate-spin" />} Crear página
                       </button>
                       <button onClick={() => setCreatingFor(null)} className="px-3 py-2 rounded-lg border text-[13px] bg-white">Cancelar</button>
