@@ -50,7 +50,7 @@ export default function GbpConnectWizard({
   const [src, setSrc] = useState<Sources | null>(null);
   const [srcErr, setSrcErr] = useState<string | null>(null);
   const [source, setSource] = useState<Source | null>(null);
-  const [adding, setAdding] = useState<{ url: string; before: string[] } | null>(null);
+  const [adding, setAdding] = useState<{ url: string; before: string[]; mode: "link" | "manual" } | null>(null);
   const [addBusy, setAddBusy] = useState(false);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [accountsErr, setAccountsErr] = useState<string | null>(null);
@@ -144,7 +144,7 @@ export default function GbpConnectWizard({
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d?.error?.message || d?.message || "No se pudo iniciar la conexión.");
       const before = (src?.sources ?? []).map((x) => x.source);
-      setAdding({ url: d.url, before });
+      setAdding({ url: d.url, before, mode: d.mode === "manual" ? "manual" : "link" });
       window.open(d.url, "_blank", "noopener");
       // Espera a que aparezca la nueva cuenta (hasta 10 minutos).
       stopPoll();
@@ -275,6 +275,9 @@ export default function GbpConnectWizard({
                     No hace falta dar acceso a tu correo en las fichas.
                   </p>
                   {src.sources.length > 0 && (
+                    <div className="text-[12px] font-medium text-slate-600 mb-1.5">Pulsa una cuenta para ver y vincular sus fichas:</div>
+                  )}
+                  {src.sources.length > 0 && (
                     <div className="border rounded-lg divide-y mb-3">
                       {src.sources.map((s) => (
                         <button key={s.source} onClick={() => pick(s)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50">
@@ -304,8 +307,16 @@ export default function GbpConnectWizard({
                       <div className="flex items-center gap-2 font-medium mb-1">
                         <Loader2 className="h-4 w-4 animate-spin" /> Esperando a que conectes la cuenta…
                       </div>
-                      En la pestaña que se ha abierto pulsa <b>Conectar</b>, elige la cuenta de Google del cliente y acepta los permisos.
-                      Esta ventana continuará sola.{" "}
+                      {adding.mode === "manual" ? (
+                        <ol className="list-decimal ml-4 my-1 space-y-0.5">
+                          <li>En la pestaña de Make que se ha abierto pulsa <b>Crear conexión</b>.</li>
+                          <li>Elige <b>Google Business Profile</b> y ponle de nombre el email del cliente.</li>
+                          <li>Pulsa <b>Iniciar sesión con Google</b>, elige la cuenta del cliente y acepta los permisos.</li>
+                        </ol>
+                      ) : (
+                        <>En la pestaña que se ha abierto pulsa <b>Conectar</b>, elige la cuenta de Google del cliente y acepta los permisos. </>
+                      )}
+                      Esta ventana continuará sola en cuanto aparezca la cuenta.{" "}
                       <a href={adding.url} target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-1">
                         Abrir de nuevo <ExternalLink className="h-3 w-3" />
                       </a>

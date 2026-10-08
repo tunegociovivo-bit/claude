@@ -380,6 +380,13 @@ export async function makeDefaultTeamId(workspaceId: string): Promise<number> {
   return teams[0].id;
 }
 
+/** Página de conexiones del team en la web de Make (para crear una conexión a mano). */
+export async function makeConnectionsPageUrl(workspaceId: string): Promise<string> {
+  const cfg = await getConfig(workspaceId);
+  const teamId = await makeDefaultTeamId(workspaceId);
+  return `https://${cfg.zone}.make.com/${teamId}/connections`;
+}
+
 export type MakeConnection = { id: number; name: string; accountName: string; email: string; expire: string | null };
 
 /** Conexiones del team (opcionalmente filtradas por tipo, p. ej. "google-my-business2"). */
