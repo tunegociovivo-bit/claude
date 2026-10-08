@@ -79,7 +79,10 @@ export default function PwaRegister() {
         // conversión. Cubre AMBOS casos: el dominio propio bubui.app (donde la
         // ruta es /reto, /app… sin prefijo) y hub.negociovivo.app/bubui/…
         /(^|\.)bubui\./i.test(window.location.hostname) ||
-        window.location.pathname.startsWith("/bubui");
+        window.location.pathname.startsWith("/bubui") ||
+        // Páginas públicas que abren clientes finales (valoración, reseñas, widgets,
+        // informes compartidos): no son el Hub, así que tampoco «Instalar app».
+        /^\/(opina|gmb-review|gmb-optout|gmb-widget|informe-resenas|r|g|v|p|widget)(\/|$)/.test(window.location.pathname);
       setEmbedded(emb);
     } catch {
       // no-op
