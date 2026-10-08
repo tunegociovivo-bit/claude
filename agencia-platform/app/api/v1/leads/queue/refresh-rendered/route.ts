@@ -136,6 +136,33 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
     }
   }
 
+  // Barrido del nombre del negocio en TODA la cola (sin el tope de `limit`):
+  // cualquier pendiente que aún arrastre {{nombre}} u otro alias se repara con
+  // el nombre real, aunque quede fuera de los primeros `limit` mensajes o su
+  // re-render desde la plantilla haya fallado arriba.
+  const withPlaceholder = await prisma.leadMessage.findMany({
+    where: { workspaceId: api.workspaceId, status: "queued", renderedMessage: { contains: "{{" } },
+    select: { id: true, leadId: true, renderedMessage: true },
+    take: 5000
+  });
+  const nameCache = new Map<string, string>();
+  for (const m of withPlaceholder) {
+    let name = nameCache.get(m.leadId);
+    if (name === undefined) {
+      const nameLead = await prisma.lead.findFirst({
+        where: { id: m.leadId, workspaceId: api.workspaceId },
+        select: { name: true, rawData: true }
+      });
+      name = resolveBusinessName(nameLead);
+      nameCache.set(m.leadId, name);
+    }
+    const repaired = fillBusinessName(m.renderedMessage, name);
+    if (repaired !== m.renderedMessage && !findUnresolvedPlaceholders(repaired).length) {
+      await prisma.leadMessage.update({ where: { id: m.id }, data: { renderedMessage: repaired } });
+      refreshed++;
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     total: queued.length,
