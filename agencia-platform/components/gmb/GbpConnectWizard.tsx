@@ -19,7 +19,7 @@ type Status = {
   setup: { issue: "server" | "google_credentials"; isAdmin: boolean; redirectUri?: string } | null;
 };
 type Source = { source: string; kind: "hub" | "make"; email: string; label: string; linked: number; revoked?: boolean };
-type Sources = { sources: Source[]; direct: { configured: boolean; approved: boolean; error: string | null }; make: { available: boolean } };
+type Sources = { sources: Source[]; connections?: { id: number; email: string }[]; direct: { configured: boolean; approved: boolean; error: string | null }; make: { available: boolean } };
 type Account = { accountId: string; name?: string; type?: string; role?: string; state?: string };
 type Location = {
   locationId: string;
@@ -52,6 +52,7 @@ export default function GbpConnectWizard({
   const [source, setSource] = useState<Source | null>(null);
   const [adding, setAdding] = useState<{ url: string; before: string[]; mode: "link" | "manual" } | null>(null);
   const [addBusy, setAddBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [accountsErr, setAccountsErr] = useState<string | null>(null);
   const [account, setAccount] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export default function GbpConnectWizard({
     }
     setStep(1);
     setResult(null);
+    setNotice(null);
     setSource(null);
     setAdding(null);
     setSrc(null);
@@ -144,6 +146,7 @@ export default function GbpConnectWizard({
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d?.error?.message || d?.message || "No se pudo iniciar la conexión.");
       const before = (src?.sources ?? []).map((x) => x.source);
+      const beforeConns = (src?.connections ?? []).map((c) => c.id);
       setAdding({ url: d.url, before, mode: d.mode === "manual" ? "manual" : "link" });
       window.open(d.url, "_blank", "noopener");
       // Espera a que aparezca la nueva cuenta (hasta 10 minutos).
@@ -155,7 +158,20 @@ export default function GbpConnectWizard({
         if (!so?.ok) return;
         setSrc(so);
         const fresh = (so.sources as Source[]).find((x) => !before.includes(x.source));
-        if (fresh) pick(fresh);
+        if (fresh) return pick(fresh);
+        // Conexión nueva de una cuenta que ya estaba (p. ej. se inició sesión con la propia cuenta
+        // en vez de la del cliente): se avisa y se abre esa cuenta.
+        const newConn = ((so.connections ?? []) as { id: number; email: string }[]).find((c) => !beforeConns.includes(c.id));
+        if (newConn) {
+          const same = (so.sources as Source[]).find((x) => x.email.toLowerCase() === newConn.email.toLowerCase());
+          stopPoll();
+          setAdding(null);
+          setSrcErr(null);
+          setNotice(
+            `Se ha conectado ${newConn.email}, que ya estaba en el Hub. Si querías las fichas de un cliente, vuelve a crear la conexión en Make iniciando sesión con la cuenta de Google del cliente.`
+          );
+          if (same) pick(same);
+        }
       }, 5000);
     } catch (e: any) {
       setSrcErr(e.message);
@@ -336,6 +352,9 @@ export default function GbpConnectWizard({
           {/* ───────── Paso 2: cuenta de Perfil de Empresa + fichas ───────── */}
           {step === 2 && source && (
             <div>
+              {notice && (
+                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[12px] text-amber-900">{notice}</div>
+              )}
               <div className="mb-3 flex items-center justify-between text-[12px] text-slate-500">
                 <span>
                   Cuenta de Google: <span className="font-medium text-slate-700">{source.email || source.label}</span>

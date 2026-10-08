@@ -47,6 +47,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   return NextResponse.json({
     ok: true,
     sources: [...seen.values()],
+    // Todas las conexiones de Make (también las duplicadas de una misma cuenta), para que el
+    // asistente detecte una conexión nueva aunque sea de un email que ya estaba.
+    connections: (makeConns ?? []).map((c) => ({ id: c.id, email: c.email })),
     direct: { configured: gbpOAuthConfigurationIssue() === null, approved: direct.ok, error: direct.ok ? null : direct.error ?? null },
     make: { available: makeConns !== null }
   });
