@@ -11,11 +11,13 @@
 
 import { complete, AIDisabledError } from "@/lib/ai/anthropic";
 import { varyMessage } from "./template-engine";
+import { hasUnresolvedPlaceholders, mentionsBusinessName } from "./placeholders";
 
 const SYSTEM = `Eres un copywriter para mensajes de WhatsApp B2B en español de España.
 Recibes un mensaje base ya redactado y debes REESCRIBIRLO produciendo una versión única.
 
 Reglas estrictas:
+- El NOMBRE DEL NEGOCIO debe aparecer escrito literalmente, tal cual viene en el original. NUNCA lo sustituyas por un marcador ({{nombre}}, {nombre}, [nombre], "tu negocio", "el negocio"). No escribas llaves {{ }} ni corchetes en ningún caso.
 - PRESERVA EXACTAMENTE todos los datos concretos: nombre del negocio, posición numérica, keyword/nicho, provincia o localidad, nombre del competidor, rating, número de reseñas, mi nombre y mi empresa, y la oferta concreta. No inventes nada que no esté en el original.
 - VARÍA la redacción: cambia el orden de las ideas, sinónimos, conectores. Que dos mensajes generados a partir del mismo original no sean nunca idénticos.
 - MEJORA EL FORMATO para WhatsApp:
@@ -34,6 +36,9 @@ export async function aiRewriteMessage(opts: {
   workspaceId: string;
   base: string;
   seed: string;
+  /** Nombre del negocio del lead: si el original lo lleva, el reescrito
+   *  también debe llevarlo (si no, se usa la variación determinística). */
+  businessName?: string;
 }): Promise<string> {
   try {
     const out = await complete({
@@ -50,6 +55,21 @@ export async function aiRewriteMessage(opts: {
     // nombre del negocio del original (heurística simple), caemos al
     // determinístico para no enviar algo roto.
     if (cleaned.length < 60) {
+      return varyMessage(opts.base, opts.seed);
+    }
+    // Nombre del negocio blindado: si la IA metió un placeholder ({{nombre}},
+    // [nombre]…) o se comió el nombre que sí estaba en el original, no se usa
+    // su versión.
+    if (hasUnresolvedPlaceholders(cleaned)) {
+      console.warn("[leads.ai_vary] la IA dejó un placeholder; uso la variación determinística");
+      return varyMessage(opts.base, opts.seed);
+    }
+    if (
+      opts.businessName &&
+      mentionsBusinessName(opts.base, opts.businessName) &&
+      !mentionsBusinessName(cleaned, opts.businessName)
+    ) {
+      console.warn("[leads.ai_vary] la IA perdió el nombre del negocio; uso la variación determinística");
       return varyMessage(opts.base, opts.seed);
     }
     // Blindaje de enlaces: si el original llevaba una URL concreta (p. ej. la

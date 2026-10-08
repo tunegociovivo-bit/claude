@@ -15,6 +15,7 @@ import { pickEnqueueChannel, reassignIfQuarantined, getLeadChannels, warmupRerou
 import { findUnsafeCompetitorMention, getCompetitorRanking, rankingAutoCaption } from "./competitors";
 import { renderRankingPng } from "./ranking-card";
 import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "./email-only";
+import { fillBusinessName, findUnresolvedPlaceholders, resolveBusinessName } from "./placeholders";
 
 /** ¿La sesión WAHA está conectada (WORKING)? null si no se puede determinar. */
 async function sessionWorking(workspaceId: string, session: string): Promise<boolean | null> {
@@ -709,11 +710,16 @@ export async function enqueueMessage(opts: {
     // Variaciones IA: evita texto idéntico entre leads (anti-spam) y mejora el
     // formato. Si falla, cae al texto renderizado.
     if (settings.enableVariations) {
+      const base = rendered;
       rendered = await aiRewriteMessage({
         workspaceId: opts.workspaceId,
-        base: rendered,
-        seed: lead.id
+        base,
+        seed: lead.id,
+        businessName: resolveBusinessName(lead as any)
       });
+      // Doble barrera: si aun así la variación trae un placeholder, se encola
+      // el texto ya renderizado (que sí lleva el nombre real).
+      if (findUnresolvedPlaceholders(rendered).length) rendered = base;
     }
   }
 
@@ -1652,6 +1658,32 @@ export async function sendMessageById(
   };
   const initialGmbBlock = await cancelIfGmbStopped();
   if (initialGmbBlock) return { processed: true, messageId: msg.id, status: initialGmbBlock };
+
+  // BARRERA DE PLACEHOLDERS, justo antes de enviar: ningún "{{nombre}}" (ni
+  // otro placeholder sin resolver) puede llegar a un lead. Los alias del
+  // nombre se reparan con el nombre real del negocio (esto arregla también los
+  // mensajes que ya estaban en cola); si queda algo sin resolver, se bloquea.
+  if (findUnresolvedPlaceholders(msg.renderedMessage).length) {
+    const nameLead = await prisma.lead.findFirst({
+      where: { id: msg.leadId, workspaceId },
+      select: { name: true, rawData: true }
+    });
+    const repaired = fillBusinessName(msg.renderedMessage, resolveBusinessName(nameLead));
+    const left = findUnresolvedPlaceholders(repaired);
+    if (left.length) {
+      await prisma.leadMessage.update({
+        where: { id: msg.id },
+        data: {
+          status: "failed",
+          sendingStartedAt: null,
+          lastError: `Bloqueado: placeholder sin resolver ${left.join(", ")}. Revisa la plantilla y pulsa "Refrescar textos".`
+        }
+      });
+      return { processed: true, messageId: msg.id, status: "failed" };
+    }
+    msg.renderedMessage = repaired;
+    await prisma.leadMessage.update({ where: { id: msg.id }, data: { renderedMessage: repaired } });
+  }
 
   // Rotación por salud: si el número asignado está en cuarentena (quemado o
   // sesión caída), el mensaje sale por otro canal sano en vez de quemarse.

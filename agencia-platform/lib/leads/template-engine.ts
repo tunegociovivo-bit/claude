@@ -10,9 +10,13 @@ import { pickNegativeReview, clip } from "./reviews";
 import { provisionBubuiFromLead } from "@/lib/bubui/provision";
 import { bubuiUrl } from "@/lib/bubui/url";
 import { getCompetitorRanking, type CompetitorRanking } from "./competitors";
+import { fillBusinessName, findUnresolvedPlaceholders, isBusinessNameKey, resolveBusinessName } from "./placeholders";
 
 export const SUPPORTED_PLACEHOLDERS = [
   "nombre_negocio",
+  // Alias del nombre del negocio (también {{negocio}}, {{empresa}},
+  // {{companyName}}…; ver placeholders.ts). La cadencia GMB usa {{nombre}}.
+  "nombre",
   "direccion",
   "provincia",
   "telefono",
@@ -111,8 +115,17 @@ export async function renderTemplate(opts: {
     competitorNames = peers.map((p) => p.name);
   }
 
+  // Nombre del negocio: SIEMPRE el de la ficha (name → datos crudos de
+  // Google). Si la plantilla lo pide y no existe, no se envía nada antes que
+  // mandar un "{{nombre}}" o un hueco.
+  const businessName = resolveBusinessName(lead as any);
+  const usesBusinessName = [...opts.body.matchAll(/\{\{\s*([^{}]{1,60}?)\s*\}\}/g)].some((m) => isBusinessNameKey(m[1]));
+  if (usesBusinessName && !businessName) {
+    throw new Error("No se enviará: el lead no tiene nombre de negocio en Google.");
+  }
+
   const vars: Record<string, string> = {
-    nombre_negocio: lead.name ?? "",
+    nombre_negocio: businessName,
     direccion: lead.formattedAddress ?? lead.address ?? "",
     provincia: lead.province ?? "",
     telefono: lead.phone ?? lead.internationalPhone ?? "",
@@ -203,10 +216,16 @@ export async function renderTemplate(opts: {
     }
   }
 
-  let out = opts.body;
+  // Primero todos los alias del nombre ({{nombre}}, {{Negocio}}, {{companyName}}…).
+  let out = fillBusinessName(opts.body, businessName);
   for (const [k, v] of Object.entries(vars)) {
-    const re = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, "g");
-    out = out.replace(re, v);
+    const re = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, "gi");
+    out = out.replace(re, () => v);
+  }
+  // Barrera: un placeholder desconocido o mal escrito NUNCA llega al lead.
+  const unresolved = findUnresolvedPlaceholders(out);
+  if (unresolved.length) {
+    throw new Error(`No se enviará: placeholder sin resolver ${unresolved.join(", ")} (revisa la plantilla).`);
   }
   // Limpieza: si un placeholder se queda vacío, no dejes dobles espacios ni
   // ", ," colgando justo antes/después del hueco.

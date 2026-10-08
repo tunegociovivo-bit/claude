@@ -12,12 +12,15 @@
  *   - sin templateId → el paso actual de la secuencia activa del lead
  *     (LeadSequenceAssignment.currentStep → LeadSequenceStep.templateBody).
  * Si el lead tiene varias secuencias activas (ambiguo) o ninguna, se informa.
+ * Sin cuerpo de origen (p. ej. cadencia GMB), si el texto guardado arrastra
+ * {{nombre}} u otro alias del nombre, se repara con el nombre real del negocio.
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { renderTemplate } from "@/lib/leads/template-engine";
 import { getCompetitorRanking } from "@/lib/leads/competitors";
+import { fillBusinessName, findUnresolvedPlaceholders, resolveBusinessName } from "@/lib/leads/placeholders";
 
 const POS_RE = /\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/;
 
@@ -30,7 +33,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
 
   const queued = await prisma.leadMessage.findMany({
     where: { workspaceId: api.workspaceId, status: "queued", kind: { in: ["text", "ranking"] } },
-    select: { id: true, leadId: true, templateId: true, kind: true },
+    select: { id: true, leadId: true, templateId: true, kind: true, renderedMessage: true },
     orderBy: { scheduledAt: "asc" },
     take: limit
   });
@@ -79,7 +82,23 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       sourceBody = seqBodyByLead.get(m.leadId) ?? null;
     }
 
-    if (!sourceBody) { ambiguas++; continue; }
+    if (!sourceBody) {
+      // Sin plantilla de origen: al menos reparamos el nombre del negocio.
+      if (findUnresolvedPlaceholders(m.renderedMessage).length) {
+        const nameLead = await prisma.lead.findFirst({
+          where: { id: m.leadId, workspaceId: api.workspaceId },
+          select: { name: true, rawData: true }
+        });
+        const repaired = fillBusinessName(m.renderedMessage, resolveBusinessName(nameLead));
+        if (repaired !== m.renderedMessage && !findUnresolvedPlaceholders(repaired).length) {
+          await prisma.leadMessage.update({ where: { id: m.id }, data: { renderedMessage: repaired } });
+          refreshed++;
+          continue;
+        }
+      }
+      ambiguas++;
+      continue;
+    }
     try {
       // Si el mensaje lleva ranking (imagen) o el texto usa posición/competidor,
       // recalculamos el snapshot UNA vez y renderizamos el texto con él, para que

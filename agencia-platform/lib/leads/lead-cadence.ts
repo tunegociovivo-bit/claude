@@ -11,6 +11,7 @@ import { buildGmbCadencePlan } from "./gmb-cadence-plan";
 import { getGmbMultichannelSettings } from "./gmb-multichannel-readiness";
 import { normalizeEmail } from "./email-verification";
 import { classifyResendFailure, resendFailureRetryAt } from "./resend-webhook";
+import { fillBusinessName, findUnresolvedPlaceholders } from "./placeholders";
 
 export { buildGmbCadencePlan } from "./gmb-cadence-plan";
 
@@ -21,7 +22,7 @@ const DEFAULT_STEPS = [
     delayHours: 0,
     subject: null,
     condition: { stage: "mobile_day1" },
-    templateBody: "Hola, soy del equipo de Negocio Vivo. Al revisar datos públicos de Google hemos visto la posición de {{nombre}} frente a otros negocios de la zona. Si te resulta útil, podemos prepararte sin coste una auditoría comparativa en 24 horas. ¿Quieres que te la enviemos?"
+    templateBody: "Hola, soy del equipo de Negocio Vivo. Al revisar datos públicos de Google hemos visto la posición de {{nombre_negocio}} frente a otros negocios de la zona. Si te resulta útil, podemos prepararte sin coste una auditoría comparativa en 24 horas. ¿Quieres que te la enviemos?"
   },
   {
     order: 1,
@@ -37,7 +38,7 @@ const DEFAULT_STEPS = [
     delayHours: 168,
     subject: null,
     condition: { stage: "mobile_day8_whatsapp" },
-    templateBody: "Hola de nuevo. Cierro por aquí el contacto sobre la visibilidad pública de {{nombre}} en Google. Si quieres que preparemos la auditoría comparativa gratuita en 24 horas, responde AUDITORÍA y te la enviamos. Si no te interesa, dímelo y no volveremos a contactarte."
+    templateBody: "Hola de nuevo. Cierro por aquí el contacto sobre la visibilidad pública de {{nombre_negocio}} en Google. Si quieres que preparemos la auditoría comparativa gratuita en 24 horas, responde AUDITORÍA y te la enviamos. Si no te interesa, dímelo y no volveremos a contactarte."
   },
   {
     order: 3,
@@ -66,9 +67,11 @@ const DEFAULT_STEPS = [
 ] as const;
 
 function render(template: string, companyName: string) {
-  return template
-    .replace(/{{\s*companyName\s*}}/g, companyName)
-    .replace(/{{\s*nombre\s*}}/g, companyName);
+  // Todos los alias del nombre ({{companyName}}, {{nombre}}, {{nombre_negocio}}…).
+  const out = fillBusinessName(template, companyName);
+  const left = findUnresolvedPlaceholders(out);
+  if (left.length) throw new Error(`No se enviará: placeholder sin resolver ${left.join(", ")}`);
+  return out;
 }
 
 function escapeHtml(value: string) {
