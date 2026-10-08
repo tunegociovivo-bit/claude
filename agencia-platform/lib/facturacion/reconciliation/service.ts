@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { effectiveSepaCandidateDate, matchIncomingPayment, matchSepaReceipt, matchUniqueSepaSummary, persistedBankReference, requiresVerifiedSepaReceipt, retainEligiblePaymentMatch, shouldImportMovement, shouldReprocessExistingBankTransaction } from "./matching";
 import { sendEmail } from "@/lib/integrations/email";
 import { profileForForcedReconciliation } from "./state";
+import { assignManualRemittances, assignRemittanceGroups, duplicateRemittanceRowIds, isRemittanceAggregate, remittanceCode, suggestInvoicesForMovement, UNDOABLE_CONFIDENCES } from "./remittances";
 
 export const NEGOCIO_VIVO_RECONCILIATION_START = new Date("2026-08-09T22:00:00.000Z");
 
@@ -151,9 +152,14 @@ async function repairUnmatchedExactReferences(workspaceId: string) {
 
 async function repairSyntheticSepaDuplicates(workspaceId: string) {
   const synthetic = await prisma.bankTransaction.findMany({
-    where: { workspaceId, status: "MATCHED", OR: [
-      { reference: { contains: "Remesa SEPA verificada", mode: "insensitive" } },
-      { reference: { contains: "Contabilizada", mode: "insensitive" } }
+    where: { workspaceId, status: "MATCHED", AND: [
+      { OR: [
+        { reference: { contains: "Remesa SEPA verificada", mode: "insensitive" } },
+        { reference: { contains: "Contabilizada", mode: "insensitive" } }
+      ] },
+      // Los abonos conciliados por grupo de remesas del HUB, por importe único o
+      // a mano ya descartan sus duplicados (recibos) al conciliarse.
+      { OR: [{ matchConfidence: null }, { matchConfidence: { notIn: [...UNDOABLE_CONFIDENCES] } }] }
     ] },
     include: { invoice: { select: { id: true, status: true, totalCents: true, paidCents: true, paidAt: true } } }
   });
@@ -344,6 +350,171 @@ function clientName(snapshot: unknown): string {
   return String(data.legalName ?? data.name ?? "").trim();
 }
 
+/**
+ * Abonos de remesa SEPA ("Remesa SEPA <nº> · Contabilizada") → facturas.
+ * Ver remittances.ts para las reglas. Resumen: se emparejan con las remesas
+ * que el propio HUB preparó (importe exacto + vencimiento pocos días después) y
+ * solo cuando el grupo de igual importe cuadra 1:1; las remesas manuales, solo
+ * con importe único en ambos sentidos. Lo ambiguo queda en "Revisar".
+ */
+export async function reconcileSepaRemittanceAggregates(workspaceId: string, startsAt: Date): Promise<number> {
+  const rows = await prisma.bankTransaction.findMany({
+    where: { workspaceId, amountCents: { gt: 0 }, bookedAt: { gte: startsAt }, status: { in: ["MATCHED", "UNMATCHED"] } },
+    select: { id: true, status: true, amountCents: true, bookedAt: true, reference: true, createdAt: true, matchedInvoiceId: true, matchConfidence: true }
+  });
+
+  // 1) La misma remesa entra por el listado de remesas y por la cuenta: una sola.
+  const duplicates = duplicateRemittanceRowIds(rows);
+  if (duplicates.length) {
+    await prisma.bankTransaction.updateMany({ where: { workspaceId, id: { in: duplicates }, status: "UNMATCHED" }, data: { status: "IGNORED" } });
+  }
+  const duplicateSet = new Set(duplicates);
+
+  const aggregates = rows
+    .filter((row) => row.status === "UNMATCHED" && !duplicateSet.has(row.id) && row.matchConfidence !== "MANUAL_HOLD" && isRemittanceAggregate(row.reference))
+    .map((row) => ({ id: row.id, amountCents: row.amountCents, bookedAt: row.bookedAt, code: remittanceCode(row.reference) }));
+  if (!aggregates.length) return 0;
+
+  // Facturas ya conciliadas con un ABONO de remesa: su remesa está consumida.
+  // Las conciliadas con un RECIBO leído del detalle siguen necesitando su abono
+  // (que es el mismo dinero): ese abono se marcará como duplicado, no se cobra dos veces.
+  const consumedInvoices = new Set(rows.filter((row) => row.status === "MATCHED" && row.matchedInvoiceId && isRemittanceAggregate(row.reference)).map((row) => row.matchedInvoiceId!));
+  const receiptInvoices = new Set(rows.filter((row) => row.status === "MATCHED" && row.matchedInvoiceId && /·\s*Recibo\s/i.test(row.reference ?? "")).map((row) => row.matchedInvoiceId!));
+
+  const requests = await prisma.sepaRemittanceRequest.findMany({
+    where: {
+      workspaceId,
+      archivedAt: null,
+      status: { in: ["PENDING_SIGNATURE", "SIGNED"] },
+      amountCents: { gt: 0 },
+      createdAt: { gte: new Date(startsAt.getTime() - 30 * 24 * 60 * 60 * 1000) }
+    },
+    select: { id: true, invoiceId: true, companyId: true, amountCents: true, chargeDate: true, approvedAt: true, createdAt: true }
+  });
+  const requestInvoices = await prisma.invoice.findMany({
+    where: { workspaceId, id: { in: [...new Set(requests.map((request) => request.invoiceId))] } },
+    select: { id: true, status: true, totalCents: true, paidCents: true, deletedAt: true }
+  });
+  const invoiceById = new Map(requestInvoices.map((invoice) => [invoice.id, invoice]));
+  const requestState = new Map<string, "OPEN" | "RECEIPT">();
+  const candidates = requests.flatMap((request) => {
+    const invoice = invoiceById.get(request.invoiceId);
+    if (!invoice || invoice.deletedAt || consumedInvoices.has(invoice.id)) return [];
+    const open = invoice.status === "ISSUED" && invoice.paidCents === 0 && invoice.totalCents === request.amountCents;
+    const byReceipt = invoice.status === "PAID" && receiptInvoices.has(invoice.id);
+    if (!open && !byReceipt) return [];
+    requestState.set(request.id, open ? "OPEN" : "RECEIPT");
+    return [{ id: request.id, amountCents: request.amountCents, preparedAt: request.chargeDate ?? request.approvedAt ?? request.createdAt }];
+  });
+  const requestById = new Map(requests.map((request) => [request.id, request]));
+  const aggregateById = new Map(aggregates.map((aggregate) => [aggregate.id, aggregate]));
+
+  let matched = 0;
+  const { assignments, contested } = assignRemittanceGroups(aggregates, candidates);
+  for (const assignment of assignments) {
+    const aggregate = aggregateById.get(assignment.aggregateId)!;
+    const request = requestById.get(assignment.requestId)!;
+    if (requestState.get(request.id) === "RECEIPT") {
+      // El cobro ya consta por el recibo; este abono es el mismo dinero.
+      await prisma.bankTransaction.updateMany({ where: { id: aggregate.id, workspaceId, status: "UNMATCHED" }, data: { status: "IGNORED" } });
+      continue;
+    }
+    matched += await claimMovementForInvoice(workspaceId, aggregate.id, request.invoiceId, aggregate.bookedAt, "SEPA_REMESA_HUB");
+  }
+
+  // 2) Remesas preparadas a mano en Santander (sin solicitud del HUB).
+  const assignedAggregates = new Set(assignments.map((assignment) => assignment.aggregateId));
+  const manualAggregates = aggregates.filter((aggregate) => !assignedAggregates.has(aggregate.id) && !contested.has(aggregate.id));
+  if (manualAggregates.length) {
+    const activeRequestInvoices = await prisma.sepaRemittanceRequest.findMany({
+      where: { workspaceId, archivedAt: null, status: { notIn: ["REJECTED", "EXPIRED", "FAILED"] } },
+      select: { invoiceId: true }
+    });
+    const withActiveRequest = new Set(activeRequestInvoices.map((item) => item.invoiceId));
+    const issuerIds = [...new Set(requests.map((request) => request.companyId))];
+    const openInvoices = (await prisma.invoice.findMany({
+      where: {
+        workspaceId, type: "NORMAL", status: "ISSUED", paidCents: 0, deletedAt: null, totalCents: { gt: 0 },
+        issueDate: { gte: new Date(startsAt.getTime() - 15 * 24 * 60 * 60 * 1000) },
+        ...(issuerIds.length ? { issuerId: { in: issuerIds } } : {})
+      },
+      select: { id: true, totalCents: true, issueDate: true }
+    })).filter((invoice) => !withActiveRequest.has(invoice.id));
+    for (const pair of assignManualRemittances(manualAggregates, openInvoices)) {
+      const aggregate = aggregateById.get(pair.aggregateId)!;
+      matched += await claimMovementForInvoice(workspaceId, aggregate.id, pair.invoiceId, aggregate.bookedAt, "SEPA_REMESA_IMPORTE_UNICO");
+    }
+  }
+  return matched;
+}
+
+/** Concilia un movimiento con una factura de forma atómica (ambos o ninguno). */
+async function claimMovementForInvoice(workspaceId: string, transactionId: string, invoiceId: string, paidAt: Date, confidence: string): Promise<number> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, workspaceId, status: "ISSUED", paidCents: 0, deletedAt: null }, select: { id: true, totalCents: true } });
+      if (!invoice) return 0;
+      const movementClaim = await tx.bankTransaction.updateMany({
+        where: { id: transactionId, workspaceId, status: "UNMATCHED", amountCents: invoice.totalCents },
+        data: { status: "MATCHED", matchedInvoiceId: invoice.id, matchConfidence: confidence, matchedAt: new Date() }
+      });
+      if (!movementClaim.count) return 0;
+      const invoiceClaim = await tx.invoice.updateMany({
+        where: { id: invoice.id, workspaceId, status: "ISSUED", paidCents: 0 },
+        data: { status: "PAID", paidCents: invoice.totalCents, paidAt }
+      });
+      if (!invoiceClaim.count) throw new Error("La factura ya fue conciliada por otra ejecución");
+      return 1;
+    });
+  } catch (error) {
+    console.error("[conciliación] no se pudo conciliar", transactionId, (error as Error)?.message ?? error);
+    return 0;
+  }
+}
+
+/** Conciliación manual desde la pantalla: mismo importe exacto, factura abierta. */
+export async function manualMatchMovement(workspaceId: string, transactionId: string, invoiceId: string) {
+  const movement = await prisma.bankTransaction.findFirst({
+    where: { id: transactionId, workspaceId, status: "UNMATCHED", amountCents: { gt: 0 } },
+    select: { id: true, bookedAt: true, amountCents: true }
+  });
+  if (!movement) throw new Error("El movimiento ya no está pendiente de revisar");
+  const invoice = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId, status: "ISSUED", paidCents: 0, deletedAt: null }, select: { totalCents: true } });
+  if (!invoice) throw new Error("La factura ya no está pendiente de cobro");
+  if (invoice.totalCents !== movement.amountCents) throw new Error("El importe de la factura no coincide con el del movimiento");
+  const done = await claimMovementForInvoice(workspaceId, movement.id, invoiceId, movement.bookedAt, "MANUAL");
+  if (!done) throw new Error("No se pudo conciliar: otra ejecución modificó el movimiento o la factura");
+}
+
+/** Deshace una conciliación inferida o manual: la factura vuelve a "emitida" y
+ *  el movimiento queda en revisión SIN volver a emparejarse solo. */
+export async function undoMovementMatch(workspaceId: string, transactionId: string) {
+  await prisma.$transaction(async (tx) => {
+    const movement = await tx.bankTransaction.findFirst({
+      where: { id: transactionId, workspaceId, status: "MATCHED" },
+      select: { id: true, matchedInvoiceId: true, matchConfidence: true }
+    });
+    if (!movement) throw new Error("El movimiento no está conciliado");
+    if (!UNDOABLE_CONFIDENCES.has(movement.matchConfidence ?? "")) throw new Error("Esta conciliación se basa en una referencia verificada y no se deshace desde aquí");
+    await tx.bankTransaction.updateMany({
+      where: { id: movement.id, workspaceId, status: "MATCHED" },
+      data: { status: "UNMATCHED", matchedInvoiceId: null, matchConfidence: "MANUAL_HOLD", matchedAt: null }
+    });
+    if (movement.matchedInvoiceId) {
+      const others = await tx.bankTransaction.count({ where: { workspaceId, matchedInvoiceId: movement.matchedInvoiceId, status: "MATCHED", id: { not: movement.id } } });
+      if (!others) {
+        await tx.invoice.updateMany({ where: { id: movement.matchedInvoiceId, workspaceId, status: "PAID" }, data: { status: "ISSUED", paidCents: 0, paidAt: null } });
+      }
+    }
+  });
+}
+
+/** Descarta un movimiento que no es cobro de factura (no vuelve a revisión). */
+export async function ignoreMovement(workspaceId: string, transactionId: string) {
+  const done = await prisma.bankTransaction.updateMany({ where: { id: transactionId, workspaceId, status: "UNMATCHED" }, data: { status: "IGNORED" } });
+  if (!done.count) throw new Error("El movimiento ya no está pendiente de revisar");
+}
+
 export async function importAndReconcileMovements(workspaceId: string, movements: IncomingBankMovement[]) {
   const config = await ensureReconciliationConfig(workspaceId);
   if (!config.enabled) return { imported: 0, matched: 0, ignored: movements.length };
@@ -502,6 +673,7 @@ export async function importAndReconcileMovements(workspaceId: string, movements
   // única por importe y ventana de liquidación; los ambiguos siguen en revisión.
   matched += await reconcileUniqueSepaSummaries(workspaceId);
   matched += await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
+  matched += await reconcileSepaRemittanceAggregates(workspaceId, config.startsAt);
 
   await prisma.bankReconciliationConfig.update({
     where: { workspaceId },
@@ -556,6 +728,11 @@ export async function reconciliationDashboard(workspaceId: string) {
   await repairUnmatchedExactReferences(workspaceId);
   await repairSyntheticSepaDuplicates(workspaceId);
   await reconcileUniqueSepaSummaries(workspaceId);
+  try {
+    await reconcileSepaRemittanceAggregates(workspaceId, config.startsAt);
+  } catch (error) {
+    console.error("[conciliación] fallo al conciliar abonos de remesa", error);
+  }
   const [items, matched, unmatched] = await Promise.all([
     prisma.bankTransaction.findMany({
       where: { workspaceId, bookedAt: { gte: config.startsAt }, status: { in: ["MATCHED", "UNMATCHED"] } },
@@ -566,7 +743,22 @@ export async function reconciliationDashboard(workspaceId: string) {
     prisma.bankTransaction.count({ where: { workspaceId, status: "MATCHED", bookedAt: { gte: config.startsAt } } }),
     prisma.bankTransaction.count({ where: { workspaceId, status: "UNMATCHED", bookedAt: { gte: config.startsAt } } })
   ]);
-  return { config, summary: { matched, unmatched }, items };
+  // Sugerencias para conciliar a mano lo que queda en revisión.
+  const pending = items.filter((item) => item.status === "UNMATCHED" && item.amountCents > 0);
+  const openInvoices = pending.length ? await prisma.invoice.findMany({
+    where: { workspaceId, status: "ISSUED", paidCents: 0, deletedAt: null, totalCents: { in: [...new Set(pending.map((item) => item.amountCents))] } },
+    select: { id: true, number: true, clientSnapshot: true, totalCents: true, issueDate: true },
+    orderBy: { issueDate: "desc" },
+    take: 1000
+  }) : [];
+  const withSuggestions = items.map((item) => ({
+    ...item,
+    undoable: item.status === "MATCHED" && UNDOABLE_CONFIDENCES.has(item.matchConfidence ?? ""),
+    suggestions: item.status === "UNMATCHED" && item.amountCents > 0
+      ? suggestInvoicesForMovement(item, openInvoices).map((invoice) => ({ id: invoice.id, number: invoice.number, client: clientName(invoice.clientSnapshot), issueDate: invoice.issueDate }))
+      : []
+  }));
+  return { config, summary: { matched, unmatched }, items: withSuggestions };
 }
 
 export async function requestReconciliation(workspaceId: string) {
@@ -582,6 +774,7 @@ export async function requestReconciliation(workspaceId: string) {
   try {
     await reconcileUniqueSepaSummaries(workspaceId);
     await reconcilePreviouslyUnmatchedIncomingPayments(workspaceId, config.startsAt);
+    await reconcileSepaRemittanceAggregates(workspaceId, config.startsAt);
   } catch (error) {
     console.error("No se pudieron reconciliar inmediatamente los movimientos almacenados", error);
   }

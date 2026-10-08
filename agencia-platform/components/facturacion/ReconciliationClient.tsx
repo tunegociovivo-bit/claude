@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, Download, EyeOff, Loader2, RefreshCw, ShieldCheck, Undo2 } from "lucide-react";
 
 type Dashboard = {
   config: { enabled: boolean; startsAt: string; lastSyncAt: string | null; lastError: string | null };
@@ -10,16 +10,49 @@ type Dashboard = {
     id: string; bookedAt: string; amountCents: number; currency: string; counterpartyName: string | null;
     reference: string | null; status: string; matchConfidence: string | null;
     invoice: { number: string | null; clientSnapshot: any } | null;
+    undoable?: boolean;
+    suggestions?: Array<{ id: string; number: string | null; client: string; issueDate: string }>;
   }>;
 };
 
 const money = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
+
+// Cómo se concilió cada cobro (se muestra bajo "Conciliado").
+const CONFIDENCE_LABEL: Record<string, string> = {
+  EXACT_REFERENCE: "Nº de factura en el concepto",
+  CLIENT_AMOUNT: "Cliente + importe",
+  SEPA_RECEIPT: "Recibo SEPA (deudor)",
+  SEPA_REMESA_HUB: "Remesa del Hub · importe y fecha",
+  SEPA_REMESA_IMPORTE_UNICO: "Remesa manual · importe único",
+  SEPA_REQUEST_DATE_AMOUNT: "Remesa · importe y fecha",
+  SEPA_UNIQUE_AMOUNT: "Remesa · importe único",
+  MANUAL: "Conciliado a mano"
+};
 
 export default function ReconciliationClient() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [choice, setChoice] = useState<Record<string, string>>({});
+
+  async function act(body: Record<string, string>, confirmText?: string) {
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusyId(body.transactionId);
+    try {
+      const response = await fetch("/api/v1/facturacion/reconciliation/actions", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error?.message ?? result?.message ?? "No se pudo completar la acción");
+      await load();
+    } catch (error: any) {
+      window.alert(error?.message ?? "No se pudo completar la acción");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -75,7 +108,7 @@ export default function ReconciliationClient() {
         <div className="flex-1 min-w-[240px]">
           <div className="font-semibold text-slate-900">Conciliación automática Santander</div>
           <div className="text-sm text-slate-600 mt-1">
-            Solo importa abonos desde el 10/08/2026. Las coincidencias ambiguas nunca marcan una factura como pagada.
+            Solo importa abonos desde el 10/08/2026. Los abonos de remesa se concilian con las remesas que preparó el Hub (mismo importe y vencimiento pocos días después) solo cuando cuadran sin ambigüedad; lo dudoso queda en «Revisar» con facturas sugeridas.
           </div>
           {data && <div className="text-xs text-slate-500 mt-1">Última sincronización: {data.config.lastSyncAt ? new Date(data.config.lastSyncAt).toLocaleString("es-ES") : "pendiente del primer cobro"}</div>}
         </div>
@@ -99,8 +132,48 @@ export default function ReconciliationClient() {
             <td className="p-3 whitespace-nowrap">{new Date(item.bookedAt).toLocaleDateString("es-ES")}</td>
             <td className="p-3"><div className="font-medium">{item.counterpartyName ?? "Sin ordenante"}</div><div className="text-xs text-slate-500 max-w-md truncate">{item.reference}</div></td>
             <td className="p-3 font-medium">{money.format(item.amountCents / 100)}</td>
-            <td className="p-3">{item.invoice?.number ?? "—"}</td>
-            <td className="p-3"><span className={`rounded-full px-2 py-1 text-xs ${item.status === "MATCHED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{item.status === "MATCHED" ? "Conciliado" : "Revisar"}</span></td>
+            <td className="p-3">
+              {item.invoice ? <div>
+                <div className="font-medium">{item.invoice.number ?? "—"}</div>
+                <div className="text-xs text-slate-500 max-w-[220px] truncate">{item.invoice.clientSnapshot?.legalName ?? item.invoice.clientSnapshot?.name ?? ""}</div>
+              </div> : item.status === "UNMATCHED" && item.amountCents > 0 ? (
+                item.suggestions?.length ? <div className="flex items-center gap-1.5">
+                  <select
+                    value={choice[item.id] ?? item.suggestions[0].id}
+                    onChange={(event) => setChoice((current) => ({ ...current, [item.id]: event.target.value }))}
+                    className="max-w-[240px] rounded-md border px-2 py-1 text-xs"
+                  >
+                    {item.suggestions.map((suggestion) => <option key={suggestion.id} value={suggestion.id}>
+                      {suggestion.number ?? "s/n"} · {suggestion.client} · {new Date(suggestion.issueDate).toLocaleDateString("es-ES")}
+                    </option>)}
+                  </select>
+                  <button
+                    onClick={() => void act({ action: "match", transactionId: item.id, invoiceId: choice[item.id] ?? item.suggestions![0].id })}
+                    disabled={busyId === item.id}
+                    title="Marcar esta factura como cobrada con este abono"
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >{busyId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Conciliar</button>
+                </div> : <span className="text-xs text-slate-400">Sin factura abierta de este importe</span>
+              ) : "—"}
+            </td>
+            <td className="p-3">
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-1 text-xs ${item.status === "MATCHED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{item.status === "MATCHED" ? "Conciliado" : "Revisar"}</span>
+                {item.undoable && <button
+                  onClick={() => void act({ action: "undo", transactionId: item.id }, `¿Deshacer la conciliación de ${item.invoice?.number ?? "esta factura"}? Volverá a quedar pendiente de cobro.`)}
+                  disabled={busyId === item.id}
+                  title="Deshacer conciliación"
+                  className="inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                ><Undo2 className="h-3.5 w-3.5" /></button>}
+                {item.status === "UNMATCHED" && <button
+                  onClick={() => void act({ action: "ignore", transactionId: item.id }, "¿Descartar este movimiento? No es el cobro de ninguna factura y desaparecerá de la lista.")}
+                  disabled={busyId === item.id}
+                  title="Descartar: no es cobro de factura"
+                  className="inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                ><EyeOff className="h-3.5 w-3.5" /></button>}
+              </div>
+              {item.status === "MATCHED" && item.matchConfidence && <div className="mt-1 text-[11px] text-slate-500">{CONFIDENCE_LABEL[item.matchConfidence] ?? item.matchConfidence}</div>}
+            </td>
           </tr>) : <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aún no hay movimientos importados desde la fecha de inicio.</td></tr>}</tbody>
         </table>
       </div>
