@@ -42,6 +42,7 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       emails: c.emails,
       mainKeyword: c.mainKeyword,
       autoReply: c.autoReply,
+      notifyMode: (c as any).notifyMode,
       frequency: c.frequency,
       scenarioId: c.scenarioId,
       status: c.status,

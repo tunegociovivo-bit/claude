@@ -25,7 +25,7 @@ export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
     select: { id: true, authorName: true, rating: true, comment: true, reviewReply: true, reviewTime: true }
   });
 
-  const rules: ReplyRules = { autoReplyEnabled: client.autoReply === "auto", autoReplyMinRating: 4, neverAutoOnRisk: true };
+  const rules: ReplyRules = { autoReplyEnabled: !!client.autoReply && client.autoReply !== "manual", autoReplyMinRating: 4, neverAutoOnRisk: true };
   const items = reviews.map((r: any) => {
     const analysis = analyzeReview({ rating: r.rating, comment: r.comment, reviewTime: r.reviewTime, hasReply: !!r.reviewReply });
     const reply = decideReply(analysis, r.rating, rules);

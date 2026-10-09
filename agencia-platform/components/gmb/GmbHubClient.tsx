@@ -9,6 +9,8 @@ import FakeReviewsView from "@/components/gmb/FakeReviewsView";
 import ReviewLinkView from "@/components/gmb/ReviewLinkView";
 import GbpConnectWizard from "@/components/gmb/GbpConnectWizard";
 import PerformancePanel from "@/components/gmb/PerformancePanel";
+import ReviewAutomationBar from "@/components/gmb/ReviewAutomationBar";
+import SeoReportPanel from "@/components/gmb/SeoReportPanel";
 import {
   Loader2,
   Plus,
@@ -786,13 +788,14 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
         {tab === "fotos" && <PhotosPanel id={id} />}
         {tab === "qa" && <QaPanel id={id} />}
         {tab === "plantillas" && <TemplatesPanel id={id} />}
-        {tab === "seo" && <SeoPanel id={id} />}
+        {tab === "seo" && <SeoReportPanel id={id} />}
         {tab === "competitors" && <CompetitorsPanel id={id} />}
         {tab === "ranking" && <RankingPanel id={id} />}
         {tab === "editar" && <EditFichaPanel id={id} onSaved={() => { load(); onChanged(); }} />}
 
         {tab === "reviews" && (
         <div className="p-4 space-y-3">
+          <ReviewAutomationBar id={id} onReplied={() => { load(); onChanged(); }} />
           <div className="flex items-center gap-2 text-xs">
             <button
               onClick={() => setOnlyUnreplied(false)}
@@ -857,7 +860,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             </div>
           ) : !data || data.reviews.length === 0 ? (
             <div className="text-sm text-slate-500 text-center p-8 bg-white rounded-xl border">
-              No hay reseñas {onlyUnreplied ? "sin responder" : ""}. Pulsa «Sincronizar con Google» para traerlas; las nuevas llegan solas vía Make.
+              No hay reseñas {onlyUnreplied ? "sin responder" : ""}. Pulsa «Sincronizar con Google» para traerlas; las nuevas se revisan solas cada 30 minutos.
             </div>
           ) : (
             data.reviews.map((rev) => (
@@ -1132,55 +1135,6 @@ function BulkReplyPanel({
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function SeoPanel({ id }: { id: string }) {
-  const [audit, setAudit] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    fetch(`/api/v1/gmb/clients/${id}/seo-audit`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setAudit(d?.audit ?? null))
-      .finally(() => setLoading(false));
-  }, [id]);
-  if (loading)
-    return (
-      <div className="p-6 text-sm text-slate-500 flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Analizando…
-      </div>
-    );
-  if (!audit) return <div className="p-6 text-sm text-slate-500">No se pudo calcular la auditoría.</div>;
-  const tone = audit.score >= 80 ? "text-emerald-600" : audit.score >= 50 ? "text-amber-600" : "text-rose-600";
-  return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <div className={"text-3xl font-bold " + tone}>{audit.score}</div>
-        <div className="text-xs text-slate-500">Puntuación SEO local (0-100)</div>
-      </div>
-      <div className="space-y-1">
-        {audit.checks.map((c: any, i: number) => (
-          <div key={i} className="flex items-center gap-2 text-[13px]">
-            {c.ok ? (
-              <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-            ) : (
-              <X className="h-4 w-4 text-rose-500 shrink-0" />
-            )}
-            <span className={c.ok ? "text-slate-700" : "text-slate-900 font-medium"}>{c.label}</span>
-          </div>
-        ))}
-      </div>
-      {audit.recommendations?.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <div className="text-xs font-semibold text-amber-900 mb-1">Recomendaciones</div>
-          <ul className="text-[12px] text-amber-900 list-disc pl-4 space-y-0.5">
-            {audit.recommendations.map((r: string, i: number) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

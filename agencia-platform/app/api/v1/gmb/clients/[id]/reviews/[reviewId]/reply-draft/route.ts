@@ -30,7 +30,7 @@ export const POST = withApi({ scope: "*" }, async (req, { params, api }) => {
 
   const tone = parsed.data.tone ?? client.customTone ?? client.tone ?? "profesional";
   const analysis = analyzeReview({ rating: review.rating, comment: review.comment, hasReply: !!review.reviewReply });
-  const rules: ReplyRules = { autoReplyEnabled: client.autoReply === "auto", autoReplyMinRating: 4, neverAutoOnRisk: true };
+  const rules: ReplyRules = { autoReplyEnabled: !!client.autoReply && client.autoReply !== "manual", autoReplyMinRating: 4, neverAutoOnRisk: true };
   const decision = decideReply(analysis, review.rating, rules);
   const draft = buildReplyDraft(analysis, { businessName: client.name, authorName: review.authorName, tone });
 

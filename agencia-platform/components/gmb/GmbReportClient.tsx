@@ -8,13 +8,13 @@
  *    reseñas destacadas en vez de la lista completa, próximos pasos en vez de alertas).
  */
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Printer, Star, Eye, Search, MousePointerClick, Phone, Navigation, Globe, MessageCircle, CalendarCheck, Megaphone, MapPin, TrendingUp } from "lucide-react";
+import { buildNextSteps, buildSummary, pct } from "@/lib/gmb/client-report-text";
+import { Loader2, Printer, ShieldAlert, Star, Eye, Search, MousePointerClick, Phone, Navigation, Globe, MessageCircle, CalendarCheck, Megaphone, MapPin, TrendingUp } from "lucide-react";
 
 type Mode = "real" | "cliente";
 const nf = new Intl.NumberFormat("es-ES");
 const fmt = (n: number | null | undefined, d = 0) =>
   n == null || Number.isNaN(n) ? "–" : new Intl.NumberFormat("es-ES", { maximumFractionDigits: d, minimumFractionDigits: d }).format(n);
-const pct = (now: number, prev: number) => (prev > 0 ? ((now - prev) / prev) * 100 : now > 0 ? null : 0);
 const dIso = (d: Date) => d.toISOString().slice(0, 10);
 const longDate = (s: string) => new Date(`${s}T12:00:00Z`).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
 const shortDate = (s: string | Date) => new Date(s).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
@@ -38,19 +38,44 @@ export default function GmbReportClient({ id }: { id: string }) {
   const [from, setFrom] = useState(ps[0].from);
   const [to, setTo] = useState(ps[0].to);
   const [mode, setMode] = useState<Mode>("real");
+  const [withFake, setWithFake] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  function load(f = from, t = to) {
+  function load(f = from, t = to, fk = withFake) {
     setLoading(true);
     setErr(null);
-    fetch(`/api/v1/gmb/clients/${id}/report?from=${f}&to=${t}`)
+    fetch(`/api/v1/gmb/clients/${id}/report?from=${f}&to=${t}${fk ? "&fake=1" : ""}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("No se pudo cargar el informe"))))
       .then(setData)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
   }
+  async function downloadPdf() {
+    setPdfBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/report/pdf?from=${from}&to=${to}&mode=${mode}${withFake ? "&fake=1" : ""}`);
+      if (!r.ok) throw new Error(`No se pudo generar el PDF (${r.status})`);
+      const blob = await r.blob();
+      const name = (r.headers.get("content-disposition") ?? "").match(/filename="?([^";]+)"?/)?.[1] ?? `informe-${from}-${to}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = decodeURIComponent(name);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,6 +117,17 @@ export default function GmbReportClient({ id }: { id: string }) {
           <button onClick={() => load()} disabled={loading} className="px-3 py-1.5 rounded-md bg-slate-900 text-white text-sm disabled:opacity-50">
             {loading ? "Generando…" : "Generar informe"}
           </button>
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer select-none" title="Añade el último análisis de la pestaña «Reseñas falsas»">
+            <input
+              type="checkbox"
+              checked={withFake}
+              onChange={(e) => {
+                setWithFake(e.target.checked);
+                load(from, to, e.target.checked);
+              }}
+            />
+            Incluir reseñas falsas
+          </label>
           <div className="inline-flex rounded-lg border p-0.5 text-sm ml-auto">
             {(["real", "cliente"] as Mode[]).map((m) => (
               <button
@@ -104,8 +140,8 @@ export default function GmbReportClient({ id }: { id: string }) {
               </button>
             ))}
           </div>
-          <button onClick={() => window.print()} disabled={!data} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50">
-            <Printer className="h-4 w-4" /> PDF
+          <button onClick={downloadPdf} disabled={!data || pdfBusy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-sm disabled:opacity-50">
+            {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />} Descargar PDF
           </button>
         </div>
         {mode === "cliente" && (
@@ -348,6 +384,9 @@ function Report({ data, mode, dim }: { data: any; mode: Mode; dim: boolean }) {
         </Section>
       )}
 
+      {/* Reseñas falsas (opcional) */}
+      {data.fake !== undefined && <FakeSection fake={data.fake} mode={mode} accent={accent} />}
+
       {/* Cierre */}
       <Section title={real ? "Puntos de atención y recomendaciones" : "Próximos pasos"}>
         <ul className="space-y-1.5 text-sm">
@@ -547,81 +586,73 @@ function Mini({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-/* ─────────────── Textos automáticos (resumen y próximos pasos) ─────────────── */
-
-type Line = { text: string; tone: "good" | "bad" | "neutral" };
-
-function buildSummary(data: any, mode: Mode, x: { conv: number | null; prevConv: number | null; comparable: boolean }): Line[] {
+function FakeSection({ fake, mode }: { fake: any; mode: Mode; accent?: string }) {
   const real = mode === "real";
-  const perf = data.performance?.ok ? data.performance : null;
-  const rv = data.reviews;
-  const out: Line[] = [];
-  const change = (label: string, now: number, prev: number, unit = "") => {
-    if (!x.comparable) return;
-    const d = pct(now, prev);
-    if (d === null) {
-      out.push({ text: `${label}: ${fmt(now)}${unit} (sin actividad en el periodo anterior).`, tone: "good" });
-      return;
-    }
-    if (d > 0) out.push({ text: `${label} crecen un ${fmt(d, d < 10 ? 1 : 0)}%: ${fmt(now)}${unit} frente a ${fmt(prev)}.`, tone: "good" });
-    else if (d < 0 && real) out.push({ text: `${label} bajan un ${fmt(-d, -d < 10 ? 1 : 0)}%: ${fmt(now)}${unit} frente a ${fmt(prev)}.`, tone: "bad" });
-    else if (d === 0 && real) out.push({ text: `${label} se mantienen estables (${fmt(now)}${unit}).`, tone: "neutral" });
-  };
-  if (perf) {
-    if (!real || !x.comparable) out.push({ text: `La ficha apareció ${fmt(perf.views)} veces en Google y generó ${fmt(perf.interactions)} acciones de clientes (llamadas, rutas, visitas a la web…).`, tone: "good" });
-    change("Las visualizaciones", perf.views, perf.prevViews);
-    change("Las interacciones", perf.interactions, perf.prevInteractions);
-    change("Las llamadas", perf.totals.CALL_CLICKS ?? 0, perf.prevTotals.CALL_CLICKS ?? 0);
-    change("Las solicitudes de cómo llegar", perf.totals.BUSINESS_DIRECTION_REQUESTS ?? 0, perf.prevTotals.BUSINESS_DIRECTION_REQUESTS ?? 0);
-    change("Los clics a la web", perf.totals.WEBSITE_CLICKS ?? 0, perf.prevTotals.WEBSITE_CLICKS ?? 0);
-    if (x.conv != null && x.prevConv != null && x.comparable && (real || x.conv > x.prevConv))
-      out.push({ text: `Tasa de interacción del ${fmt(x.conv, 1)}% (antes ${fmt(x.prevConv, 1)}%): ${x.conv >= x.prevConv ? "cada visita convierte mejor" : "convierten menos visitas"}.`, tone: x.conv >= x.prevConv ? "good" : "bad" });
-    if (perf.keywords[0]) out.push({ text: `La búsqueda que más clientes trae es «${perf.keywords[0].keyword}» (${perf.keywords[0].impressions != null ? fmt(perf.keywords[0].impressions) : "<15"} veces).`, tone: "good" });
-  } else if (real) {
-    out.push({ text: "No hay datos de rendimiento de Google para este periodo.", tone: "bad" });
+  if (!fake) {
+    if (!real) return null;
+    return (
+      <Section title="Reseñas falsas" icon={ShieldAlert}>
+        <div className="text-sm text-slate-500">No hay ningún análisis de reseñas falsas terminado para esta ficha. Lánzalo en la pestaña «Reseñas falsas» y vuelve a generar el informe.</div>
+      </Section>
+    );
   }
-  const p = rv.period;
-  if (p.total) {
-    const showAvg = real || p.avg >= Math.min(4.5, rv.overall.avg);
-    out.push({
-      text: `${p.total} ${p.total === 1 ? "reseña nueva" : "reseñas nuevas"}${showAvg ? ` con una media de ${fmt(p.avg, 1)}★` : ""}${p.positive ? ` (${p.positive} de 4-5 estrellas)` : ""}.`,
-      tone: p.avg >= 4 ? "good" : real ? "bad" : "neutral"
-    });
-  } else if (real) out.push({ text: "No llegaron reseñas nuevas en el periodo.", tone: "bad" });
-  if (real && p.negative) out.push({ text: `${p.negative} ${p.negative === 1 ? "reseña negativa" : "reseñas negativas"} (1-2★) en el periodo.`, tone: "bad" });
-  if (real && p.unreplied) out.push({ text: `${p.unreplied} ${p.unreplied === 1 ? "reseña del periodo sigue" : "reseñas del periodo siguen"} sin responder.`, tone: "bad" });
-  if (!real && p.total && p.responseRate >= 60) out.push({ text: `Se ha respondido al ${p.responseRate}% de las reseñas: el negocio cuida a sus clientes.`, tone: "good" });
-  if (data.posts.count) out.push({ text: `${data.posts.count} publicaciones en Google para mantener la ficha activa.`, tone: "good" });
-  else if (real) out.push({ text: "No se publicó nada en la ficha durante el periodo.", tone: "bad" });
-  if (!real && data.client.rating) out.push({ text: `Valoración global de ${fmt(data.client.rating, 1)}★ con ${nf.format(data.client.reviewCount)} opiniones.`, tone: "good" });
-  return out.length ? out : [{ text: "Periodo sin actividad registrable.", tone: "neutral" }];
-}
-
-function buildNextSteps(data: any, mode: Mode, x: { conv: number | null; prevConv: number | null; comparable: boolean }): string[] {
-  const perf = data.performance?.ok ? data.performance : null;
-  const p = data.reviews.period;
-  if (mode === "cliente") {
-    const s = [
-      "Seguir publicando novedades y ofertas en la ficha para mantener la visibilidad.",
-      "Impulsar la captación de reseñas con el enlace y el código QR de valoración.",
-      "Responder a todas las reseñas para reforzar la confianza de los nuevos clientes."
-    ];
-    if (perf?.keywords?.[1]) s.unshift(`Reforzar la presencia en búsquedas como «${perf.keywords[0].keyword}» y «${perf.keywords[1].keyword}».`);
-    return s;
-  }
-  const s: string[] = [];
-  if (perf && x.comparable) {
-    const dv = pct(perf.views, perf.prevViews);
-    const di = pct(perf.interactions, perf.prevInteractions);
-    if (dv != null && dv < -10) s.push(`Caída de visibilidad del ${fmt(-dv)}%: revisar categorías, publicaciones y fotos; comprobar el ranking de la palabra clave principal.`);
-    if (di != null && di < -10) s.push(`Las interacciones bajan un ${fmt(-di)}%: revisar horario, teléfono, web y botón de reserva.`);
-    if (x.conv != null && x.prevConv != null && x.conv < x.prevConv) s.push("La tasa de interacción empeora: mejorar fotos, descripción y ofertas para convertir más visitas.");
-  }
-  if (p.unreplied) s.push(p.unreplied === 1 ? "Responder la reseña pendiente del periodo." : `Responder las ${p.unreplied} reseñas pendientes del periodo.`);
-  if (p.negative) s.push(`Gestionar ${p.negative === 1 ? "la reseña negativa" : `las ${p.negative} reseñas negativas`} (respuesta y, si procede, revisión de posibles falsas).`);
-  if (p.total < 3) s.push("Pocas reseñas nuevas: activar el enlace de reseñas con los clientes recientes.");
-  if (!data.posts.count) s.push("Publicar al menos 1 novedad por semana en la ficha.");
-  if (!perf) s.push("Revisar la conexión con Google: no se obtuvieron datos de rendimiento.");
-  if (!s.length) s.push("Sin incidencias: mantener el ritmo de publicaciones y reseñas.");
-  return s;
+  const st = fake.stats;
+  if (!real && st.removable + st.high === 0) return null;
+  const LIK: Record<string, string> = { alta: "text-rose-600", media: "text-amber-600", baja: "text-slate-500" };
+  return (
+    <Section title={real ? "Reseñas falsas y reseñas eliminables" : "Protección de la reputación"} icon={ShieldAlert}>
+      <div className="text-[11px] text-slate-400 mb-2">Análisis del {shortDate(fake.date)}{fake.label ? ` · ${fake.label}` : ""}</div>
+      <div className="grid grid-cols-4 gap-2.5 mb-3">
+        <Mini label="Eliminables por política" value={fmt(st.removable)} sub={`${st.removableHigh} con prob. alta`} />
+        <Mini label="Perfiles riesgo alto" value={fmt(st.high)} sub={real ? `${st.medium} de riesgo medio` : undefined} />
+        {fake.impact && fake.impact.removed > 0 ? (
+          <Mini label="Valoración sin ellas" value={`${fmt(fake.impact.without, 1)}★`} sub={`ahora ${fmt(fake.impact.current, 1)}★`} />
+        ) : (
+          <Mini label="Reseñas parecidas" value={fmt(st.similarPairs)} />
+        )}
+        {real ? <Mini label="Redes de perfiles" value={fmt(st.networks)} sub={st.competitorFakes ? `${st.competitorFakes} positivas sospechosas en la competencia` : undefined} /> : null}
+      </div>
+      {real && fake.aiSummary ? <p className="text-[12px] text-slate-700 mb-3 whitespace-pre-line">{fake.aiSummary}</p> : null}
+      {fake.removable.length > 0 && (
+        <div className="mb-3">
+          <div className="text-xs font-medium text-slate-600 mb-1.5">Reseñas que se pueden denunciar a Google</div>
+          <div className="space-y-2">
+            {fake.removable.slice(0, real ? 12 : 6).map((f: any, i: number) => (
+              <div key={i} className="border-b pb-2 text-[12px] avoid-break">
+                <div className="flex justify-between gap-2">
+                  <span className="font-medium">{f.author || "Usuario de Google"} · {"★".repeat(f.rating)}</span>
+                  <span className={`text-[11px] font-medium ${LIK[f.likelihood] ?? ""}`}>retirada: {f.likelihood}</span>
+                </div>
+                {real && f.text ? <div className="text-slate-600 mt-0.5">«{f.text}»</div> : null}
+                <div className="text-[11px] text-slate-500 mt-0.5">{f.summary}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {real && fake.suspects.length > 0 && (
+        <div>
+          <div className="text-xs font-medium text-slate-600 mb-1.5">Perfiles que parecen falsos</div>
+          <table className="w-full text-[12px]">
+            <tbody>
+              {fake.suspects.slice(0, 12).map((a: any, i: number) => (
+                <tr key={i} className="border-b last:border-0 align-top">
+                  <td className="py-1 pr-2 font-medium whitespace-nowrap">{a.name}</td>
+                  <td className={`py-1 pr-2 whitespace-nowrap ${a.level === "alto" ? "text-rose-600" : "text-amber-600"}`}>
+                    {a.level} ({a.score})
+                  </td>
+                  <td className="py-1 text-slate-500">{a.signals.join(" · ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!real && (
+        <p className="text-[12px] text-slate-600">
+          Revisamos de forma continua las reseñas del negocio para detectar opiniones que incumplen las normas de Google y solicitar su retirada.
+        </p>
+      )}
+    </Section>
+  );
 }

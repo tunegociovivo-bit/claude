@@ -4619,7 +4619,8 @@ model GmbClient {
   locationId         String   @default("") // GMB "accounts/XXX/locations/YYY"
   emails             String   @default("") // emails de notificación, separados por coma
   mainKeyword        String   @default("")
-  autoReply          String   @default("manual") // manual|auto
+  autoReply          String   @default("manual") // manual|positive|negative|both (legacy "auto" = positive)
+  notifyMode         String   @default("negative") // aviso por email de reseñas nuevas: none|positive|negative|both
   // Piloto automático (por ficha): qué puede hacer el sistema sin intervención.
   //   suggest_only    → solo sugiere acciones
   //   prepare_drafts  → prepara borradores (posts/respuestas/paquetes de alta)
@@ -6845,4 +6846,16 @@ model GmbReviewFunnelFeedback {
 
   @@index([workspaceId])
   @@index([funnelId])
+}
+
+// Informe SEO competitivo de una ficha (comparativa con los mejor posicionados por su palabra clave).
+model GmbSeoReport {
+  id          String   @id @default(cuid())
+  workspaceId String
+  clientId    String
+  keyword     String
+  data        Json
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, clientId, createdAt])
 }

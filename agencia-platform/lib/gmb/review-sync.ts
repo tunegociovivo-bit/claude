@@ -12,7 +12,23 @@ const SYNC_ACTION = "reviews_synced";
 
 export type ReviewSyncResult = { imported: number; updated: number; total: number; rating: number | null; count: number | null };
 
-export async function syncClientReviews(workspaceId: string, clientId: string, opts: { maxPages?: number } = {}): Promise<ReviewSyncResult> {
+const running = new Map<string, Promise<ReviewSyncResult>>();
+
+/**
+ * Sincroniza las reseñas de la ficha. Si ya hay una sincronización en curso para la misma ficha,
+ * devuelve esa (evita respuestas/avisos duplicados). Las reseñas NUEVAS y recientes (no las del
+ * histórico de la primera importación) pasan por la automatización: respuesta automática y aviso.
+ */
+export function syncClientReviews(workspaceId: string, clientId: string, opts: { maxPages?: number; quiet?: boolean; automate?: boolean } = {}): Promise<ReviewSyncResult> {
+  const key = `${workspaceId}:${clientId}`;
+  const cur = running.get(key);
+  if (cur) return cur;
+  const p = doSync(workspaceId, clientId, opts).finally(() => running.delete(key));
+  running.set(key, p);
+  return p;
+}
+
+async function doSync(workspaceId: string, clientId: string, opts: { maxPages?: number; quiet?: boolean; automate?: boolean }): Promise<ReviewSyncResult> {
   const client = await prisma.gmbClient.findFirst({ where: { id: clientId, workspaceId } });
   if (!client) throw new Error("Ficha no encontrada");
   const path = gmbLocationPath(client.accountId, client.locationId);
@@ -20,11 +36,13 @@ export async function syncClientReviews(workspaceId: string, clientId: string, o
   const source = gbpSourceForClient(client);
 
   // Datos de la ficha (web, teléfono, dirección, categoría, placeId) tal como están en Google.
-  await refreshLocationInfo(workspaceId, client.id, path, source).catch(() => undefined);
+  if (!opts.quiet) await refreshLocationInfo(workspaceId, client.id, path, source).catch(() => undefined);
 
   const existing = new Set(
     (await prisma.gmbReview.findMany({ where: { workspaceId, clientId: client.id }, select: { reviewId: true } })).map((r) => r.reviewId)
   );
+  const firstImport = existing.size === 0;
+  const fresh: { reviewId: string; rating: number; comment: string; authorName: string; hasReply: boolean; time: Date | null }[] = [];
   let imported = 0;
   let updated = 0;
   let total = 0;
@@ -58,7 +76,10 @@ export async function syncClientReviews(workspaceId: string, clientId: string, o
         update: row
       });
       if (existing.has(reviewId)) updated++;
-      else imported++;
+      else {
+        imported++;
+        fresh.push({ reviewId, rating: row.rating, comment: row.comment ?? "", authorName: row.authorName, hasReply: !!row.reviewReply, time: row.reviewTime });
+      }
     }
     pageToken = data?.nextPageToken ?? "";
     if (!pageToken) break;
@@ -67,12 +88,20 @@ export async function syncClientReviews(workspaceId: string, clientId: string, o
   if (rating != null) data.rating = Math.round(rating * 10) / 10;
   if (count != null) data.reviewCount = count;
   if (Object.keys(data).length) await prisma.gmbClient.updateMany({ where: { id: client.id, workspaceId }, data });
-  await logGmbActivity({
-    workspaceId,
-    clientId: client.id,
-    actionType: SYNC_ACTION,
-    description: `Reseñas sincronizadas con Google: ${imported} nuevas, ${updated} actualizadas`
-  }).catch(() => {});
+  if (!opts.quiet || imported > 0) {
+    await logGmbActivity({
+      workspaceId,
+      clientId: client.id,
+      actionType: SYNC_ACTION,
+      description: `Reseñas sincronizadas con Google: ${imported} nuevas, ${updated} actualizadas`
+    }).catch(() => {});
+  }
+  // Automatización (respuesta automática + aviso) solo para reseñas nuevas de los últimos 7 días.
+  if (!firstImport && opts.automate !== false && fresh.length) {
+    const { processNewReview } = await import("@/lib/gmb/review-automation");
+    const recent = fresh.filter((f) => !f.time || Date.now() - f.time.getTime() < 7 * 86_400_000).slice(0, 20);
+    for (const f of recent) await processNewReview(client, f).catch((e) => console.warn("[gmb] automatización de reseña:", (e as Error).message));
+  }
   return { imported, updated, total, rating, count };
 }
 

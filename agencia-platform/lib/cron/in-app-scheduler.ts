@@ -267,6 +267,12 @@ export function startInAppScheduler(): void {
     }
     // Jobs del Rank Grid (bounded, tenant-scoped). Solo miden si hay proveedor (clave Maps).
     try {
+      const { processAllReviewAutomation } = await import("@/lib/gmb/review-automation");
+      await processAllReviewAutomation();
+    } catch (e) {
+      console.warn("[in-app-cron] gmb-review-automation:", (e as Error).message);
+    }
+    try {
       const { processAllRankJobs } = await import("@/lib/gmb/rank-cron");
       await processAllRankJobs(2);
     } catch (e) {
