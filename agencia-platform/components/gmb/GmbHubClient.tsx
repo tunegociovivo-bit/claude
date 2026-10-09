@@ -28,7 +28,8 @@ import {
   FileText,
   Trash2,
   Calendar,
-  Bell
+  Bell,
+  RefreshCw
 } from "lucide-react";
 
 type Ficha = {
@@ -689,6 +690,8 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   );
   const [loading, setLoading] = useState(true);
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [tab, setTab] = useState<
     "reviews" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking" | "editar"
   >("reviews");
@@ -703,6 +706,20 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, onlyUnreplied]);
+
+  async function syncNow() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/reviews/sync`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      setSyncMsg(d.ok ? `Sincronizado con Google: ${d.imported} reseñas nuevas, ${d.updated} actualizadas.` : `No se pudieron traer las reseñas: ${d.message ?? "error"}`);
+      await load();
+      onChanged();
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4">
@@ -776,6 +793,14 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             >
               Sin responder
             </button>
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              className="px-2.5 py-1 rounded-lg border bg-white inline-flex items-center gap-1 disabled:opacity-50"
+              title="Traer ahora las reseñas desde Google"
+            >
+              {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Sincronizar con Google
+            </button>
             {data && (
               <span className="ml-auto text-slate-500 inline-flex items-center gap-1">
                 <Stars n={data.averageRating} /> {data.averageRating?.toFixed(1)} · {data.totalReviewCount} reseñas
@@ -783,13 +808,16 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             )}
           </div>
 
+          {(syncMsg || (data as any)?.syncError) && (
+            <div className="text-[12px] rounded-lg border bg-slate-50 p-2 text-slate-600">{syncMsg || `No se pudieron traer las reseñas de Google: ${(data as any).syncError}`}</div>
+          )}
           {loading ? (
             <div className="text-sm text-slate-500 flex items-center gap-2 p-6">
               <Loader2 className="h-4 w-4 animate-spin" /> Cargando reseñas…
             </div>
           ) : !data || data.reviews.length === 0 ? (
             <div className="text-sm text-slate-500 text-center p-8 bg-white rounded-xl border">
-              No hay reseñas {onlyUnreplied ? "sin responder" : ""}. Llegan automáticamente vía Make.
+              No hay reseñas {onlyUnreplied ? "sin responder" : ""}. Pulsa «Sincronizar con Google» para traerlas; las nuevas llegan solas vía Make.
             </div>
           ) : (
             data.reviews.map((rev) => (

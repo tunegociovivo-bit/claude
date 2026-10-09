@@ -15,6 +15,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { parseGbpSource } from "@/lib/integrations/gmb";
 import { createReviewsScenario } from "@/lib/gmb/make-reviews-scenario";
+import { syncClientReviews } from "@/lib/gmb/review-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -25,6 +26,7 @@ type IncomingLocation = {
   address?: string | null;
   phone?: string | null;
   website?: string | null;
+  websiteUri?: string | null;
   placeId?: string | null;
   primaryCategory?: string | null;
 };
@@ -58,6 +60,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   let created = 0;
   let updated = 0;
   const toAutomate: { id: string; name: string }[] = [];
+  const linked: string[] = [];
   for (const [locationId, l] of byId) {
     const data = {
       accountId,
@@ -65,7 +68,7 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       category: (l.primaryCategory ?? "").trim(),
       address: (l.address ?? "").trim(),
       phone: (l.phone ?? "").trim(),
-      website: (l.website ?? "").trim(),
+      website: (l.website ?? l.websiteUri ?? "").trim(),
       placeId: (l.placeId ?? "").trim(),
       locationId,
       // Cuenta de Google con la que se vinculó (para leer reseñas, responder, publicar…).
@@ -85,7 +88,12 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
       created++;
     }
     if (automate && !prev?.scenarioId) toAutomate.push({ id, name: data.name });
+    linked.push(id);
   }
+  // Importa ya el histórico de reseñas de cada ficha (el escenario de Make solo trae las nuevas).
+  const synced = await Promise.allSettled(linked.map((cid) => syncClientReviews(api.workspaceId, cid, { maxPages: 4 })));
+  const reviewsImported = synced.reduce((n, r) => n + (r.status === "fulfilled" ? r.value.imported : 0), 0);
+  const reviewErrors = synced.filter((r) => r.status === "rejected").map((r) => String((r as PromiseRejectedResult).reason?.message ?? r).slice(0, 200));
   const automation: { name: string; ok: boolean; scenarioId?: number; error?: string }[] = [];
   for (const c of toAutomate) {
     try {
@@ -106,5 +114,5 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
     },
   }).catch(() => {});
 
-  return NextResponse.json({ ok: true, created, updated, total: locationIds.length, automation });
+  return NextResponse.json({ ok: true, created, updated, total: locationIds.length, automation, reviewsImported, reviewErrors });
 });

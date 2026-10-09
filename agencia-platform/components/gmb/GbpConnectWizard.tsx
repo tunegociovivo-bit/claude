@@ -31,7 +31,7 @@ type Location = {
   placeId?: string | null;
   linked?: boolean;
 };
-type Result = { created: number; updated: number; total: number; automation?: { name: string; ok: boolean; scenarioId?: number; error?: string }[] };
+type Result = { created: number; updated: number; total: number; reviewsImported?: number; reviewErrors?: string[]; automation?: { name: string; ok: boolean; scenarioId?: number; error?: string }[] };
 
 const CONNECT_URL = "/api/integrations/gmb-google/connect";
 
@@ -248,7 +248,7 @@ export default function GbpConnectWizard({
         setLocsErr(d?.error?.message || d.message || "No se pudieron vincular las fichas.");
         return;
       }
-      setResult({ created: d.created ?? 0, updated: d.updated ?? 0, total: d.total ?? chosen.length, automation: d.automation ?? [] });
+      setResult({ created: d.created ?? 0, updated: d.updated ?? 0, total: d.total ?? chosen.length, automation: d.automation ?? [], reviewsImported: d.reviewsImported ?? 0, reviewErrors: d.reviewErrors ?? [] });
       setStep(3);
       onLinked?.();
     } catch {
@@ -456,6 +456,12 @@ export default function GbpConnectWizard({
                 {result.updated > 0 && <>Se actualizaron <b>{result.updated}</b> ya existentes. </>}
                 {result.created === 0 && result.updated === 0 && <>No hubo cambios.</>}
               </p>
+              {(result.reviewsImported ?? 0) > 0 && (
+                <p className="text-sm text-slate-600 mt-1">Se importaron <b>{result.reviewsImported}</b> reseñas de Google.</p>
+              )}
+              {!!result.reviewErrors?.length && (
+                <p className="text-[12px] text-rose-700 mt-1">No se pudieron importar algunas reseñas: {result.reviewErrors[0]}</p>
+              )}
               {!!result.automation?.length && (
                 <ul className="mt-3 text-left text-[12px] space-y-1">
                   {result.automation.map((a) => (
