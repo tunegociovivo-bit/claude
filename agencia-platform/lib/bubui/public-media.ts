@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
-const ALLOWED_PREFIXES = ["bubui/ai-banner/"];
+const ALLOWED_PREFIXES = ["bubui/ai-banner/", "gmb/post-image/"];
 
 function secret(): string {
   const value = process.env.AUTH_SECRET || process.env.CRON_SECRET;

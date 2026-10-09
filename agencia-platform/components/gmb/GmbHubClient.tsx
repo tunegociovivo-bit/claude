@@ -1920,7 +1920,7 @@ function PostsPanel({ id }: { id: string }) {
     try {
       const r = await fetch(`/api/v1/gmb/generate-image`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `Foto profesional para publicación de negocio local: ${prompt}` })
+        body: JSON.stringify({ prompt: `Foto profesional para publicación de negocio local: ${prompt}`.slice(0, 950) })
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error?.message ?? "Error");
@@ -2126,6 +2126,32 @@ function QaPanel({ id }: { id: string }) {
   const [answer, setAnswer] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ question: string; answer: string }[]>([]);
+
+  /** Con pregunta escrita: propone la respuesta. Sin pregunta: propone 5 preguntas frecuentes. */
+  async function suggest() {
+    setSuggesting(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/qa/suggest`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: question.trim() || undefined })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error?.message ?? "No se pudo sugerir.");
+      if (question.trim()) {
+        setQuestion(d.items[0].question);
+        setAnswer(d.items[0].answer);
+      } else setSuggestions(d.items ?? []);
+    } catch (e: any) { setMsg(e?.message ?? "Error"); } finally { setSuggesting(false); }
+  }
+
+  async function addSuggestion(sg: { question: string; answer: string }) {
+    const r = await fetch(`/api/v1/gmb/clients/${id}/qa`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sg)
+    });
+    if (r.ok) { setSuggestions((p) => p.filter((x) => x !== sg)); load(); }
+    else { const d = await r.json().catch(() => ({})); setMsg(d?.error?.message ?? "Error"); }
+  }
 
   async function load() {
     setLoading(true);
@@ -2161,11 +2187,39 @@ function QaPanel({ id }: { id: string }) {
         <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Respuesta" rows={2}
           className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
         {msg && <p className="text-xs text-slate-500">{msg}</p>}
-        <button onClick={add} disabled={saving}
-          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Añadir
-        </button>
+        <div className="flex gap-2">
+          <button onClick={suggest} disabled={suggesting}
+            title={question.trim() ? "Escribe la respuesta con IA" : "Propone preguntas frecuentes con IA"}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 disabled:opacity-50">
+            {suggesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {question.trim() ? "Sugerir respuesta con IA" : "Sugerir preguntas con IA"}
+          </button>
+          <button onClick={add} disabled={saving}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Añadir
+          </button>
+        </div>
       </div>
+      {suggestions.length > 0 && (
+        <div className="bg-white rounded-xl border-2 border-brand-200 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-700">Sugerencias de la IA</span>
+            <button onClick={() => setSuggestions([])} className="text-[11px] text-slate-500 hover:underline">Descartar</button>
+          </div>
+          {suggestions.map((sg, i) => (
+            <div key={i} className="border rounded-lg p-2 flex gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-800">{sg.question}</div>
+                <div className="text-xs text-slate-600 mt-0.5">{sg.answer}</div>
+              </div>
+              <div className="flex flex-col gap-1 shrink-0">
+                <button onClick={() => addSuggestion(sg)} className="px-2 py-1 rounded-lg bg-brand-600 text-white text-[11px]">Añadir</button>
+                <button onClick={() => { setQuestion(sg.question); setAnswer(sg.answer); setSuggestions((p) => p.filter((x) => x !== sg)); }} className="px-2 py-1 rounded-lg border text-[11px]">Editar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {loading ? (
         <div className="text-sm text-slate-500 flex items-center gap-2 p-4"><Loader2 className="h-4 w-4 animate-spin" /> Cargando…</div>
       ) : items.length === 0 ? (
