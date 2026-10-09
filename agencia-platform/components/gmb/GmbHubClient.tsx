@@ -8,6 +8,7 @@ import AlertsView from "@/components/gmb/AlertsView";
 import FakeReviewsView from "@/components/gmb/FakeReviewsView";
 import ReviewLinkView from "@/components/gmb/ReviewLinkView";
 import GbpConnectWizard from "@/components/gmb/GbpConnectWizard";
+import PerformancePanel from "@/components/gmb/PerformancePanel";
 import {
   Loader2,
   Plus,
@@ -29,7 +30,8 @@ import {
   Trash2,
   Calendar,
   Bell,
-  RefreshCw
+  RefreshCw,
+  TrendingUp
 } from "lucide-react";
 
 type Ficha = {
@@ -702,7 +704,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [tab, setTab] = useState<
-    "reviews" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking" | "editar"
+    "reviews" | "rendimiento" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking" | "editar"
   >("reviews");
 
   async function load() {
@@ -755,6 +757,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
         <div className="flex gap-1 px-4 pt-3 flex-wrap">
           {([
             ["reviews", "Reseñas", MessageSquare],
+            ["rendimiento", "Rendimiento", TrendingUp],
             ["posts", "Publicaciones", Megaphone],
             ["fotos", "Fotos", ImageIcon],
             ["qa", "Q&A", HelpCircle],
@@ -778,6 +781,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
           ))}
         </div>
 
+        {tab === "rendimiento" && <PerformancePanel id={id} />}
         {tab === "posts" && <PostsPanel id={id} />}
         {tab === "fotos" && <PhotosPanel id={id} />}
         {tab === "qa" && <QaPanel id={id} />}

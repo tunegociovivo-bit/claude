@@ -215,7 +215,12 @@ export function gbpSourceForClient(c: { googleConnectionId?: string | null; conn
   return null;
 }
 
-const DOMAIN = { accounts: GBP_DOMAINS.accounts, info: GBP_DOMAINS.info, v4: GBP_DOMAINS.v4 } as const;
+const DOMAIN = {
+  accounts: GBP_DOMAINS.accounts,
+  info: GBP_DOMAINS.info,
+  v4: GBP_DOMAINS.v4,
+  perf: "https://businessprofileperformance.googleapis.com"
+} as const;
 
 /**
  * Llamada a una API de Perfiles de Empresa con el origen indicado. `path` incluye la versión
