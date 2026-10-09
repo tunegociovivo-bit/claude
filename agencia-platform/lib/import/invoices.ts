@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/ai/anthropic";
 import { computeTotals, type InvoiceLine } from "@/lib/invoicing/core";
 import { snapshotIssuer, snapshotClient } from "@/lib/invoicing/persist";
-import { pickHeaderRow, norm, normEmail, normTaxId, nameTokens, nameSimilarity, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
+import { pickHeaderRow, norm, normEmail, normTaxId, nameTokens, nameSimilarity, parentheticalNameParts, parseAmountToCents, parseDateFlexible, pickRate } from "./shared";
 import { tabularToText, type ParsedFile, type Tabular } from "./parse";
 
 export type InvoiceInput = {
@@ -308,6 +308,23 @@ export async function buildInvoicePlan(workspaceId: string, inputs: InvoiceInput
       || (input.clientName ? byName.get(norm(input.clientName)) : null)
       || (input.clientName ? byHistoricalAlias.get(norm(input.clientName)) : null)
       || null;
+    if (!match && input.clientName) {
+      // "Titular (nombre comercial)": vale si UNA de las partes coincide
+      // exactamente con un único cliente (por nombre o alias histórico) y
+      // ninguna parte apunta a otro cliente distinto ni es ambigua.
+      const found = new Map<string, (typeof clients)[number]>();
+      let ambiguousPart = false;
+      for (const part of parentheticalNameParts(input.clientName)) {
+        const key = norm(part);
+        for (const index of [byName, byHistoricalAlias]) {
+          if (!index.has(key)) continue;
+          const client = index.get(key);
+          if (!client) ambiguousPart = true;
+          else found.set(client.id, client);
+        }
+      }
+      if (!ambiguousPart && found.size === 1) match = [...found.values()][0];
+    }
     if (!match && input.clientName) {
       const inputTokens = nameTokens(input.clientName);
       let best: { client: (typeof clients)[number]; score: number } | null = null;

@@ -113,4 +113,35 @@ describe("invoice client linking", () => {
       data: { clientId: "maype" }
     });
   });
+  it("links a Holded \"Titular (nombre comercial)\" name to the unique client named like one part", async () => {
+    prismaMock.client.findMany.mockResolvedValue([
+      { id: "myriam", name: "Myriam Rosa Romero", taxId: null },
+      { id: "abundancia", name: "Abundancia valmyr S L", taxId: null },
+      { id: "barber", name: "BARBERIA MAN,S WORLD SEVILLA TATTOO AND BARBER - MARIDO MYRIAM MASAJES", taxId: null },
+      { id: "insico", name: "INSICO2020 S.L.", taxId: null }
+    ]);
+    prismaMock.invoice.findMany.mockResolvedValue([]);
+
+    const [myriam] = await buildInvoicePlan("ws", [input("Myriam Rosa Romero (secret pleasure massage)")]);
+    const [insico] = await buildInvoicePlan("ws", [input("INSICO2020 S.L. (Integral Moto)")]);
+
+    expect(myriam.clientMatchId).toBe("myriam");
+    expect(insico.clientMatchId).toBe("insico");
+  });
+
+  it("does not link a parenthetical name when its parts point to different clients or are ambiguous", async () => {
+    prismaMock.client.findMany.mockResolvedValue([
+      { id: "a", name: "Laura Monge", taxId: null },
+      { id: "b", name: "Clear Couture SLU", taxId: null },
+      { id: "c", name: "Ana Ruiz", taxId: null },
+      { id: "d", name: "Ana Ruiz", taxId: null }
+    ]);
+    prismaMock.invoice.findMany.mockResolvedValue([]);
+
+    const [split] = await buildInvoicePlan("ws", [input("Clear Couture SLU (Laura Monge)")]);
+    const [duplicated] = await buildInvoicePlan("ws", [input("Ana Ruiz (Estética Ana)")]);
+
+    expect(split.clientMatchId).toBeUndefined();
+    expect(duplicated.clientMatchId).toBeUndefined();
+  });
 });

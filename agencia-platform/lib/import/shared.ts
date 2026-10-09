@@ -41,6 +41,18 @@ export function nameSimilarity(a: string[], b: string[]): number {
   return union === 0 ? 0 : inter / union;
 }
 
+/**
+ * Holded suele facturar como "Titular (nombre comercial)", p. ej.
+ * "Myriam Rosa Romero (secret pleasure massage)" o "INSICO2020 S.L. (Integral
+ * Moto)", mientras el HUB conoce al cliente solo por una de las dos partes.
+ * Devuelve esas partes (sin el nombre completo) para compararlas EXACTAMENTE.
+ */
+export function parentheticalNameParts(name: string | null | undefined): string[] {
+  const match = (name ?? "").trim().match(/^(.+?)\s*\(([^()]+)\)\s*$/);
+  if (!match) return [];
+  return [match[1], match[2]].map((part) => part.trim()).filter((part) => norm(part).length >= 5);
+}
+
 /** Normaliza un email para comparar. */
 export function normEmail(s?: string | null): string {
   return (s ?? "").toString().trim().toLowerCase();
