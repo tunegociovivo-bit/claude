@@ -1332,67 +1332,152 @@ function CompetitorsPanel({ id }: { id: string }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    fetch(`/api/v1/gmb/clients/${id}/competitors`)
+  const [kw, setKw] = useState("");
+  const [prov, setProv] = useState("");
+  function load(keyword?: string, province?: string) {
+    setLoading(true);
+    setErr(null);
+    const qs = new URLSearchParams();
+    if (keyword) qs.set("keyword", keyword);
+    if (province) qs.set("province", province);
+    fetch(`/api/v1/gmb/clients/${id}/competitors${qs.toString() ? `?${qs}` : ""}`)
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d?.error?.message ?? "Error");
         return d;
       })
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        setKw(d.keyword ?? "");
+        setProv(d.province ?? "");
+      })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-  if (loading)
+
+  const search = (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        load(kw.trim(), prov.trim());
+      }}
+      className="flex flex-wrap items-end gap-2"
+    >
+      <label className="flex-1 min-w-[160px]">
+        <span className="block text-[10px] text-slate-500 mb-0.5">Palabra clave</span>
+        <input
+          list={`kw-${id}`}
+          value={kw}
+          onChange={(e) => setKw(e.target.value)}
+          className="w-full border rounded-md px-2 py-1.5 text-[13px]"
+          placeholder="p. ej. fisioterapia"
+        />
+        <datalist id={`kw-${id}`}>
+          {(data?.keywords ?? []).map((k: string) => (
+            <option key={k} value={k} />
+          ))}
+        </datalist>
+      </label>
+      <label className="w-40">
+        <span className="block text-[10px] text-slate-500 mb-0.5">Buscar desde (provincia)</span>
+        <input value={prov} onChange={(e) => setProv(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-[13px]" placeholder="Madrid" />
+      </label>
+      <button type="submit" disabled={loading} className="text-[13px] bg-slate-900 text-white rounded-md px-3 py-1.5 disabled:opacity-50">
+        {loading ? "Buscando…" : "Actualizar"}
+      </button>
+    </form>
+  );
+
+  if (loading && !data)
     return (
       <div className="p-6 text-sm text-slate-500 flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Buscando competidores…
+        <Loader2 className="h-4 w-4 animate-spin" /> Buscando cómo posiciona Google a la competencia…
       </div>
     );
-  if (err)
+  if (err && !data)
     return (
-      <div className="p-4">
+      <div className="p-4 space-y-3">
         <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-3">
-          {err.includes("Maps") || err.includes("key")
+          {err.includes("Maps") && err.includes("key")
             ? "Falta la Google Maps API key. Configúrala en Ajustes de GMB Hub para ver la competencia."
             : err}
         </div>
       </div>
     );
   if (!data) return null;
+  const you = data.yourPosition as number | null;
   return (
     <div className="p-4 space-y-3">
+      {search}
+      {err && <div className="text-xs text-rose-600">{err}</div>}
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="bg-white rounded-lg border p-2">
-          <div className="text-[10px] text-slate-500">Tu ficha</div>
-          <div className="text-sm font-semibold">
-            {data.client.rating?.toFixed(1)}★ · {data.client.reviewCount}
-          </div>
+        <div className={`rounded-lg border p-2 ${you ? (you <= 3 ? "bg-emerald-50 border-emerald-200" : you <= 10 ? "bg-amber-50 border-amber-200" : "bg-rose-50 border-rose-200") : "bg-rose-50 border-rose-200"}`}>
+          <div className="text-[10px] text-slate-500">Tu posición</div>
+          <div className="text-sm font-semibold">{you ? `#${you}` : `No aparece (top ${data.total})`}</div>
         </div>
         <div className="bg-white rounded-lg border p-2">
-          <div className="text-[10px] text-slate-500">Media mercado</div>
+          <div className="text-[10px] text-slate-500">Por encima de ti</div>
+          <div className="text-sm font-semibold">{data.above}</div>
+        </div>
+        <div className="bg-white rounded-lg border p-2">
+          <div className="text-[10px] text-slate-500">Media top 10</div>
           <div className="text-sm font-semibold">
             {data.market.avgRating?.toFixed(1)}★ · {data.market.avgReviews}
           </div>
         </div>
-        <div className="bg-white rounded-lg border p-2">
-          <div className="text-[10px] text-slate-500">Competidores</div>
-          <div className="text-sm font-semibold">{data.market.count}</div>
-        </div>
       </div>
-      <div className="space-y-1.5">
-        {data.competitors.map((c: any, i: number) => (
-          <div key={i} className="bg-white rounded-lg border p-2.5 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-[13px] font-medium truncate">{c.name}</div>
-              <div className="text-[11px] text-slate-500 truncate">{c.address}</div>
+      <div className="text-[11px] text-slate-500">
+        Orden de Google Maps para «{data.keyword}»{data.province ? ` buscando desde la provincia de ${data.province}` : ""}.{" "}
+        {data.source === "serpapi" ? "Ranking real de Google Maps (SerpApi)." : "Orden de relevancia de Google Places (aproximado; añade SerpApi en Ajustes para el ranking exacto de Maps)."}
+        {" "}Tú: {data.client.rating?.toFixed?.(1) ?? "–"}★ · {data.client.reviewCount} reseñas.
+      </div>
+      <div className={`space-y-1.5 ${loading ? "opacity-50" : ""}`}>
+        {data.competitors.map((c: any) => {
+          const isAbove = !c.isYou && (!you || c.position < you);
+          return (
+            <div
+              key={`${c.position}-${c.placeId}`}
+              className={`rounded-lg border p-2.5 flex items-center justify-between gap-2 ${c.isYou ? "bg-indigo-50 border-indigo-300" : "bg-white"}`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`shrink-0 w-7 h-7 rounded-full grid place-items-center text-[12px] font-semibold ${
+                    c.isYou ? "bg-indigo-600 text-white" : c.position <= 3 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {c.position}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium truncate">
+                    {c.name}
+                    {c.isYou && <span className="ml-1.5 text-[10px] font-semibold text-indigo-700">TU FICHA</span>}
+                  </div>
+                  <div className="text-[11px] text-slate-500 truncate">{c.address}</div>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-0.5 shrink-0">
+                <div className="text-xs text-slate-700 whitespace-nowrap inline-flex items-center gap-1">
+                  <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
+                  {c.rating != null ? c.rating.toFixed(1) : "–"} · {c.reviewCount}
+                </div>
+                {!c.isYou && (
+                  <span className={`text-[10px] font-medium ${isAbove ? "text-rose-600" : "text-emerald-600"}`}>
+                    {isAbove ? "Por encima" : "Por debajo"}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="text-xs text-slate-700 whitespace-nowrap inline-flex items-center gap-1">
-              <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
-              {c.rating?.toFixed(1)} · {c.reviewCount}
-            </div>
+          );
+        })}
+        {!you && data.total > 0 && (
+          <div className="text-[12px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2.5">
+            Tu ficha no aparece entre los {data.total} primeros resultados para esta búsqueda: todos están por encima.
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
