@@ -107,7 +107,8 @@ export async function ensureGateway(workspaceId: string, connId?: number | null)
       workspaceId,
       method: "POST",
       path: "/hooks",
-      body: { name: `HUB · Pasarela GBP · conexión ${conn}`, teamId, typeName: "gateway-webhook", data: { headers: false, method: false, stringify: false } }
+      // La API de Make exige method/headers/stringify en el nivel superior (no dentro de "data").
+      body: { name: `HUB · Pasarela GBP · conexión ${conn}`, teamId, typeName: "gateway-webhook", method: false, headers: false, stringify: false }
     });
     const hook = h.data?.hook ?? h.data;
     if (!h.ok || !hook?.id || !hook?.url) throw new MakeGatewayError(`No se pudo crear el webhook de la pasarela en Make (${h.status}): ${String(h.responseText).slice(0, 200)}`);
