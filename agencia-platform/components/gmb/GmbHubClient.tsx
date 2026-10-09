@@ -1337,13 +1337,15 @@ function CompetitorsPanel({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [kw, setKw] = useState("");
-  const [prov, setProv] = useState("");
-  function load(keyword?: string, province?: string) {
+  const [scope, setScope] = useState<"ciudad" | "provincia">("ciudad");
+  const [origin, setOrigin] = useState("");
+  function load(keyword?: string, sc?: "ciudad" | "provincia", org?: string) {
     setLoading(true);
     setErr(null);
     const qs = new URLSearchParams();
     if (keyword) qs.set("keyword", keyword);
-    if (province) qs.set("province", province);
+    if (sc) qs.set("scope", sc);
+    if (org) qs.set("origin", org);
     fetch(`/api/v1/gmb/clients/${id}/competitors${qs.toString() ? `?${qs}` : ""}`)
       .then(async (r) => {
         const d = await r.json();
@@ -1353,7 +1355,8 @@ function CompetitorsPanel({ id }: { id: string }) {
       .then((d) => {
         setData(d);
         setKw(d.keyword ?? "");
-        setProv(d.province ?? "");
+        setScope(d.scope ?? "ciudad");
+        setOrigin(d.origin ?? "");
       })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
@@ -1367,18 +1370,19 @@ function CompetitorsPanel({ id }: { id: string }) {
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        load(kw.trim(), prov.trim());
+        const def = scope === "provincia" ? data?.province : data?.city;
+        load(kw.trim(), scope, origin.trim() && origin.trim() !== def ? origin.trim() : undefined);
       }}
       className="flex flex-wrap items-end gap-2"
     >
-      <label className="flex-1 min-w-[160px]">
-        <span className="block text-[10px] text-slate-500 mb-0.5">Palabra clave</span>
+      <label className="flex-1 min-w-[180px]">
+        <span className="block text-[10px] text-slate-500 mb-0.5">Búsqueda (escríbela tal cual en Google)</span>
         <input
           list={`kw-${id}`}
           value={kw}
           onChange={(e) => setKw(e.target.value)}
           className="w-full border rounded-md px-2 py-1.5 text-[13px]"
-          placeholder="p. ej. fisioterapia"
+          placeholder="p. ej. clínica estética en marbella"
         />
         <datalist id={`kw-${id}`}>
           {(data?.keywords ?? []).map((k: string) => (
@@ -1386,9 +1390,23 @@ function CompetitorsPanel({ id }: { id: string }) {
           ))}
         </datalist>
       </label>
-      <label className="w-40">
-        <span className="block text-[10px] text-slate-500 mb-0.5">Buscar desde (provincia)</span>
-        <input value={prov} onChange={(e) => setProv(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-[13px]" placeholder="Madrid" />
+      <label className="w-44">
+        <span className="block text-[10px] text-slate-500 mb-0.5">Buscar desde</span>
+        <div className="flex gap-1">
+          <select
+            value={scope}
+            onChange={(e) => {
+              const v = e.target.value as "ciudad" | "provincia";
+              setScope(v);
+              setOrigin((v === "provincia" ? data?.province : data?.city) ?? "");
+            }}
+            className="border rounded-md px-1 py-1.5 text-[12px]"
+          >
+            <option value="ciudad">Ciudad</option>
+            <option value="provincia">Provincia</option>
+          </select>
+          <input value={origin} onChange={(e) => setOrigin(e.target.value)} className="w-full min-w-0 border rounded-md px-2 py-1.5 text-[13px]" placeholder="Marbella" />
+        </div>
       </label>
       <button type="submit" disabled={loading} className="text-[13px] bg-slate-900 text-white rounded-md px-3 py-1.5 disabled:opacity-50">
         {loading ? "Buscando…" : "Actualizar"}
@@ -1435,8 +1453,11 @@ function CompetitorsPanel({ id }: { id: string }) {
         </div>
       </div>
       <div className="text-[11px] text-slate-500">
-        Orden de Google Maps para «{data.keyword}»{data.province ? ` buscando desde la provincia de ${data.province}` : ""}.{" "}
-        {data.source === "serpapi" ? "Ranking real de Google Maps (SerpApi)." : "Orden de relevancia de Google Places (aproximado; añade SerpApi en Ajustes para el ranking exacto de Maps)."}
+        Orden de Google Maps para «{data.keyword}» buscando desde {data.scope === "provincia" ? `la provincia de ${data.origin}` : data.origin || "la ciudad del negocio"}.{" "}
+        {data.source === "serpapi"
+          ? "Ranking real de Google Maps (SerpApi)."
+          : "Orden de relevancia de Google Places: muy parecido a Maps, pero puede variar alguna posición. Para el ranking exacto añade la clave de SerpApi en Ajustes."}{" "}
+        Google personaliza los resultados según la ubicación exacta de quien busca, así que entre dos móviles puede haber diferencias.
         {" "}Tú: {data.client.rating?.toFixed?.(1) ?? "–"}★ · {data.client.reviewCount} reseñas.
       </div>
       <div className={`space-y-1.5 ${loading ? "opacity-50" : ""}`}>

@@ -47,6 +47,8 @@ export type PerformanceResult = {
   keywords: { keyword: string; impressions: number | null; threshold: number | null }[];
   keywordsMonths: string;
   searches: number;
+  /** Último día con datos publicados por Google. */
+  dataUntil: string;
 };
 
 const cache = new Map<string, { at: number; data: PerformanceResult }>();
@@ -54,25 +56,38 @@ const cache = new Map<string, { at: number; data: PerformanceResult }>();
 export async function fetchPerformance(
   workspaceId: string,
   client: { id: string; locationId: string | null; accountId?: string | null; [k: string]: any },
-  opts: { days?: number; fresh?: boolean } = {}
+  opts: { days?: number; fresh?: boolean; since?: string; until?: string } = {}
 ): Promise<PerformanceResult> {
   const loc = perfLocationName(client.locationId);
   if (!loc) throw new Error("La ficha no está vinculada a Google (falta la ubicación).");
-  const days = Math.max(7, Math.min(opts.days ?? 30, 540));
-  const key = `${workspaceId}:${client.id}:${days}`;
+  const yesterday = new Date(Date.now() - DAY);
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  // Rango explícito (informe): desde/hasta elegidos. Si no, últimos `days` hasta el último día con datos.
+  let fixed: { start: Date; end: Date } | null = null;
+  if (opts.since && opts.until && DATE_RE.test(opts.since) && DATE_RE.test(opts.until)) {
+    let s0 = new Date(`${opts.since}T00:00:00Z`);
+    let e0 = new Date(`${opts.until}T00:00:00Z`);
+    if (e0 > yesterday) e0 = new Date(`${iso(ymd(yesterday))}T00:00:00Z`);
+    if (s0 > e0) s0 = e0;
+    fixed = { start: s0, end: e0 };
+  }
+  const days = fixed
+    ? Math.min(Math.round((fixed.end.getTime() - fixed.start.getTime()) / DAY) + 1, 540)
+    : Math.max(7, Math.min(opts.days ?? 30, 540));
+  const key = `${workspaceId}:${client.id}:${days}:${fixed ? iso(ymd(fixed.start)) : "auto"}`;
   const hit = cache.get(key);
   if (!opts.fresh && hit && Date.now() - hit.at < 3_600_000) return hit.data;
 
   const source = gbpSourceForClient(client as any);
   // Google tarda unos días en consolidar: pedimos hasta ayer con margen y el periodo termina en el
   // último día que ya tiene datos (así la comparación no queda falseada por días aún a 0).
-  const yesterday = new Date(Date.now() - DAY);
-  const fetchFrom = new Date(yesterday.getTime() - (2 * days + 9) * DAY);
+  const fetchTo = fixed ? fixed.end : yesterday;
+  const fetchFrom = fixed ? new Date(fixed.start.getTime() - days * DAY) : new Date(yesterday.getTime() - (2 * days + 9) * DAY);
 
   const qs = new URLSearchParams();
   for (const m of ALL) qs.append("dailyMetrics", m);
   const a = ymd(fetchFrom);
-  const b = ymd(yesterday);
+  const b = ymd(fetchTo);
   qs.set("dailyRange.startDate.year", String(a.year));
   qs.set("dailyRange.startDate.month", String(a.month));
   qs.set("dailyRange.startDate.day", String(a.day));
@@ -99,9 +114,9 @@ export async function fetchPerformance(
   }
   const yIso = iso(ymd(yesterday));
   const minEnd = iso(ymd(new Date(yesterday.getTime() - 9 * DAY)));
-  const endIso = lastData && lastData >= minEnd ? lastData : yIso;
+  const endIso = fixed ? iso(ymd(fixed.end)) : lastData && lastData >= minEnd ? lastData : yIso;
   const end = new Date(`${endIso}T00:00:00Z`);
-  const start = new Date(end.getTime() - (days - 1) * DAY);
+  const start = fixed ? fixed.start : new Date(end.getTime() - (days - 1) * DAY);
   const prevEnd = new Date(start.getTime() - DAY);
   const prevStart = new Date(prevEnd.getTime() - (days - 1) * DAY);
   const startIso = iso(ymd(start));
@@ -177,7 +192,8 @@ export async function fetchPerformance(
     daily,
     keywords,
     keywordsMonths: `${kwFrom.year}-${String(kwFrom.month).padStart(2, "0")} → ${kwTo.year}-${String(kwTo.month).padStart(2, "0")}`,
-    searches
+    searches,
+    dataUntil: lastData
   };
   cache.set(key, { at: Date.now(), data: result });
   return result;

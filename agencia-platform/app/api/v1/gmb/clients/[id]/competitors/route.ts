@@ -8,7 +8,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { MapsKeyMissingError } from "@/lib/integrations/google-maps";
-import { provinceFromAddress, rankCompetitors } from "@/lib/gmb/competitor-ranking";
+import { cityFromAddress, normName, provinceFromAddress, rankCompetitors } from "@/lib/gmb/competitor-ranking";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -37,15 +37,25 @@ export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
 
   const url = new URL(req.url);
   const primary = kws.find((k) => k.isPrimary)?.keyword;
-  const keyword = (url.searchParams.get("keyword") || c.mainKeyword || primary || c.category || c.name).trim();
-  const province = (url.searchParams.get("province") || url.searchParams.get("city") || provinceFromAddress(c.address)).trim();
-  const keywords = Array.from(new Set([c.mainKeyword, ...kws.map((k) => k.keyword), c.category].map((k) => (k || "").trim()).filter(Boolean)));
+  const base = (c.mainKeyword || primary || c.category || c.name).trim();
+  const province = (url.searchParams.get("province") || provinceFromAddress(c.address)).trim();
+  const city = cityFromAddress(c.address);
+  const scope = url.searchParams.get("scope") === "provincia" ? "provincia" : "ciudad";
+  const originParam = (url.searchParams.get("origin") || "").trim();
+  // Por defecto, la búsqueda que haría un cliente: «palabra clave en <ciudad>».
+  const withPlace = (k: string) => (city && !normName(k).includes(normName(city)) ? `${k} en ${city}` : k);
+  const keyword = (url.searchParams.get("keyword") || withPlace(base)).trim();
+  const keywords = Array.from(
+    new Set([c.mainKeyword, ...kws.map((k) => k.keyword), c.category].map((k) => (k || "").trim()).filter(Boolean).flatMap((k) => [withPlace(k), k]))
+  );
 
   try {
     const r = await rankCompetitors({
       workspaceId: api.workspaceId,
       keyword,
       province,
+      scope,
+      origin: originParam || undefined,
       you: { name: c.name, placeId: c.placeId, lat: c.latitude, lng: c.longitude }
     });
     const others = r.results.filter((x) => !x.isYou);
@@ -53,9 +63,12 @@ export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
     const avg = (xs: number[]) => (xs.length ? xs.reduce((s, n) => s + n, 0) / xs.length : 0);
     const above = r.yourPosition ? others.filter((x) => x.position < r.yourPosition!).length : others.length;
     return NextResponse.json({
-      query: `${keyword}${province ? ` · provincia de ${province}` : ""}`,
+      query: keyword,
       keyword,
       province,
+      city,
+      scope: r.scope,
+      origin: r.origin || city,
       keywords,
       source: r.source,
       yourPosition: r.yourPosition,

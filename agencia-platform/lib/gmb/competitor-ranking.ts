@@ -35,6 +35,18 @@ export function provinceFromAddress(address: string): string {
   return parts[parts.length - 1] ?? "";
 }
 
+/** Localidad de la dirección ("…, 29601 Marbella, Málaga, España" → "Marbella"). */
+export function cityFromAddress(address: string): string {
+  const a = (address || "").trim();
+  const m = a.match(/\b\d{5}\s+([^,]+)/);
+  if (m) return m[1].trim();
+  const parts = a
+    .split(",")
+    .map((x) => x.replace(/\d+/g, "").trim())
+    .filter((x) => x && !COUNTRY_RE.test(x));
+  return parts.length >= 3 ? parts[parts.length - 2] : parts[parts.length - 1] ?? "";
+}
+
 export function normName(s: string) {
   return (s || "")
     .normalize("NFD")
@@ -58,6 +70,8 @@ export type RankedPlace = {
 export type RankingResult = {
   keyword: string;
   province: string;
+  origin: string;
+  scope: "ciudad" | "provincia";
   source: "serpapi" | "places";
   center: { lat: number; lng: number } | null;
   yourPosition: number | null;
@@ -66,9 +80,9 @@ export type RankingResult = {
 
 const MAPS = "https://maps.googleapis.com/maps/api/place";
 
-async function provinceCenter(key: string, province: string): Promise<{ lat: number; lng: number } | null> {
-  if (!province) return null;
-  const q = `provincia de ${province}, España`;
+async function placeCenter(key: string, place: string, scope: "ciudad" | "provincia"): Promise<{ lat: number; lng: number } | null> {
+  if (!place) return null;
+  const q = scope === "provincia" && !/^provincia/i.test(place) ? `provincia de ${place}, España` : `${place}, España`;
   const r = await fetch(`${MAPS}/textsearch/json?query=${encodeURIComponent(q)}&language=es&key=${key}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(15000)
@@ -85,7 +99,7 @@ function isSame(p: { placeId: string; name: string }, you: { placeId: string; na
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
-async function viaSerpApi(serpKey: string, keyword: string, center: { lat: number; lng: number }, pages: number) {
+async function viaSerpApi(serpKey: string, keyword: string, center: { lat: number; lng: number }, pages: number, zoom: number) {
   const client = new SerpApiClient(serpKey, { cacheDays: 1 });
   const out: Omit<RankedPlace, "position" | "isYou">[] = [];
   for (let page = 0; page < pages; page++) {
@@ -93,7 +107,7 @@ async function viaSerpApi(serpKey: string, keyword: string, center: { lat: numbe
       engine: "google_maps",
       type: "search",
       q: keyword,
-      ll: `@${center.lat.toFixed(5)},${center.lng.toFixed(5)},9z`,
+      ll: `@${center.lat.toFixed(5)},${center.lng.toFixed(5)},${zoom}z`,
       hl: "es",
       gl: "es",
       start: page * 20
@@ -114,10 +128,50 @@ async function viaSerpApi(serpKey: string, keyword: string, center: { lat: numbe
   return out;
 }
 
-async function viaPlaces(mapsKey: string, keyword: string, center: { lat: number; lng: number } | null, province: string, pages: number) {
+/** Places API (New) searchText: su orden se parece mucho más al de Google Maps que el textsearch antiguo. */
+async function viaPlacesNew(mapsKey: string, query: string, center: { lat: number; lng: number } | null, radius: number, pages: number) {
+  const out: Omit<RankedPlace, "position" | "isYou">[] = [];
+  let token: string | undefined;
+  for (let page = 0; page < pages; page++) {
+    const body: any = { textQuery: query, languageCode: "es", regionCode: "ES", pageSize: 20 };
+    if (center) body.locationBias = { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } };
+    if (token) body.pageToken = token;
+    const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": mapsKey,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.primaryTypeDisplayName,nextPageToken"
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!r.ok) {
+      if (page > 0) break;
+      throw new Error(`Places (New) ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    }
+    const d = await r.json();
+    for (const x of d.places ?? []) {
+      out.push({
+        name: x.displayName?.text ?? "",
+        address: x.formattedAddress ?? "",
+        rating: typeof x.rating === "number" ? x.rating : null,
+        reviewCount: Number(x.userRatingCount ?? 0) || 0,
+        placeId: x.id ?? "",
+        category: x.primaryTypeDisplayName?.text ?? ""
+      });
+    }
+    token = d.nextPageToken;
+    if (!token) break;
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  return out;
+}
+
+async function viaPlaces(mapsKey: string, keyword: string, center: { lat: number; lng: number } | null, province: string, pages: number, radius: number) {
   const out: Omit<RankedPlace, "position" | "isYou">[] = [];
   const base = center
-    ? `${MAPS}/textsearch/json?query=${encodeURIComponent(keyword)}&location=${center.lat},${center.lng}&radius=50000&language=es&region=es&key=${mapsKey}`
+    ? `${MAPS}/textsearch/json?query=${encodeURIComponent(keyword)}&location=${center.lat},${center.lng}&radius=${radius}&language=es&region=es&key=${mapsKey}`
     : `${MAPS}/textsearch/json?query=${encodeURIComponent([keyword, province].filter(Boolean).join(" en "))}&language=es&region=es&key=${mapsKey}`;
   let token: string | undefined;
   for (let page = 0; page < pages; page++) {
@@ -150,8 +204,12 @@ async function viaPlaces(mapsKey: string, keyword: string, center: { lat: number
 
 export async function rankCompetitors(opts: {
   workspaceId: string;
+  /** Búsqueda tal cual la escribiría un cliente en Google («clínica estética en marbella»). */
   keyword: string;
   province: string;
+  /** Lugar desde el que se busca (ciudad del negocio o provincia). */
+  origin?: string;
+  scope?: "ciudad" | "provincia";
   you: { name: string; placeId: string; lat?: number | null; lng?: number | null };
   pages?: number;
 }): Promise<RankingResult> {
@@ -159,15 +217,21 @@ export async function rankCompetitors(opts: {
   const serpKey = await getSerpApiKey(opts.workspaceId).catch(() => null);
   if (!mapsKey && !serpKey) throw new MapsKeyMissingError();
   const pages = Math.max(1, Math.min(opts.pages ?? 3, 3));
+  const scope = opts.scope ?? "ciudad";
+  const origin = (opts.origin || (scope === "provincia" ? opts.province : "")).trim();
 
-  let center = mapsKey ? await provinceCenter(mapsKey, opts.province) : null;
+  let center: { lat: number; lng: number } | null = null;
+  // Desde la ciudad del negocio: sus coordenadas son el mejor punto de partida.
+  if (scope === "ciudad" && opts.you.lat != null && opts.you.lng != null && !opts.origin) center = { lat: opts.you.lat, lng: opts.you.lng };
+  if (!center && mapsKey && origin) center = await placeCenter(mapsKey, origin, scope);
   if (!center && opts.you.lat != null && opts.you.lng != null) center = { lat: opts.you.lat, lng: opts.you.lng };
+  const radius = scope === "provincia" ? 50000 : 8000;
 
   let source: RankingResult["source"] = "places";
   let raw: Omit<RankedPlace, "position" | "isYou">[] = [];
   if (serpKey && center) {
     try {
-      raw = await viaSerpApi(serpKey, opts.keyword, center, Math.min(pages, 2));
+      raw = await viaSerpApi(serpKey, opts.keyword, center, Math.min(pages, 2), scope === "provincia" ? 10 : 14);
       source = "serpapi";
     } catch (e) {
       if (!mapsKey) throw e;
@@ -175,7 +239,12 @@ export async function rankCompetitors(opts: {
   }
   if (source === "places") {
     if (!mapsKey) throw new MapsKeyMissingError();
-    raw = await viaPlaces(mapsKey, opts.keyword, center, opts.province, pages);
+    try {
+      raw = await viaPlacesNew(mapsKey, opts.keyword, center, radius, pages);
+    } catch {
+      // La key no tiene habilitada Places API (New): usamos la API clásica.
+      raw = await viaPlaces(mapsKey, opts.keyword, center, opts.province, pages, radius);
+    }
   }
 
   const seen = new Set<string>();
@@ -193,5 +262,5 @@ export async function rankCompetitors(opts: {
     if (r.isYou) found = true;
   }
   const mine = results.find((r) => r.isYou);
-  return { keyword: opts.keyword, province: opts.province, source, center, yourPosition: mine?.position ?? null, results };
+  return { keyword: opts.keyword, province: opts.province, origin, scope, source, center, yourPosition: mine?.position ?? null, results };
 }
