@@ -1115,7 +1115,7 @@ chatTools.push({
       });
       const review = await prisma.gmbReview.findFirst({
         where: { clientId: client.id, reviewId: String(args?.reviewId ?? "") },
-        select: { rating: true, comment: true }
+        select: { rating: true, comment: true, authorName: true }
       });
       if (!review) return JSON.stringify({ error: "Reseña no encontrada" });
       const { generateReviewReply } = await import("@/lib/integrations/gmb-hub");
@@ -1125,7 +1125,8 @@ chatTools.push({
         businessName: full?.name ?? client.name,
         tone,
         rating: review.rating || 5,
-        comment: review.comment ?? ""
+        comment: review.comment ?? "",
+        authorName: review.authorName
       });
       return JSON.stringify({ reply });
     } catch (e: any) {

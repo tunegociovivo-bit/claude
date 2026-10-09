@@ -55,7 +55,15 @@ type Review = {
   comment: string | null;
   reviewReply: string | null;
   reviewTime: string | null;
+  updateTime?: string | null;
 };
+
+function fmtDate(d?: string | null) {
+  if (!d) return "";
+  const t = new Date(d);
+  if (isNaN(t.getTime())) return "";
+  return t.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
 
 function Stars({ n }: { n: number }) {
   return (
@@ -691,6 +699,7 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const [loading, setLoading] = useState(true);
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [tab, setTab] = useState<
     "reviews" | "posts" | "fotos" | "qa" | "plantillas" | "seo" | "competitors" | "ranking" | "editar"
@@ -808,6 +817,33 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             )}
           </div>
 
+          {data && data.reviews.some((r) => !r.reviewReply) && (
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                onClick={() =>
+                  setSelected((prev) =>
+                    prev.size ? new Set() : new Set(data.reviews.filter((r) => !r.reviewReply).slice(0, 25).map((r) => r.reviewId))
+                  )
+                }
+                className="px-2.5 py-1 rounded-lg border bg-white"
+              >
+                {selected.size ? "Quitar selección" : "Seleccionar sin responder"}
+              </button>
+              <span className="text-slate-500">Marca varias reseñas para responderlas a la vez.</span>
+            </div>
+          )}
+          {data && selected.size > 0 && (
+            <BulkReplyPanel
+              clientId={id}
+              reviews={data.reviews.filter((r) => selected.has(r.reviewId))}
+              onClear={() => setSelected(new Set())}
+              onDone={() => {
+                setSelected(new Set());
+                load();
+                onChanged();
+              }}
+            />
+          )}
           {(syncMsg || (data as any)?.syncError) && (
             <div className="text-[12px] rounded-lg border bg-slate-50 p-2 text-slate-600">{syncMsg || `No se pudieron traer las reseñas de Google: ${(data as any).syncError}`}</div>
           )}
@@ -821,7 +857,21 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
             </div>
           ) : (
             data.reviews.map((rev) => (
-              <ReviewCard key={rev.id} clientId={id} review={rev} onReplied={() => { load(); onChanged(); }} />
+              <ReviewCard
+                key={rev.id}
+                clientId={id}
+                review={rev}
+                onReplied={() => { load(); onChanged(); }}
+                selected={selected.has(rev.reviewId)}
+                onToggle={() =>
+                  setSelected((prev) => {
+                    const n = new Set(prev);
+                    if (n.has(rev.reviewId)) n.delete(rev.reviewId);
+                    else if (n.size < 25) n.add(rev.reviewId);
+                    return n;
+                  })
+                }
+              />
             ))
           )}
         </div>
@@ -831,7 +881,19 @@ function FichaDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   );
 }
 
-function ReviewCard({ clientId, review, onReplied }: { clientId: string; review: Review; onReplied: () => void }) {
+function ReviewCard({
+  clientId,
+  review,
+  onReplied,
+  selected,
+  onToggle
+}: {
+  clientId: string;
+  review: Review;
+  onReplied: () => void;
+  selected?: boolean;
+  onToggle?: () => void;
+}) {
   const [reply, setReply] = useState(review.reviewReply ?? "");
   const [editing, setEditing] = useState(!review.reviewReply);
   const [busy, setBusy] = useState(false);
@@ -883,7 +945,24 @@ function ReviewCard({ clientId, review, onReplied }: { clientId: string; review:
   return (
     <div className="bg-white rounded-xl border p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="font-medium text-sm">{review.authorName || "Anónimo"}</div>
+        <div className="flex items-center gap-2 min-w-0">
+          {onToggle && (
+            <input
+              type="checkbox"
+              checked={!!selected}
+              onChange={onToggle}
+              className="h-4 w-4 shrink-0"
+              aria-label="Seleccionar para responder en bloque"
+            />
+          )}
+          <div className="font-medium text-sm truncate">{review.authorName || "Anónimo"}</div>
+          {review.reviewTime && (
+            <span className="text-[11px] text-slate-400 shrink-0" title={new Date(review.reviewTime).toLocaleString("es-ES")}>
+              {fmtDate(review.reviewTime)}
+              {review.updateTime && fmtDate(review.updateTime) !== fmtDate(review.reviewTime) ? ` · editada ${fmtDate(review.updateTime)}` : ""}
+            </span>
+          )}
+        </div>
         <Stars n={review.rating} />
       </div>
       {review.comment && <p className="text-[13px] text-slate-700 mt-1 whitespace-pre-wrap">{review.comment}</p>}
@@ -926,6 +1005,129 @@ function ReviewCard({ clientId, review, onReplied }: { clientId: string; review:
         </div>
       )}
       {msg && <p className="text-[11px] text-slate-500 mt-1">{msg}</p>}
+    </div>
+  );
+}
+
+function BulkReplyPanel({
+  clientId,
+  reviews,
+  onClear,
+  onDone
+}: {
+  clientId: string;
+  reviews: Review[];
+  onClear: () => void;
+  onDone: () => void;
+}) {
+  const [texts, setTexts] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<Record<string, string>>({});
+  const [generating, setGenerating] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function generate() {
+    setGenerating(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${clientId}/reviews/ai-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewIds: reviews.map((x) => x.reviewId) })
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d?.error?.message ?? "No se pudieron generar las respuestas.");
+      setTexts((prev) => {
+        const n = { ...prev };
+        for (const x of d.drafts ?? []) if (x.reply) n[x.reviewId] = x.reply;
+        return n;
+      });
+      setStatus((prev) => {
+        const n = { ...prev };
+        for (const x of d.drafts ?? []) if (x.error) n[x.reviewId] = `Error IA: ${x.error}`;
+        return n;
+      });
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function publishAll() {
+    setPublishing(true);
+    setErr(null);
+    let ok = 0;
+    for (const rv of reviews) {
+      const text = (texts[rv.reviewId] ?? "").trim();
+      if (!text) continue;
+      setStatus((p) => ({ ...p, [rv.reviewId]: "Publicando…" }));
+      try {
+        const r = await fetch(`/api/v1/gmb/clients/${clientId}/reviews/${encodeURIComponent(rv.reviewId)}/reply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reply: text })
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d?.error?.message ?? "Error");
+        ok++;
+        setStatus((p) => ({ ...p, [rv.reviewId]: d.sentToGoogle ? "✓ Publicada en Google" : `Guardada, no publicada${d.note ? `: ${d.note}` : ""}` }));
+      } catch (e: any) {
+        setStatus((p) => ({ ...p, [rv.reviewId]: `Error: ${e.message}` }));
+      }
+    }
+    setPublishing(false);
+    if (ok === reviews.length) onDone();
+  }
+
+  const ready = reviews.filter((r) => (texts[r.reviewId] ?? "").trim()).length;
+
+  return (
+    <div className="bg-white rounded-xl border-2 border-brand-200 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-sm font-semibold">Responder {reviews.length} reseña{reviews.length === 1 ? "" : "s"} a la vez</div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={generate}
+            disabled={generating || publishing}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs hover:bg-slate-50 disabled:opacity-50"
+          >
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Generar respuestas con IA
+          </button>
+          <button
+            onClick={publishAll}
+            disabled={publishing || generating || ready === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50"
+          >
+            {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            Publicar {ready > 0 ? `(${ready})` : ""}
+          </button>
+          <button onClick={onClear} className="text-xs text-slate-500 hover:underline">Cancelar</button>
+        </div>
+      </div>
+      {err && <div className="text-[12px] text-rose-700">{err}</div>}
+      <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+        {reviews.map((rv) => (
+          <div key={rv.reviewId} className="border rounded-lg p-2">
+            <div className="flex items-center justify-between gap-2 text-[12px]">
+              <span className="font-medium truncate">
+                {rv.authorName || "Anónimo"} <span className="text-slate-400 font-normal">· {fmtDate(rv.reviewTime)}</span>
+              </span>
+              <Stars n={rv.rating} />
+            </div>
+            {rv.comment && <p className="text-[12px] text-slate-600 mt-1 line-clamp-3">{rv.comment}</p>}
+            <textarea
+              value={texts[rv.reviewId] ?? ""}
+              onChange={(e) => setTexts((p) => ({ ...p, [rv.reviewId]: e.target.value }))}
+              rows={3}
+              placeholder={generating ? "Generando…" : "Pulsa «Generar respuestas con IA» o escribe la respuesta"}
+              className="w-full mt-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            {status[rv.reviewId] && <div className="text-[11px] text-slate-500 mt-0.5">{status[rv.reviewId]}</div>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

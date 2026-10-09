@@ -7,7 +7,7 @@ const db = vi.hoisted(() => ({
 }));
 const gbp = vi.hoisted(() => ({ gbpCall: vi.fn() }));
 vi.mock("@/lib/db/prisma", () => ({ prisma: db }));
-vi.mock("@/lib/integrations/gmb-hub", () => ({ logGmbActivity: vi.fn(async () => ({})) }));
+vi.mock("@/lib/integrations/gmb-hub", () => ({ logGmbActivity: vi.fn(async () => ({})), cleanReviewText: (t: any) => String(t ?? "") }));
 vi.mock("@/lib/integrations/gmb", async () => {
   const real = await vi.importActual<any>("@/lib/integrations/gmb");
   return { ...real, gbpCall: gbp.gbpCall };

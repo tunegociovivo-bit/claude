@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { reviewSyncDue, syncClientReviews } from "@/lib/gmb/review-sync";
+import { cleanReviewText } from "@/lib/integrations/gmb-hub";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -54,7 +55,7 @@ export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
       authorName: r.authorName,
       authorPhoto: r.authorPhoto,
       rating: r.rating,
-      comment: r.comment,
+      comment: cleanReviewText(r.comment),
       reviewReply: r.reviewReply,
       reviewTime: r.reviewTime,
       updateTime: r.updateTime

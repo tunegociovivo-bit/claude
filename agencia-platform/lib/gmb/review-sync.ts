@@ -5,7 +5,7 @@
  */
 import { prisma } from "@/lib/db/prisma";
 import { gbpCall, gbpSourceForClient, gmbLocationPath } from "@/lib/integrations/gmb";
-import { logGmbActivity } from "@/lib/integrations/gmb-hub";
+import { cleanReviewText, logGmbActivity } from "@/lib/integrations/gmb-hub";
 
 const STARS: Record<string, number> = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
 const SYNC_ACTION = "reviews_synced";
@@ -47,7 +47,7 @@ export async function syncClientReviews(workspaceId: string, clientId: string, o
         authorName: r.reviewer?.displayName ?? "Anónimo",
         authorPhoto: r.reviewer?.profilePhotoUrl ?? "",
         rating: STARS[r.starRating] ?? 0,
-        comment: r.comment ?? "",
+        comment: cleanReviewText(r.comment),
         reviewReply: r.reviewReply?.comment ?? null,
         reviewTime: r.createTime ? new Date(r.createTime) : null,
         updateTime: r.updateTime ? new Date(r.updateTime) : null

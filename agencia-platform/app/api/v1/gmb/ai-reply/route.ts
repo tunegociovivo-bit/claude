@@ -31,6 +31,7 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
   let tone = d.tone ?? "profesional";
   let rating = d.rating ?? 5;
   let comment = d.comment ?? "";
+  let authorName = "";
 
   // Si vienen clientId+reviewId, resolvemos de la BD.
   if (d.clientId && d.reviewId) {
@@ -41,19 +42,20 @@ export const POST = withApi({ scope: "ai", rate: "ai" }, async (req, { api }) =>
     if (!client) throw new ApiError(404, "not_found", "Ficha no encontrada");
     const review = await prisma.gmbReview.findFirst({
       where: { clientId: d.clientId, reviewId: d.reviewId },
-      select: { rating: true, comment: true }
+      select: { rating: true, comment: true, authorName: true }
     });
     if (!review) throw new ApiError(404, "not_found", "Reseña no encontrada");
     businessName = client.name;
     tone = client.tone === "custom" && client.customTone ? client.customTone : client.tone;
     rating = review.rating || 5;
     comment = review.comment ?? "";
+    authorName = review.authorName ?? "";
   }
 
   if (!businessName) throw new ApiError(400, "missing_business", "Falta el negocio o clientId+reviewId");
 
   try {
-    const reply = await generateReviewReply({ workspaceId: api.workspaceId, businessName, tone, rating, comment });
+    const reply = await generateReviewReply({ workspaceId: api.workspaceId, businessName, tone, rating, comment, authorName });
     return NextResponse.json({ reply });
   } catch (e: any) {
     throw new ApiError(502, "ai_error", String(e?.message ?? e));

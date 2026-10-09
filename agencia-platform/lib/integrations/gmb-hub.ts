@@ -103,7 +103,8 @@ export async function handleNegativeReview(opts: {
       businessName: opts.clientName,
       tone: opts.tone || "empático y profesional",
       rating: opts.rating,
-      comment: opts.comment
+      comment: opts.comment,
+      authorName: opts.authorName
     });
   } catch {}
 
@@ -183,31 +184,68 @@ export function parseDate(v: any): Date | null {
  * Genera una respuesta a una reseña con OpenAI (gpt-4o-mini), replicando el
  * prompt del plugin: tono del negocio + empatía si rating ≤3.
  */
+/**
+ * Google añade a las reseñas en otro idioma «(Translated by Google) … (Original) …» (o «(Traducido
+ * por Google)»). Se queda solo con el texto original que escribió el cliente.
+ */
+export function cleanReviewText(comment: string | null | undefined): string {
+  const t = String(comment ?? "").trim();
+  if (!t) return "";
+  const m = t.match(/\(Original\)\s*([\s\S]+)$/i);
+  if (m) return m[1].trim();
+  return t.replace(/^\((Translated by Google|Traducido por Google)\)\s*/i, "").trim();
+}
+
+/** Nombre de pila del autor de la reseña (vacío si es anónimo o no parece un nombre). */
+export function reviewerFirstName(name: string | null | undefined): string {
+  const n = String(name ?? "").trim();
+  if (!n || /an[oó]nimo|google user|usuario de google|^a google/i.test(n)) return "";
+  const first = n.split(/\s+/)[0].replace(/[^\p{L}'-]/gu, "");
+  if (first.length < 2 || first.length > 20) return "";
+  return first.charAt(0).toLocaleUpperCase("es") + first.slice(1).toLocaleLowerCase("es");
+}
+
 export async function generateReviewReply(opts: {
   workspaceId: string;
   businessName: string;
   tone: string;
   rating: number;
   comment: string;
+  /** Nombre del autor tal como aparece en Google (para saludarle por su nombre). */
+  authorName?: string | null;
 }): Promise<string> {
   const { getOpenAiKeyForWorkspace } = await import("@/lib/ai/openai");
   const apiKey = await getOpenAiKeyForWorkspace(opts.workspaceId);
-  const sentiment =
-    opts.rating <= 3
-      ? "Sé empático, pide disculpas si procede y ofrece solucionarlo. "
-      : "Sé entusiasta y agradecido. ";
-  const prompt =
-    `Genera una respuesta ${opts.tone} a esta reseña de Google My Business para el negocio "${opts.businessName}". ` +
-    sentiment +
-    `Reseña (${opts.rating} estrellas): "${opts.comment}"\n\nRespuesta (máximo 200 palabras, en español):`;
+  const comment = cleanReviewText(opts.comment);
+  const firstName = reviewerFirstName(opts.authorName);
+  const positive = opts.rating >= 4;
+  const system =
+    `Eres quien responde las reseñas de Google del negocio «${opts.businessName}». Tono: ${opts.tone}. ` +
+    "Reglas: responde en el mismo idioma en que está escrita la reseña; " +
+    (firstName
+      ? `saluda al cliente por su nombre de pila («${firstName}»), con naturalidad (p. ej. «¡Gracias, ${firstName}!» o «Hola, ${firstName}:»); `
+      : "no uses el nombre del cliente (no lo conocemos) y empieza con un saludo natural sin «Estimado/a»; ") +
+    "NUNCA uses marcadores entre corchetes como [Nombre] ni dejes huecos por rellenar; " +
+    "menciona algo concreto de lo que cuenta la reseña (no respuestas genéricas); " +
+    (positive
+      ? "agradece con calidez y anima a volver; "
+      : "muestra empatía, pide disculpas sin excusas, no discutas y ofrece hablarlo por privado para solucionarlo; ") +
+    "entre 40 y 110 palabras, sin listas ni emojis excesivos (como mucho uno), sin inventar datos (precios, nombres de empleados, tratamientos) que no aparezcan en la reseña; " +
+    `firma de forma breve como «El equipo de ${opts.businessName}». Devuelve solo el texto de la respuesta.`;
+  const user = comment
+    ? `Reseña de ${opts.rating} estrellas${opts.authorName ? ` de «${opts.authorName}»` : ""}:\n"""${comment}"""`
+    : `Reseña de ${opts.rating} estrellas sin texto${opts.authorName ? ` de «${opts.authorName}»` : ""}. Responde con un agradecimiento breve (máximo 35 palabras).`;
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      max_tokens: 300,
-      temperature: 0.7,
-      messages: [{ role: "user", content: prompt }]
+      max_tokens: 350,
+      temperature: 0.6,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ]
     })
   });
   if (!resp.ok) {
@@ -215,7 +253,11 @@ export async function generateReviewReply(opts: {
     throw new Error(`OpenAI ${resp.status}: ${t.slice(0, 200)}`);
   }
   const data = await resp.json();
-  return (data?.choices?.[0]?.message?.content ?? "").trim();
+  // Red de seguridad: si aun así aparece un marcador, se quita.
+  return String(data?.choices?.[0]?.message?.content ?? "")
+    .replace(/\[(nombre|name)[^\]]*\]/gi, firstName)
+    .replace(/^["«]|["»]$/g, "")
+    .trim();
 }
 
 /**
@@ -362,7 +404,7 @@ export async function upsertIncomingReview(opts: {
       authorName: r.authorName ?? "",
       authorPhoto: r.authorPhoto ?? "",
       rating,
-      comment: r.comment ?? "",
+      comment: cleanReviewText(r.comment),
       reviewReply: r.reply ?? null,
       reviewTime: parseDate(r.createTime),
       updateTime: parseDate(r.updateTime)
@@ -371,7 +413,7 @@ export async function upsertIncomingReview(opts: {
       authorName: r.authorName ?? undefined,
       authorPhoto: r.authorPhoto ?? undefined,
       rating,
-      comment: r.comment ?? undefined,
+      comment: r.comment != null ? cleanReviewText(r.comment) : undefined,
       reviewReply: r.reply ?? undefined,
       updateTime: parseDate(r.updateTime)
     }

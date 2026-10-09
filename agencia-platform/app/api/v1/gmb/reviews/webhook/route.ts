@@ -95,7 +95,8 @@ export async function POST(req: NextRequest) {
               businessName: client.name,
               tone,
               rating,
-              comment: res.comment ?? ""
+              comment: res.comment ?? "",
+              authorName: res.authorName ?? ""
             });
             const reviewId = String(r.reviewId ?? r.review_id ?? r.id ?? "");
             if (reply && reviewId && client.accountId && client.locationId) {
