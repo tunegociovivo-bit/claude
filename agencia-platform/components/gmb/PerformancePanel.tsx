@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Eye, Search, MousePointerClick, Phone, Navigation, Globe, MessageCircle, CalendarCheck, UtensilsCrossed } from "lucide-react";
 
 const PERIODS = [
+  [-1, "Mes anterior"],
   [30, "30 días"],
   [90, "3 meses"],
   [180, "6 meses"],
@@ -107,7 +108,7 @@ function TrendChart({ daily }: { daily: Day[] }) {
 }
 
 export default function PerformancePanel({ id }: { id: string }) {
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState<number>(30);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -116,7 +117,7 @@ export default function PerformancePanel({ id }: { id: string }) {
   function load(fresh = false) {
     setLoading(true);
     setErr(null);
-    fetch(`/api/v1/gmb/clients/${id}/performance?days=${days}${fresh ? "&fresh=1" : ""}`)
+    fetch(`/api/v1/gmb/clients/${id}/performance?${days === -1 ? "month=prev" : `days=${days}`}${fresh ? "&fresh=1" : ""}`)
       .then((r) => r.json())
       .then((d) => {
         if (!d.ok) throw new Error(d.message || "No se pudo obtener el rendimiento.");
@@ -255,6 +256,121 @@ export default function PerformancePanel({ id }: { id: string }) {
           </div>
         </div>
       )}
+      <SheetLink id={id} />
+    </div>
+  );
+}
+
+/** Vinculación con el Google Sheets «Informe GMB» del cliente. */
+function SheetLink({ id }: { id: string }) {
+  const [url, setUrl] = useState("");
+  const [saved, setSaved] = useState("");
+  const [sa, setSa] = useState<string | null>(null);
+  const [saErr, setSaErr] = useState<string | null>(null);
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/v1/gmb/clients/${id}/sheet`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setUrl(d.url ?? "");
+        setSaved(d.url ?? "");
+        setSa(d.serviceAccount);
+        setSaErr(d.serviceAccountError);
+        setSyncedAt(d.syncedAt);
+      });
+  }, [id]);
+
+  function describe(d: any) {
+    if (!d.ok) return { text: d.message || "No se pudo sincronizar.", ok: false };
+    const parts: string[] = [];
+    if (d.written?.length) {
+      const months = [...new Set(d.written.flatMap((w: any) => w.months))].sort() as string[];
+      parts.push(`Añadidos ${months.length} ${months.length === 1 ? "mes" : "meses"} (${months.map((m) => m.slice(5) + "/" + m.slice(0, 4)).join(", ")}) en ${d.written.length} pestañas.`);
+    } else if (d.upToDate) parts.push("La hoja ya estaba al día.");
+    if (d.pendingMonth) parts.push(`El mes ${d.pendingMonth.slice(5)}/${d.pendingMonth.slice(0, 4)} se añadirá solo en cuanto Google publique todos sus datos (unos días después de cerrar el mes).`);
+    if (d.missingTabs?.length) parts.push(`No encuentro las pestañas: ${d.missingTabs.join(", ")}.`);
+    return { text: parts.join(" "), ok: !d.missingTabs?.length };
+  }
+
+  async function post(body: any) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/v1/gmb/clients/${id}/sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({ ok: false, message: "Error" }));
+      if (body.url !== undefined && (d.ok || d.url === "")) setSaved(d.url ?? body.url);
+      if (d.syncedAt) setSyncedAt(d.syncedAt);
+      setMsg(body.url === "" ? { text: "Hoja desvinculada.", ok: true } : describe(d));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const dirty = url.trim() !== saved.trim();
+  return (
+    <div className="bg-white rounded-lg border p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium text-slate-700">Spreadsheet del informe del cliente</div>
+        {saved && !dirty && (
+          <a href={saved} target="_blank" rel="noreferrer" className="text-[11px] text-brand-700 hover:underline">
+            Abrir hoja ↗
+          </a>
+        )}
+      </div>
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          post({ url: url.trim() });
+        }}
+      >
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://docs.google.com/spreadsheets/d/…"
+          className="flex-1 min-w-0 border rounded-md px-2 py-1.5 text-[12px]"
+        />
+        {dirty ? (
+          <button type="submit" disabled={busy} className="text-xs px-2.5 py-1.5 rounded-md bg-slate-900 text-white disabled:opacity-50">
+            {busy ? "Vinculando…" : url.trim() ? "Vincular" : "Desvincular"}
+          </button>
+        ) : saved ? (
+          <button type="button" onClick={() => post({ action: "sync" })} disabled={busy} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md border bg-white hover:bg-slate-50 disabled:opacity-50">
+            <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} /> Sincronizar
+          </button>
+        ) : null}
+      </form>
+      {sa ? (
+        <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-1">
+          Comparte la hoja como <b>Editor</b> con
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard?.writeText(sa).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              });
+            }}
+            className="font-mono text-[10.5px] bg-slate-100 rounded px-1.5 py-0.5 hover:bg-slate-200"
+            title="Copiar"
+          >
+            {sa}
+          </button>
+          {copied ? <span className="text-emerald-600">copiado</span> : null}
+        </div>
+      ) : saErr ? (
+        <div className="text-[11px] text-rose-600">{saErr}</div>
+      ) : null}
+      <div className="text-[10.5px] text-slate-400">
+        Cada mes se añaden solas las filas del mes cerrado en «Vistas perfil empresa», «Llamadas», «Cómo llegar», «Clicks sitio web» y «Palabras Clave» (nunca se modifican las filas existentes).
+        {syncedAt ? ` Última sincronización: ${new Date(syncedAt).toLocaleString("es-ES")}.` : ""}
+      </div>
+      {msg && <div className={`text-[11px] ${msg.ok ? "text-emerald-700" : "text-rose-600"}`}>{msg.text}</div>}
     </div>
   );
 }

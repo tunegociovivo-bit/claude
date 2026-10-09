@@ -4621,6 +4621,8 @@ model GmbClient {
   mainKeyword        String   @default("")
   autoReply          String   @default("manual") // manual|positive|negative|both (legacy "auto" = positive)
   notifyMode         String   @default("negative") // aviso por email de reseñas nuevas: none|positive|negative|both
+  reportSheetUrl     String   @default("") // Google Sheets «Informe GMB» del cliente (se rellena cada mes)
+  reportSheetSyncedAt DateTime?
   // Piloto automático (por ficha): qué puede hacer el sistema sin intervención.
   //   suggest_only    → solo sugiere acciones
   //   prepare_drafts  → prepara borradores (posts/respuestas/paquetes de alta)

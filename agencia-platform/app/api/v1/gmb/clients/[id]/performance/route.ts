@@ -16,8 +16,17 @@ export const GET = withApi({ scope: "*" }, async (req, { params, api }) => {
   if (!client) throw new ApiError(404, "not_found", "Ficha no encontrada");
   const url = new URL(req.url);
   const days = Number(url.searchParams.get("days") ?? 30) || 30;
+  const fresh = url.searchParams.get("fresh") === "1";
+  // ?month=prev → mes natural anterior completo (comparado con el mes previo).
+  let range: { since?: string; until?: string; calendarMonth?: boolean } = {};
+  if (url.searchParams.get("month") === "prev") {
+    const now = new Date();
+    const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+    range = { since: first.toISOString().slice(0, 10), until: last.toISOString().slice(0, 10), calendarMonth: true };
+  }
   try {
-    const data = await fetchPerformance(api.workspaceId, client, { days, fresh: url.searchParams.get("fresh") === "1" });
+    const data = await fetchPerformance(api.workspaceId, client, { days, fresh, ...range });
     return NextResponse.json({ ok: true, name: client.name, ...data });
   } catch (e: any) {
     return NextResponse.json({ ok: false, message: String(e?.message ?? e).slice(0, 400) });

@@ -195,13 +195,15 @@ export async function appendRows(opts: {
   spreadsheetId: string;
   range: string;
   rows: (string | number | boolean | null)[][];
+  /** RAW = se guarda tal cual (texto/número), sin que Sheets interprete fechas. */
+  valueInputOption?: "USER_ENTERED" | "RAW";
 }): Promise<{ updatedRange: string; updatedRows: number; updatedCells: number }> {
   const sa = await getSheetsServiceAccount(opts.workspaceId);
   const id = parseSpreadsheetId(opts.spreadsheetId);
   const url =
     `${API}/${encodeURIComponent(id)}/values/${encodeURIComponent(opts.range)}:append?` +
     new URLSearchParams({
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: opts.valueInputOption ?? "USER_ENTERED",
       insertDataOption: "INSERT_ROWS"
     });
   const resp = await authedFetch(sa, url, {

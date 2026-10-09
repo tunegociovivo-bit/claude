@@ -56,7 +56,7 @@ const cache = new Map<string, { at: number; data: PerformanceResult }>();
 export async function fetchPerformance(
   workspaceId: string,
   client: { id: string; locationId: string | null; accountId?: string | null; [k: string]: any },
-  opts: { days?: number; fresh?: boolean; since?: string; until?: string } = {}
+  opts: { days?: number; fresh?: boolean; since?: string; until?: string; /** compara con el mes natural anterior completo */ calendarMonth?: boolean } = {}
 ): Promise<PerformanceResult> {
   const loc = perfLocationName(client.locationId);
   if (!loc) throw new Error("La ficha no está vinculada a Google (falta la ubicación).");
@@ -74,7 +74,7 @@ export async function fetchPerformance(
   const days = fixed
     ? Math.min(Math.round((fixed.end.getTime() - fixed.start.getTime()) / DAY) + 1, 540)
     : Math.max(7, Math.min(opts.days ?? 30, 540));
-  const key = `${workspaceId}:${client.id}:${days}:${fixed ? iso(ymd(fixed.start)) : "auto"}`;
+  const key = `${workspaceId}:${client.id}:${days}:${fixed ? iso(ymd(fixed.start)) : "auto"}:${opts.calendarMonth ? "m" : ""}`;
   const hit = cache.get(key);
   if (!opts.fresh && hit && Date.now() - hit.at < 3_600_000) return hit.data;
 
@@ -82,7 +82,7 @@ export async function fetchPerformance(
   // Google tarda unos días en consolidar: pedimos hasta ayer con margen y el periodo termina en el
   // último día que ya tiene datos (así la comparación no queda falseada por días aún a 0).
   const fetchTo = fixed ? fixed.end : yesterday;
-  const fetchFrom = fixed ? new Date(fixed.start.getTime() - days * DAY) : new Date(yesterday.getTime() - (2 * days + 9) * DAY);
+  const fetchFrom = fixed ? new Date(fixed.start.getTime() - Math.max(days, 31) * DAY) : new Date(yesterday.getTime() - (2 * days + 9) * DAY);
 
   const qs = new URLSearchParams();
   for (const m of ALL) qs.append("dailyMetrics", m);
@@ -118,7 +118,9 @@ export async function fetchPerformance(
   const end = new Date(`${endIso}T00:00:00Z`);
   const start = fixed ? fixed.start : new Date(end.getTime() - (days - 1) * DAY);
   const prevEnd = new Date(start.getTime() - DAY);
-  const prevStart = new Date(prevEnd.getTime() - (days - 1) * DAY);
+  const prevStart = opts.calendarMonth
+    ? new Date(Date.UTC(prevEnd.getUTCFullYear(), prevEnd.getUTCMonth(), 1))
+    : new Date(prevEnd.getTime() - (days - 1) * DAY);
   const startIso = iso(ymd(start));
   const prevStartIso = iso(ymd(prevStart));
 
