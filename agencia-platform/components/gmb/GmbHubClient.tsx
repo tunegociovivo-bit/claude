@@ -1803,6 +1803,81 @@ function NuevaFicha({ onClose, onCreated, onConnectGoogle }: { onClose: () => vo
 
 /* ============== Bloque Contenido + IA ============== */
 
+/** Lo que la ficha tiene ahora mismo publicado en Google (fotos o publicaciones). */
+function GoogleLive({ id, kind }: { id: string; kind: "photos" | "posts" }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<string | null>(null);
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/v1/gmb/clients/${id}/google-content?kind=${kind}`, { cache: "no-store" });
+    setData(await r.json().catch(() => ({ ok: false, message: "Error" })));
+    setLoading(false);
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id, kind]);
+  const items: any[] = (kind === "photos" ? data?.photos : data?.posts) ?? [];
+  return (
+    <div className="bg-white rounded-xl border p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-slate-700">
+          {kind === "photos" ? "Fotos publicadas en Google" : "Publicaciones en Google"}
+          {!loading && data?.ok ? ` (${items.length})` : ""}
+        </span>
+        <button onClick={load} className="text-[11px] text-brand-600 inline-flex items-center gap-1 hover:underline">
+          <RefreshCw className="h-3 w-3" /> Actualizar
+        </button>
+      </div>
+      {loading ? (
+        <div className="text-xs text-slate-500 flex items-center gap-2 py-3"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando desde Google…</div>
+      ) : !data?.ok ? (
+        <div className="text-xs text-slate-500">{data?.message ?? "No se pudo leer de Google."}</div>
+      ) : items.length === 0 ? (
+        <div className="text-xs text-slate-500">{kind === "photos" ? "La ficha no tiene fotos en Google." : "La ficha no tiene publicaciones en Google."}</div>
+      ) : kind === "photos" ? (
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {items.map((p) => (
+            <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="block group" title={p.category}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.thumb} alt={p.category} loading="lazy" className="w-full aspect-square object-cover rounded-lg border group-hover:opacity-90" />
+              <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                {p.format === "VIDEO" ? "🎬 " : ""}{p.category}{p.createTime ? ` · ${fmtDate(p.createTime)}` : ""}
+              </div>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((p) => (
+            <div key={p.id} className="border rounded-lg p-2 flex gap-2">
+              {p.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={p.image} alt="" loading="lazy" className="h-16 w-16 object-cover rounded-md border shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] text-slate-500">
+                  {({ STANDARD: "Novedad", EVENT: "Evento", OFFER: "Oferta", ALERT: "Aviso" } as any)[p.type] ?? p.type}
+                  {p.createTime ? ` · ${fmtDate(p.createTime)}` : ""}
+                  {p.state && p.state !== "LIVE" ? ` · ${p.state === "REJECTED" ? "Rechazada" : p.state === "PROCESSING" ? "En revisión" : p.state}` : ""}
+                </div>
+                {p.event?.title && <div className="text-[13px] font-medium">{p.event.title}</div>}
+                <p className={"text-[13px] text-slate-700 whitespace-pre-wrap " + (open === p.id ? "" : "line-clamp-3")}>{p.summary}</p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  {p.summary?.length > 180 && (
+                    <button onClick={() => setOpen(open === p.id ? null : p.id)} className="text-[11px] text-brand-600 hover:underline">
+                      {open === p.id ? "Ver menos" : "Ver más"}
+                    </button>
+                  )}
+                  {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="text-[11px] text-brand-600 hover:underline">Ver en Google</a>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PostsPanel({ id }: { id: string }) {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1879,6 +1954,7 @@ function PostsPanel({ id }: { id: string }) {
 
   return (
     <div className="p-4 space-y-4">
+      <GoogleLive id={id} kind="posts" />
       <div className="bg-white rounded-xl border p-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-700">Nueva publicación</span>
@@ -1997,6 +2073,8 @@ function PhotosPanel({ id }: { id: string }) {
 
   return (
     <div className="p-4 space-y-4">
+      <GoogleLive id={id} kind="photos" />
+      <div className="text-xs font-semibold text-slate-700">Biblioteca del Hub (fotos para programar)</div>
       <div className="bg-white rounded-xl border p-3 space-y-2">
         <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="URL de la imagen (https://…)"
           className="w-full px-2.5 py-1.5 rounded-lg border text-sm" />
