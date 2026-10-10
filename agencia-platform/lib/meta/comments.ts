@@ -498,7 +498,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       where: { workspaceId, feedId: feed.id, platform: "instagram", postId: { not: null }, adId: { not: null } },
       select: { postId: true, adId: true }, distinct: ["postId", "adId"]
     });
-    const unresolvedInstagram: Array<{ adId: string; creativeId: string | null; objectType: string | null; dynamic: boolean; instagramUserId: string | null; fields: string[]; deliveredOn?: Record<string, number> }> = [];
+    const unresolvedInstagram: Array<{ adId: string; creativeId: string | null; objectType: string | null; dynamic: boolean; instagramUserId: string | null; fields: string[]; deliveredOn?: Record<string, number>; neverOnInstagram: boolean }> = [];
     await prisma.metaAdComment.updateMany({
       where: {
         workspaceId,
@@ -559,14 +559,15 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       if (!instagramTargetsForAd.length && ownerHint) {
         const igFields = Object.keys(creative).filter((key) => /instagram|story|object|asset_feed/i.test(key));
         const dynamic = Boolean(creative.asset_feed_spec);
-        let deliveredOn: Record<string, number> | undefined;
-        if (options.diagnose) {
-          // Si el anuncio nunca se entregó en Instagram, Meta no crea su
-          // publicación allí y no hay comentarios que leer.
-          const insights = await graphAll(workspaceId, `${ad.id}/insights?fields=impressions&breakdowns=publisher_platform&date_preset=maximum`, ad._manualToken ?? connectionToken ?? undefined, 50).catch(() => null);
-          if (insights) deliveredOn = Object.fromEntries(insights.map((row: any) => [String(row.publisher_platform), Number(row.impressions ?? 0)]));
-        }
+        // Si el anuncio nunca se entregó en Instagram, Meta no crea su
+        // publicación allí: no hay comentarios que leer ni falta cobertura.
+        const insights = await graphAll(workspaceId, `${ad.id}/insights?fields=impressions&breakdowns=publisher_platform&date_preset=maximum`, ad._manualToken ?? connectionToken ?? undefined, 50).catch(() => null);
+        const deliveredOn: Record<string, number> | undefined = insights
+          ? Object.fromEntries(insights.map((row: any) => [String(row.publisher_platform), Number(row.impressions ?? 0)]))
+          : undefined;
+        const neverOnInstagram = Boolean(deliveredOn) && !(deliveredOn!.instagram > 0);
         unresolvedInstagram.push({
+          neverOnInstagram,
           ...(deliveredOn ? { deliveredOn } : {}),
           adId: String(ad.id),
           creativeId: creative.id ? String(creative.id) : null,
@@ -575,7 +576,9 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           instagramUserId: creative.instagram_user_id ? String(creative.instagram_user_id) : null,
           fields: igFields
         });
-        coverageIssues.push(`Anuncio ${ad.id} (${ad.name ?? "sin nombre"}): Meta no expone la publicación de Instagram del anuncio${dynamic ? " (creatividad dinámica)" : ""}; sus comentarios de Instagram no se pueden leer.`);
+        if (!neverOnInstagram) {
+          coverageIssues.push(`Anuncio ${ad.id} (${ad.name ?? "sin nombre"}): se ha mostrado en Instagram pero Meta no expone su publicación${dynamic ? " (creatividad dinámica)" : ""}; sus comentarios de Instagram no se pueden leer.`);
+        }
       }
       const facebookTargetsForAd = facebookCommentTargets(creative, authorizedPages.facebook);
       for (const post of knownFacebookPosts) {
