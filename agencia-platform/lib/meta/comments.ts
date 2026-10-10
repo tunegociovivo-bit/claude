@@ -140,6 +140,9 @@ async function campaignAdsWithAvailableConnection(
 type MetaSyncOptions = {
   extraAdIds?: string[];
   extraPosts?: Array<{ adId: string; postId: string }>;
+  /** Solo en sincronización manual: contrasta con los contadores de Meta y la
+   *  entrega por plataforma (llamadas extra; nunca en el cron). */
+  diagnose?: boolean;
 };
 
 async function fetchExplicitCampaignAds(
@@ -495,7 +498,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       where: { workspaceId, feedId: feed.id, platform: "instagram", postId: { not: null }, adId: { not: null } },
       select: { postId: true, adId: true }, distinct: ["postId", "adId"]
     });
-    const unresolvedInstagram: Array<{ adId: string; creativeId: string | null; objectType: string | null; dynamic: boolean; instagramUserId: string | null; fields: string[] }> = [];
+    const unresolvedInstagram: Array<{ adId: string; creativeId: string | null; objectType: string | null; dynamic: boolean; instagramUserId: string | null; fields: string[]; deliveredOn?: Record<string, number> }> = [];
     await prisma.metaAdComment.updateMany({
       where: {
         workspaceId,
@@ -512,7 +515,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0; let unsupportedTargets = 0;
     const coverageIssues: string[] = [];
-    const targetResults: Array<{ adId: string; postId: string; platform: string; returned: number; inPeriod: number; error?: string }> = [];
+    const targetResults: Array<{ adId: string; postId: string; platform: string; returned: number; inPeriod: number; error?: string; metaCount?: number | null; metaCountError?: string }> = [];
     const explicitAds = await fetchExplicitCampaignAds(workspaceId, campaignId, [...(options.extraAdIds ?? []), ...(options.extraPosts ?? []).map((post) => post.adId)], creativeFields, connectionToken, coverageIssues);
     ads = mergeMetaAdsById(ads, explicitAds);
     const hydratedAds: any[] = [];
@@ -556,7 +559,15 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       if (!instagramTargetsForAd.length && ownerHint) {
         const igFields = Object.keys(creative).filter((key) => /instagram|story|object|asset_feed/i.test(key));
         const dynamic = Boolean(creative.asset_feed_spec);
+        let deliveredOn: Record<string, number> | undefined;
+        if (options.diagnose) {
+          // Si el anuncio nunca se entregó en Instagram, Meta no crea su
+          // publicación allí y no hay comentarios que leer.
+          const insights = await graphAll(workspaceId, `${ad.id}/insights?fields=impressions&breakdowns=publisher_platform&date_preset=maximum`, ad._manualToken ?? connectionToken ?? undefined, 50).catch(() => null);
+          if (insights) deliveredOn = Object.fromEntries(insights.map((row: any) => [String(row.publisher_platform), Number(row.impressions ?? 0)]));
+        }
         unresolvedInstagram.push({
+          ...(deliveredOn ? { deliveredOn } : {}),
           adId: String(ad.id),
           creativeId: creative.id ? String(creative.id) : null,
           objectType: creative.object_type ? String(creative.object_type) : null,
@@ -615,7 +626,19 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           console.warn(`[meta-comments] Meta no permite consultar comentarios del objetivo ${target.platform}:${target.id}; se omite y continúa la campaña.`);
           continue;
         }
-        const targetResult = { adId: String(ad.id), postId: target.id, platform: target.platform, returned: comments.length, inPeriod: 0 };
+        const targetResult: (typeof targetResults)[number] = { adId: String(ad.id), postId: target.id, platform: target.platform, returned: comments.length, inPeriod: 0 };
+        if (options.diagnose && comments.length === 0) {
+          // ¿Meta cuenta comentarios que la API no devuelve? (permisos/ocultos)
+          try {
+            const counted = target.platform === "instagram"
+              ? await graph(workspaceId, `${target.id}?fields=comments_count`, undefined, target.token)
+              : await graph(workspaceId, `${target.id}?fields=comments.limit(0).summary(true)`, undefined, target.token);
+            const value = target.platform === "instagram" ? counted?.comments_count : counted?.comments?.summary?.total_count;
+            targetResult.metaCount = typeof value === "number" ? value : null;
+          } catch (error: any) {
+            targetResult.metaCountError = String(error?.message ?? error).slice(0, 200);
+          }
+        }
         targetResults.push(targetResult);
         for (const raw of comments) {
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
