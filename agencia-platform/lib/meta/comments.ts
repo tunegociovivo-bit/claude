@@ -454,7 +454,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     create: { workspaceId, campaignId, clientName }, update: { clientName, active: true }
   });
   try {
-    const creativeFields = "id,effective_object_story_id,effective_instagram_media_id,source_instagram_media_id,instagram_user_id,instagram_permalink_url,object_story_id,object_story_spec,asset_feed_spec";
+    const creativeFields = "id,object_type,effective_object_story_id,effective_instagram_media_id,source_instagram_media_id,instagram_user_id,instagram_permalink_url,object_story_id,object_story_spec,asset_feed_spec";
     const resolved = await campaignAdsWithAvailableConnection(workspaceId, campaignId, creativeFields, feed.metaConnectionId);
     const connectionToken = resolved.token;
     let ads = resolved.ads;
@@ -488,6 +488,14 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       where: { workspaceId, feedId: feed.id, platform: "facebook", postId: { not: null }, adId: { not: null } },
       select: { postId: true, adId: true }, distinct: ["postId", "adId"]
     });
+    // Igual para Instagram: si una publicación ya quedó verificada para un
+    // anuncio (con su adId), se sigue leyendo aunque Meta deje de devolver el
+    // vínculo en el creative.
+    const knownInstagramPosts = await prisma.metaAdComment.findMany({
+      where: { workspaceId, feedId: feed.id, platform: "instagram", postId: { not: null }, adId: { not: null } },
+      select: { postId: true, adId: true }, distinct: ["postId", "adId"]
+    });
+    const unresolvedInstagram: Array<{ adId: string; creativeId: string | null; objectType: string | null; dynamic: boolean; instagramUserId: string | null; fields: string[] }> = [];
     await prisma.metaAdComment.updateMany({
       where: {
         workspaceId,
@@ -528,11 +536,35 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         await loadInstagramMediaLookup(ownerHint);
         instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
       }
+      if (!instagramTarget && ownerHint) {
+        // Un anuncio editado conserva creatives anteriores: alguno puede traer
+        // el ID de la publicación de Instagram aunque el actual no lo exponga.
+        const adCreatives = await graphAll(workspaceId, `${ad.id}/adcreatives?fields=${creativeFields}&limit=25`, ad._manualToken ?? connectionToken ?? undefined, 100).catch(() => []);
+        for (const candidate of adCreatives) {
+          instagramTarget = resolveInstagramMediaTarget(candidate, instagramMediaByPermalink);
+          if (instagramTarget) break;
+        }
+      }
       if (instagramTarget && !instagramTarget.ownerId && ownerHint) instagramTarget.ownerId = ownerHint;
       if (instagramTarget && !instagramTarget.token && instagramTarget.ownerId) instagramTarget.token = authorizedPages.instagram.get(instagramTarget.ownerId);
-      const instagramTargetsForAd = instagramTarget ? [instagramTarget] : [];
-      if (!instagramTarget && ownerHint) {
-        coverageIssues.push(`Anuncio ${ad.id}: publicación de Instagram sin vínculo verificable.`);
+      const instagramTargetsForAd: Array<{ id: string; ownerId: string; platform: "instagram"; token?: string }> = instagramTarget ? [instagramTarget] : [];
+      for (const post of knownInstagramPosts) {
+        if (post.adId !== String(ad.id) || !post.postId || instagramTargetsForAd.some((target) => target.id === post.postId)) continue;
+        const ownerId = instagramTarget?.ownerId || ownerHint || "";
+        instagramTargetsForAd.push({ id: post.postId, ownerId, platform: "instagram", token: ownerId ? authorizedPages.instagram.get(ownerId) : undefined });
+      }
+      if (!instagramTargetsForAd.length && ownerHint) {
+        const igFields = Object.keys(creative).filter((key) => /instagram|story|object|asset_feed/i.test(key));
+        const dynamic = Boolean(creative.asset_feed_spec);
+        unresolvedInstagram.push({
+          adId: String(ad.id),
+          creativeId: creative.id ? String(creative.id) : null,
+          objectType: creative.object_type ? String(creative.object_type) : null,
+          dynamic,
+          instagramUserId: creative.instagram_user_id ? String(creative.instagram_user_id) : null,
+          fields: igFields
+        });
+        coverageIssues.push(`Anuncio ${ad.id} (${ad.name ?? "sin nombre"}): Meta no expone la publicación de Instagram del anuncio${dynamic ? " (creatividad dinámica)" : ""}; sus comentarios de Instagram no se pueden leer.`);
       }
       const facebookTargetsForAd = facebookCommentTargets(creative, authorizedPages.facebook);
       for (const post of knownFacebookPosts) {
@@ -650,7 +682,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
     const complete = coverageIssues.length === 0;
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
-    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults } };
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {
