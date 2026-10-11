@@ -848,7 +848,12 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         } : {})
       }});
       created++;
-      notificationJobs.push(notifyNewComment(workspaceId, row.id, feed.displayName || clientName, feed.campaignName, row.authorName, row.message, row.sentiment === "negative"));
+      // Solo se avisa de comentarios recientes: al descubrir publicaciones
+      // nuevas (p. ej. variantes dinámicas) se importa su histórico entero y
+      // no debe generar un aviso por cada comentario antiguo.
+      if (row.commentCreatedAt.getTime() >= Date.now() - 48 * 60 * 60 * 1000) {
+        notificationJobs.push(notifyNewComment(workspaceId, row.id, feed.displayName || clientName, feed.campaignName, row.authorName, row.message, row.sentiment === "negative"));
+      }
     }
     }
     await Promise.allSettled(notificationJobs);
