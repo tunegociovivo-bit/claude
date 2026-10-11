@@ -1,6 +1,7 @@
 -- Publicaciones de creatividad dinámica asignadas a campañas monitorizadas
 ALTER TABLE "MetaCommentFeed" ADD COLUMN IF NOT EXISTS "adPostsScannedUntil" TIMESTAMP(3);
 ALTER TABLE "MetaCommentFeed" ADD COLUMN IF NOT EXISTS "adPostsBackfillUntil" TIMESTAMP(3);
+ALTER TABLE "MetaCommentFeed" ADD COLUMN IF NOT EXISTS "adPostsMatcherVersion" INTEGER;
 
 CREATE TABLE IF NOT EXISTS "MetaFeedAdPost" (
     "id" TEXT NOT NULL,

@@ -341,6 +341,7 @@ async function loadPageTokens(workspaceId: string, connectionId?: string | null)
 export type PageAdPost = { id: string; message: string; createdAt: number; titles: string[]; links: string[] };
 const PAGE_AD_POSTS_TTL_MS = 6 * 60 * 60_000;
 const pageAdPostsCache = new Map<string, { at: number; posts: PageAdPost[] }>();
+const DYNAMIC_MATCHER_VERSION = 2;
 const AD_POST_FIELDS = "id,message,created_time,attachments{title,description,unshimmed_url,url,subattachments{title,description,unshimmed_url,url}}";
 
 /** URL comparable: sin protocolo, www, parámetros ni barra final. */
@@ -460,7 +461,26 @@ export function adsMatchingPostText(postMessage: string, textsByAd: Map<string, 
   const text = normalizedMetaText(postMessage);
   if (text.length < 20) return [];
   const prefix = text.slice(0, 120);
-  return [...textsByAd].filter(([, texts]) => texts.some((candidate) => candidate === text || candidate.slice(0, 120) === prefix)).map(([adId]) => adId);
+  const words = new Set(text.split(" ").filter((word) => word.length >= 3));
+  // Tolera retoques menores del texto (una palabra o un emoji cambiados).
+  const similar = (candidate: string) => {
+    if (text.length < 40 || candidate.length < 40) return false;
+    const other = new Set(candidate.split(" ").filter((word) => word.length >= 3));
+    let shared = 0;
+    for (const word of words) if (other.has(word)) shared++;
+    const union = new Set([...words, ...other]).size;
+    return union > 0 && shared / union >= 0.8;
+  };
+  return [...textsByAd].filter(([, texts]) => texts.some((candidate) => candidate === text || candidate.slice(0, 120) === prefix || similar(candidate))).map(([adId]) => adId);
+}
+
+/** Une huellas (p. ej. la del creative actual y las de versiones anteriores). */
+export function mergeAdSignatures(...signatures: AdSignature[]): AdSignature {
+  return {
+    bodies: [...new Set(signatures.flatMap((sig) => sig.bodies))],
+    headlines: [...new Set(signatures.flatMap((sig) => sig.headlines))],
+    links: [...new Set(signatures.flatMap((sig) => sig.links))]
+  };
 }
 
 /**
@@ -694,6 +714,12 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       for (const ad of hydratedAds) {
         const creative = ad?.creative ?? {};
         signatures.set(String(ad.id), creativeSignature(creative));
+        if (ad?.creative?.asset_feed_spec) {
+          // Al editar un anuncio Meta crea un creative nuevo; las variantes ya
+          // publicadas conservan los textos del anterior.
+          const previous = await graphAll(workspaceId, `${ad.id}/adcreatives?fields=object_story_spec,asset_feed_spec&limit=10`, ad._manualToken ?? connectionToken ?? undefined, 50).catch(() => []);
+          if (previous.length) signatures.set(String(ad.id), mergeAdSignatures(signatures.get(String(ad.id))!, ...previous.map((item: any) => creativeSignature(item))));
+        }
         for (const target of facebookCommentTargets(creative, authorizedPages.facebook)) {
           knownTargetIds.add(target.id);
           if (target.ownerId) pageIds.add(String(target.ownerId));
@@ -732,6 +758,11 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       };
 
       const now = Date.now();
+      // Si cambian las reglas de asignación, se vuelve a recorrer el histórico
+      // para reevaluar publicaciones que antes no coincidían.
+      const matcherChanged = feed.adPostsMatcherVersion !== DYNAMIC_MATCHER_VERSION;
+      const scannedUntilMs = matcherChanged ? null : feed.adPostsScannedUntil?.getTime() ?? null;
+      const backfillUntilMs = matcherChanged ? null : feed.adPostsBackfillUntil?.getTime() ?? null;
       const adCreation = dynamicAds.map((ad) => Date.parse(ad.created_time ?? "")).filter(Number.isFinite);
       const campaignStart = (adCreation.length ? Math.min(...adCreation) : now - 180 * 24 * 60 * 60 * 1000) - 24 * 60 * 60 * 1000;
       for (const pageId of pageIds) {
@@ -753,17 +784,17 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           }
         });
         // 2) Hacia delante: variantes que Meta crea al servir combinaciones nuevas.
-        const forwardFrom = Math.max(feed.adPostsScannedUntil?.getTime() ?? now - 2 * 24 * 60 * 60 * 1000, campaignStart);
+        const forwardFrom = Math.max(scannedUntilMs ?? now - 2 * 24 * 60 * 60 * 1000, campaignStart);
         await step("adelante", async () => {
           const forward = await listPageAdPostsInWindow(workspaceId, pageId, token, forwardFrom, now, false);
           dynamicScan.forward = { from: new Date(forwardFrom).toISOString(), to: new Date(now).toISOString(), listed: forward.posts.length };
           dynamicScan.ms += forward.ms;
           await considerPosts(forward.posts);
           // Solapamiento de 30 min: Meta puede publicar con un ligero retraso.
-          await prisma.metaCommentFeed.updateMany({ where: { id: feed.id, workspaceId }, data: { adPostsScannedUntil: new Date(now - 30 * 60_000) } });
+          await prisma.metaCommentFeed.updateMany({ where: { id: feed.id, workspaceId }, data: { adPostsScannedUntil: new Date(now - 30 * 60_000), adPostsMatcherVersion: DYNAMIC_MATCHER_VERSION, ...(matcherChanged ? { adPostsBackfillUntil: new Date(forwardFrom) } : {}) } });
         });
         // 3) Hacia atrás, 7 días por sincronización hasta el inicio de la campaña.
-        const backfillUntil = feed.adPostsBackfillUntil?.getTime() ?? forwardFrom;
+        const backfillUntil = backfillUntilMs ?? forwardFrom;
         if (backfillUntil > campaignStart) {
           await step("atrás", async () => {
             const backfillFrom = Math.max(campaignStart, backfillUntil - 7 * 24 * 60 * 60 * 1000);

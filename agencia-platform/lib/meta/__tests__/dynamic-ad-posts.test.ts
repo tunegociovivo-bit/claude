@@ -88,3 +88,21 @@ describe("asignación de publicaciones dinámicas sin texto", () => {
     expect(matchAdPostToAds({ message: "", titles: ["otro titular"], links: ["eroski.es"] }, home)).toBeNull();
   });
 });
+
+import { mergeAdSignatures } from "../comments";
+
+describe("textos retocados y versiones anteriores del anuncio", () => {
+  it("acepta un texto con una palabra cambiada", () => {
+    const original = "Tienes un local comercial de mas de 250 metros en tu ciudad Conviertelo en un supermercado EROSKI con nuestro apoyo";
+    const edited = "Tienes un local comercial de mas de 250 metros en tu pueblo Conviertelo en un supermercado EROSKI con nuestro apoyo";
+    expect(adsMatchingPostText(edited, new Map([["ad", creativeBodyTexts({ asset_feed_spec: { bodies: [{ text: original }] } })]]))).toEqual(["ad"]);
+  });
+
+  it("une la huella del creative actual con las anteriores", () => {
+    const merged = mergeAdSignatures(
+      creativeSignature({ asset_feed_spec: { bodies: [{ text: "Texto actual del anuncio de franquicias EROSKI" }] } }),
+      creativeSignature({ asset_feed_spec: { bodies: [{ text: "Texto anterior del anuncio de franquicias EROSKI" }] } })
+    );
+    expect(merged.bodies).toHaveLength(2);
+  });
+});
