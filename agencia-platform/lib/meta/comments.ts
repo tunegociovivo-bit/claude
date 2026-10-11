@@ -338,46 +338,45 @@ async function loadPageTokens(workspaceId: string, connectionId?: string | null)
  * expone una (effective_object_story_id). Los comentarios del resto solo se
  * encuentran listando las publicaciones de anuncio de la página.
  */
-type PageAdPost = { id: string; message: string; createdAt: number; comments: number };
+type PageAdPost = { id: string; message: string; createdAt: number };
 const PAGE_AD_POSTS_TTL_MS = 14 * 60_000;
-const pageAdPostsCache = new Map<string, { at: number; posts: PageAdPost[] }>();
+const pageAdPostsCache = new Map<string, { at: number; posts: PageAdPost[]; complete: boolean }>();
 
-async function listPageAdPostsWithComments(workspaceId: string, pageId: string, token: string, sinceMs: number): Promise<PageAdPost[]> {
+async function listPageAdPosts(workspaceId: string, pageId: string, token: string, sinceMs: number): Promise<{ posts: PageAdPost[]; complete: boolean; ms: number }> {
   const key = `${pageId}:${Math.floor(sinceMs / 86_400_000)}`;
   const cached = pageAdPostsCache.get(key);
-  if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return cached.posts;
+  if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return { posts: cached.posts, complete: cached.complete, ms: 0 };
+  const startedAt = Date.now();
   const posts: PageAdPost[] = [];
-  // Páginas pequeñas: con el resumen de comentarios Meta rechaza lotes grandes
-  // ("reduce the amount of data").
-  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time,comments.limit(0).summary(true)&include_inline_create=true&limit=10`;
-  // Meta devuelve las más recientes primero: se corta al pasar la fecha de
-  // inicio o tras 60 páginas (600 publicaciones) como tope de seguridad.
-  for (let page = 0; path && page < 60; page++) {
+  let complete = false;
+  // Campos mínimos y ventana temporal: en páginas grandes (p. ej. la de una
+  // cadena) el listado completo con resúmenes no responde a tiempo.
+  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time&include_inline_create=true&since=${Math.floor(sinceMs / 1000)}&limit=25`;
+  for (let page = 0; path && page < 40; page++) {
     let result: any;
     try {
-      result = await graph(workspaceId, path, undefined, token);
+      result = await graph(workspaceId, path, { signal: AbortSignal.timeout(45_000) }, token);
     } catch (error) {
-      // Si Meta limita a mitad del recorrido, se usa lo ya leído (sin caché,
+      // Si Meta corta a mitad del recorrido, se usa lo ya leído (sin caché,
       // para completarlo en la siguiente ejecución).
-      if (posts.length && isMetaTransientCapacityError(error as any)) return posts;
+      if (posts.length) return { posts, complete: false, ms: Date.now() - startedAt };
       throw error;
     }
     let older = false;
     for (const item of result?.data ?? []) {
       const createdAt = Date.parse(item?.created_time ?? "");
       if (Number.isFinite(createdAt) && createdAt < sinceMs) { older = true; continue; }
-      const comments = Number(item?.comments?.summary?.total_count ?? 0);
-      if (item?.id && comments > 0) posts.push({ id: String(item.id), message: String(item.message ?? ""), createdAt, comments });
+      if (item?.id) posts.push({ id: String(item.id), message: String(item.message ?? ""), createdAt });
     }
     const next = result?.paging?.next;
-    if (older || !next) break;
+    if (older || !next) { complete = true; break; }
     const url = new URL(next);
     if (url.hostname !== "graph.facebook.com") break;
     url.searchParams.delete("access_token");
     path = `${url.pathname.replace(/^\/v\d+\.\d+\//, "")}${url.search}`;
   }
-  pageAdPostsCache.set(key, { at: Date.now(), posts });
-  return posts;
+  pageAdPostsCache.set(key, { at: Date.now(), posts, complete });
+  return { posts, complete, ms: Date.now() - startedAt };
 }
 
 /** Textos normalizados de un creative (texto principal y variantes dinámicas). */
@@ -599,8 +598,10 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     // Publicaciones generadas por creatividad dinámica: se asignan al anuncio
     // de ESTA campaña cuyo texto coincide (nunca a otra campaña de la página).
     const dynamicPostsByAd = new Map<string, string[]>();
-    const dynamicScan = { pages: 0, postsWithComments: 0, matched: 0, comments: 0, errors: [] as string[] };
-    {
+    const dynamicScan = { ran: false, pages: 0, listed: 0, complete: true, ms: 0, matched: 0, errors: [] as string[], unmatchedSample: [] as string[] };
+    const usesDynamicCreative = hydratedAds.some((ad) => Boolean(ad?.creative?.asset_feed_spec));
+    if (usesDynamicCreative || options.diagnose) {
+      dynamicScan.ran = true;
       const textsByAd = new Map<string, string[]>();
       const knownTargetIds = new Set<string>();
       const pageIds = new Set<string>();
@@ -615,13 +616,13 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         if (/^\d+$/.test(pageId)) pageIds.add(pageId);
       }
       for (const post of knownFacebookPosts) if (post.postId) knownTargetIds.add(post.postId);
-      const sinceMs = range?.from?.getTime() ?? Date.now() - 180 * 24 * 60 * 60 * 1000;
+      const sinceMs = range?.from?.getTime() ?? Date.now() - 120 * 24 * 60 * 60 * 1000;
       for (const pageId of pageIds) {
         const token = authorizedPages.facebook.get(pageId);
         if (!token) continue;
-        let posts: PageAdPost[];
+        let listed: Awaited<ReturnType<typeof listPageAdPosts>>;
         try {
-          posts = await listPageAdPostsWithComments(workspaceId, pageId, token, sinceMs);
+          listed = await listPageAdPosts(workspaceId, pageId, token, sinceMs);
         } catch (error: any) {
           // Nunca bloquea la sincronización: los anuncios se siguen leyendo
           // por su publicación principal aunque esta búsqueda falle.
@@ -629,13 +630,17 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           continue;
         }
         dynamicScan.pages++;
-        for (const post of posts) {
-          dynamicScan.postsWithComments++;
+        dynamicScan.listed += listed.posts.length;
+        dynamicScan.ms += listed.ms;
+        if (!listed.complete) dynamicScan.complete = false;
+        for (const post of listed.posts) {
           if (knownTargetIds.has(post.id)) continue;
           const matchingAds = adsMatchingPostText(post.message, textsByAd);
-          if (!matchingAds.length) continue;
+          if (!matchingAds.length) {
+            if (dynamicScan.unmatchedSample.length < 5) dynamicScan.unmatchedSample.push(post.message.slice(0, 80));
+            continue;
+          }
           dynamicScan.matched++;
-          dynamicScan.comments += post.comments;
           const adId = matchingAds[0];
           dynamicPostsByAd.set(adId, [...(dynamicPostsByAd.get(adId) ?? []), post.id]);
           knownTargetIds.add(post.id);
@@ -643,6 +648,15 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       }
       if (dynamicScan.errors.length) console.warn("[meta-comments] No se pudieron listar publicaciones de anuncio:", dynamicScan.errors.join(" | "));
     }
+    const adsSummary = options.diagnose ? hydratedAds.map((ad) => ({
+      adId: String(ad.id),
+      name: String(ad.name ?? ""),
+      dynamic: Boolean(ad?.creative?.asset_feed_spec),
+      bodies: (ad?.creative?.asset_feed_spec?.bodies ?? []).length,
+      images: (ad?.creative?.asset_feed_spec?.images ?? []).length,
+      videos: (ad?.creative?.asset_feed_spec?.videos ?? []).length,
+      story: ad?.creative?.effective_object_story_id ?? null
+    })) : undefined;
     for (const ad of hydratedAds) {
       const creative = ad?.creative ?? {};
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
@@ -747,7 +761,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
           continue;
         }
         const targetResult: (typeof targetResults)[number] = { adId: String(ad.id), postId: target.id, platform: target.platform, returned: comments.length, inPeriod: 0 };
-        if (options.diagnose && comments.length === 0) {
+        if (options.diagnose) {
           // ¿Meta cuenta comentarios que la API no devuelve? (permisos/ocultos)
           try {
             const counted = target.platform === "instagram"
@@ -825,7 +839,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
     const complete = coverageIssues.length === 0;
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
-    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram, dynamicFacebookPosts: dynamicScan } };
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram, dynamicFacebookPosts: dynamicScan, adsSummary } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {
