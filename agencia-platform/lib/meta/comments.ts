@@ -377,9 +377,23 @@ async function listPageAdPostsInWindow(workspaceId: string, pageId: string, toke
   if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return { posts: cached.posts, ms: 0, cached: true };
   const startedAt = Date.now();
   const posts: PageAdPost[] = [];
-  let path: string | null = `${pageId}/ads_posts?fields=${AD_POST_FIELDS}&include_inline_create=true&since=${Math.floor(fromMs / 1000)}&until=${Math.floor(toMs / 1000)}&limit=50`;
-  for (let page = 0; path && page < 60; page++) {
-    const result: any = await graph(workspaceId, path, { signal: AbortSignal.timeout(45_000) }, token);
+  let limit = 25;
+  let path: string | null = `${pageId}/ads_posts?fields=${AD_POST_FIELDS}&include_inline_create=true&since=${Math.floor(fromMs / 1000)}&until=${Math.floor(toMs / 1000)}&limit=${limit}`;
+  for (let page = 0; path && page < 120; page++) {
+    let result: any;
+    try {
+      result = await graph(workspaceId, path, { signal: AbortSignal.timeout(45_000) }, token);
+    } catch (error: any) {
+      // Con adjuntos, Meta rechaza lotes grandes en páginas con mucho volumen:
+      // se reduce el lote a la mitad (mínimo 3) y se repite la misma página.
+      if (/reduce the amount of data/i.test(String(error?.message ?? "")) && limit > 3) {
+        limit = Math.max(3, Math.floor(limit / 2));
+        path = path.replace(/([?&]limit=)\d+/, `$1${limit}`);
+        page--;
+        continue;
+      }
+      throw error;
+    }
     for (const item of result?.data ?? []) {
       const post = adPostFromGraph(item);
       if (post) posts.push(post);
@@ -389,6 +403,7 @@ async function listPageAdPostsInWindow(workspaceId: string, pageId: string, toke
     const url = new URL(next);
     if (url.hostname !== "graph.facebook.com") break;
     url.searchParams.delete("access_token");
+    url.searchParams.set("limit", String(limit));
     path = `${url.pathname.replace(/^\/v\d+\.\d+\//, "")}${url.search}`;
   }
   if (useCache) pageAdPostsCache.set(key, { at: Date.now(), posts });
@@ -722,40 +737,42 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       for (const pageId of pageIds) {
         const token = authorizedPages.facebook.get(pageId);
         if (!token) continue;
-        try {
-          // 1) Franjas de creación/edición de cada anuncio (rápido y con caché).
+        // Cada paso es independiente: un fallo nunca bloquea la sincronización
+        // (los anuncios se siguen leyendo por su publicación principal) y los
+        // cursores solo avanzan con los pasos que han terminado bien.
+        const step = async (label: string, run: () => Promise<void>) => {
+          try { await run(); } catch (error: any) { dynamicScan.errors.push(`${pageId} ${label}: ${String(error?.message ?? error).slice(0, 200)}`); }
+        };
+        // 1) Franjas de creación/edición de cada anuncio (rápido y con caché).
+        await step("franjas", async () => {
           for (const window of dynamicCreativeWindows(dynamicAds)) {
             const listed = await listPageAdPostsInWindow(workspaceId, pageId, token, window.from, window.to);
             dynamicScan.windows++;
             dynamicScan.ms += listed.ms;
             await considerPosts(listed.posts);
           }
-          // 2) Hacia delante: variantes que Meta crea al servir combinaciones nuevas.
-          const forwardFrom = Math.max(feed.adPostsScannedUntil?.getTime() ?? now - 2 * 24 * 60 * 60 * 1000, campaignStart);
+        });
+        // 2) Hacia delante: variantes que Meta crea al servir combinaciones nuevas.
+        const forwardFrom = Math.max(feed.adPostsScannedUntil?.getTime() ?? now - 2 * 24 * 60 * 60 * 1000, campaignStart);
+        await step("adelante", async () => {
           const forward = await listPageAdPostsInWindow(workspaceId, pageId, token, forwardFrom, now, false);
           dynamicScan.forward = { from: new Date(forwardFrom).toISOString(), to: new Date(now).toISOString(), listed: forward.posts.length };
           dynamicScan.ms += forward.ms;
           await considerPosts(forward.posts);
-          // 3) Hacia atrás, 7 días por sincronización hasta el inicio de la campaña.
-          const backfillUntil = feed.adPostsBackfillUntil?.getTime() ?? forwardFrom;
-          let nextBackfill = backfillUntil;
-          if (backfillUntil > campaignStart) {
+          // Solapamiento de 30 min: Meta puede publicar con un ligero retraso.
+          await prisma.metaCommentFeed.updateMany({ where: { id: feed.id, workspaceId }, data: { adPostsScannedUntil: new Date(now - 30 * 60_000) } });
+        });
+        // 3) Hacia atrás, 7 días por sincronización hasta el inicio de la campaña.
+        const backfillUntil = feed.adPostsBackfillUntil?.getTime() ?? forwardFrom;
+        if (backfillUntil > campaignStart) {
+          await step("atrás", async () => {
             const backfillFrom = Math.max(campaignStart, backfillUntil - 7 * 24 * 60 * 60 * 1000);
             const back = await listPageAdPostsInWindow(workspaceId, pageId, token, backfillFrom, backfillUntil, false);
             dynamicScan.backfill = { from: new Date(backfillFrom).toISOString(), to: new Date(backfillUntil).toISOString(), listed: back.posts.length, done: backfillFrom <= campaignStart };
             dynamicScan.ms += back.ms;
             await considerPosts(back.posts);
-            nextBackfill = backfillFrom;
-          }
-          // Solapamiento de 30 min: Meta puede publicar con un ligero retraso.
-          await prisma.metaCommentFeed.updateMany({
-            where: { id: feed.id, workspaceId },
-            data: { adPostsScannedUntil: new Date(now - 30 * 60_000), adPostsBackfillUntil: new Date(nextBackfill) }
+            await prisma.metaCommentFeed.updateMany({ where: { id: feed.id, workspaceId }, data: { adPostsBackfillUntil: new Date(backfillFrom) } });
           });
-        } catch (error: any) {
-          // Nunca bloquea la sincronización: los anuncios se siguen leyendo
-          // por su publicación principal aunque esta búsqueda falle.
-          dynamicScan.errors.push(`${pageId}: ${String(error?.message ?? error).slice(0, 200)}`);
         }
       }
       if (dynamicScan.errors.length) console.warn("[meta-comments] No se pudieron listar publicaciones de anuncio:", dynamicScan.errors.join(" | "));
