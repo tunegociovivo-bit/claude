@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { blockMetaCommentAuthor, deleteMetaComment, MetaDeletionError, notifyMetaOperational, regenerateMetaCommentDraft, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
+import { expandShortLinks, MetaIntegrityBlockError } from "@/lib/meta/reply-safety";
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection } from "@/lib/meta/connection";
@@ -198,12 +199,25 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   }
   const comment = await prisma.metaAdComment.findFirst({ where: { id: parsed.data.commentId, workspaceId: api.workspaceId }, include: { feed: { select: { metaConnectionId: true } } } });
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
-  const message = prepareMetaCommentReplyDraft(parsed.data.message, comment.authorName);
-  if (!message) throw new ApiError(400, "empty_reply", "Este comentario no tiene una respuesta válida para publicar");
+  const draft = prepareMetaCommentReplyDraft(parsed.data.message, comment.authorName);
+  if (!draft) throw new ApiError(400, "empty_reply", "Este comentario no tiene una respuesta válida para publicar");
+  // Los enlaces acortados (p. ej. eros.ki/…) disparan el antispam de Meta
+  // ("Browser Locker"): se publica el destino final real.
+  const { message } = await expandShortLinks(draft);
+  // Separación mínima entre respuestas publicadas (también al pulsar una a
+  // una): ráfagas de respuestas parecidas activan el antispam de Meta.
+  const lastReply = await prisma.metaAdComment.findFirst({
+    where: { workspaceId: api.workspaceId, repliedAt: { not: null }, externalReplyId: { not: null } },
+    orderBy: { repliedAt: "desc" },
+    select: { repliedAt: true }
+  });
+  const sinceLast = lastReply?.repliedAt ? Date.now() - lastReply.repliedAt.getTime() : Infinity;
+  if (sinceLast < 12_000) await new Promise((resolve) => setTimeout(resolve, 12_000 - sinceLast));
   let replyId: string;
   try {
     replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, message, comment.postId, comment.platform, comment.feed.metaConnectionId);
   } catch (cause) {
+    if (cause instanceof MetaIntegrityBlockError) throw new ApiError(429, "meta_integrity_block", cause.message);
     const detail = cause instanceof Error ? cause.message : "Meta no pudo publicar la respuesta. Reinténtalo en unos minutos.";
     throw new ApiError(502, "meta_reply_failed", `No se pudo publicar la respuesta en Meta: ${detail}`);
   }

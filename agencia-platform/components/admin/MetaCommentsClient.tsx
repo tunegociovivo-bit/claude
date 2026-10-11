@@ -6,7 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import MetaConnectionModal from "@/components/campanas-meta/MetaConnectionModal";
 import MetaSuiteNav from "@/components/meta/MetaSuiteNav";
 import { campaignOptionsForClient, filterMetaCommentInbox } from "@/lib/meta/comment-inbox";
-import { formatBulkModerationStatus, runWithConcurrency } from "@/lib/meta/bulk-moderation";
+import { formatBulkModerationStatus, replyPacingMs, runPacedSequence, runWithConcurrency } from "@/lib/meta/bulk-moderation";
 import { bulkDeleteTransition, type BulkDeleteFlow } from "@/lib/meta/bulk-delete-flow";
 import { generateDraftBatches } from "@/lib/meta/draft-batches";
 import { requestDraftBatch } from "@/lib/meta/draft-request";
@@ -381,25 +381,46 @@ export default function MetaCommentsClient() {
     }
     setBulkProgress({ completed: 0, total: targets.length });
     setBulkStatus({ message: formatBulkModerationStatus({ action, completed: 0, total: targets.length }) });
-    const results = await runWithConcurrency(targets, action === "reply" ? 1 : 3, async (item) => {
+    const runOne = async (item: Comment) => {
       try {
         const payload = action === "reply" ? { action, commentId: item.id, message: prepareMetaCommentReplyDraft(drafts[item.id], item.authorName) } : { action, commentId: item.id };
         const response = await fetch("/api/v1/meta-comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await response.json();
-        if (!response.ok) throw new Error(data?.error?.message ?? data?.message ?? "Operación rechazada");
+        if (!response.ok) return { id: item.id, error: String(data?.error?.message ?? data?.message ?? "Operación rechazada"), mode: undefined, blocked: data?.error?.code === "meta_integrity_block" };
         if (action === "delete_comment" && (data?.confirmedByMeta !== true || data?.deletedCommentId !== item.id)) throw new Error("Meta no confirmó la eliminación");
-        return { id: item.id, error: null, mode: data?.moderationMode as string | undefined };
-      } catch (cause: any) { return { id: item.id, error: String(cause?.message ?? cause), mode: undefined }; }
-    }, (completed, total) => {
+        return { id: item.id, error: null, mode: data?.moderationMode as string | undefined, blocked: false };
+      } catch (cause: any) { return { id: item.id, error: String(cause?.message ?? cause), mode: undefined, blocked: false }; }
+    };
+    const onProgress = (completed: number, total: number) => {
       setBulkProgress({ completed, total });
       setBulkStatus({ message: formatBulkModerationStatus({ action, completed, total }) });
-    });
+    };
+    let results: Array<{ id: string; error: string | null; mode: string | undefined; blocked: boolean }>;
+    let blockedByMeta = false;
+    if (action === "reply") {
+      // Respuestas en serie con pausa de 15–30 s; si Meta activa el antispam
+      // se para en seco: insistir alarga la restricción de la página.
+      const paced = await runPacedSequence(targets, runOne, {
+        pauseMs: () => replyPacingMs(),
+        shouldStop: (result) => result.blocked,
+        onProgress,
+        onWait: (seconds, completed, total) => setBulkStatus({ message: `Publicadas ${completed}/${total}. Siguiente en ${seconds} s (pausa para no activar el antispam de Meta)…` })
+      });
+      results = paced.results;
+      blockedByMeta = paced.stoppedAt !== null;
+      const done = new Set(results.map((result) => result.id));
+      for (const item of targets) if (!done.has(item.id)) results.push({ id: item.id, error: "No publicado: se detuvo la publicación por el antispam de Meta.", mode: undefined, blocked: false });
+    } else {
+      results = await runWithConcurrency(targets, 3, runOne, onProgress);
+    }
     const failures = results.filter((result) => result.error);
     const failed = failures.map((result) => result.id);
     const hidden = results.filter((result) => result.mode === "hidden").length;
     setSelectedCommentIds(new Set(failed));
     const firstError = failures[0]?.error;
-    const retryHint = action === "reply" && firstError && /error interno|Meta 5\d\d|tempor/i.test(firstError) ? " Meta ha devuelto un fallo temporal; los comentarios fallidos quedan seleccionados para reintentarlos." : "";
+    const retryHint = blockedByMeta
+      ? " Meta ha activado su filtro antispam y se ha detenido la publicación. Espera unos minutos antes de seguir; los pendientes quedan seleccionados."
+      : action === "reply" && firstError && /error interno|Meta 5\d\d|tempor/i.test(firstError) ? " Meta ha devuelto un fallo temporal; los comentarios fallidos quedan seleccionados para reintentarlos." : "";
     setBulkStatus({ message: `${hidden > 0 && failed.length === 0 ? `${targets.length} retirados de Meta: ${targets.length - hidden} eliminados y ${hidden} ocultados públicamente.` : formatBulkModerationStatus({ action, completed: targets.length, total: targets.length, failed: failed.length })}${retryHint}`, error: firstError ?? undefined });
     try {
       await load();

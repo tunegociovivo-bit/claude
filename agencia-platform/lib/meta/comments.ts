@@ -7,6 +7,7 @@ import { fallbackMetaCommentAnalysis, parseMetaCommentAnalysisJson, runMetaComme
 import { isIrrelevantMetaComment, sanitizeMetaCommentDraft } from "@/lib/meta/comment-relevance";
 import { facebookCommentTargets } from "@/lib/meta/facebook-comment-targets";
 import { readFacebookCommentThread } from "@/lib/meta/facebook-comment-thread";
+import { isMetaIntegrityBlock, MetaIntegrityBlockError } from "@/lib/meta/reply-safety";
 
 const GRAPH = "https://graph.facebook.com/v19.0";
 
@@ -40,7 +41,10 @@ async function graph(workspaceId: string, path: string, init?: RequestInit, expl
     const capacityError = isMetaTransientCapacityError(error);
     if (capacityError) requestPath = reduceMetaRequestPath(requestPath);
     const transient = capacityError || response.status === 429 || response.status >= 500;
-    if (!transient || attempt === 2) throw error;
+    // Publicar/eliminar NO es idempotente: un reintento puede duplicar la
+    // respuesta o agravar un bloqueo antispam. Solo se reintentan lecturas.
+    const idempotent = !init?.method || init.method.toUpperCase() === "GET";
+    if (!transient || !idempotent || attempt === 2) throw error;
     await new Promise((resolve) => setTimeout(resolve, 400 * (2 ** attempt)));
   }
   throw new Error("Meta no respondió después de varios intentos.");
@@ -1085,6 +1089,8 @@ export async function replyToMetaComment(workspaceId: string, externalCommentId:
       const result = await graph(workspaceId, `${externalCommentId}/${edge}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }, token);
       return String(result.id ?? "");
     } catch (cause) {
+      // Un bloqueo antispam no depende del token: probar otros solo lo agrava.
+      if (cause instanceof MetaGraphError && isMetaIntegrityBlock(cause)) throw new MetaIntegrityBlockError(cause.message);
       if (cause instanceof MetaGraphError) { lastMetaError = cause; continue; }
       throw cause;
     }
