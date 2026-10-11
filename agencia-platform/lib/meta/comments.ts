@@ -118,7 +118,7 @@ async function campaignAdsWithAvailableConnection(
         // Nested creatives make campaign responses large enough for Meta to
         // reject them with "Please reduce the amount of data". Fetch only the
         // creative id here and hydrate it below with one bounded request.
-        `${campaignId}/ads?fields=id,name,creative{id}&limit=25`,
+        `${campaignId}/ads?fields=id,name,created_time,updated_time,creative{id}&limit=25`,
         connection.token,
         2000
       );
@@ -164,7 +164,7 @@ async function fetchExplicitCampaignAds(
       try {
         const ad = await graph(
           workspaceId,
-          `${adId}?fields=id,name,campaign{id},creative{id}`,
+          `${adId}?fields=id,name,created_time,updated_time,campaign{id},creative{id}`,
           undefined,
           candidateToken
         );
@@ -339,44 +339,56 @@ async function loadPageTokens(workspaceId: string, connectionId?: string | null)
  * encuentran listando las publicaciones de anuncio de la página.
  */
 type PageAdPost = { id: string; message: string; createdAt: number };
-const PAGE_AD_POSTS_TTL_MS = 14 * 60_000;
-const pageAdPostsCache = new Map<string, { at: number; posts: PageAdPost[]; complete: boolean }>();
+const PAGE_AD_POSTS_TTL_MS = 6 * 60 * 60_000;
+const pageAdPostsCache = new Map<string, { at: number; posts: PageAdPost[] }>();
 
-async function listPageAdPosts(workspaceId: string, pageId: string, token: string, sinceMs: number): Promise<{ posts: PageAdPost[]; complete: boolean; ms: number }> {
-  const key = `${pageId}:${Math.floor(sinceMs / 86_400_000)}`;
+/**
+ * Publicaciones de anuncio de una página creadas en una franja concreta.
+ * En páginas muy grandes (la de una cadena publica cientos de anuncios al día)
+ * listar todo es inviable; las variantes de una creatividad dinámica se crean
+ * al crear o editar el anuncio, así que basta con mirar esas franjas.
+ */
+async function listPageAdPostsInWindow(workspaceId: string, pageId: string, token: string, fromMs: number, toMs: number): Promise<{ posts: PageAdPost[]; ms: number; cached: boolean }> {
+  const key = `${pageId}:${Math.floor(fromMs / 60_000)}:${Math.floor(toMs / 60_000)}`;
   const cached = pageAdPostsCache.get(key);
-  if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return { posts: cached.posts, complete: cached.complete, ms: 0 };
+  if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return { posts: cached.posts, ms: 0, cached: true };
   const startedAt = Date.now();
   const posts: PageAdPost[] = [];
-  let complete = false;
-  // Campos mínimos y ventana temporal: en páginas grandes (p. ej. la de una
-  // cadena) el listado completo con resúmenes no responde a tiempo.
-  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time&include_inline_create=true&since=${Math.floor(sinceMs / 1000)}&limit=25`;
-  for (let page = 0; path && page < 40; page++) {
-    let result: any;
-    try {
-      result = await graph(workspaceId, path, { signal: AbortSignal.timeout(45_000) }, token);
-    } catch (error) {
-      // Si Meta corta a mitad del recorrido, se usa lo ya leído (sin caché,
-      // para completarlo en la siguiente ejecución).
-      if (posts.length) return { posts, complete: false, ms: Date.now() - startedAt };
-      throw error;
-    }
-    let older = false;
+  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time&include_inline_create=true&since=${Math.floor(fromMs / 1000)}&until=${Math.floor(toMs / 1000)}&limit=50`;
+  for (let page = 0; path && page < 20; page++) {
+    const result: any = await graph(workspaceId, path, { signal: AbortSignal.timeout(45_000) }, token);
     for (const item of result?.data ?? []) {
       const createdAt = Date.parse(item?.created_time ?? "");
-      if (Number.isFinite(createdAt) && createdAt < sinceMs) { older = true; continue; }
       if (item?.id) posts.push({ id: String(item.id), message: String(item.message ?? ""), createdAt });
     }
     const next = result?.paging?.next;
-    if (older || !next) { complete = true; break; }
+    if (!next) break;
     const url = new URL(next);
     if (url.hostname !== "graph.facebook.com") break;
     url.searchParams.delete("access_token");
     path = `${url.pathname.replace(/^\/v\d+\.\d+\//, "")}${url.search}`;
   }
-  pageAdPostsCache.set(key, { at: Date.now(), posts, complete });
-  return { posts, complete, ms: Date.now() - startedAt };
+  pageAdPostsCache.set(key, { at: Date.now(), posts });
+  return { posts, ms: Date.now() - startedAt, cached: false };
+}
+
+/** Franjas (creación y última edición) en las que Meta genera las variantes. */
+export function dynamicCreativeWindows(ads: Array<{ created_time?: string; updated_time?: string }>): Array<{ from: number; to: number }> {
+  const raw: Array<{ from: number; to: number }> = [];
+  for (const ad of ads) {
+    const created = Date.parse(ad.created_time ?? "");
+    const updated = Date.parse(ad.updated_time ?? "");
+    if (Number.isFinite(created)) raw.push({ from: created - 60 * 60_000, to: created + 6 * 60 * 60_000 });
+    if (Number.isFinite(updated) && (!Number.isFinite(created) || Math.abs(updated - created) > 60 * 60_000)) raw.push({ from: updated - 60 * 60_000, to: updated + 2 * 60 * 60_000 });
+  }
+  raw.sort((a, b) => a.from - b.from);
+  const merged: Array<{ from: number; to: number }> = [];
+  for (const window of raw) {
+    const last = merged[merged.length - 1];
+    if (last && window.from <= last.to) last.to = Math.max(last.to, window.to);
+    else merged.push({ ...window });
+  }
+  return merged;
 }
 
 /** Textos normalizados de un creative (texto principal y variantes dinámicas). */
@@ -598,9 +610,9 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     // Publicaciones generadas por creatividad dinámica: se asignan al anuncio
     // de ESTA campaña cuyo texto coincide (nunca a otra campaña de la página).
     const dynamicPostsByAd = new Map<string, string[]>();
-    const dynamicScan = { ran: false, pages: 0, listed: 0, complete: true, ms: 0, matched: 0, errors: [] as string[], unmatchedSample: [] as string[] };
-    const usesDynamicCreative = hydratedAds.some((ad) => Boolean(ad?.creative?.asset_feed_spec));
-    if (usesDynamicCreative || options.diagnose) {
+    const dynamicScan = { ran: false, windows: 0, listed: 0, ms: 0, matched: 0, errors: [] as string[], unmatchedSample: [] as string[] };
+    const dynamicAds = hydratedAds.filter((ad) => Boolean(ad?.creative?.asset_feed_spec));
+    if (dynamicAds.length) {
       dynamicScan.ran = true;
       const textsByAd = new Map<string, string[]>();
       const knownTargetIds = new Set<string>();
@@ -616,34 +628,36 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         if (/^\d+$/.test(pageId)) pageIds.add(pageId);
       }
       for (const post of knownFacebookPosts) if (post.postId) knownTargetIds.add(post.postId);
-      const sinceMs = range?.from?.getTime() ?? Date.now() - 120 * 24 * 60 * 60 * 1000;
+      const windows = dynamicCreativeWindows(dynamicAds);
       for (const pageId of pageIds) {
         const token = authorizedPages.facebook.get(pageId);
         if (!token) continue;
-        let listed: Awaited<ReturnType<typeof listPageAdPosts>>;
-        try {
-          listed = await listPageAdPosts(workspaceId, pageId, token, sinceMs);
-        } catch (error: any) {
-          // Nunca bloquea la sincronización: los anuncios se siguen leyendo
-          // por su publicación principal aunque esta búsqueda falle.
-          dynamicScan.errors.push(`${pageId}: ${String(error?.message ?? error).slice(0, 300)}`);
-          continue;
-        }
-        dynamicScan.pages++;
-        dynamicScan.listed += listed.posts.length;
-        dynamicScan.ms += listed.ms;
-        if (!listed.complete) dynamicScan.complete = false;
-        for (const post of listed.posts) {
-          if (knownTargetIds.has(post.id)) continue;
-          const matchingAds = adsMatchingPostText(post.message, textsByAd);
-          if (!matchingAds.length) {
-            if (dynamicScan.unmatchedSample.length < 5) dynamicScan.unmatchedSample.push(post.message.slice(0, 80));
+        for (const window of windows) {
+          let listed: Awaited<ReturnType<typeof listPageAdPostsInWindow>>;
+          try {
+            listed = await listPageAdPostsInWindow(workspaceId, pageId, token, window.from, window.to);
+          } catch (error: any) {
+            // Nunca bloquea la sincronización: los anuncios se siguen leyendo
+            // por su publicación principal aunque esta búsqueda falle.
+            dynamicScan.errors.push(`${pageId} ${new Date(window.from).toISOString().slice(0, 16)}: ${String(error?.message ?? error).slice(0, 200)}`);
+            if (isMetaTransientCapacityError(error)) break;
             continue;
           }
-          dynamicScan.matched++;
-          const adId = matchingAds[0];
-          dynamicPostsByAd.set(adId, [...(dynamicPostsByAd.get(adId) ?? []), post.id]);
-          knownTargetIds.add(post.id);
+          dynamicScan.windows++;
+          dynamicScan.listed += listed.posts.length;
+          dynamicScan.ms += listed.ms;
+          for (const post of listed.posts) {
+            if (knownTargetIds.has(post.id)) continue;
+            const matchingAds = adsMatchingPostText(post.message, textsByAd);
+            if (!matchingAds.length) {
+              if (dynamicScan.unmatchedSample.length < 5) dynamicScan.unmatchedSample.push(post.message.slice(0, 80));
+              continue;
+            }
+            dynamicScan.matched++;
+            const adId = matchingAds[0];
+            dynamicPostsByAd.set(adId, [...(dynamicPostsByAd.get(adId) ?? []), post.id]);
+            knownTargetIds.add(post.id);
+          }
         }
       }
       if (dynamicScan.errors.length) console.warn("[meta-comments] No se pudieron listar publicaciones de anuncio:", dynamicScan.errors.join(" | "));
@@ -655,7 +669,9 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
       bodies: (ad?.creative?.asset_feed_spec?.bodies ?? []).length,
       images: (ad?.creative?.asset_feed_spec?.images ?? []).length,
       videos: (ad?.creative?.asset_feed_spec?.videos ?? []).length,
-      story: ad?.creative?.effective_object_story_id ?? null
+      story: ad?.creative?.effective_object_story_id ?? null,
+      created: ad?.created_time ?? null,
+      updated: ad?.updated_time ?? null
     })) : undefined;
     for (const ad of hydratedAds) {
       const creative = ad?.creative ?? {};

@@ -29,3 +29,23 @@ describe("publicaciones de creatividad dinámica", () => {
     expect(adsMatchingPostText("", textsByAd)).toEqual([]);
   });
 });
+
+import { dynamicCreativeWindows } from "../comments";
+
+describe("franjas de búsqueda de variantes dinámicas", () => {
+  it("une franjas solapadas de creación y edición", () => {
+    const windows = dynamicCreativeWindows([
+      { created_time: "2026-02-10T10:00:00+0000", updated_time: "2026-02-10T10:20:00+0000" },
+      { created_time: "2026-02-10T12:00:00+0000" },
+      { created_time: "2026-05-01T09:00:00+0000", updated_time: "2026-06-01T09:00:00+0000" }
+    ]);
+    expect(windows).toHaveLength(3);
+    expect(new Date(windows[0].from).toISOString()).toBe("2026-02-10T09:00:00.000Z");
+    expect(new Date(windows[0].to).toISOString()).toBe("2026-02-10T18:00:00.000Z");
+    expect(new Date(windows[2].from).toISOString()).toBe("2026-06-01T08:00:00.000Z");
+  });
+
+  it("ignora fechas ausentes o inválidas", () => {
+    expect(dynamicCreativeWindows([{}, { created_time: "x" }])).toEqual([]);
+  });
+});
