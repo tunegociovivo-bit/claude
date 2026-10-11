@@ -331,6 +331,62 @@ async function loadPageTokens(workspaceId: string, connectionId?: string | null)
   return { facebook, instagram, instagramByFacebookPage, facebookAuthorIds, instagramUsernames };
 }
 
+/**
+ * Publicaciones de anuncio ("dark posts") de una página con comentarios.
+ * Con creatividad dinámica / formato flexible, Meta genera una publicación
+ * distinta por combinación de texto e imagen, y el creative del anuncio solo
+ * expone una (effective_object_story_id). Los comentarios del resto solo se
+ * encuentran listando las publicaciones de anuncio de la página.
+ */
+type PageAdPost = { id: string; message: string; createdAt: number; comments: number };
+const PAGE_AD_POSTS_TTL_MS = 14 * 60_000;
+const pageAdPostsCache = new Map<string, { at: number; posts: PageAdPost[] }>();
+
+async function listPageAdPostsWithComments(workspaceId: string, pageId: string, token: string, sinceMs: number): Promise<PageAdPost[]> {
+  const key = `${pageId}:${Math.floor(sinceMs / 86_400_000)}`;
+  const cached = pageAdPostsCache.get(key);
+  if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return cached.posts;
+  const posts: PageAdPost[] = [];
+  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time,comments.limit(0).summary(true)&include_inline_create=true&limit=100`;
+  // Meta devuelve las más recientes primero: se corta al pasar la fecha de
+  // inicio o tras 30 páginas (3.000 publicaciones) como tope de seguridad.
+  for (let page = 0; path && page < 30; page++) {
+    const result: any = await graph(workspaceId, path, undefined, token);
+    let older = false;
+    for (const item of result?.data ?? []) {
+      const createdAt = Date.parse(item?.created_time ?? "");
+      if (Number.isFinite(createdAt) && createdAt < sinceMs) { older = true; continue; }
+      const comments = Number(item?.comments?.summary?.total_count ?? 0);
+      if (item?.id && comments > 0) posts.push({ id: String(item.id), message: String(item.message ?? ""), createdAt, comments });
+    }
+    const next = result?.paging?.next;
+    if (older || !next) break;
+    const url = new URL(next);
+    if (url.hostname !== "graph.facebook.com") break;
+    url.searchParams.delete("access_token");
+    path = `${url.pathname.replace(/^\/v\d+\.\d+\//, "")}${url.search}`;
+  }
+  pageAdPostsCache.set(key, { at: Date.now(), posts });
+  return posts;
+}
+
+/** Textos normalizados de un creative (texto principal y variantes dinámicas). */
+export function creativeBodyTexts(creative: any): string[] {
+  const spec = creative?.object_story_spec ?? {};
+  return [
+    spec.link_data?.message, spec.video_data?.message, spec.photo_data?.caption, spec.template_data?.message,
+    ...(creative?.asset_feed_spec?.bodies ?? []).map((body: any) => body?.text)
+  ].map((text) => normalizedMetaText(text)).filter((text) => text.length >= 20);
+}
+
+/** Anuncios de la campaña cuyo texto coincide con el de una publicación. */
+export function adsMatchingPostText(postMessage: string, textsByAd: Map<string, string[]>): string[] {
+  const text = normalizedMetaText(postMessage);
+  if (text.length < 20) return [];
+  const prefix = text.slice(0, 120);
+  return [...textsByAd].filter(([, texts]) => texts.some((candidate) => candidate === text || candidate.slice(0, 120) === prefix)).map(([adId]) => adId);
+}
+
 export function metaSyncAlertLeaseName(feedId: string, message: string) {
   const digest = createHash("sha256").update(metaSyncErrorFingerprint(message)).digest("hex").slice(0, 20);
   return `meta-comments-alert:${feedId}:${digest}`;
@@ -530,6 +586,52 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         return { ...ad, creative: hydratedCreative };
       })));
     }
+    // Publicaciones generadas por creatividad dinámica: se asignan al anuncio
+    // de ESTA campaña cuyo texto coincide (nunca a otra campaña de la página).
+    const dynamicPostsByAd = new Map<string, string[]>();
+    const dynamicScan = { pages: 0, postsWithComments: 0, matched: 0, comments: 0, errors: [] as string[] };
+    {
+      const textsByAd = new Map<string, string[]>();
+      const knownTargetIds = new Set<string>();
+      const pageIds = new Set<string>();
+      for (const ad of hydratedAds) {
+        const creative = ad?.creative ?? {};
+        textsByAd.set(String(ad.id), creativeBodyTexts(creative));
+        for (const target of facebookCommentTargets(creative, authorizedPages.facebook)) {
+          knownTargetIds.add(target.id);
+          if (target.ownerId) pageIds.add(String(target.ownerId));
+        }
+        const pageId = String(creative.object_story_spec?.page_id ?? "");
+        if (/^\d+$/.test(pageId)) pageIds.add(pageId);
+      }
+      for (const post of knownFacebookPosts) if (post.postId) knownTargetIds.add(post.postId);
+      const sinceMs = range?.from?.getTime() ?? Date.now() - 180 * 24 * 60 * 60 * 1000;
+      for (const pageId of pageIds) {
+        const token = authorizedPages.facebook.get(pageId);
+        if (!token) continue;
+        let posts: PageAdPost[];
+        try {
+          posts = await listPageAdPostsWithComments(workspaceId, pageId, token, sinceMs);
+        } catch (error: any) {
+          if (isMetaTransientCapacityError(error)) throw error;
+          dynamicScan.errors.push(`${pageId}: ${String(error?.message ?? error).slice(0, 200)}`);
+          continue;
+        }
+        dynamicScan.pages++;
+        for (const post of posts) {
+          dynamicScan.postsWithComments++;
+          if (knownTargetIds.has(post.id)) continue;
+          const matchingAds = adsMatchingPostText(post.message, textsByAd);
+          if (!matchingAds.length) continue;
+          dynamicScan.matched++;
+          dynamicScan.comments += post.comments;
+          const adId = matchingAds[0];
+          dynamicPostsByAd.set(adId, [...(dynamicPostsByAd.get(adId) ?? []), post.id]);
+          knownTargetIds.add(post.id);
+        }
+      }
+      if (dynamicScan.errors.length) console.warn("[meta-comments] No se pudieron listar publicaciones de anuncio:", dynamicScan.errors.join(" | "));
+    }
     for (const ad of hydratedAds) {
       const creative = ad?.creative ?? {};
       let instagramTarget = resolveInstagramMediaTarget(creative, instagramMediaByPermalink);
@@ -595,6 +697,10 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         }
         const id = `${ownerId}_${post.postId}`;
         if (!facebookTargetsForAd.some((target) => target.id === id)) facebookTargetsForAd.push({ id, ownerId, platform: "facebook", token: authorizedPages.facebook.get(ownerId) });
+      }
+      for (const postId of dynamicPostsByAd.get(String(ad.id)) ?? []) {
+        const ownerId = postId.split("_")[0];
+        if (!facebookTargetsForAd.some((target) => target.id === postId)) facebookTargetsForAd.push({ id: postId, ownerId, platform: "facebook", token: authorizedPages.facebook.get(ownerId) });
       }
       const targets = [
         ...facebookTargetsForAd,
@@ -708,7 +814,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
     const complete = coverageIssues.length === 0;
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
-    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram } };
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram, dynamicFacebookPosts: dynamicScan } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {
