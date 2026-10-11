@@ -347,11 +347,21 @@ async function listPageAdPostsWithComments(workspaceId: string, pageId: string, 
   const cached = pageAdPostsCache.get(key);
   if (cached && Date.now() - cached.at < PAGE_AD_POSTS_TTL_MS) return cached.posts;
   const posts: PageAdPost[] = [];
-  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time,comments.limit(0).summary(true)&include_inline_create=true&limit=100`;
+  // Páginas pequeñas: con el resumen de comentarios Meta rechaza lotes grandes
+  // ("reduce the amount of data").
+  let path: string | null = `${pageId}/ads_posts?fields=id,message,created_time,comments.limit(0).summary(true)&include_inline_create=true&limit=10`;
   // Meta devuelve las más recientes primero: se corta al pasar la fecha de
-  // inicio o tras 30 páginas (3.000 publicaciones) como tope de seguridad.
-  for (let page = 0; path && page < 30; page++) {
-    const result: any = await graph(workspaceId, path, undefined, token);
+  // inicio o tras 60 páginas (600 publicaciones) como tope de seguridad.
+  for (let page = 0; path && page < 60; page++) {
+    let result: any;
+    try {
+      result = await graph(workspaceId, path, undefined, token);
+    } catch (error) {
+      // Si Meta limita a mitad del recorrido, se usa lo ya leído (sin caché,
+      // para completarlo en la siguiente ejecución).
+      if (posts.length && isMetaTransientCapacityError(error as any)) return posts;
+      throw error;
+    }
     let older = false;
     for (const item of result?.data ?? []) {
       const createdAt = Date.parse(item?.created_time ?? "");
@@ -613,8 +623,9 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         try {
           posts = await listPageAdPostsWithComments(workspaceId, pageId, token, sinceMs);
         } catch (error: any) {
-          if (isMetaTransientCapacityError(error)) throw error;
-          dynamicScan.errors.push(`${pageId}: ${String(error?.message ?? error).slice(0, 200)}`);
+          // Nunca bloquea la sincronización: los anuncios se siguen leyendo
+          // por su publicación principal aunque esta búsqueda falle.
+          dynamicScan.errors.push(`${pageId}: ${String(error?.message ?? error).slice(0, 300)}`);
           continue;
         }
         dynamicScan.pages++;
