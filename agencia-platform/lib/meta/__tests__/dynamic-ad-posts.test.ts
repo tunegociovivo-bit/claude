@@ -49,3 +49,42 @@ describe("franjas de búsqueda de variantes dinámicas", () => {
     expect(dynamicCreativeWindows([{}, { created_time: "x" }])).toEqual([]);
   });
 });
+
+import { creativeSignature, matchAdPostToAds, normalizedAdLink } from "../comments";
+
+describe("asignación de publicaciones dinámicas sin texto", () => {
+  const signatures = new Map([
+    ["locales", creativeSignature({ asset_feed_spec: {
+      bodies: [{ text: "¿Tienes un local de más de 250 m²? Conviértelo en un supermercado EROSKI" }],
+      titles: [{ text: "Abre tu supermercado EROSKI" }],
+      link_urls: [{ website_url: "https://franquicias.eroski.es/franquicias/?utm_source=meta" }]
+    } })],
+    ["mexico", creativeSignature({ asset_feed_spec: {
+      bodies: [{ text: "Emprende en México con una franquicia de supermercados" }],
+      titles: [{ text: "Franquicias en México" }],
+      link_urls: [{ website_url: "https://franquicias.eroski.es/mexico/" }]
+    } })]
+  ]);
+
+  it("normaliza enlaces envueltos por Facebook y sin parámetros", () => {
+    expect(normalizedAdLink("https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.franquicias.eroski.es%2Ffranquicias%2F%3Futm%3Dx&h=1")).toBe("franquicias.eroski.es/franquicias");
+    expect(normalizedAdLink("no es url")).toBeNull();
+  });
+
+  it("asigna por enlace + titular cuando la publicación no trae texto", () => {
+    expect(matchAdPostToAds({ message: "", titles: ["abre tu supermercado eroski"], links: ["franquicias.eroski.es/franquicias"] }, signatures)).toEqual({ adIds: ["locales"], by: "link_headline" });
+  });
+
+  it("asigna por enlace concreto si no hay titular", () => {
+    expect(matchAdPostToAds({ message: "", titles: [], links: ["franquicias.eroski.es/mexico"] }, signatures)).toEqual({ adIds: ["mexico"], by: "link" });
+  });
+
+  it("descarta publicaciones con texto propio de otra campaña aunque compartan enlace", () => {
+    expect(matchAdPostToAds({ message: "Ofertas de la semana en todos nuestros supermercados de la cadena", titles: [], links: ["franquicias.eroski.es/franquicias"] }, signatures)).toBeNull();
+  });
+
+  it("descarta enlaces a la portada sin titular coincidente", () => {
+    const home = new Map([["a", creativeSignature({ asset_feed_spec: { link_urls: [{ website_url: "https://eroski.es/" }] } })]]);
+    expect(matchAdPostToAds({ message: "", titles: ["otro titular"], links: ["eroski.es"] }, home)).toBeNull();
+  });
+});

@@ -4077,15 +4077,38 @@ model MetaCommentFeed {
   lastSyncAt       DateTime?
   lastError        String?         @db.Text
   aiContext        String?         @db.Text
+  // Rastreo de publicaciones de creatividad dinámica (una por combinación):
+  // hasta dónde se han listado hacia delante y hacia atrás.
+  adPostsScannedUntil  DateTime?
+  adPostsBackfillUntil DateTime?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   metaConnection   MetaConnection? @relation(fields: [metaConnectionId], references: [id], onDelete: SetNull)
   comments         MetaAdComment[]
+  adPosts          MetaFeedAdPost[]
 
   @@unique([workspaceId, campaignId])
   @@index([workspaceId, active])
   @@index([metaConnectionId])
+}
+
+/// Publicación de anuncio (variante de creatividad dinámica) asignada a una
+/// campaña monitorizada: se siguen leyendo sus comentarios aunque Meta solo
+/// exponga una publicación por anuncio en el creative.
+model MetaFeedAdPost {
+  id           String          @id @default(cuid())
+  workspaceId  String
+  feedId       String
+  postId       String
+  adId         String?
+  matchedBy    String          @default("text")
+  postCreatedAt DateTime?
+  createdAt    DateTime        @default(now())
+  feed         MetaCommentFeed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+
+  @@unique([feedId, postId])
+  @@index([workspaceId])
 }
 
 model MetaAdComment {
