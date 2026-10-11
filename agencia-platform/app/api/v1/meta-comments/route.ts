@@ -4,7 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { blockMetaCommentAuthor, deleteMetaComment, MetaDeletionError, notifyMetaOperational, regenerateMetaCommentDraft, replyToMetaComment, syncMetaCampaignComments } from "@/lib/meta/comments";
-import { expandShortLinks, MetaIntegrityBlockError } from "@/lib/meta/reply-safety";
+import { MetaIntegrityBlockError, publishWithShortLinkFallback } from "@/lib/meta/reply-safety";
 import { auditFromReq } from "@/lib/audit/log";
 import { metaAdsListAdAccounts, metaAdsListCampaigns } from "@/lib/integrations/meta-ads";
 import { listWorkspaceMetaTokens, readMetaTokenByConnection } from "@/lib/meta/connection";
@@ -201,9 +201,6 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   if (!comment) throw new ApiError(404, "not_found", "Comentario no encontrado");
   const draft = prepareMetaCommentReplyDraft(parsed.data.message, comment.authorName);
   if (!draft) throw new ApiError(400, "empty_reply", "Este comentario no tiene una respuesta válida para publicar");
-  // Los enlaces acortados (p. ej. eros.ki/…) disparan el antispam de Meta
-  // ("Browser Locker"): se publica el destino final real.
-  const { message } = await expandShortLinks(draft);
   // Separación mínima entre respuestas publicadas (también al pulsar una a
   // una): ráfagas de respuestas parecidas activan el antispam de Meta.
   const lastReply = await prisma.metaAdComment.findFirst({
@@ -213,9 +210,16 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   });
   const sinceLast = lastReply?.repliedAt ? Date.now() - lastReply.repliedAt.getTime() : Infinity;
   if (sinceLast < 12_000) await new Promise((resolve) => setTimeout(resolve, 12_000 - sinceLast));
+  // Se publica con el enlace acortado; si Meta lo frena por antispam
+  // ("Browser Locker"), se reintenta una vez con el destino final del enlace.
   let replyId: string;
+  let message: string;
+  let shortLinkExpanded = false;
   try {
-    replyId = await replyToMetaComment(api.workspaceId, comment.externalCommentId, message, comment.postId, comment.platform, comment.feed.metaConnectionId);
+    const published = await publishWithShortLinkFallback(draft, (text) => replyToMetaComment(api.workspaceId, comment.externalCommentId, text, comment.postId, comment.platform, comment.feed.metaConnectionId));
+    replyId = published.replyId;
+    message = published.message;
+    shortLinkExpanded = published.expanded;
   } catch (cause) {
     if (cause instanceof MetaIntegrityBlockError) throw new ApiError(429, "meta_integrity_block", cause.message);
     const detail = cause instanceof Error ? cause.message : "Meta no pudo publicar la respuesta. Reinténtalo en unos minutos.";
@@ -223,5 +227,5 @@ export const POST = withApi({ scope: "*" }, async (req, { api }) => {
   }
   await prisma.metaAdComment.update({ where: { id: comment.id }, data: { status: "replied", repliedAt: new Date(), externalReplyId: replyId, aiDraft: message } });
   await Promise.resolve(notifyMetaOperational(api.workspaceId, "publishedReplies", "✅ Respuesta publicada en Meta", `${comment.authorName ?? "Usuario de Meta"}: ${message.slice(0, 800)}`)).catch(() => {});
-  return NextResponse.json({ ok: true, replyId });
+  return NextResponse.json({ ok: true, replyId, shortLinkExpanded });
 });

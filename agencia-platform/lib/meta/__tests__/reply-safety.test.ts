@@ -61,3 +61,41 @@ describe("publicación en bloque con pausas", () => {
     expect(results).toHaveLength(2);
   });
 });
+
+import { MetaIntegrityBlockError, publishWithShortLinkFallback } from "../reply-safety";
+
+describe("publicar con enlace acortado y reintento sin él", () => {
+  const expand = async (message: string) => ({ message: message.replace("https://eros.ki/fnqcslc", "https://franquicias.eroski.es/locales/"), replaced: message.includes("eros.ki") ? [{ from: "https://eros.ki/fnqcslc", to: "https://franquicias.eroski.es/locales/" }] : [] });
+  const noSleep = async () => {};
+
+  it("publica con el acortado si Meta lo acepta", async () => {
+    const sent: string[] = [];
+    const result = await publishWithShortLinkFallback("Info: https://eros.ki/fnqcslc", async (m) => { sent.push(m); return "r1"; }, { expand, sleep: noSleep });
+    expect(sent).toEqual(["Info: https://eros.ki/fnqcslc"]);
+    expect(result).toEqual({ replyId: "r1", message: "Info: https://eros.ki/fnqcslc", expanded: false });
+  });
+
+  it("si Meta lo frena, reintenta una vez con el enlace completo", async () => {
+    const sent: string[] = [];
+    const result = await publishWithShortLinkFallback("Info: https://eros.ki/fnqcslc", async (m) => {
+      sent.push(m);
+      if (m.includes("eros.ki")) throw new MetaIntegrityBlockError("Breaking Browser Locker Behavior detected");
+      return "r2";
+    }, { expand, sleep: noSleep });
+    expect(sent).toEqual(["Info: https://eros.ki/fnqcslc", "Info: https://franquicias.eroski.es/locales/"]);
+    expect(result.expanded).toBe(true);
+  });
+
+  it("no reintenta si no había enlace acortado ni ante otros errores", async () => {
+    let calls = 0;
+    await expect(publishWithShortLinkFallback("Sin enlace", async () => { calls++; throw new MetaIntegrityBlockError("Browser Locker"); }, { expand, sleep: noSleep })).rejects.toBeInstanceOf(MetaIntegrityBlockError);
+    await expect(publishWithShortLinkFallback("Info: https://eros.ki/fnqcslc", async () => { calls++; throw new Error("Meta 500"); }, { expand, sleep: noSleep })).rejects.toThrow("Meta 500");
+    expect(calls).toBe(2);
+  });
+
+  it("si el reintento también se frena, se detiene ahí", async () => {
+    let calls = 0;
+    await expect(publishWithShortLinkFallback("Info: https://eros.ki/fnqcslc", async () => { calls++; throw new MetaIntegrityBlockError("Browser Locker"); }, { expand, sleep: noSleep })).rejects.toBeInstanceOf(MetaIntegrityBlockError);
+    expect(calls).toBe(2);
+  });
+});

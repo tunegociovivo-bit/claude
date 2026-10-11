@@ -88,8 +88,30 @@ export function isMetaIntegrityBlock(error: { message?: string; code?: number } 
 }
 
 export const META_INTEGRITY_BLOCK_HELP =
-  "Meta ha frenado la respuesta con su filtro antispam (muchas respuestas casi iguales con enlace en poco tiempo). No se ha reintentado para no agravar la restricción: espera unos minutos y publica las siguientes de una en una o con otro texto.";
+  "Meta ha frenado la respuesta con su filtro antispam (muchas respuestas parecidas con enlace en poco tiempo). Si llevaba un enlace acortado, ya se reintentó una vez con el enlace completo. Espera unos minutos antes de publicar más: insistir alarga la restricción.";
 
 export class MetaIntegrityBlockError extends Error {
   constructor(readonly metaMessage: string) { super(`${META_INTEGRITY_BLOCK_HELP} (Meta: ${metaMessage})`); this.name = "MetaIntegrityBlockError"; }
+}
+
+/**
+ * Publica la respuesta tal cual (con el enlace acortado). Solo si Meta la
+ * frena por antispam, se reintenta UNA vez con los enlaces acortados
+ * sustituidos por su destino final. Si vuelve a frenarla, se para.
+ */
+export async function publishWithShortLinkFallback(
+  draft: string,
+  publish: (message: string) => Promise<string>,
+  options: { expand?: (message: string) => Promise<{ message: string; replaced: Array<{ from: string; to: string }> }>; waitMs?: number; sleep?: (ms: number) => Promise<void> } = {}
+): Promise<{ replyId: string; message: string; expanded: boolean }> {
+  try {
+    return { replyId: await publish(draft), message: draft, expanded: false };
+  } catch (cause) {
+    if (!(cause instanceof MetaIntegrityBlockError)) throw cause;
+    const expanded = await (options.expand ?? expandShortLinks)(draft);
+    if (!expanded.replaced.length) throw cause; // no había enlace acortado que cambiar
+    const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    await sleep(options.waitMs ?? 5000);
+    return { replyId: await publish(expanded.message), message: expanded.message, expanded: true };
+  }
 }
