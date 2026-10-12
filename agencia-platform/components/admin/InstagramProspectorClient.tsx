@@ -62,9 +62,7 @@ const builtInPresets: SearchPreset[] = [
 
 const sampleLeads: Lead[] = [
   { name: "Rafael Molina", handle: "@rafa.inversiones", email: "rafael@molinaretail.es", phone: "+34 611 204 881", website: "molinaretail.es", city: "Madrid", source: "#invertirenfranquicias", tag: "Inversor retail", score: 92, status: "Valido", signals: ["Intencion franquicia", "Retail alimentacion", "Bio inversor", "Contacto publico"], missingSignals: [] },
-  { name: "Francisco Delegado", handle: "@fran.delegado", email: "franciscodelegado@eroski.es", phone: "+34 644 908 211", website: "delegadoretail.es", city: "Bilbao", source: "#franquiciasespana", tag: "Retail alimentacion", score: 91, status: "Valido", signals: ["Intencion franquicia", "Retail alimentacion", "Email supermercado", "Contacto publico"], missingSignals: [] },
   { name: "Laura Campos", handle: "@laurac.negocio", email: "laura@camposgestion.com", phone: "", website: "camposgestion.com", city: "Valencia", source: "@mundofranquicia", tag: "Emprendedora", score: 86, status: "Valido", signals: ["Intencion franquicia", "Bio emprendedora", "Sigue portal franquicias"], missingSignals: ["Sin telefono publico"] },
-  { name: "Manuel Eroski", handle: "@manuel.negocios", email: "manueleroski@hotmail.com", phone: "", website: "", city: "San Sebastian", source: "@franquiciasaldia", tag: "Interes franquicia", score: 74, status: "Valido", signals: ["Intencion franquicia", "Email supermercado", "Sigue portal franquicias"], missingSignals: ["Sin telefono publico", "Sin web"] },
   { name: "Super Ahorro Fan", handle: "@superahorrofan", email: "", phone: "", website: "", city: "Sevilla", source: "@carrefour_es", tag: "Consumidor", score: 34, status: "Descartado", signals: ["Sigue supermercado"], missingSignals: ["Sin intencion franquicia", "Sin bio profesional", "Sin contacto publico"] },
   { name: "Taco Alto", handle: "@tacoalto.es", email: "eventos@tacoalto.es", phone: "+34 633 520 119", website: "tacoalto.es", city: "Madrid", source: "#negociopropio", tag: "Hosteleria", score: 78, status: "Valido", signals: ["Intencion negocio", "Contacto publico", "Actividad comercial"], missingSignals: ["No confirma alimentacion retail"] },
   { name: "Sergio Fotos Gastro", handle: "@sergiogastroshot", email: "sergio@gastroshot.studio", phone: "", website: "gastroshot.studio", city: "Madrid", source: "post likes", tag: "Proveedor", score: 58, status: "Insuficiente", signals: ["Contacto publico", "Sector food"], missingSignals: ["Sin intencion franquicia"] },
@@ -173,7 +171,7 @@ export default function InstagramProspectorClient() {
     setRunning(true);
     setLeads([]);
     const demoLeads = buildDemoLeads(limit, target);
-    setStatus(`Escaneando ${demoLeads.length} perfiles`);
+    setStatus(`Simulando ${demoLeads.length} perfiles de prueba`);
     demoLeads.forEach((lead, index) => {
       window.setTimeout(() => {
         setLeads((current) => [...current, lead]);
@@ -513,6 +511,9 @@ export default function InstagramProspectorClient() {
               </select>
             </label>
           </div>
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Modo prueba: estos resultados son simulados para validar filtros y exportacion. Para obtener leads reales falta conectar el proveedor de datos de Instagram permitido.
+          </p>
 
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[1050px] text-left text-sm">
