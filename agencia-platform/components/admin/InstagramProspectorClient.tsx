@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Copy, Download, Filter, Instagram, Play, RotateCcw, Search, ShieldCheck, Target } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Copy, Download, Filter, Instagram, Play, RotateCcw, Save, Search, ShieldCheck, Target, Trash2 } from "lucide-react";
 
 type SourceType = "followers" | "likers" | "comments" | "hashtag" | "location";
 
@@ -17,6 +17,40 @@ type Lead = {
   score: number;
   status: string;
 };
+
+type SearchPreset = {
+  id: string;
+  name: string;
+  description: string;
+  campaign: string;
+  sourceType: SourceType;
+  target: string;
+  country: string;
+  limit: number;
+  minScore: number;
+  intentSignals: string;
+  negativeFilters: string;
+  builtIn?: boolean;
+};
+
+const PRESETS_STORAGE_KEY = "nv-instagram-prospector-presets-v1";
+
+const builtInPresets: SearchPreset[] = [
+  {
+    id: "franchise-supermarkets",
+    name: "Franquicias / Supermercados",
+    description: "Personas con señales de interés en franquicias, retail alimentario, inversión local y supermercados.",
+    campaign: "Potenciales franquiciados - supermercados España",
+    sourceType: "followers",
+    target: "@dia_esp\n@carrefour_es\n@eroski\n@alcampo\n@consum\n@bonareaoficial\n@coviran\n@supermercadosmas\n@lupa_supermercados\n@supermercadoseljamon\n#franquicias\n#franquiciasrentables\n#supermercados\n#tiendasdealimentacion\n#negociolocal",
+    country: "Espana",
+    limit: 1000,
+    minScore: 70,
+    intentSignals: "emprendedor\ninversor\nfranquicia\nfranquiciado\nautoempleo\nnegocio local\nretail\nalimentacion\nsupermercado\ntienda de alimentacion\nhosteleria\napertura\nexpansion",
+    negativeFilters: "perfil privado\nconsumidor sin bio profesional\nsorteos y cupones\nmenor de edad\nsin actividad reciente\nsolo comprador habitual",
+    builtIn: true
+  }
+];
 
 const sampleLeads: Lead[] = [
   { name: "Marta Ruiz", handle: "@martafoodlab", email: "hola@martafoodlab.es", phone: "+34 611 204 881", website: "martafoodlab.es", city: "Madrid", source: "@madridfoodies", tag: "Food creator", score: 92, status: "Listo para email" },
@@ -41,11 +75,26 @@ export default function InstagramProspectorClient() {
   const [target, setTarget] = useState("@madridfoodies");
   const [limit, setLimit] = useState(250);
   const [country, setCountry] = useState("Espana");
+  const [intentSignals, setIntentSignals] = useState("email publico\ntelefono publico\nweb activa\nbio profesional\nactividad reciente");
+  const [negativeFilters, setNegativeFilters] = useState("perfil privado\nsin datos publicos\nduplicados");
+  const [savedPresets, setSavedPresets] = useState<SearchPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [presetName, setPresetName] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("Listo");
   const [query, setQuery] = useState("");
   const [minScore, setMinScore] = useState(0);
+  const allPresets = useMemo(() => [...builtInPresets, ...savedPresets], [savedPresets]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+      if (raw) setSavedPresets(JSON.parse(raw));
+    } catch {
+      setSavedPresets([]);
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,6 +133,51 @@ export default function InstagramProspectorClient() {
     setStatus("Listo");
     setQuery("");
     setMinScore(0);
+  }
+
+  function applyPreset(preset: SearchPreset) {
+    setSelectedPresetId(preset.id);
+    setCampaign(preset.campaign);
+    setSourceType(preset.sourceType);
+    setTarget(preset.target);
+    setCountry(preset.country);
+    setLimit(preset.limit);
+    setMinScore(preset.minScore);
+    setIntentSignals(preset.intentSignals);
+    setNegativeFilters(preset.negativeFilters);
+    setPresetName(preset.builtIn ? `${preset.name} copia` : preset.name);
+    setStatus(`Plantilla aplicada: ${preset.name}`);
+  }
+
+  function savePreset() {
+    const name = presetName.trim();
+    if (!name) return;
+    const preset: SearchPreset = {
+      id: `custom-${Date.now()}`,
+      name,
+      description: "Plantilla personalizada",
+      campaign,
+      sourceType,
+      target,
+      country,
+      limit,
+      minScore,
+      intentSignals,
+      negativeFilters
+    };
+    const next = [...savedPresets, preset];
+    setSavedPresets(next);
+    setSelectedPresetId(preset.id);
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(next));
+    setStatus(`Plantilla guardada: ${name}`);
+  }
+
+  function deletePreset(id: string) {
+    const next = savedPresets.filter((preset) => preset.id !== id);
+    setSavedPresets(next);
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(next));
+    if (selectedPresetId === id) setSelectedPresetId("");
+    setStatus("Plantilla eliminada");
   }
 
   function csv() {
@@ -154,6 +248,52 @@ export default function InstagramProspectorClient() {
             </div>
 
             <div className="mt-5 grid gap-4">
+              <section className="rounded-xl border border-pink-200 bg-pink-50 p-4">
+                <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-pink-700">Plantillas</p>
+                    <h3 className="font-bold text-slate-950">Acelera busquedas repetibles</h3>
+                    <p className="mt-1 text-xs text-pink-900">
+                      Usa la plantilla de franquicias o guarda tus propias combinaciones de cuentas, señales y filtros.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <select
+                      value={selectedPresetId}
+                      onChange={(e) => {
+                        setSelectedPresetId(e.target.value);
+                        const preset = allPresets.find((item) => item.id === e.target.value);
+                        if (preset) applyPreset(preset);
+                      }}
+                      className="rounded-xl border bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">Elegir plantilla</option>
+                      {allPresets.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{preset.name}</option>
+                      ))}
+                    </select>
+                    {selectedPresetId.startsWith("custom-") && (
+                      <button onClick={() => deletePreset(selectedPresetId)} className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700" type="button">
+                        <Trash2 className="h-4 w-4" />
+                        Borrar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {selectedPresetId && (
+                  <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs text-pink-950">
+                    {allPresets.find((preset) => preset.id === selectedPresetId)?.description}
+                  </p>
+                )}
+                <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+                  <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Nombre para guardar esta plantilla" className="rounded-xl border bg-white px-3 py-2 text-sm" />
+                  <button onClick={savePreset} disabled={!presetName.trim()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-pink-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" type="button">
+                    <Save className="h-4 w-4" />
+                    Guardar plantilla
+                  </button>
+                </div>
+              </section>
+
               <label className="block text-sm font-medium text-slate-700">
                 Nombre de campana
                 <input value={campaign} onChange={(e) => setCampaign(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" />
@@ -176,8 +316,9 @@ export default function InstagramProspectorClient() {
               </fieldset>
 
               <label className="block text-sm font-medium text-slate-700">
-                Cuenta, post, hashtag o ubicacion
-                <input value={target} onChange={(e) => setTarget(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2" />
+                Cuentas, posts, hashtags o ubicaciones
+                <textarea value={target} onChange={(e) => setTarget(e.target.value)} rows={5} className="mt-1 w-full rounded-xl border px-3 py-2" />
+                <small className="mt-1 block text-xs text-slate-500">Una fuente por linea. En el preset de franquicias mezcla cuentas de supermercados, hashtags e intereses.</small>
               </label>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -205,6 +346,17 @@ export default function InstagramProspectorClient() {
                   </label>
                 ))}
               </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block text-sm font-medium text-slate-700">
+                  Señales de intención
+                  <textarea value={intentSignals} onChange={(e) => setIntentSignals(e.target.value)} rows={7} className="mt-1 w-full rounded-xl border px-3 py-2" />
+                </label>
+                <label className="block text-sm font-medium text-slate-700">
+                  Filtros negativos
+                  <textarea value={negativeFilters} onChange={(e) => setNegativeFilters(e.target.value)} rows={7} className="mt-1 w-full rounded-xl border px-3 py-2" />
+                </label>
+              </div>
             </div>
           </section>
 
@@ -218,10 +370,17 @@ export default function InstagramProspectorClient() {
                 {["Definir fuente", "Escanear perfiles", "Enriquecer y puntuar", "Exportar o enviar"].map((step, index) => (
                   <li key={step} className="flex gap-3 rounded-xl bg-slate-50 p-3">
                     <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-950 text-xs font-bold text-white">{index + 1}</span>
-                    <span><b>{step}</b><small className="block text-slate-500">{index === 0 ? `${sourceLabels[sourceType]} · ${target}` : index === 1 ? `${limit} perfiles maximo` : index === 2 ? `Pais: ${country}` : "CSV para CRM o campana"}</small></span>
+                    <span><b>{step}</b><small className="block text-slate-500">{index === 0 ? `${sourceLabels[sourceType]} · ${target.split(/\r?\n/).filter(Boolean).length} fuentes` : index === 1 ? `${limit} perfiles maximo` : index === 2 ? `Pais: ${country} · score ${minScore}+` : "CSV para CRM o campana"}</small></span>
                   </li>
                 ))}
               </ol>
+            </section>
+            <section className="rounded-2xl border bg-white p-5">
+              <h2 className="text-xl font-bold">Criterio de scoring</h2>
+              <div className="mt-3 grid gap-3 text-sm">
+                <SignalList title="Sube score si aparece" value={intentSignals} tone="good" />
+                <SignalList title="Descarta o baja score si aparece" value={negativeFilters} tone="bad" />
+              </div>
             </section>
             <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-950">
               <div className="flex items-center gap-2 font-bold">
@@ -301,6 +460,22 @@ export default function InstagramProspectorClient() {
         </section>
       </div>
     </main>
+  );
+}
+
+function SignalList({ title, value, tone }: { title: string; value: string; tone: "good" | "bad" }) {
+  const items = value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 8);
+  return (
+    <div>
+      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <span key={item} className={`rounded-full px-2 py-1 text-xs font-semibold ${tone === "good" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
