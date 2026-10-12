@@ -32,6 +32,7 @@ type SearchPreset = {
   minScore: number;
   requiredSignalCount: number;
   requireIntentSignal: boolean;
+  emailKeywords: string;
   intentSignals: string;
   negativeFilters: string;
   builtIn?: boolean;
@@ -52,6 +53,7 @@ const builtInPresets: SearchPreset[] = [
     minScore: 70,
     requiredSignalCount: 3,
     requireIntentSignal: true,
+    emailKeywords: "eroski\ncarrefour\ndia\ncoviran\nalcampo\nconsum\nbonarea",
     intentSignals: "comenta sobre franquicias\nusa hashtag franquicias\npide info de inversion\nbio emprendedor o inversor\nsigue portales de franquicias\ninteractua con alimentacion retail\ntiene contacto publico\nubicacion objetivo",
     negativeFilters: "solo sigue supermercados de consumo\nofertas y cupones\nrecetas\nsorteos\ncliente habitual sin bio profesional\nperfil privado\nsin actividad reciente\nmenor de edad",
     builtIn: true
@@ -60,7 +62,9 @@ const builtInPresets: SearchPreset[] = [
 
 const sampleLeads: Lead[] = [
   { name: "Rafael Molina", handle: "@rafa.inversiones", email: "rafael@molinaretail.es", phone: "+34 611 204 881", website: "molinaretail.es", city: "Madrid", source: "#invertirenfranquicias", tag: "Inversor retail", score: 92, status: "Valido", signals: ["Intencion franquicia", "Retail alimentacion", "Bio inversor", "Contacto publico"], missingSignals: [] },
+  { name: "Francisco Delegado", handle: "@fran.delegado", email: "franciscodelegado@eroski.es", phone: "+34 644 908 211", website: "delegadoretail.es", city: "Bilbao", source: "#franquiciasespana", tag: "Retail alimentacion", score: 91, status: "Valido", signals: ["Intencion franquicia", "Retail alimentacion", "Email supermercado", "Contacto publico"], missingSignals: [] },
   { name: "Laura Campos", handle: "@laurac.negocio", email: "laura@camposgestion.com", phone: "", website: "camposgestion.com", city: "Valencia", source: "@mundofranquicia", tag: "Emprendedora", score: 86, status: "Valido", signals: ["Intencion franquicia", "Bio emprendedora", "Sigue portal franquicias"], missingSignals: ["Sin telefono publico"] },
+  { name: "Manuel Eroski", handle: "@manuel.negocios", email: "manueleroski@hotmail.com", phone: "", website: "", city: "San Sebastian", source: "@franquiciasaldia", tag: "Interes franquicia", score: 74, status: "Valido", signals: ["Intencion franquicia", "Email supermercado", "Sigue portal franquicias"], missingSignals: ["Sin telefono publico", "Sin web"] },
   { name: "Super Ahorro Fan", handle: "@superahorrofan", email: "", phone: "", website: "", city: "Sevilla", source: "@carrefour_es", tag: "Consumidor", score: 34, status: "Descartado", signals: ["Sigue supermercado"], missingSignals: ["Sin intencion franquicia", "Sin bio profesional", "Sin contacto publico"] },
   { name: "Taco Alto", handle: "@tacoalto.es", email: "eventos@tacoalto.es", phone: "+34 633 520 119", website: "tacoalto.es", city: "Madrid", source: "#negociopropio", tag: "Hosteleria", score: 78, status: "Valido", signals: ["Intencion negocio", "Contacto publico", "Actividad comercial"], missingSignals: ["No confirma alimentacion retail"] },
   { name: "Sergio Fotos Gastro", handle: "@sergiogastroshot", email: "sergio@gastroshot.studio", phone: "", website: "gastroshot.studio", city: "Madrid", source: "post likes", tag: "Proveedor", score: 58, status: "Insuficiente", signals: ["Contacto publico", "Sector food"], missingSignals: ["Sin intencion franquicia"] },
@@ -85,6 +89,18 @@ function isValidLead(lead: Lead, requiredSignalCount: number, requireIntentSigna
   return enoughSignals && intentOk;
 }
 
+function parseKeywords(value: string) {
+  return value
+    .split(/[\n,;]/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function getEmailKeywordMatch(email: string, keywords: string[]) {
+  const normalizedEmail = email.toLowerCase();
+  return keywords.find((keyword) => normalizedEmail.includes(keyword)) || "";
+}
+
 export default function InstagramProspectorClient() {
   const [campaign, setCampaign] = useState("Restaurantes Madrid - influencers food");
   const [sourceType, setSourceType] = useState<SourceType>("followers");
@@ -93,6 +109,7 @@ export default function InstagramProspectorClient() {
   const [country, setCountry] = useState("Espana");
   const [requiredSignalCount, setRequiredSignalCount] = useState(2);
   const [requireIntentSignal, setRequireIntentSignal] = useState(true);
+  const [emailKeywords, setEmailKeywords] = useState("");
   const [intentSignals, setIntentSignals] = useState("email publico\ntelefono publico\nweb activa\nbio profesional\nactividad reciente");
   const [negativeFilters, setNegativeFilters] = useState("perfil privado\nsin datos publicos\nduplicados");
   const [savedPresets, setSavedPresets] = useState<SearchPreset[]>([]);
@@ -116,11 +133,13 @@ export default function InstagramProspectorClient() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const emailKeywordList = parseKeywords(emailKeywords);
     return leads.filter((lead) => {
       const haystack = `${lead.name} ${lead.handle} ${lead.email} ${lead.phone} ${lead.city} ${lead.tag} ${lead.status} ${lead.signals.join(" ")}`.toLowerCase();
-      return haystack.includes(q) && lead.score >= minScore && isValidLead(lead, requiredSignalCount, requireIntentSignal);
+      const emailMatch = !emailKeywordList.length || getEmailKeywordMatch(lead.email, emailKeywordList);
+      return haystack.includes(q) && lead.score >= minScore && Boolean(emailMatch) && isValidLead(lead, requiredSignalCount, requireIntentSignal);
     });
-  }, [leads, minScore, query, requiredSignalCount, requireIntentSignal]);
+  }, [emailKeywords, leads, minScore, query, requiredSignalCount, requireIntentSignal]);
 
   const metrics = useMemo(() => {
     const valid = leads.filter((lead) => isValidLead(lead, requiredSignalCount, requireIntentSignal));
@@ -164,6 +183,7 @@ export default function InstagramProspectorClient() {
     setMinScore(preset.minScore);
     setRequiredSignalCount(preset.requiredSignalCount);
     setRequireIntentSignal(preset.requireIntentSignal);
+    setEmailKeywords(preset.emailKeywords || "");
     setIntentSignals(preset.intentSignals);
     setNegativeFilters(preset.negativeFilters);
     setPresetName(preset.builtIn ? `${preset.name} copia` : preset.name);
@@ -185,6 +205,7 @@ export default function InstagramProspectorClient() {
       minScore,
       requiredSignalCount,
       requireIntentSignal,
+      emailKeywords,
       intentSignals,
       negativeFilters
     };
@@ -204,8 +225,9 @@ export default function InstagramProspectorClient() {
   }
 
   function csv() {
-    const headers = ["nombre", "instagram", "email", "telefono", "web", "ciudad", "origen", "etiqueta", "score", "estado", "senales", "faltantes"];
-    const rows = filtered.map((lead) => [lead.name, lead.handle, lead.email, lead.phone, lead.website, lead.city, lead.source, lead.tag, lead.score, lead.status, lead.signals.join(" | "), lead.missingSignals.join(" | ")]);
+    const emailKeywordList = parseKeywords(emailKeywords);
+    const headers = ["nombre", "instagram", "email", "coincidencia_email", "telefono", "web", "ciudad", "origen", "etiqueta", "score", "estado", "senales", "faltantes"];
+    const rows = filtered.map((lead) => [lead.name, lead.handle, lead.email, getEmailKeywordMatch(lead.email, emailKeywordList), lead.phone, lead.website, lead.city, lead.source, lead.tag, lead.score, lead.status, lead.signals.join(" | "), lead.missingSignals.join(" | ")]);
     return [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
   }
 
@@ -376,6 +398,11 @@ export default function InstagramProspectorClient() {
                     Requerir senal de intencion franquicia/inversion
                   </label>
                 </div>
+                <label className="mt-4 block text-sm font-medium text-slate-700">
+                  Email contiene
+                  <textarea value={emailKeywords} onChange={(e) => setEmailKeywords(e.target.value)} rows={3} placeholder={"eroski\ncarrefour\ncoviran"} className="mt-1 w-full rounded-xl border bg-white px-3 py-2" />
+                  <small className="mt-1 block text-xs text-slate-500">Una palabra por linea o separadas por comas. Busca coincidencias en todo el correo, incluido el dominio.</small>
+                </label>
               </section>
 
               <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-2">
@@ -410,7 +437,7 @@ export default function InstagramProspectorClient() {
                 {["Definir fuentes", "Escanear perfiles", "Validar senales cruzadas", "Exportar o enviar"].map((step, index) => (
                   <li key={step} className="flex gap-3 rounded-xl bg-slate-50 p-3">
                     <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-950 text-xs font-bold text-white">{index + 1}</span>
-                    <span><b>{step}</b><small className="block text-slate-500">{index === 0 ? `${sourceLabels[sourceType]} - ${target.split(/\r?\n/).filter(Boolean).length} fuentes` : index === 1 ? `${limit} perfiles maximo` : index === 2 ? `${requiredSignalCount}+ senales${requireIntentSignal ? " con intencion obligatoria" : ""}` : "CSV para CRM o campana"}</small></span>
+                    <span><b>{step}</b><small className="block text-slate-500">{index === 0 ? `${sourceLabels[sourceType]} - ${target.split(/\r?\n/).filter(Boolean).length} fuentes` : index === 1 ? `${limit} perfiles maximo` : index === 2 ? `${requiredSignalCount}+ senales${requireIntentSignal ? " con intencion obligatoria" : ""}${parseKeywords(emailKeywords).length ? `, email: ${parseKeywords(emailKeywords).join(", ")}` : ""}` : "CSV para CRM o campana"}</small></span>
                   </li>
                 ))}
               </ol>
@@ -483,7 +510,11 @@ export default function InstagramProspectorClient() {
                 {filtered.length ? filtered.map((lead) => (
                   <tr key={`${lead.handle}-${lead.email}`} className="border-b last:border-0">
                     <td className="py-3"><b>{lead.name}</b><small className="block text-slate-500">{lead.handle}</small></td>
-                    <td><b>{lead.email || "Sin email publico"}</b><small className="block text-slate-500">{lead.phone || "Sin telefono publico"} - {lead.website || "Sin web"}</small></td>
+                    <td>
+                      <b>{lead.email || "Sin email publico"}</b>
+                      <EmailMatchBadge email={lead.email} emailKeywords={emailKeywords} />
+                      <small className="block text-slate-500">{lead.phone || "Sin telefono publico"} - {lead.website || "Sin web"}</small>
+                    </td>
                     <td><span className="rounded-full bg-pink-50 px-2 py-1 text-xs font-semibold text-pink-700">{lead.tag}</span><small className="block pt-1 text-slate-500">{lead.city} - {lead.source}</small></td>
                     <td className="font-bold text-emerald-700">{lead.score}</td>
                     <td><ValidationBadge lead={lead} requiredSignalCount={requiredSignalCount} requireIntentSignal={requireIntentSignal} /></td>
@@ -547,6 +578,12 @@ function ValidationBadge({ lead, requiredSignalCount, requireIntentSignal }: { l
       {valid ? "Valido" : "No pasa reglas"}
     </span>
   );
+}
+
+function EmailMatchBadge({ email, emailKeywords }: { email: string; emailKeywords: string }) {
+  const match = getEmailKeywordMatch(email, parseKeywords(emailKeywords));
+  if (!match) return null;
+  return <small className="mt-1 block font-semibold text-pink-700">Email contiene: {match}</small>;
 }
 
 function Metric({ label, value }: { label: string; value: number | string }) {
