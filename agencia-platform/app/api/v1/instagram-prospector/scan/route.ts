@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ApiError } from "@/lib/api/auth";
 import { withApi } from "@/lib/api/handler";
 import { prisma } from "@/lib/db/prisma";
+import { runInternalInstagramScan } from "@/lib/instagram-prospector/internal-scan";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,24 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
   const onlineAgents = await prisma.instagramProspectorAgent.count({
     where: { workspaceId: api.workspaceId, lastHeartbeatAt: { gte: onlineSince } }
   });
+  if (!onlineAgents) {
+    const result = await runInternalInstagramScan(parsed.data);
+    await prisma.instagramProspectorJob.update({
+      where: { id: job.id },
+      data: {
+        status: "COMPLETED",
+        result,
+        finishedAt: new Date()
+      }
+    });
+    return NextResponse.json({
+      jobId: job.id,
+      status: "COMPLETED",
+      onlineAgents,
+      result,
+      notice: "No habia agente interno conectado. He usado el motor publico propio de la plataforma para esta busqueda."
+    }, { status: 202 });
+  }
   return NextResponse.json({
     jobId: job.id,
     status: job.status,

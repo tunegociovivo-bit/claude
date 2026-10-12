@@ -165,6 +165,12 @@ export default function InstagramProspectorClient() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.message || "No se pudo completar la busqueda");
       setNotice(data.notice || "");
+      if (data.status === "COMPLETED" && data.result) {
+        setLeads(Array.isArray(data.result.leads) ? data.result.leads : []);
+        setNotice(data.result.notice || data.notice || "");
+        setStatus(`Completado: ${Array.isArray(data.result.leads) ? data.result.leads.length : 0} perfiles encontrados`);
+        return;
+      }
       if (!data.onlineAgents) {
         setStatus("En cola: agente interno desconectado");
         return;
