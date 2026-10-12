@@ -38,7 +38,8 @@ import {
   Target,
   Clock3,
   Smartphone,
-  PenLine
+  PenLine,
+  Instagram
 } from "lucide-react";
 
 // Áreas de la plataforma Bubui accesibles desde "Otros Proyectos".
@@ -72,6 +73,7 @@ const PLATFORM_ICONS: Record<string, typeof Star> = {
   gmb_hub: Star,
   time_tracking: Clock3,
   nv_prospecting: Target,
+  instagram_prospector: Instagram,
   mobile_farm: Smartphone,
   seo_publicador: PenLine
 };
@@ -92,6 +94,7 @@ const PLATFORM_GRAD: Record<string, string> = {
   gmb_hub: "linear-gradient(135deg,#34A853,#1A73E8)",          // verde-azul Google
   time_tracking: "linear-gradient(135deg,#6366F1,#14B8A6)",   // índigo-teal
   nv_prospecting: "linear-gradient(135deg,#6366F1,#7C3AED)",   // índigo-violeta
+  instagram_prospector: "linear-gradient(135deg,#F43F5E,#7C3AED)",
   meta_comments: "linear-gradient(135deg,#F43F5E,#7C3AED)",
   seo_publicador: "linear-gradient(135deg,#D2A039,#16160F)",      // oro NV
   mobile_farm: "linear-gradient(135deg,#22C55E,#0F766E)"
@@ -547,6 +550,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}
               {(() => {
                 const allItems = [
                   ...(me?.role === "ADMIN" ? [{ key: "nv_prospecting", label: "NV Prospección", href: "/admin/prospeccion", icon: Target }] : []),
+                  ...(me?.role === "ADMIN" ? [{ key: "instagram_prospector", label: "Prospector IG", href: "/admin/instagram-prospector", icon: Instagram }] : []),
                   ...(showGmb ? [{ key: "gmb_hub", label: "GMB Hub", href: "/gmb-hub", icon: Star }] : []),
                   ...(showTimeTracking ? [{ key: "time_tracking", label: "Control horario", href: "/control-horario", icon: Clock3 }] : []),
                   ...platforms.map((p) => ({
