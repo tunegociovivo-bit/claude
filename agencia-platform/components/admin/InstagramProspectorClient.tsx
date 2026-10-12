@@ -16,6 +16,8 @@ type Lead = {
   tag: string;
   score: number;
   status: string;
+  signals: string[];
+  missingSignals: string[];
 };
 
 type SearchPreset = {
@@ -28,6 +30,8 @@ type SearchPreset = {
   country: string;
   limit: number;
   minScore: number;
+  requiredSignalCount: number;
+  requireIntentSignal: boolean;
   intentSignals: string;
   negativeFilters: string;
   builtIn?: boolean;
@@ -38,27 +42,29 @@ const PRESETS_STORAGE_KEY = "nv-instagram-prospector-presets-v1";
 const builtInPresets: SearchPreset[] = [
   {
     id: "franchise-supermarkets",
-    name: "Franquicias / Supermercados",
-    description: "Personas con señales de interés en franquicias, retail alimentario, inversión local y supermercados.",
-    campaign: "Potenciales franquiciados - supermercados España",
+    name: "Potenciales franquiciados - alimentacion",
+    description: "Valida perfiles solo cuando combinan interes en alimentacion/retail con senales claras de franquicia, inversion o negocio propio.",
+    campaign: "Potenciales franquiciados - alimentacion Espana",
     sourceType: "followers",
-    target: "@dia_esp\n@carrefour_es\n@eroski\n@alcampo\n@consum\n@bonareaoficial\n@coviran\n@supermercadosmas\n@lupa_supermercados\n@supermercadoseljamon\n#franquicias\n#franquiciasrentables\n#supermercados\n#tiendasdealimentacion\n#negociolocal",
+    target: "@franquicias_hoy\n@mundofranquicia\n@tormofranquicias\n@barbadilloyasociados\n@franquiciasaldia\n@expofranquicia\n@franquishop\n#franquicias\n#franquicia\n#franquiciasrentables\n#franquiciasespana\n#invertirenfranquicias\n#autoempleo\n#negociopropio\n#retail\n#alimentacion\n#tiendasdealimentacion",
     country: "Espana",
     limit: 1000,
     minScore: 70,
-    intentSignals: "emprendedor\ninversor\nfranquicia\nfranquiciado\nautoempleo\nnegocio local\nretail\nalimentacion\nsupermercado\ntienda de alimentacion\nhosteleria\napertura\nexpansion",
-    negativeFilters: "perfil privado\nconsumidor sin bio profesional\nsorteos y cupones\nmenor de edad\nsin actividad reciente\nsolo comprador habitual",
+    requiredSignalCount: 3,
+    requireIntentSignal: true,
+    intentSignals: "comenta sobre franquicias\nusa hashtag franquicias\npide info de inversion\nbio emprendedor o inversor\nsigue portales de franquicias\ninteractua con alimentacion retail\ntiene contacto publico\nubicacion objetivo",
+    negativeFilters: "solo sigue supermercados de consumo\nofertas y cupones\nrecetas\nsorteos\ncliente habitual sin bio profesional\nperfil privado\nsin actividad reciente\nmenor de edad",
     builtIn: true
   }
 ];
 
 const sampleLeads: Lead[] = [
-  { name: "Marta Ruiz", handle: "@martafoodlab", email: "hola@martafoodlab.es", phone: "+34 611 204 881", website: "martafoodlab.es", city: "Madrid", source: "@madridfoodies", tag: "Food creator", score: 92, status: "Listo para email" },
-  { name: "Bistro Norte", handle: "@bistronorte", email: "reservas@bistronorte.com", phone: "+34 910 118 407", website: "bistronorte.com", city: "Madrid", source: "@madridfoodies", tag: "Restaurante", score: 88, status: "Validar dominio" },
-  { name: "Clara Medina", handle: "@claraenruta", email: "collabs@claraenruta.com", phone: "", website: "claraenruta.com", city: "Valencia", source: "#foodiees", tag: "Influencer", score: 81, status: "Listo para email" },
-  { name: "Taco Alto", handle: "@tacoalto.es", email: "eventos@tacoalto.es", phone: "+34 633 520 119", website: "tacoalto.es", city: "Madrid", source: "@madridfoodies", tag: "Cadena local", score: 94, status: "Alta prioridad" },
-  { name: "Sergio Fotos Gastro", handle: "@sergiogastroshot", email: "sergio@gastroshot.studio", phone: "", website: "gastroshot.studio", city: "Madrid", source: "post likes", tag: "Fotografia", score: 76, status: "Revisar encaje" },
-  { name: "Dulce Patio", handle: "@dulcepatio", email: "pedidos@dulcepatio.es", phone: "+34 622 410 073", website: "", city: "Alcobendas", source: "@madridfoodies", tag: "Pasteleria", score: 85, status: "Listo para email" }
+  { name: "Rafael Molina", handle: "@rafa.inversiones", email: "rafael@molinaretail.es", phone: "+34 611 204 881", website: "molinaretail.es", city: "Madrid", source: "#invertirenfranquicias", tag: "Inversor retail", score: 92, status: "Valido", signals: ["Intencion franquicia", "Retail alimentacion", "Bio inversor", "Contacto publico"], missingSignals: [] },
+  { name: "Laura Campos", handle: "@laurac.negocio", email: "laura@camposgestion.com", phone: "", website: "camposgestion.com", city: "Valencia", source: "@mundofranquicia", tag: "Emprendedora", score: 86, status: "Valido", signals: ["Intencion franquicia", "Bio emprendedora", "Sigue portal franquicias"], missingSignals: ["Sin telefono publico"] },
+  { name: "Super Ahorro Fan", handle: "@superahorrofan", email: "", phone: "", website: "", city: "Sevilla", source: "@carrefour_es", tag: "Consumidor", score: 34, status: "Descartado", signals: ["Sigue supermercado"], missingSignals: ["Sin intencion franquicia", "Sin bio profesional", "Sin contacto publico"] },
+  { name: "Taco Alto", handle: "@tacoalto.es", email: "eventos@tacoalto.es", phone: "+34 633 520 119", website: "tacoalto.es", city: "Madrid", source: "#negociopropio", tag: "Hosteleria", score: 78, status: "Valido", signals: ["Intencion negocio", "Contacto publico", "Actividad comercial"], missingSignals: ["No confirma alimentacion retail"] },
+  { name: "Sergio Fotos Gastro", handle: "@sergiogastroshot", email: "sergio@gastroshot.studio", phone: "", website: "gastroshot.studio", city: "Madrid", source: "post likes", tag: "Proveedor", score: 58, status: "Insuficiente", signals: ["Contacto publico", "Sector food"], missingSignals: ["Sin intencion franquicia"] },
+  { name: "Dulce Patio", handle: "@dulcepatio", email: "pedidos@dulcepatio.es", phone: "+34 622 410 073", website: "", city: "Alcobendas", source: "#tiendasdealimentacion", tag: "Negocio local", score: 82, status: "Valido", signals: ["Intencion expansion", "Alimentacion", "Contacto publico"], missingSignals: [] }
 ];
 
 const sourceLabels: Record<SourceType, string> = {
@@ -69,12 +75,24 @@ const sourceLabels: Record<SourceType, string> = {
   location: "Ubicacion"
 };
 
+function hasIntentSignal(lead: Lead) {
+  return lead.signals.some((signal) => /intencion|franquicia|inversion|negocio|expansion/i.test(signal));
+}
+
+function isValidLead(lead: Lead, requiredSignalCount: number, requireIntentSignal: boolean) {
+  const enoughSignals = lead.signals.length >= requiredSignalCount;
+  const intentOk = !requireIntentSignal || hasIntentSignal(lead);
+  return enoughSignals && intentOk;
+}
+
 export default function InstagramProspectorClient() {
   const [campaign, setCampaign] = useState("Restaurantes Madrid - influencers food");
   const [sourceType, setSourceType] = useState<SourceType>("followers");
   const [target, setTarget] = useState("@madridfoodies");
   const [limit, setLimit] = useState(250);
   const [country, setCountry] = useState("Espana");
+  const [requiredSignalCount, setRequiredSignalCount] = useState(2);
+  const [requireIntentSignal, setRequireIntentSignal] = useState(true);
   const [intentSignals, setIntentSignals] = useState("email publico\ntelefono publico\nweb activa\nbio profesional\nactividad reciente");
   const [negativeFilters, setNegativeFilters] = useState("perfil privado\nsin datos publicos\nduplicados");
   const [savedPresets, setSavedPresets] = useState<SearchPreset[]>([]);
@@ -99,17 +117,18 @@ export default function InstagramProspectorClient() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return leads.filter((lead) => {
-      const haystack = `${lead.name} ${lead.handle} ${lead.email} ${lead.phone} ${lead.city} ${lead.tag} ${lead.status}`.toLowerCase();
-      return haystack.includes(q) && lead.score >= minScore;
+      const haystack = `${lead.name} ${lead.handle} ${lead.email} ${lead.phone} ${lead.city} ${lead.tag} ${lead.status} ${lead.signals.join(" ")}`.toLowerCase();
+      return haystack.includes(q) && lead.score >= minScore && isValidLead(lead, requiredSignalCount, requireIntentSignal);
     });
-  }, [leads, minScore, query]);
+  }, [leads, minScore, query, requiredSignalCount, requireIntentSignal]);
 
   const metrics = useMemo(() => {
-    const email = leads.filter((lead) => lead.email).length;
-    const phone = leads.filter((lead) => lead.phone).length;
-    const score = leads.length ? Math.round(leads.reduce((sum, lead) => sum + lead.score, 0) / leads.length) : 0;
-    return { total: leads.length, email, phone, score };
-  }, [leads]);
+    const valid = leads.filter((lead) => isValidLead(lead, requiredSignalCount, requireIntentSignal));
+    const email = valid.filter((lead) => lead.email).length;
+    const phone = valid.filter((lead) => lead.phone).length;
+    const score = valid.length ? Math.round(valid.reduce((sum, lead) => sum + lead.score, 0) / valid.length) : 0;
+    return { total: valid.length, email, phone, score };
+  }, [leads, requiredSignalCount, requireIntentSignal]);
 
   function scan() {
     if (running) return;
@@ -118,8 +137,8 @@ export default function InstagramProspectorClient() {
     setStatus("Escaneando perfiles");
     sampleLeads.forEach((lead, index) => {
       window.setTimeout(() => {
-        setLeads((current) => [...current, { ...lead, source: index < 4 ? target : lead.source }]);
-        if (index === 2) setStatus("Enriqueciendo contactos");
+        setLeads((current) => [...current, { ...lead, source: index < 4 ? target.split(/\r?\n/).filter(Boolean)[0] || target : lead.source }]);
+        if (index === 2) setStatus("Validando senales cruzadas");
         if (index === sampleLeads.length - 1) {
           setStatus("Completado");
           setRunning(false);
@@ -143,6 +162,8 @@ export default function InstagramProspectorClient() {
     setCountry(preset.country);
     setLimit(preset.limit);
     setMinScore(preset.minScore);
+    setRequiredSignalCount(preset.requiredSignalCount);
+    setRequireIntentSignal(preset.requireIntentSignal);
     setIntentSignals(preset.intentSignals);
     setNegativeFilters(preset.negativeFilters);
     setPresetName(preset.builtIn ? `${preset.name} copia` : preset.name);
@@ -162,6 +183,8 @@ export default function InstagramProspectorClient() {
       country,
       limit,
       minScore,
+      requiredSignalCount,
+      requireIntentSignal,
       intentSignals,
       negativeFilters
     };
@@ -181,8 +204,8 @@ export default function InstagramProspectorClient() {
   }
 
   function csv() {
-    const headers = ["nombre", "instagram", "email", "telefono", "web", "ciudad", "origen", "etiqueta", "score", "estado"];
-    const rows = filtered.map((lead) => [lead.name, lead.handle, lead.email, lead.phone, lead.website, lead.city, lead.source, lead.tag, lead.score, lead.status]);
+    const headers = ["nombre", "instagram", "email", "telefono", "web", "ciudad", "origen", "etiqueta", "score", "estado", "senales", "faltantes"];
+    const rows = filtered.map((lead) => [lead.name, lead.handle, lead.email, lead.phone, lead.website, lead.city, lead.source, lead.tag, lead.score, lead.status, lead.signals.join(" | "), lead.missingSignals.join(" | ")]);
     return [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
   }
 
@@ -215,7 +238,7 @@ export default function InstagramProspectorClient() {
             </div>
             <h1 className="text-3xl font-bold text-slate-950">Captacion desde Instagram</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
-              Configura audiencias, detecta datos publicos y exporta contactos sin revisar perfiles uno a uno.
+              Configura audiencias, exige varias senales de intencion y exporta contactos sin revisar perfiles uno a uno.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -231,7 +254,7 @@ export default function InstagramProspectorClient() {
         </header>
 
         <section className="mb-5 grid gap-3 md:grid-cols-4">
-          <Metric label="Leads encontrados" value={metrics.total} />
+          <Metric label="Leads validos" value={metrics.total} />
           <Metric label="Con email" value={metrics.email} />
           <Metric label="Con telefono" value={metrics.phone} />
           <Metric label="Calidad media" value={metrics.score || "--"} />
@@ -254,7 +277,7 @@ export default function InstagramProspectorClient() {
                     <p className="text-xs font-bold uppercase tracking-wide text-pink-700">Plantillas</p>
                     <h3 className="font-bold text-slate-950">Acelera busquedas repetibles</h3>
                     <p className="mt-1 text-xs text-pink-900">
-                      Usa la plantilla de franquicias o guarda tus propias combinaciones de cuentas, señales y filtros.
+                      Usa una plantilla con reglas cruzadas o guarda tus propias combinaciones de cuentas, senales y filtros.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -318,7 +341,7 @@ export default function InstagramProspectorClient() {
               <label className="block text-sm font-medium text-slate-700">
                 Cuentas, posts, hashtags o ubicaciones
                 <textarea value={target} onChange={(e) => setTarget(e.target.value)} rows={5} className="mt-1 w-full rounded-xl border px-3 py-2" />
-                <small className="mt-1 block text-xs text-slate-500">Una fuente por linea. En el preset de franquicias mezcla cuentas de supermercados, hashtags e intereses.</small>
+                <small className="mt-1 block text-xs text-slate-500">Una fuente por linea. Evita depender solo de cuentas de consumo: combina portales de franquicia, hashtags de inversion y fuentes de alimentacion.</small>
               </label>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -338,6 +361,23 @@ export default function InstagramProspectorClient() {
                 </label>
               </div>
 
+              <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Reglas de validacion</p>
+                  <h3 className="font-bold text-slate-950">Exigir varias senales antes de aceptar un perfil</h3>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Minimo de senales requeridas
+                    <input type="number" min={1} max={6} value={requiredSignalCount} onChange={(e) => setRequiredSignalCount(Number(e.target.value))} className="mt-1 w-full rounded-xl border px-3 py-2" />
+                  </label>
+                  <label className="flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm font-medium text-slate-700">
+                    <input type="checkbox" checked={requireIntentSignal} onChange={(e) => setRequireIntentSignal(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                    Requerir senal de intencion franquicia/inversion
+                  </label>
+                </div>
+              </section>
+
               <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-2">
                 {["Email", "Telefono", "Web", "Ubicacion", "Solo perfiles negocio", "Quitar duplicados"].map((item) => (
                   <label key={item} className="flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -349,7 +389,7 @@ export default function InstagramProspectorClient() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block text-sm font-medium text-slate-700">
-                  Señales de intención
+                  Senales positivas
                   <textarea value={intentSignals} onChange={(e) => setIntentSignals(e.target.value)} rows={7} className="mt-1 w-full rounded-xl border px-3 py-2" />
                 </label>
                 <label className="block text-sm font-medium text-slate-700">
@@ -367,10 +407,10 @@ export default function InstagramProspectorClient() {
                 <h2 className="text-xl font-bold">Flujo operativo</h2>
               </div>
               <ol className="space-y-3 text-sm">
-                {["Definir fuente", "Escanear perfiles", "Enriquecer y puntuar", "Exportar o enviar"].map((step, index) => (
+                {["Definir fuentes", "Escanear perfiles", "Validar senales cruzadas", "Exportar o enviar"].map((step, index) => (
                   <li key={step} className="flex gap-3 rounded-xl bg-slate-50 p-3">
                     <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-950 text-xs font-bold text-white">{index + 1}</span>
-                    <span><b>{step}</b><small className="block text-slate-500">{index === 0 ? `${sourceLabels[sourceType]} · ${target.split(/\r?\n/).filter(Boolean).length} fuentes` : index === 1 ? `${limit} perfiles maximo` : index === 2 ? `Pais: ${country} · score ${minScore}+` : "CSV para CRM o campana"}</small></span>
+                    <span><b>{step}</b><small className="block text-slate-500">{index === 0 ? `${sourceLabels[sourceType]} - ${target.split(/\r?\n/).filter(Boolean).length} fuentes` : index === 1 ? `${limit} perfiles maximo` : index === 2 ? `${requiredSignalCount}+ senales${requireIntentSignal ? " con intencion obligatoria" : ""}` : "CSV para CRM o campana"}</small></span>
                   </li>
                 ))}
               </ol>
@@ -414,7 +454,7 @@ export default function InstagramProspectorClient() {
           <div className="mt-4 flex flex-wrap gap-2">
             <label className="relative min-w-[260px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrar por nombre, email, ciudad o etiqueta" className="w-full rounded-xl border py-2 pl-9 pr-3 text-sm" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrar por nombre, email, ciudad o senal" className="w-full rounded-xl border py-2 pl-9 pr-3 text-sm" />
             </label>
             <label className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm font-medium">
               <Filter className="h-4 w-4" />
@@ -428,29 +468,31 @@ export default function InstagramProspectorClient() {
           </div>
 
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-[1050px] text-left text-sm">
               <thead>
                 <tr className="border-b text-xs uppercase text-slate-500">
                   <th className="py-3">Contacto</th>
                   <th>Datos</th>
                   <th>Origen</th>
                   <th>Score</th>
-                  <th>Estado</th>
+                  <th>Validacion</th>
+                  <th>Motivos</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length ? filtered.map((lead) => (
                   <tr key={`${lead.handle}-${lead.email}`} className="border-b last:border-0">
                     <td className="py-3"><b>{lead.name}</b><small className="block text-slate-500">{lead.handle}</small></td>
-                    <td><b>{lead.email || "Sin email publico"}</b><small className="block text-slate-500">{lead.phone || "Sin telefono publico"} · {lead.website || "Sin web"}</small></td>
-                    <td><span className="rounded-full bg-pink-50 px-2 py-1 text-xs font-semibold text-pink-700">{lead.tag}</span><small className="block pt-1 text-slate-500">{lead.city} · {lead.source}</small></td>
+                    <td><b>{lead.email || "Sin email publico"}</b><small className="block text-slate-500">{lead.phone || "Sin telefono publico"} - {lead.website || "Sin web"}</small></td>
+                    <td><span className="rounded-full bg-pink-50 px-2 py-1 text-xs font-semibold text-pink-700">{lead.tag}</span><small className="block pt-1 text-slate-500">{lead.city} - {lead.source}</small></td>
                     <td className="font-bold text-emerald-700">{lead.score}</td>
-                    <td>{lead.status}</td>
+                    <td><ValidationBadge lead={lead} requiredSignalCount={requiredSignalCount} requireIntentSignal={requireIntentSignal} /></td>
+                    <td><LeadReasons lead={lead} /></td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-slate-500">
-                      {leads.length ? "No hay leads con esos filtros." : "Configura la audiencia y pulsa Iniciar escaneo."}
+                    <td colSpan={6} className="py-10 text-center text-slate-500">
+                      {leads.length ? "No hay leads que cumplan esas reglas." : "Configura la audiencia y pulsa Iniciar escaneo."}
                     </td>
                   </tr>
                 )}
@@ -460,6 +502,25 @@ export default function InstagramProspectorClient() {
         </section>
       </div>
     </main>
+  );
+}
+
+function LeadReasons({ lead }: { lead: Lead }) {
+  return (
+    <div className="max-w-md space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {lead.signals.map((signal) => (
+          <span key={signal} className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">{signal}</span>
+        ))}
+      </div>
+      {lead.missingSignals.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {lead.missingSignals.map((signal) => (
+            <span key={signal} className="rounded-full bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">{signal}</span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -476,6 +537,15 @@ function SignalList({ title, value, tone }: { title: string; value: string; tone
         ))}
       </div>
     </div>
+  );
+}
+
+function ValidationBadge({ lead, requiredSignalCount, requireIntentSignal }: { lead: Lead; requiredSignalCount: number; requireIntentSignal: boolean }) {
+  const valid = isValidLead(lead, requiredSignalCount, requireIntentSignal);
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${valid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+      {valid ? "Valido" : "No pasa reglas"}
+    </span>
   );
 }
 
