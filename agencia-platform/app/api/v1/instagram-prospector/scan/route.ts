@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api/auth";
 import { withApi } from "@/lib/api/handler";
-import { runInternalInstagramScan } from "@/lib/instagram-prospector/internal-scan";
+import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +18,27 @@ const schema = z.object({
   negativeFilters: z.string().max(4000).default("")
 });
 
-export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (req) => {
+export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (req, { api }) => {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
-  const result = await runInternalInstagramScan(parsed.data);
-  return NextResponse.json(result);
+  const job = await prisma.instagramProspectorJob.create({
+    data: {
+      workspaceId: api.workspaceId,
+      userId: api.userId,
+      config: parsed.data
+    }
+  });
+  const onlineSince = new Date(Date.now() - 2 * 60 * 1000);
+  const onlineAgents = await prisma.instagramProspectorAgent.count({
+    where: { workspaceId: api.workspaceId, lastHeartbeatAt: { gte: onlineSince } }
+  });
+  return NextResponse.json({
+    jobId: job.id,
+    status: job.status,
+    onlineAgents,
+    notice: onlineAgents
+      ? "Busqueda encolada para el agente interno de Instagram."
+      : "Busqueda encolada. No hay ningun agente interno de Instagram conectado ahora mismo."
+  }, { status: 202 });
 });

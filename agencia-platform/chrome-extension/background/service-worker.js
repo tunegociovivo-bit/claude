@@ -946,11 +946,152 @@ async function ensureAccountancyAlarm() {
   await chrome.alarms.create("accountancy-invoices", { periodInMinutes: 0.5 });
 }
 
+function parseInstagramTargets(value) {
+  return String(value || "")
+    .split(/[\n,;]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      if (item.startsWith("#")) return null;
+      if (/^https?:\/\//i.test(item)) {
+        try {
+          const url = new URL(item);
+          const handle = url.pathname.split("/").filter(Boolean)[0];
+          return handle ? { handle, url: `https://www.instagram.com/${handle}/` } : null;
+        } catch {
+          return null;
+        }
+      }
+      const handle = item.replace(/^@/, "").split(/[/?#]/)[0];
+      return handle ? { handle, url: `https://www.instagram.com/${handle}/` } : null;
+    })
+    .filter(Boolean);
+}
+
+function parseProspectorKeywords(value) {
+  return String(value || "").split(/[\n,;]/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+function emailKeywordMatch(email, keywords) {
+  const normalized = String(email || "").toLowerCase();
+  return keywords.find((keyword) => normalized.includes(keyword)) || "";
+}
+
+async function readInstagramProfile(tabId, source, config) {
+  await chrome.tabs.update(tabId, { url: source.url });
+  await waitForTabComplete(tabId);
+  await new Promise((resolve) => setTimeout(resolve, 4500));
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const text = document.body?.innerText || "";
+      const title = document.querySelector('meta[property="og:title"]')?.content || document.title || "";
+      const description = document.querySelector('meta[name="description"]')?.content || document.querySelector('meta[property="og:description"]')?.content || "";
+      const links = [...document.querySelectorAll("a[href]")].map((a) => a.href).filter(Boolean);
+      return { text, title, description, links, url: location.href };
+    }
+  });
+  const haystack = `${result?.title || ""}\n${result?.description || ""}\n${result?.text || ""}\n${(result?.links || []).join("\n")}`;
+  const emails = [...new Set(haystack.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [])];
+  const emailKeywords = parseProspectorKeywords(config.emailKeywords);
+  const email = emails.find((item) => !emailKeywords.length || emailKeywordMatch(item, emailKeywords)) || "";
+  if (emailKeywords.length && !email) return null;
+  const phone = (haystack.match(/(?:\+34\s?)?(?:[6789]\d[\s.-]?){4}\d/g) || [])[0] || "";
+  const website = (result?.links || []).find((url) => !/instagram\.com|facebook\.com|cdninstagram\.com/i.test(url)) || "";
+  const intentKeywords = parseProspectorKeywords(config.intentSignals);
+  const signals = [];
+  if (email) signals.push("Email publico");
+  if (phone) signals.push("Telefono publico");
+  if (website) signals.push("Web enlazada");
+  if (intentKeywords.some((keyword) => haystack.toLowerCase().includes(keyword))) signals.push("Intencion franquicia");
+  if (/franquicia|franquiciado|autoempleo|inversion|negocio propio|expansion/i.test(haystack)) signals.push("Interes negocio");
+  const required = Number(config.requiredSignalCount) || 1;
+  const requireIntent = config.requireIntentSignal !== false;
+  const missingSignals = [];
+  if (signals.length < required) missingSignals.push(`Menos de ${required} senales`);
+  if (requireIntent && !signals.some((signal) => /intencion|franquicia|inversion|negocio|expansion/i.test(signal))) missingSignals.push("Sin intencion franquicia/inversion");
+  return {
+    name: String(result?.title || source.handle).replace(/\s*•\s*Instagram.*$/i, "").trim() || source.handle,
+    handle: `@${source.handle}`,
+    email,
+    phone,
+    website,
+    city: config.country || "",
+    source: source.url,
+    tag: "Agente interno",
+    score: Math.min(95, 40 + signals.length * 14 + (email ? 12 : 0)),
+    status: missingSignals.length ? "Insuficiente" : "Valido",
+    signals: [...new Set(signals)],
+    missingSignals
+  };
+}
+
+async function reportInstagramProspectorResult(payload) {
+  const response = await authedFetch("/api/v1/instagram-prospector/agent", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!response.ok) throw new Error("El Hub no pudo guardar el resultado del prospector");
+}
+
+async function processInstagramProspectorJob(job) {
+  let tab;
+  try {
+    const config = job.config || {};
+    const targets = parseInstagramTargets(config.target).slice(0, Math.min(Number(config.limit) || 25, 80));
+    const leads = [];
+    const skipped = [];
+    tab = await chrome.tabs.create({ url: "https://www.instagram.com/", active: false });
+    for (const source of targets) {
+      const lead = await readInstagramProfile(tab.id, source, config);
+      if (lead) leads.push(lead);
+      else skipped.push(`${source.handle}: sin datos publicos que cumplan filtros`);
+    }
+    await reportInstagramProspectorResult({
+      id: job.id,
+      status: "COMPLETED",
+      leads,
+      skipped,
+      notice: `Agente interno completado: ${leads.length} perfiles encontrados de ${targets.length} fuentes publicas.`
+    });
+    if (leads.length) notify("Prospector Instagram", `${leads.length} perfiles encontrados`);
+  } catch (error) {
+    await reportInstagramProspectorResult({ id: job.id, status: "FAILED", error: String(error?.message || error).slice(0, 900) }).catch(() => {});
+  } finally {
+    if (tab?.id) await chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+let instagramProspectorBusy = false;
+async function processInstagramProspectorQueue() {
+  if (instagramProspectorBusy || !(await syncSession())) return;
+  instagramProspectorBusy = true;
+  try {
+    for (let attempts = 0; attempts < 3; attempts++) {
+      const response = await authedFetch("/api/v1/instagram-prospector/agent");
+      if (!response.ok) break;
+      const data = await response.json();
+      if (!data.job) break;
+      await processInstagramProspectorJob(data.job);
+    }
+  } finally {
+    instagramProspectorBusy = false;
+  }
+}
+
+async function registerInstagramProspectorAgent() {
+  if (!(await syncSession())) return false;
+  const response = await authedFetch("/api/v1/instagram-prospector/agent?registerOnly=1");
+  return response.ok;
+}
+
+async function ensureInstagramProspectorAlarm() {
+  await chrome.alarms.create("instagram-prospector", { periodInMinutes: 0.5 });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg?.from === "popup" && msg?.type === "check-session") {
       const ok = await syncSession();
       if (ok) await registerAccountancyAgent().catch(() => false);
+      if (ok) await registerInstagramProspectorAgent().catch(() => false);
       sendResponse({ ok });
       return;
     }
@@ -1348,6 +1489,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await syncSession();
   } else if (alarm.name === "accountancy-invoices") {
     await processAccountancyQueue();
+  } else if (alarm.name === "instagram-prospector") {
+    await processInstagramProspectorQueue();
   } else if (alarm.name === "upload-watchdog") {
     // Si seguimos en "uploading" 6 min después de parar, la subida se colgó.
     // Sacamos el estado de bloqueo para que el popup vuelva a ser usable.
@@ -1376,11 +1519,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Hub si no hay cookie. Si hay → ya estamos listos.
 chrome.runtime.onInstalled.addListener(async () => {
   await ensureAccountancyAlarm();
+  await ensureInstagramProspectorAlarm();
   const ok = await syncSession();
   if (ok) {
     await registerAccountancyAgent().catch(() => false);
+    await registerInstagramProspectorAgent().catch(() => false);
     await ensureNotificationsAlarm();
     await processAccountancyQueue();
+    await processInstagramProspectorQueue();
   } else {
     chrome.action.openPopup?.().catch(() => {});
   }
@@ -1388,11 +1534,14 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureAccountancyAlarm();
+  await ensureInstagramProspectorAlarm();
   const ok = await syncSession();
   if (ok) {
     await registerAccountancyAgent().catch(() => false);
+    await registerInstagramProspectorAgent().catch(() => false);
     await ensureNotificationsAlarm();
     await processAccountancyQueue();
+    await processInstagramProspectorQueue();
   }
 });
 
@@ -1402,6 +1551,10 @@ chrome.runtime.onStartup.addListener(async () => {
 ensureAccountancyAlarm()
   .then(() => processAccountancyQueue())
   .catch((error) => console.warn("[accountancy-bootstrap]", error?.message ?? error));
+ensureInstagramProspectorAlarm()
+  .then(() => registerInstagramProspectorAgent())
+  .then(() => processInstagramProspectorQueue())
+  .catch((error) => console.warn("[instagram-prospector-bootstrap]", error?.message ?? error));
 
 // Detector de fin de reunión: tab cerrada / URL cambia / silencio.
 function urlIsActiveMeeting(url) {

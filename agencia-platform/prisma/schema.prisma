@@ -271,6 +271,8 @@ model Workspace {
   accountancyInvoiceSchedule AccountancyInvoiceSchedule?
   accountancyInvoiceRuns     AccountancyInvoiceRun[]
   accountancyBrowserAgents   AccountancyBrowserAgent[]
+  instagramProspectorAgents  InstagramProspectorAgent[]
+  instagramProspectorJobs    InstagramProspectorJob[]
   aiDrafts                   AiDraft[]
   aiOrchestrations           AiOrchestration[]
   aiRunSteps                 AiRunStep[]
@@ -403,6 +405,40 @@ model AccountancyBrowserAgent {
 
   @@unique([workspaceId, agentKey])
   @@index([workspaceId, lastHeartbeatAt])
+}
+
+model InstagramProspectorAgent {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  agentKey        String
+  label           String
+  version         String?
+  lastHeartbeatAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, agentKey])
+  @@index([workspaceId, lastHeartbeatAt])
+}
+
+model InstagramProspectorJob {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  userId            String?
+  status            String    @default("QUEUED") // QUEUED|RUNNING|COMPLETED|FAILED|CANCELLED
+  config            Json
+  result            Json?
+  error             String?   @db.Text
+  claimedByAgentKey String?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, claimedByAgentKey])
 }
 
 model AccountancyInvoiceSchedule {

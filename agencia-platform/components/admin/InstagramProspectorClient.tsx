@@ -90,6 +90,17 @@ function getEmailKeywordMatch(email: string, keywords: string[]) {
   return keywords.find((keyword) => normalizedEmail.includes(keyword)) || "";
 }
 
+async function waitForInstagramJob(jobId: string) {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    const response = await fetch(`/api/v1/instagram-prospector/jobs/${jobId}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.message || "No se pudo consultar el estado de la busqueda");
+    if (data.status === "COMPLETED" || data.status === "FAILED") return data;
+  }
+  return { status: "QUEUED", result: null, error: "La busqueda sigue en cola. El agente interno la recogera cuando este conectado." };
+}
+
 export default function InstagramProspectorClient() {
   const [campaign, setCampaign] = useState("Restaurantes Madrid - influencers food");
   const [sourceType, setSourceType] = useState<SourceType>("followers");
@@ -144,7 +155,7 @@ export default function InstagramProspectorClient() {
     setRunning(true);
     setLeads([]);
     setNotice("");
-    setStatus("Buscando con motor propio del hub");
+    setStatus("Encolando busqueda para agente interno");
     try {
       const response = await fetch("/api/v1/instagram-prospector/scan", {
         method: "POST",
@@ -153,12 +164,20 @@ export default function InstagramProspectorClient() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.message || "No se pudo completar la busqueda");
-      setLeads(Array.isArray(data.leads) ? data.leads : []);
       setNotice(data.notice || "");
-      setStatus(`Completado: ${Array.isArray(data.leads) ? data.leads.length : 0} perfiles encontrados`);
+      if (!data.onlineAgents) {
+        setStatus("En cola: agente interno desconectado");
+        return;
+      }
+      setStatus("Agente interno trabajando");
+      const job = await waitForInstagramJob(data.jobId);
+      const result = job.result || {};
+      setLeads(Array.isArray(result.leads) ? result.leads : []);
+      setNotice(result.notice || job.error || data.notice || "");
+      setStatus(job.status === "COMPLETED" ? `Completado: ${Array.isArray(result.leads) ? result.leads.length : 0} perfiles encontrados` : "Error en agente interno");
     } catch (error: any) {
       setStatus(error?.message || "Error en la busqueda");
-      setNotice("El motor propio no ha podido completar esta busqueda. Revisa fuentes publicas, conexion y limites de Instagram.");
+      setNotice("El agente interno no ha podido completar esta busqueda. Revisa que haya una sesion de Instagram conectada y que las fuentes sean accesibles.");
     } finally {
       setRunning(false);
     }
