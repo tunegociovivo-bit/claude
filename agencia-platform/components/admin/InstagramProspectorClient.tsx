@@ -60,15 +60,6 @@ const builtInPresets: SearchPreset[] = [
   }
 ];
 
-const sampleLeads: Lead[] = [
-  { name: "Rafael Molina", handle: "@rafa.inversiones", email: "rafael@molinaretail.es", phone: "+34 611 204 881", website: "molinaretail.es", city: "Madrid", source: "#invertirenfranquicias", tag: "Inversor retail", score: 92, status: "Valido", signals: ["Intencion franquicia", "Retail alimentacion", "Bio inversor", "Contacto publico"], missingSignals: [] },
-  { name: "Laura Campos", handle: "@laurac.negocio", email: "laura@camposgestion.com", phone: "", website: "camposgestion.com", city: "Valencia", source: "@mundofranquicia", tag: "Emprendedora", score: 86, status: "Valido", signals: ["Intencion franquicia", "Bio emprendedora", "Sigue portal franquicias"], missingSignals: ["Sin telefono publico"] },
-  { name: "Super Ahorro Fan", handle: "@superahorrofan", email: "", phone: "", website: "", city: "Sevilla", source: "@carrefour_es", tag: "Consumidor", score: 34, status: "Descartado", signals: ["Sigue supermercado"], missingSignals: ["Sin intencion franquicia", "Sin bio profesional", "Sin contacto publico"] },
-  { name: "Taco Alto", handle: "@tacoalto.es", email: "eventos@tacoalto.es", phone: "+34 633 520 119", website: "tacoalto.es", city: "Madrid", source: "#negociopropio", tag: "Hosteleria", score: 78, status: "Valido", signals: ["Intencion negocio", "Contacto publico", "Actividad comercial"], missingSignals: ["No confirma alimentacion retail"] },
-  { name: "Sergio Fotos Gastro", handle: "@sergiogastroshot", email: "sergio@gastroshot.studio", phone: "", website: "gastroshot.studio", city: "Madrid", source: "post likes", tag: "Proveedor", score: 58, status: "Insuficiente", signals: ["Contacto publico", "Sector food"], missingSignals: ["Sin intencion franquicia"] },
-  { name: "Dulce Patio", handle: "@dulcepatio", email: "pedidos@dulcepatio.es", phone: "+34 622 410 073", website: "", city: "Alcobendas", source: "#tiendasdealimentacion", tag: "Negocio local", score: 82, status: "Valido", signals: ["Intencion expansion", "Alimentacion", "Contacto publico"], missingSignals: [] }
-];
-
 const sourceLabels: Record<SourceType, string> = {
   followers: "Seguidores",
   likers: "Likes",
@@ -99,25 +90,6 @@ function getEmailKeywordMatch(email: string, keywords: string[]) {
   return keywords.find((keyword) => normalizedEmail.includes(keyword)) || "";
 }
 
-function buildDemoLeads(count: number, target: string) {
-  const sources = target.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-  return Array.from({ length: Math.max(0, count) }, (_, index) => {
-    const base = sampleLeads[index % sampleLeads.length];
-    const cycle = Math.floor(index / sampleLeads.length);
-    const suffix = cycle ? ` ${cycle + 1}` : "";
-    const source = sources[index % Math.max(1, sources.length)] || base.source;
-    const email = cycle && base.email ? base.email.replace("@", `+${cycle + 1}@`) : base.email;
-    return {
-      ...base,
-      name: `${base.name}${suffix}`,
-      handle: cycle ? `${base.handle}${cycle + 1}` : base.handle,
-      email,
-      source,
-      score: Math.max(25, Math.min(99, base.score - (cycle % 4) * 3 + (index % 3) * 2))
-    };
-  });
-}
-
 export default function InstagramProspectorClient() {
   const [campaign, setCampaign] = useState("Restaurantes Madrid - influencers food");
   const [sourceType, setSourceType] = useState<SourceType>("followers");
@@ -135,6 +107,7 @@ export default function InstagramProspectorClient() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("Listo");
+  const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [minScore, setMinScore] = useState(0);
   const allPresets = useMemo(() => [...builtInPresets, ...savedPresets], [savedPresets]);
@@ -166,27 +139,35 @@ export default function InstagramProspectorClient() {
     return { total: valid.length, email, phone, score };
   }, [leads, requiredSignalCount, requireIntentSignal]);
 
-  function scan() {
+  async function scan() {
     if (running) return;
     setRunning(true);
     setLeads([]);
-    const demoLeads = buildDemoLeads(limit, target);
-    setStatus(`Simulando ${demoLeads.length} perfiles de prueba`);
-    demoLeads.forEach((lead, index) => {
-      window.setTimeout(() => {
-        setLeads((current) => [...current, lead]);
-        if (index === Math.floor(demoLeads.length / 2)) setStatus("Validando senales cruzadas");
-        if (index === demoLeads.length - 1) {
-          setStatus("Completado");
-          setRunning(false);
-        }
-      }, 250 + index * 25);
-    });
+    setNotice("");
+    setStatus("Buscando con motor propio del hub");
+    try {
+      const response = await fetch("/api/v1/instagram-prospector/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceType, target, limit, country, requiredSignalCount, requireIntentSignal, emailKeywords, intentSignals, negativeFilters })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.message || "No se pudo completar la busqueda");
+      setLeads(Array.isArray(data.leads) ? data.leads : []);
+      setNotice(data.notice || "");
+      setStatus(`Completado: ${Array.isArray(data.leads) ? data.leads.length : 0} perfiles encontrados`);
+    } catch (error: any) {
+      setStatus(error?.message || "Error en la busqueda");
+      setNotice("El motor propio no ha podido completar esta busqueda. Revisa fuentes publicas, conexion y limites de Instagram.");
+    } finally {
+      setRunning(false);
+    }
   }
 
   function reset() {
     setLeads([]);
     setStatus("Listo");
+    setNotice("");
     setQuery("");
     setMinScore(0);
   }
@@ -473,7 +454,7 @@ export default function InstagramProspectorClient() {
                 Cumplimiento
               </div>
               <p className="mt-2 text-emerald-900">
-                Esta version deja aislado el conector real. La integracion final debe usar fuentes permitidas, datos publicos, control de bajas y revision RGPD antes del envio.
+                Motor propio del hub: analiza datos publicos disponibles sin proveedor externo. Para seguidores, likes y comentarios completos hara falta una sesion/agente interno autorizado y revision RGPD antes del envio.
               </p>
             </section>
           </aside>
@@ -512,7 +493,7 @@ export default function InstagramProspectorClient() {
             </label>
           </div>
           <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Modo prueba: estos resultados son simulados para validar filtros y exportacion. Para obtener leads reales falta conectar el proveedor de datos de Instagram permitido.
+            {notice || "Motor propio: no usa proveedor externo. La busqueda directa solo puede devolver datos publicos accesibles para la plataforma."}
           </p>
 
           <div className="mt-4 overflow-x-auto">
