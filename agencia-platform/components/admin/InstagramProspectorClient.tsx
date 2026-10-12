@@ -101,6 +101,25 @@ function getEmailKeywordMatch(email: string, keywords: string[]) {
   return keywords.find((keyword) => normalizedEmail.includes(keyword)) || "";
 }
 
+function buildDemoLeads(count: number, target: string) {
+  const sources = target.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  return Array.from({ length: Math.max(0, count) }, (_, index) => {
+    const base = sampleLeads[index % sampleLeads.length];
+    const cycle = Math.floor(index / sampleLeads.length);
+    const suffix = cycle ? ` ${cycle + 1}` : "";
+    const source = sources[index % Math.max(1, sources.length)] || base.source;
+    const email = cycle && base.email ? base.email.replace("@", `+${cycle + 1}@`) : base.email;
+    return {
+      ...base,
+      name: `${base.name}${suffix}`,
+      handle: cycle ? `${base.handle}${cycle + 1}` : base.handle,
+      email,
+      source,
+      score: Math.max(25, Math.min(99, base.score - (cycle % 4) * 3 + (index % 3) * 2))
+    };
+  });
+}
+
 export default function InstagramProspectorClient() {
   const [campaign, setCampaign] = useState("Restaurantes Madrid - influencers food");
   const [sourceType, setSourceType] = useState<SourceType>("followers");
@@ -153,16 +172,17 @@ export default function InstagramProspectorClient() {
     if (running) return;
     setRunning(true);
     setLeads([]);
-    setStatus("Escaneando perfiles");
-    sampleLeads.forEach((lead, index) => {
+    const demoLeads = buildDemoLeads(limit, target);
+    setStatus(`Escaneando ${demoLeads.length} perfiles`);
+    demoLeads.forEach((lead, index) => {
       window.setTimeout(() => {
-        setLeads((current) => [...current, { ...lead, source: index < 4 ? target.split(/\r?\n/).filter(Boolean)[0] || target : lead.source }]);
-        if (index === 2) setStatus("Validando senales cruzadas");
-        if (index === sampleLeads.length - 1) {
+        setLeads((current) => [...current, lead]);
+        if (index === Math.floor(demoLeads.length / 2)) setStatus("Validando senales cruzadas");
+        if (index === demoLeads.length - 1) {
           setStatus("Completado");
           setRunning(false);
         }
-      }, 350 + index * 360);
+      }, 250 + index * 25);
     });
   }
 
