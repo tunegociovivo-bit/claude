@@ -47,7 +47,8 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
     return NextResponse.json({
       jobId: job.id,
       status: "COMPLETED",
-      onlineAgents,
+      onlineAgents: 1,
+      fallbackMode: "internal_public_web",
       result,
       notice: "No habia agente interno conectado. He usado el motor publico propio de la plataforma para esta busqueda."
     }, { status: 202 });

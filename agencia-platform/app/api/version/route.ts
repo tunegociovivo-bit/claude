@@ -50,7 +50,8 @@ export async function GET() {
       asanaFullMigration: true, // commit 548cc69
       kanbanColumnEditInline: true, // commit c611c5f
       commentBodyJson: true, // commit b5268f7
-      commentFkFix: true // commit b5268f7
+      commentFkFix: true, // commit b5268f7
+      instagramProspectorPublicFallback: true
     }
   });
 }
