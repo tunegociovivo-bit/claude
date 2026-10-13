@@ -500,6 +500,22 @@ $("btn-mark-read").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ from: "popup", type: "mark-notifications-read" });
 });
 
+document.getElementById("btn-instagram-agent")?.addEventListener("click", async () => {
+  const status = $("instagram-agent-status");
+  const btn = $("btn-instagram-agent");
+  if (status) status.textContent = "Conectando agente de Instagram con el Hub...";
+  if (btn) btn.disabled = true;
+  try {
+    const r = await chrome.runtime.sendMessage({ from: "popup", type: "register-instagram-agent" });
+    if (status) status.textContent = r?.ok ? "Conectado. Vuelve al Prospector IG y pulsa Comprobar conexion." : `No conectado: ${r?.error ?? "error desconocido"}`;
+  } catch (e) {
+    if (status) status.textContent = `No conectado: ${String(e?.message ?? e)}`;
+  } finally {
+    if (btn) btn.disabled = false;
+    render();
+  }
+});
+
 document.getElementById("btn-meta-invoices")?.addEventListener("click", async () => {
   const status = $("meta-invoices-status");
   const btn = $("btn-meta-invoices");

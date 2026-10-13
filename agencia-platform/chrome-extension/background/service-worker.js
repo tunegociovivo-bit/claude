@@ -1095,6 +1095,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok });
       return;
     }
+    if (msg?.from === "popup" && msg?.type === "register-instagram-agent") {
+      const sessionOk = await syncSession();
+      if (!sessionOk) {
+        sendResponse({ ok: false, error: "No detecto sesion activa en el Hub." });
+        return;
+      }
+      try {
+        const ok = await registerInstagramProspectorAgent();
+        if (ok) await processInstagramProspectorQueue();
+        sendResponse(ok ? { ok: true } : { ok: false, error: "El Hub rechazo el registro del agente." });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message ?? e) });
+      }
+      return;
+    }
     if (msg?.from === "popup" && msg?.type === "harvest-meta-invoices") {
       try {
         sendResponse(await harvestMetaInvoices());

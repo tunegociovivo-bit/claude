@@ -38,6 +38,18 @@ type SearchPreset = {
   builtIn?: boolean;
 };
 
+type AgentStatus = {
+  onlineAgents: number;
+  agents: Array<{
+    id: string;
+    label: string;
+    version: string | null;
+    lastHeartbeatAt: string;
+    online: boolean;
+    keyTail: string;
+  }>;
+};
+
 const PRESETS_STORAGE_KEY = "nv-instagram-prospector-presets-v1";
 
 const builtInPresets: SearchPreset[] = [
@@ -90,6 +102,15 @@ function getEmailKeywordMatch(email: string, keywords: string[]) {
   return keywords.find((keyword) => normalizedEmail.includes(keyword)) || "";
 }
 
+function timeAgo(value: string) {
+  const seconds = Math.floor((Date.now() - new Date(value).getTime()) / 1000);
+  if (!Number.isFinite(seconds)) return "sin fecha";
+  if (seconds < 60) return "ahora";
+  if (seconds < 3600) return `hace ${Math.floor(seconds / 60)} min`;
+  if (seconds < 86400) return `hace ${Math.floor(seconds / 3600)} h`;
+  return `hace ${Math.floor(seconds / 86400)} d`;
+}
+
 async function waitForInstagramJob(jobId: string) {
   for (let attempt = 0; attempt < 90; attempt += 1) {
     await new Promise((resolve) => window.setTimeout(resolve, 2000));
@@ -121,6 +142,7 @@ export default function InstagramProspectorClient() {
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [minScore, setMinScore] = useState(0);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const allPresets = useMemo(() => [...builtInPresets, ...savedPresets], [savedPresets]);
 
   useEffect(() => {
@@ -130,6 +152,18 @@ export default function InstagramProspectorClient() {
     } catch {
       setSavedPresets([]);
     }
+  }, []);
+
+  async function refreshAgentStatus() {
+    const response = await fetch("/api/v1/instagram-prospector/agents", { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (response.ok && data) setAgentStatus(data);
+  }
+
+  useEffect(() => {
+    refreshAgentStatus().catch(() => {});
+    const timer = window.setInterval(() => refreshAgentStatus().catch(() => {}), 15000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const filtered = useMemo(() => {
@@ -164,6 +198,7 @@ export default function InstagramProspectorClient() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.message || "No se pudo completar la busqueda");
+      refreshAgentStatus().catch(() => {});
       setNotice(data.notice || "");
       if (data.status === "COMPLETED" && data.result) {
         setLeads(Array.isArray(data.result.leads) ? data.result.leads : []);
@@ -452,7 +487,44 @@ export default function InstagramProspectorClient() {
           </section>
 
           <aside className="space-y-5">
-            <section className="rounded-2xl border bg-white p-5">
+          <section className="rounded-2xl border bg-white p-5">
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Agente interno</p>
+                    <h3 className="font-bold text-slate-950">
+                      {agentStatus?.onlineAgents ? "Chrome conectado" : "Chrome no conectado"}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Para seguidores, comentarios y likes completos hace falta la extension actualizada y conectada.
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-bold ${agentStatus?.onlineAgents ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+                    {agentStatus?.onlineAgents ? `${agentStatus.onlineAgents} online` : "Sin agente"}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a href="/api/v1/extension/download" className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
+                    <Download className="h-4 w-4" />
+                    Descargar extension actualizada
+                  </a>
+                  <button onClick={() => refreshAgentStatus().catch(() => {})} className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm font-semibold" type="button">
+                    <RotateCcw className="h-4 w-4" />
+                    Comprobar conexion
+                  </button>
+                </div>
+                {!!agentStatus?.agents?.length && (
+                  <div className="mt-3 space-y-2">
+                    {agentStatus.agents.map((agent) => (
+                      <div key={agent.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs text-slate-700">
+                        <span>{agent.label} {agent.version ? `v${agent.version}` : ""}</span>
+                        <span className={agent.online ? "font-bold text-emerald-700" : "text-slate-500"}>{agent.online ? "online" : timeAgo(agent.lastHeartbeatAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="mb-4 flex items-center gap-2">
                 <Target className="h-5 w-5 text-pink-700" />
                 <h2 className="text-xl font-bold">Flujo operativo</h2>
