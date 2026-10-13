@@ -126,8 +126,15 @@ model Contact {
   email       String?
   stage       String   @default("nuevos")
   order       Int      @default(0)
-  source      String   @default("manual") // manual | whatsapp | llamada
+  source      String   @default("manual") // manual | whatsapp | llamada | meta
   notes       String?  @db.Text
+  // Módulo «Leads y reenvíos»: estado comercial del lead (id de la lista
+  // configurable en Ajustes) y datos del formulario de Meta que llegan por Make.
+  leadStatus   String?
+  leadStatusAt DateTime?
+  leadInfo     Json?
+  // Intentos de contacto: [{ id, at, by, byName, note }] (el nº de intentos es la longitud).
+  contactAttempts Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -138,6 +145,7 @@ model Contact {
 
   @@index([workspaceId, stage])
   @@index([workspaceId, phone])
+  @@index([workspaceId, leadStatus])
 }
 
 model Appointment {
@@ -232,6 +240,9 @@ model WhatsappLine {
   active              Boolean   @default(true) // false = no sale nada por este número
   aiMode              String    @default("suggest") // auto | suggest | off
   instructions        String?   @db.Text // contexto extra para la IA de esta línea
+  // Primer mensaje que se envía a cada lead que entra por Make asignado a este
+  // número ({nombre}, {tratamiento}…). Vacío = el lead entra sin mensaje.
+  leadWelcome         String?   @db.Text
   // Límites anti-baneo (salientes)
   dailyLimit          Int       @default(200)
   hourlyLimit         Int       @default(45)
@@ -315,6 +326,8 @@ model OutboundMessage {
   replyToId      String? // entrante al que responde
   userId         String?
   idempotencyKey String?   @unique
+  // Nota de voz grabada en el CRM: { kind, mimetype, filename, key, size } (si no, solo texto).
+  media          Json?
   createdAt      DateTime  @default(now())
   sentAt         DateTime?
 

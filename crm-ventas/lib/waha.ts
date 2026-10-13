@@ -139,29 +139,37 @@ export async function setTyping(opts: {
 }
 
 async function sendTextWithConfig(cfg: WahaConfig, to: string, text: string) {
+  return postSend(cfg, "/api/sendText", { chatId: toChatId(to), text }, "sendText", 30_000);
+}
+
+// Envío con las mismas reglas de error en todos los tipos: un fallo dudoso
+// (timeout, red, 5xx, 200 sin id) se marca `ambiguous` y nunca se reintenta solo.
+async function postSend(
+  cfg: WahaConfig,
+  path: string,
+  payload: Record<string, unknown>,
+  label: string,
+  timeoutMs: number
+): Promise<{ messageId: string }> {
   let res: Response;
   try {
-    res = await fetch(`${cfg.baseUrl}/api/sendText`, {
+    res = await fetch(`${cfg.baseUrl}${path}`, {
       method: "POST",
       headers: headers(cfg),
-      body: JSON.stringify({
-        session: cfg.session,
-        chatId: toChatId(to),
-        text,
-      }),
+      body: JSON.stringify({ session: cfg.session, ...payload }),
       redirect: "error",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     // Conexión rechazada = seguro que no salió; timeout u otro = dudoso.
     const refused = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(`${reason} ${(error as any)?.cause?.code ?? ""}`);
-    throw new WahaSendError(`WAHA sendText sin respuesta: ${reason}`, null, !refused);
+    throw new WahaSendError(`WAHA ${label} sin respuesta: ${reason}`, null, !refused);
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     // 4xx = WAHA lo rechazó antes de enviar; 5xx = dudoso.
-    throw new WahaSendError(`WAHA sendText ${res.status}: ${body.slice(0, 300)}`, res.status, res.status >= 500);
+    throw new WahaSendError(`WAHA ${label} ${res.status}: ${body.slice(0, 300)}`, res.status, res.status >= 500);
   }
   const data = await res.json().catch(() => ({}));
   const messageId = extractMessageId(data);
@@ -171,6 +179,45 @@ async function sendTextWithConfig(cfg: WahaConfig, to: string, text: string) {
     throw new WahaSendError("WAHA devolvió 200 sin id de mensaje: la sesión no parece operativa", res.status, true);
   }
   return { messageId };
+}
+
+export type MediaSendKind = "image" | "video" | "voice" | "file";
+
+// Envía un archivo (foto, vídeo, nota de voz o documento) desde una sesión.
+// Requiere WAHA Plus (el mismo que ya usa el Hub para enviar archivos).
+export async function sendMedia(opts: {
+  workspaceId: string;
+  session: string;
+  to: string;
+  kind: MediaSendKind;
+  data: Buffer;
+  mimetype: string;
+  filename: string;
+  caption?: string;
+}): Promise<{ messageId: string }> {
+  const cfg = await getWahaConfig(opts.workspaceId, opts.session);
+  const file = { mimetype: opts.mimetype, filename: opts.filename, data: opts.data.toString("base64") };
+  const chatId = toChatId(opts.to);
+  const caption = opts.caption?.trim() || undefined;
+  const timeout = 90_000;
+  switch (opts.kind) {
+    case "image":
+      return postSend(cfg, "/api/sendImage", { chatId, file, ...(caption ? { caption } : {}) }, "sendImage", timeout);
+    case "video":
+      return postSend(cfg, "/api/sendVideo", { chatId, file, convert: false, ...(caption ? { caption } : {}) }, "sendVideo", timeout);
+    case "voice": {
+      const opus = /ogg|opus/i.test(opts.mimetype);
+      return postSend(
+        cfg,
+        "/api/sendVoice",
+        { chatId, file: opus ? { ...file, mimetype: "audio/ogg; codecs=opus" } : file, convert: !opus },
+        "sendVoice",
+        timeout
+      );
+    }
+    default:
+      return postSend(cfg, "/api/sendFile", { chatId, file, ...(caption ? { caption } : {}) }, "sendFile", timeout);
+  }
 }
 
 export async function sendOperationalWhatsapp(opts: { workspaceId: string; to: string; text: string }) {

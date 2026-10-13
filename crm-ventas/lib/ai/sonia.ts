@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicForWorkspace } from "@/lib/ai/anthropic-client";
 import { prisma } from "@/lib/prisma";
+import { mediaAiText } from "@/lib/inbox/media-core";
 import {
   appointmentsOfDay,
   availableSlotsOfDay,
@@ -384,11 +385,14 @@ export async function runSoniaWhatsappAgent(opts: {
   const messages: Anthropic.MessageParam[] = [];
   for (const m of history) {
     const role = m.direction === "in" ? "user" : "assistant";
+    // Fotos, audios y documentos: la IA solo sabe que llegaron (no los ve).
+    const media = (m.meta as any)?.media;
+    const content = media?.kind ? mediaAiText(media, m.direction === "in" ? "in" : "out") : m.body;
     const prev = messages[messages.length - 1];
     if (prev && prev.role === role && typeof prev.content === "string") {
-      prev.content = `${prev.content}\n${m.body}`;
+      prev.content = `${prev.content}\n${content}`;
     } else {
-      messages.push({ role, content: m.body });
+      messages.push({ role, content });
     }
   }
   if (messages.length === 0 || messages[0].role !== "user") {

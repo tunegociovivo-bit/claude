@@ -31,6 +31,7 @@ type LineDetail = {
   active: boolean;
   aiMode: "auto" | "suggest" | "off";
   instructions: string;
+  leadWelcome: string;
   dailyLimit: number;
   hourlyLimit: number;
   newChatsPerDay: number;
@@ -105,12 +106,14 @@ function LineCard({
   isOperator,
   onChanged,
   agentName,
+  leadsModule = false,
 }: {
   line: LineDetail;
   canManage: boolean;
   isOperator: boolean;
   onChanged: () => Promise<void>;
   agentName: string;
+  leadsModule?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -119,6 +122,7 @@ function LineCard({
   const [form, setForm] = useState({
     label: line.label,
     instructions: line.instructions,
+    leadWelcome: line.leadWelcome ?? "",
     dailyLimit: line.dailyLimit,
     hourlyLimit: line.hourlyLimit,
     newChatsPerDay: line.newChatsPerDay,
@@ -318,6 +322,22 @@ function LineCard({
               onChange={(e) => setForm({ ...form, instructions: e.target.value })}
             />
           </label>
+          {leadsModule && (
+            <label className="block text-xs font-medium text-slate-700">
+              Primer mensaje a los leads de Make
+              <textarea
+                className="input mt-1 min-h-24"
+                placeholder="Ej.: Hola {nombre}, soy Rochar de Clínica March. Hemos recibido tu solicitud sobre {tratamiento}. ¿Cuándo te viene bien que te llamemos?"
+                value={form.leadWelcome}
+                maxLength={1500}
+                onChange={(e) => setForm({ ...form, leadWelcome: e.target.value })}
+              />
+              <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                Se envía desde este número a cada lead que Make asigne aquí. Usa {"{nombre}"} y {"{tratamiento}"}. Sin enlaces (WhatsApp lo
+                considera spam en un primer mensaje). Vacío = el lead entra sin mensaje. Necesita «Chats nuevos/día» mayor que 0.
+              </span>
+            </label>
+          )}
           <div className="grid grid-cols-3 gap-2">
             <label className="block text-xs font-medium text-slate-700">
               Máx./día
@@ -344,6 +364,7 @@ function LineCard({
                 void patch({
                   label: form.label,
                   instructions: form.instructions,
+                  ...(leadsModule ? { leadWelcome: form.leadWelcome } : {}),
                   dailyLimit: form.dailyLimit,
                   hourlyLimit: form.hourlyLimit,
                   newChatsPerDay: form.newChatsPerDay,
@@ -355,6 +376,20 @@ function LineCard({
             <button className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 px-3 text-xs text-slate-600 hover:bg-slate-100" disabled={busy} onClick={() => void patch({ resetWarmup: true })}>
               Reiniciar calentamiento
             </button>
+            {isOperator && line.newChatsPerDay > 0 && line.warmupDays < 14 && (
+              <button
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:opacity-50 px-3 text-xs text-slate-600 hover:bg-slate-100"
+                disabled={busy}
+                title="Para números que ya se usaban a diario antes de conectarlos al CRM"
+                onClick={() => {
+                  if (confirm("¿Este número ya se usaba a diario antes de conectarlo al CRM? Se quitará la rampa de calentamiento y podrá iniciar todas las conversaciones nuevas del cupo desde hoy.")) {
+                    void patch({ markEstablished: true });
+                  }
+                }}
+              >
+                Número ya en uso (sin calentamiento)
+              </button>
+            )}
             {!line.isPrimary && (line.mode === "own" || isOperator) && (
               <button className="ml-auto inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50" disabled={busy} onClick={() => void remove()}>
                 <Trash2 size={13} /> Quitar de la bandeja
@@ -503,6 +538,7 @@ export default function PhonesModal({ onClose }: { onClose: () => void }) {
   const [lines, setLines] = useState<LineDetail[] | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [isOperator, setIsOperator] = useState(false);
+  const [leadsModule, setLeadsModule] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [linkForm, setLinkForm] = useState({ sessionName: "", label: "" });
   const [busy, setBusy] = useState(false);
@@ -515,6 +551,7 @@ export default function PhonesModal({ onClose }: { onClose: () => void }) {
       setLines(data.lines);
       setCanManage(Boolean(data.canManage));
       setIsOperator(Boolean(data.isOperator));
+      setLeadsModule(Boolean(data.leadsModule));
     } else setError(data?.error ?? "No se pudieron cargar los números");
   }, []);
 
@@ -608,7 +645,7 @@ export default function PhonesModal({ onClose }: { onClose: () => void }) {
                 </p>
               )}
               {lines?.map((line) => (
-                <LineCard key={line.id} line={line} canManage={canManage} isOperator={isOperator} onChanged={load} agentName={agentName} />
+                <LineCard key={line.id} line={line} canManage={canManage} isOperator={isOperator} onChanged={load} agentName={agentName} leadsModule={leadsModule} />
               ))}
 
               {canManage && lines && lines.length > 0 && (

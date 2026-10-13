@@ -6,6 +6,7 @@ import WahaConnectionCard from "@/components/WahaConnectionCard";
 import UsersCard from "@/components/UsersCard";
 import LogoCard from "@/components/LogoCard";
 import GoogleCalendarCard from "@/components/GoogleCalendarCard";
+import LeadsSettingsCard from "@/components/LeadsSettingsCard";
 
 type SettingsData = {
   sonia: {
@@ -309,6 +310,8 @@ export default function AjustesClient() {
           {data.sonia.agentName.toUpperCase()} responde automáticamente a los mensajes entrantes
         </label>
       </section>
+
+      <LeadsSettingsCard />
 
       <section className="card space-y-4 border-amber-200 p-4 sm:p-6">
         <div>

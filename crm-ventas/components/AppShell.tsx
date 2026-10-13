@@ -32,7 +32,7 @@ const NAV: NavItem[] = [
   { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
 
-type Modules = { editorial: boolean; seo: boolean };
+type Modules = { editorial: boolean; seo: boolean; leads: boolean };
 const MODULES_CACHE_KEY = "crm-ventas:modules";
 
 const NAV_ORDER_KEY = "crm-ventas:navigation-order";
@@ -42,13 +42,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [logo, setLogo] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("Paula");
   const [order, setOrder] = useState<NavItem[]>(NAV);
-  const [modules, setModules] = useState<Modules>({ editorial: false, seo: false });
+  const [modules, setModules] = useState<Modules>({ editorial: false, seo: false, leads: false });
   const nav = order.filter((item) => !item.module || modules[item.module]);
 
   useEffect(() => {
     try {
       const cached = JSON.parse(sessionStorage.getItem(MODULES_CACHE_KEY) ?? "null");
-      if (cached && typeof cached === "object") setModules({ editorial: cached.editorial === true, seo: cached.seo === true });
+      if (cached && typeof cached === "object") setModules({ editorial: cached.editorial === true, seo: cached.seo === true, leads: cached.leads === true });
     } catch {
       // Sin caché: se pinta el menú base hasta que responda el servidor.
     }
@@ -58,7 +58,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setLogo(d?.logoDataUrl ?? null);
         setAgentName(d?.agentName || "Paula");
         if (d?.modules) {
-          const next = { editorial: d.modules.editorial === true, seo: d.modules.seo === true };
+          const next = { editorial: d.modules.editorial === true, seo: d.modules.seo === true, leads: d.modules.leads === true };
           setModules(next);
           try { sessionStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(next)); } catch {}
         }

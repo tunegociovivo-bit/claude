@@ -14,8 +14,10 @@ export default function PipelineWorkspace({
   initialCards,
   initialView,
   initialContactId,
+  leadStatuses = null,
 }: {
   columns: PipelineColumn[];
+  leadStatuses?: React.ComponentProps<typeof PipelineClient>["leadStatuses"];
   initialCards: React.ComponentProps<typeof PipelineClient>["initialCards"];
   initialView: View;
   initialContactId: string | null;
@@ -74,7 +76,14 @@ export default function PipelineWorkspace({
             )}
           >
             <Icon size={15} />
-            {label}
+            {id === "whatsapp" ? (
+              <>
+                <span className="sm:hidden">WhatsApp</span>
+                <span className="hidden sm:inline">{label}</span>
+              </>
+            ) : (
+              label
+            )}
             {id === "whatsapp" && unread > 0 && (
               <span className="rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-white">{unread}</span>
             )}
@@ -83,7 +92,7 @@ export default function PipelineWorkspace({
       </div>
 
       {view === "tablero" ? (
-        <PipelineClient columns={columns} initialCards={initialCards} onOpenChat={(id) => switchView("whatsapp", id)} />
+        <PipelineClient columns={columns} initialCards={initialCards} leadStatuses={leadStatuses} onOpenChat={(id) => switchView("whatsapp", id)} />
       ) : (
         <InboxPanel
           columns={columns}
@@ -93,7 +102,7 @@ export default function PipelineWorkspace({
           title="WhatsApp unificado"
           hideTitleOnMobile
           onUnreadChange={setUnread}
-          heightClass="h-[calc(100dvh-13.5rem)] md:h-[calc(100vh-6.5rem)]"
+          heightClass="h-[calc(100dvh-15rem)] md:h-[calc(100vh-6.5rem)]"
         />
       )}
     </div>

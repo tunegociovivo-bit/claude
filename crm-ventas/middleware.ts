@@ -10,6 +10,10 @@ const PUBLIC_PREFIXES = [
   "/api/public/",
   "/_next",
   "/favicon.ico",
+  // Instalación como app en el móvil (manifiesto e iconos)
+  "/manifest.webmanifest",
+  "/icon.png",
+  "/apple-icon.png",
 ];
 
 // Comprobación ligera por cookie (sin BD). La autorización real la hacen las

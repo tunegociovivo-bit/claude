@@ -17,7 +17,10 @@ const patchSchema = z.object({
   dailyLimit: z.number().int().min(10).max(1000).optional(),
   hourlyLimit: z.number().int().min(5).max(200).optional(),
   newChatsPerDay: z.number().int().min(0).max(50).optional(),
+  leadWelcome: z.string().max(1500).optional(),
   resetWarmup: z.literal(true).optional(),
+  // Número que ya se usaba antes del CRM: sin rampa de calentamiento.
+  markEstablished: z.literal(true).optional(),
   resume: z.literal(true).optional(), // quitar la pausa de seguridad
 });
 
@@ -29,13 +32,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!parsed.success) return Response.json({ error: "Valores no válidos" }, { status: 400 });
     const line = await prisma.whatsappLine.findFirst({ where: { id: params.id, workspaceId: user.workspaceId } });
     if (!line) return Response.json({ error: "Número no encontrado" }, { status: 404 });
-    const { resetWarmup, resume, instructions, ...rest } = parsed.data;
+    const { resetWarmup, markEstablished, resume, instructions, leadWelcome, ...rest } = parsed.data;
+    // Quitar la rampa de calentamiento es una decisión anti-baneo: solo Negocio Vivo.
+    if (markEstablished && !user.isOperator) {
+      return Response.json({ error: "Solo un operador de Negocio Vivo puede quitar el calentamiento" }, { status: 403 });
+    }
     const updated = await prisma.whatsappLine.update({
       where: { id: line.id },
       data: {
         ...rest,
         ...(instructions !== undefined ? { instructions: instructions.trim() || null } : {}),
+        ...(leadWelcome !== undefined ? { leadWelcome: leadWelcome.trim() || null } : {}),
         ...(resetWarmup ? { warmupSince: new Date() } : {}),
+        ...(markEstablished ? { warmupSince: new Date(Date.now() - 15 * 86_400_000) } : {}),
         ...(resume ? { pausedUntil: null, pauseReason: null, consecutiveFailures: 0, lastStatusAt: null } : {}),
       },
     });

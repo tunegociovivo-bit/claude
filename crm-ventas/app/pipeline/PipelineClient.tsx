@@ -18,10 +18,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CalendarClock, MessageCircle, MessagesSquare, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
+import { CalendarClock, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, Plus, Trash2, X } from "lucide-react";
 import clsx from "clsx";
 import type { PipelineColumn } from "@/lib/settings";
 import { useAgentName } from "@/components/AgentNameContext";
+import { findStatus, LeadStatusChip, LeadStatusSelect, type LeadStatusOption } from "@/components/inbox/leads-ui";
 
 type Card = {
   id: string;
@@ -31,6 +32,8 @@ type Card = {
   order: number;
   source: string;
   notes: string | null;
+  leadStatus?: string | null;
+  attempts?: number;
   nextAppointment: string | null;
   callSummary: string | null;
   callIntent: string | null;
@@ -56,12 +59,14 @@ function ContactCard({
   onEdit,
   onChat,
   dragging,
+  statuses,
 }: {
   card: Card;
   onDelete?: (id: string) => void;
   onEdit?: (card: Card) => void;
   onChat?: (id: string) => void;
   dragging?: boolean;
+  statuses?: LeadStatusOption[] | null;
 }) {
   return (
     <div
@@ -86,7 +91,7 @@ function ContactCard({
                 e.stopPropagation();
                 onChat(card.id);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 sm:h-8 sm:w-8"
               title="Abrir chat de WhatsApp"
               aria-label="Abrir chat de WhatsApp"
             >
@@ -100,7 +105,7 @@ function ContactCard({
                 e.stopPropagation();
                 onEdit(card);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-brand-50 hover:text-brand-600"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-brand-50 hover:text-brand-600 sm:h-8 sm:w-8"
               title="Editar contacto"
             >
               <Pencil size={13} />
@@ -113,7 +118,7 @@ function ContactCard({
                 e.stopPropagation();
                 onDelete(card.id);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 md:hidden md:group-hover:flex"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 sm:h-8 sm:w-8 md:hidden md:group-hover:flex"
               title="Eliminar"
             >
               <Trash2 size={13} />
@@ -121,6 +126,16 @@ function ContactCard({
           )}
         </div>
       </div>
+      {statuses && (card.leadStatus || (card.attempts ?? 0) > 0) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {card.leadStatus && <LeadStatusChip status={findStatus(statuses, card.leadStatus)} className="text-[11px]" />}
+          {(card.attempts ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600" title="Intentos de contacto">
+              <PhoneCall size={11} /> {card.attempts} {card.attempts === 1 ? "intento" : "intentos"}
+            </span>
+          )}
+        </div>
+      )}
       {card.nextAppointment && (
         <div className="mt-2 flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700">
           <CalendarClock size={12} />
@@ -149,11 +164,13 @@ function SortableCard({
   onDelete,
   onEdit,
   onChat,
+  statuses,
 }: {
   card: Card;
   onDelete: (id: string) => void;
   onEdit: (card: Card) => void;
   onChat?: (id: string) => void;
+  statuses?: LeadStatusOption[] | null;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, data: { type: "card", card } });
@@ -165,7 +182,7 @@ function SortableCard({
       {...attributes}
       {...listeners}
     >
-      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} onChat={onChat} />
+      <ContactCard card={card} onDelete={onDelete} onEdit={onEdit} onChat={onChat} statuses={statuses} />
     </div>
   );
 }
@@ -177,6 +194,7 @@ function Column({
   onEdit,
   onAdd,
   onChat,
+  statuses,
 }: {
   column: PipelineColumn;
   cards: Card[];
@@ -184,6 +202,7 @@ function Column({
   onEdit: (card: Card) => void;
   onAdd: (stage: string) => void;
   onChat?: (id: string) => void;
+  statuses?: LeadStatusOption[] | null;
 }) {
   const { setNodeRef } = useDroppable({
     id: `col-${column.id}`,
@@ -204,8 +223,9 @@ function Column({
         </div>
         <button
           onClick={() => onAdd(column.id)}
-          className="text-slate-400 hover:text-brand-600"
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 sm:h-8 sm:w-8"
           title="Añadir contacto"
+          aria-label={`Añadir contacto en ${column.label}`}
         >
           <Plus size={16} />
         </button>
@@ -216,7 +236,7 @@ function Column({
       >
         <div ref={setNodeRef} className="flex min-h-[60px] flex-1 flex-col gap-2 p-1">
           {cards.map((card) => (
-            <SortableCard key={card.id} card={card} onDelete={onDelete} onEdit={onEdit} onChat={onChat} />
+            <SortableCard key={card.id} card={card} onDelete={onDelete} onEdit={onEdit} onChat={onChat} statuses={statuses} />
           ))}
         </div>
       </SortableContext>
@@ -228,10 +248,12 @@ export default function PipelineClient({
   columns,
   initialCards,
   onOpenChat,
+  leadStatuses = null,
 }: {
   columns: PipelineColumn[];
   initialCards: Card[];
   onOpenChat?: (contactId: string) => void;
+  leadStatuses?: LeadStatusOption[] | null;
 }) {
   const [cards, setCards] = useState<Card[]>(initialCards);
   const agentName = useAgentName();
@@ -240,6 +262,7 @@ export default function PipelineClient({
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editStatus, setEditStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -345,6 +368,7 @@ export default function PipelineClient({
     setEditName(card.name);
     setEditPhone(card.phone?.includes("@lid") ? "" : card.phone ?? "");
     setEditNotes(card.notes ?? "");
+    setEditStatus(card.leadStatus ?? null);
   }
 
   async function saveEdit(e: React.FormEvent) {
@@ -356,6 +380,7 @@ export default function PipelineClient({
         name: editName.trim(),
         phone: editPhone.trim() || null,
         notes: editNotes.trim() || null,
+        ...(leadStatuses && editStatus !== (editing.leadStatus ?? null) ? { leadStatus: editStatus } : {}),
       };
       const res = await fetch(`/api/v1/contacts/${editing.id}`, {
         method: "PATCH",
@@ -427,11 +452,12 @@ export default function PipelineClient({
               onEdit={onEdit}
               onAdd={onAdd}
               onChat={onOpenChat}
+              statuses={leadStatuses}
             />
           ))}
         </div>
         <DragOverlay>
-          {active ? <ContactCard card={active} dragging /> : null}
+          {active ? <ContactCard card={active} dragging statuses={leadStatuses} /> : null}
         </DragOverlay>
       </DndContext>
       {editing && (
@@ -451,6 +477,12 @@ export default function PipelineClient({
               Teléfono
               <input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-brand-500" placeholder="+34 600 000 000" />
             </label>
+            {leadStatuses && (
+              <div className="mb-3 block text-sm font-medium text-slate-700">
+                Estado del lead
+                <LeadStatusSelect statuses={leadStatuses} value={editStatus} onChange={setEditStatus} className="mt-1 w-full" />
+              </div>
+            )}
             <label className="block text-sm font-medium text-slate-700">
               Información adicional
               <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} className="mt-1 min-h-28 w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-normal outline-none focus:border-brand-500" placeholder="Añade aquí preferencias, contexto o cualquier dato útil…" />

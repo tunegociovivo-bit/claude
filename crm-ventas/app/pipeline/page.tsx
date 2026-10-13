@@ -6,6 +6,8 @@ import { getWorkspaceSettings } from "@/lib/settings";
 import AppShell from "@/components/AppShell";
 import PipelineWorkspace from "./PipelineWorkspace";
 import { classifyCallIntent } from "@/lib/calls";
+import { getLeadsState } from "@/lib/leads/settings";
+import { readAttempts } from "@/lib/leads/config";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +20,9 @@ export default async function PipelinePage({
   const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
   if (!workspaceId) redirect("/login");
 
-  const [settings, contacts] = await Promise.all([
+  const [settings, leads, contacts] = await Promise.all([
     getWorkspaceSettings(workspaceId),
+    getLeadsState(workspaceId),
     prisma.contact.findMany({
       where: { workspaceId },
       orderBy: [{ order: "asc" }, { createdAt: "desc" }],
@@ -47,6 +50,8 @@ export default async function PipelinePage({
     order: c.order,
     source: c.source,
     notes: c.notes,
+    leadStatus: c.leadStatus,
+    attempts: readAttempts(c.contactAttempts).length,
     nextAppointment: c.appointments[0]?.startsAt?.toISOString() ?? null,
     callSummary: c.calls[0]?.summary ?? null,
     callIntent: classifyCallIntent(c.calls[0]?.summary ?? null, c.calls[0]?.transcript ?? null),
@@ -57,6 +62,7 @@ export default async function PipelinePage({
       <PipelineWorkspace
         columns={[...settings.pipeline.columns].sort((a, b) => a.order - b.order)}
         initialCards={cards}
+        leadStatuses={leads.enabled ? leads.statuses : null}
         initialView={searchParams?.vista === "whatsapp" || searchParams?.contacto ? "whatsapp" : "tablero"}
         initialContactId={typeof searchParams?.contacto === "string" ? searchParams.contacto : null}
       />
