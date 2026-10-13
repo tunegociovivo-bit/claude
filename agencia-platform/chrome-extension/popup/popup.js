@@ -62,6 +62,62 @@ function timeAgo(iso) {
   return `hace ${Math.floor(sec / 86400)} d`;
 }
 
+async function getHubUrl() {
+  const stored = await chrome.storage.local.get(["hubUrl"]);
+  return stored.hubUrl ?? "https://hub.negociovivo.app";
+}
+
+async function getPopupAgentIdentity() {
+  const stored = await chrome.storage.local.get(["browserAgentId", "browserAgentLabel"]);
+  const id = stored.browserAgentId || crypto.randomUUID();
+  const label = stored.browserAgentLabel || `Perfil Instagram ${id.slice(0, 6)}`;
+  if (!stored.browserAgentId || !stored.browserAgentLabel) {
+    await chrome.storage.local.set({ browserAgentId: id, browserAgentLabel: label });
+  }
+  return { id, label };
+}
+
+async function readHubCookieForPopup(hubUrl) {
+  for (const name of ["__Secure-next-auth.session-token", "next-auth.session-token"]) {
+    try {
+      const c = await chrome.cookies.get({ url: hubUrl, name });
+      if (c?.value) return c.value;
+    } catch {}
+  }
+  return null;
+}
+
+async function popupHubFetch(path, init = {}) {
+  const hubUrl = await getHubUrl();
+  const headers = new Headers(init.headers ?? {});
+  const agent = await getPopupAgentIdentity();
+  headers.set("X-Hub-Browser-Agent", agent.id);
+  headers.set("X-Hub-Browser-Agent-Label", agent.label);
+  headers.set("X-Hub-Extension-Version", chrome.runtime.getManifest().version);
+  const token = await readHubCookieForPopup(hubUrl);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${hubUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+    cache: "no-store"
+  });
+}
+
+async function registerInstagramAgentDirect() {
+  const response = await popupHubFetch("/api/v1/instagram-prospector/agent?registerOnly=1");
+  const text = await response.text().catch(() => "");
+  if (!response.ok) {
+    let message = text.slice(0, 180) || `HTTP ${response.status}`;
+    try {
+      const parsed = JSON.parse(text);
+      message = parsed?.error?.message || parsed?.message || message;
+    } catch {}
+    throw new Error(message);
+  }
+  return true;
+}
+
 /**
  * Pinta el panel de diagnóstico. Independiente del resto del render:
  * cualquier fallo aquí dentro acaba en un mensaje legible en el
@@ -129,8 +185,7 @@ async function renderDiagnostic() {
 async function runDiagProbe() {
   const out = {};
   try {
-    const stored = await chrome.storage.local.get(["hubUrl"]);
-    const hubUrl = stored.hubUrl ?? "https://hub.negociovivo.app";
+    const hubUrl = await getHubUrl();
     out.hubUrl = hubUrl;
     let cookieValue = null;
     for (const name of ["__Secure-next-auth.session-token", "next-auth.session-token"]) {
@@ -506,8 +561,9 @@ document.getElementById("btn-instagram-agent")?.addEventListener("click", async 
   if (status) status.textContent = "Conectando agente de Instagram con el Hub...";
   if (btn) btn.disabled = true;
   try {
-    const r = await chrome.runtime.sendMessage({ from: "popup", type: "register-instagram-agent" });
-    if (status) status.textContent = r?.ok ? "Conectado. Vuelve al Prospector IG y pulsa Comprobar conexion." : `No conectado: ${r?.error ?? "error desconocido"}`;
+    await registerInstagramAgentDirect();
+    chrome.runtime.sendMessage({ from: "popup", type: "register-instagram-agent" }).catch(() => {});
+    if (status) status.textContent = "Conectado. Vuelve al Prospector IG y pulsa Comprobar conexion.";
   } catch (e) {
     if (status) status.textContent = `No conectado: ${String(e?.message ?? e)}`;
   } finally {
