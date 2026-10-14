@@ -21,6 +21,7 @@ type Client = {
   contentAiLimitUsd: number;
   apiKeys?: ClientApiKeys;
   lastOperatorAccess?: { email: string; at: string } | null;
+  whatsappServer?: { configured: boolean; host: string | null };
 };
 
 type ModuleKey = "editorial" | "seo" | "leads";
@@ -254,9 +255,9 @@ export default function AdminDashboard() {
             <label className="text-sm font-medium text-slate-700">Contraseña inicial<input className="input mt-1" required type="password" minLength={8} maxLength={128} autoComplete="new-password" value={newClient.password} onChange={(event) => setNewClient((current) => ({ ...current, password: event.target.value }))} placeholder="Mínimo 8 caracteres" /></label>
             <div className="sm:col-span-2"><button className="btn-primary" disabled={busy === "create"} type="submit">{busy === "create" ? "Creando CRM…" : "Crear cliente y CRM"}</button></div>
           </form>}
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {(data?.clients ?? []).map((client) => (
-              <article key={client.id} className={`card p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>
+              <article key={client.id} className={`card min-w-0 p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>
                 <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label={`Nombre de ${client.name}`} className="input min-w-0 flex-1 font-semibold" maxLength={120} value={names[client.id] ?? ""} onChange={(event) => setNames((current) => ({ ...current, [client.id]: event.target.value }))} /><button className="btn-ghost shrink-0" disabled={busy === `name:${client.id}`} onClick={() => saveName(client)}>{busy === `name:${client.id}` ? "Guardando…" : "Guardar nombre"}</button>{client.isBlocked ? <span className="w-fit rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="mt-1 truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                   <button type="button" className="btn-primary min-h-11 justify-center" disabled={Boolean(busy?.startsWith("enter:"))} onClick={() => void enter(client)}>
@@ -290,6 +291,7 @@ export default function AdminDashboard() {
                     </div>
                   )}
                 </div>
+                <WhatsappServerPanel client={client} clients={data?.clients ?? []} onSaved={load} onNotice={setNotice} />
                 <ApiKeysPanel client={client} providers={data?.apiProviders ?? []} onSaved={load} onNotice={setNotice} />
                 <p className="mt-3 text-xs text-slate-400">Voz {money(client.callCost)} · WhatsApp {money(client.whatsappCost)}</p>
                 <p className="mt-2 text-xs text-slate-400">Hoy: {client.callsToday} llamadas, {client.minutesToday} min, {client.whatsappToday} WhatsApp y {money(client.totalCostToday)} de coste.</p>
@@ -306,6 +308,83 @@ export default function AdminDashboard() {
         </section>
       </div>
     </main>
+  );
+}
+
+/**
+ * Servidor de WhatsApp (WAHA) del cliente. Sin él no puede conectar números
+ * por QR. Lo normal es usar el mismo servidor que otro cliente de Negocio Vivo.
+ */
+function WhatsappServerPanel({ client, clients, onSaved, onNotice }: {
+  client: Client; clients: Client[]; onSaved: () => Promise<void>; onNotice: (text: string) => void;
+}) {
+  const configured = Boolean(client.whatsappServer?.configured);
+  const sources = clients.filter((c) => c.id !== client.id && c.whatsappServer?.configured);
+  const [open, setOpen] = useState(!configured);
+  const [mode, setMode] = useState<"copy" | "manual">(sources.length ? "copy" : "manual");
+  const [from, setFrom] = useState(sources[0]?.id ?? "");
+  const [url, setUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { if (!from && sources[0]) setFrom(sources[0].id); }, [from, sources]);
+  useEffect(() => { if (!sources.length) setMode("manual"); }, [sources.length]);
+
+  async function activate() {
+    if (configured && !window.confirm(`¿Cambiar el servidor de WhatsApp de ${client.name}? Los números conectados en el servidor actual tendrán que volver a conectarse.`)) return;
+    setBusy(true); setError("");
+    const body = mode === "copy" ? { fromWorkspaceId: from, replace: configured } : { url: url.trim(), apiKey: apiKey.trim(), replace: configured };
+    const response = await fetch(`/api/v1/admin/clients/${client.id}/whatsapp`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const result = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok) { setError(result.error || "No se pudo activar WhatsApp."); return; }
+    setApiKey(""); setOpen(false);
+    onNotice(`WhatsApp activado para ${client.name}. Ya puede conectar sus números con el QR.`);
+    await onSaved();
+  }
+
+  return (
+    <div className={`mt-4 rounded-xl ring-1 ${configured ? "bg-slate-50 ring-slate-100" : "bg-amber-50 ring-amber-200"}`}>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+        <MessageCircle size={15} className={`shrink-0 ${configured ? "text-slate-500" : "text-amber-700"}`} />
+        <span className={`text-xs font-medium uppercase tracking-wide ${configured ? "text-slate-500" : "text-amber-800"}`}>WhatsApp</span>
+        <span className={`ml-auto min-w-0 truncate text-xs ${configured ? "text-emerald-700" : "font-medium text-amber-800"}`}>
+          {configured ? `Activado · ${client.whatsappServer?.host ?? ""}` : "Sin activar: no puede conectar números"}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="space-y-2 px-3 pb-3">
+          <p className="text-xs text-slate-600">
+            {configured ? "Cambiar el servidor solo hace falta si se muda de servidor de WhatsApp." : "Actívalo para que el cliente pueda conectar sus números de WhatsApp con el QR (Pipeline → WhatsApp → Teléfonos)."}
+          </p>
+          {sources.length > 0 && (
+            <div className="flex flex-wrap gap-2 text-xs" role="radiogroup" aria-label="Cómo activar WhatsApp">
+              <button type="button" role="radio" aria-checked={mode === "copy"} onClick={() => setMode("copy")} className={`min-h-8 rounded-lg px-2.5 ring-1 ${mode === "copy" ? "bg-white font-medium text-brand-700 ring-brand-300" : "text-slate-600 ring-slate-200"}`}>Mismo servidor que otro cliente</button>
+              <button type="button" role="radio" aria-checked={mode === "manual"} onClick={() => setMode("manual")} className={`min-h-8 rounded-lg px-2.5 ring-1 ${mode === "manual" ? "bg-white font-medium text-brand-700 ring-brand-300" : "text-slate-600 ring-slate-200"}`}>Otro servidor</button>
+            </div>
+          )}
+          {mode === "copy" && sources.length > 0 ? (
+            <label className="block text-xs text-slate-600">Usar el servidor de
+              <select className="input mt-1 py-1.5" value={from} onChange={(event) => setFrom(event.target.value)} aria-label={`Cliente cuyo servidor de WhatsApp usará ${client.name}`}>
+                {sources.map((s) => <option key={s.id} value={s.id}>{s.name}{s.whatsappServer?.host ? ` · ${s.whatsappServer.host}` : ""}</option>)}
+              </select>
+            </label>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input className="input py-1.5 font-mono text-xs" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="http://servidor:3000" aria-label={`Dirección del servidor de WhatsApp de ${client.name}`} autoComplete="off" spellCheck={false} />
+              <input className="input py-1.5 font-mono text-xs" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="API key del servidor" aria-label={`API key del servidor de WhatsApp de ${client.name}`} autoComplete="off" spellCheck={false} />
+            </div>
+          )}
+          <button type="button" className="btn-primary min-h-10 w-full sm:w-auto" disabled={busy || (mode === "copy" ? !from : !url.trim() || !apiKey.trim())} onClick={() => void activate()}>
+            {busy ? "Comprobando servidor…" : configured ? "Cambiar servidor" : "Activar WhatsApp"}
+          </button>
+          {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -405,7 +484,7 @@ function ApiKeysPanel({ client, providers, onSaved, onNotice }: {
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
         <KeyRound size={15} className="shrink-0 text-slate-500" />
         <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Claves de API</span>
-        <span className="ml-auto truncate text-xs text-slate-500">
+        <span className="ml-auto min-w-0 truncate text-xs text-slate-500">
           {own ? `${own} propia${own === 1 ? "" : "s"}` : "Usa las de Negocio Vivo"}{missing ? <span className="text-red-600"> · {missing} sin clave</span> : null}
         </span>
         <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
