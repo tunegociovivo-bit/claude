@@ -40,8 +40,9 @@ const inputSchema = z.object({
 });
 
 export const GET = withApi({ module: "editorial" }, async (_req, { api }) => {
+  // api.userId ya viene revalidado (miembro u operador de Negocio Vivo dentro del cliente).
   const user = api.userId
-    ? await prisma.user.findFirst({ where: { id: api.userId, workspaceId: api.workspaceId }, select: { email: true } })
+    ? await prisma.user.findUnique({ where: { id: api.userId }, select: { email: true } })
     : null;
   return NextResponse.json({ email: user?.email ?? null, emailEnabled: isEmailEnabled() });
 });
@@ -91,8 +92,11 @@ export const POST = withApi({ module: "editorial" }, async (req, { api }) => {
   if (sendEmail && email) {
     // El CSV solo se envía a personas del propio negocio (usuarios del CRM),
     // para no usar el remitente de Negocio Vivo como relé hacia terceros.
-    const member = await prisma.user.findFirst({ where: { workspaceId: api.workspaceId, email: String(email).toLowerCase().trim() }, select: { id: true } });
-    if (!member) {
+    // También a uno mismo (un operador de Negocio Vivo dentro del cliente no es usuario de la cuenta).
+    const target = String(email).toLowerCase().trim();
+    const member = await prisma.user.findFirst({ where: { workspaceId: api.workspaceId, email: target }, select: { id: true } });
+    const self = !member && api.userId ? await prisma.user.findUnique({ where: { id: api.userId }, select: { email: true } }) : null;
+    if (!member && self?.email.toLowerCase() !== target) {
       throw new ApiError(400, "email_not_member", "Solo se puede enviar a un email de un usuario de tu cuenta. Descarga el CSV si es para otra persona.");
     }
     if (!isEmailEnabled()) {

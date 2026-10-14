@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { authOptions, resolveSessionMember } from "@/lib/auth";
 
 // Contexto de las rutas de los módulos de contenidos (portados del Hub). En
 // el CRM solo hay sesiones humanas: scope total dentro de su workspace.
@@ -21,16 +20,14 @@ export class ApiError extends Error {
 
 export async function authenticate(_req?: NextRequest): Promise<ApiContext> {
   const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!workspaceId || !userId) throw new ApiError(401, "unauthenticated", "Inicia sesión para continuar");
-  // Revalida en BD: usuario aún existe en ese workspace y el workspace no está bloqueado.
-  const user = await prisma.user.findFirst({
-    where: { id: userId, workspaceId, workspace: { isBlocked: false } },
-    select: { role: true },
-  });
-  if (!user) throw new ApiError(401, "unauthenticated", "Tu sesión ya no es válida. Vuelve a entrar.");
-  return { workspaceId, userId, role: user.role, scopes: new Set(["*"]) };
+  if (!(session?.user as any)?.workspaceId || !(session?.user as any)?.id) {
+    throw new ApiError(401, "unauthenticated", "Inicia sesión para continuar");
+  }
+  // Revalida en BD: usuario aún existe en ese workspace y el workspace no está
+  // bloqueado (o es un operador de Negocio Vivo dentro del cliente).
+  const member = await resolveSessionMember(session);
+  if (!member) throw new ApiError(401, "unauthenticated", "Tu sesión ya no es válida. Vuelve a entrar.");
+  return { workspaceId: member.workspaceId, userId: member.userId, role: member.role, scopes: new Set(["*"]) };
 }
 
 export function requireScope(ctx: ApiContext, scope: string) {

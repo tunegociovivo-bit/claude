@@ -1,6 +1,5 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { resolveSessionMember } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import LlamadasClient from "./LlamadasClient";
@@ -8,9 +7,10 @@ import LlamadasClient from "./LlamadasClient";
 export const dynamic = "force-dynamic";
 
 export default async function LlamadasPage() {
-  const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  if (!workspaceId) redirect("/login");
+  // Revalidado en BD (usuario aún miembro, workspace no bloqueado u operador).
+  const member = await resolveSessionMember();
+  if (!member) redirect("/login");
+  const workspaceId = member.workspaceId;
 
   const calls = await prisma.call.findMany({
     where: { workspaceId },

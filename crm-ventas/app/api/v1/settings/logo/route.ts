@@ -2,9 +2,10 @@ import {
   forbidden,
   isSameOrigin,
   requireWorkspaceAdmin,
-  requireWorkspaceId,
+  resolveSessionMember,
   unauthorized,
 } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { getWorkspaceSettings, saveWorkspaceSettings } from "@/lib/settings";
 import { getEnabledModules } from "@/lib/modules";
 
@@ -44,14 +45,22 @@ function authError(error: unknown) {
 // Cualquier usuario del workspace puede leer el logo (lo pinta el AppShell).
 export async function GET() {
   try {
-    const workspaceId = await requireWorkspaceId();
-    const [settings, modules] = await Promise.all([getWorkspaceSettings(workspaceId), getEnabledModules(workspaceId)]);
+    const member = await resolveSessionMember();
+    if (!member) throw new Error("UNAUTHORIZED");
+    const workspaceId = member.workspaceId;
+    const [settings, modules, workspace] = await Promise.all([
+      getWorkspaceSettings(workspaceId),
+      getEnabledModules(workspaceId),
+      member.operatorActing ? prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } }) : null,
+    ]);
     return Response.json({
       logoDataUrl: settings.branding.logoDataUrl || null,
       businessName: settings.sonia.businessName || null,
       agentName: settings.sonia.agentName,
       // Módulos opcionales activos (el menú solo muestra los activos).
       modules,
+      // Operador de Negocio Vivo dentro de este CRM: el menú lo indica y ofrece volver.
+      operatorActing: member.operatorActing ? { workspaceName: workspace?.name ?? "este cliente" } : null,
     });
   } catch (error) {
     return authError(error) || Response.json({ error: "Error interno" }, { status: 500 });

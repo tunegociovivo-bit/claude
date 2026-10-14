@@ -1,6 +1,5 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { resolveSessionMember } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getWorkspaceSettings } from "@/lib/settings";
 import AppShell from "@/components/AppShell";
@@ -16,9 +15,10 @@ export default async function PipelinePage({
 }: {
   searchParams?: { vista?: string; contacto?: string };
 }) {
-  const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  if (!workspaceId) redirect("/login");
+  // Revalidado en BD (usuario aún miembro, workspace no bloqueado u operador).
+  const member = await resolveSessionMember();
+  if (!member) redirect("/login");
+  const workspaceId = member.workspaceId;
 
   const [settings, leads, contacts] = await Promise.all([
     getWorkspaceSettings(workspaceId),

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, Forward, KeyRound, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
+import { ArrowRight, Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, Forward, KeyRound, LogIn, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Undo2, Wallet } from "lucide-react";
 
 type KeySource = "client" | "negociovivo" | "none";
 type KeyStatus = { source: KeySource; masked: string; negocioVivoAvailable: boolean };
@@ -20,6 +20,7 @@ type Client = {
   contentAiCostMonthly: number;
   contentAiLimitUsd: number;
   apiKeys?: ClientApiKeys;
+  lastOperatorAccess?: { email: string; at: string } | null;
 };
 
 type ModuleKey = "editorial" | "seo" | "leads";
@@ -34,7 +35,19 @@ type Overview = {
   rates: { callMinuteRate: number; whatsappMessageRate: number };
   apiProviders?: ApiProviderInfo[];
   clients: Client[];
+  actingWorkspaceId?: string | null;
 };
+
+// El menú del CRM guarda en sessionStorage los módulos del cliente: al cambiar
+// de CRM se borra para que no se vea un instante el menú del anterior.
+function clearCrmCaches() {
+  try { sessionStorage.removeItem("crm-ventas:modules"); } catch {}
+}
+
+function accessDate(iso: string) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+}
 
 export default function AdminDashboard() {
   const [data, setData] = useState<Overview | null>(null);
@@ -45,6 +58,7 @@ export default function AdminDashboard() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [aiLimits, setAiLimits] = useState<Record<string, string>>({});
   const [showCreate, setShowCreate] = useState(false);
+  const [quickFilter, setQuickFilter] = useState("");
   const [newClient, setNewClient] = useState({ name: "", contactName: "", email: "", password: "" });
 
   async function load() {
@@ -64,6 +78,7 @@ export default function AdminDashboard() {
     monthlyCost: acc.monthlyCost + client.totalCostMonthly,
     totalCost: acc.totalCost + client.totalCost,
   }), { calls: 0, whatsapp: 0, cost: 0, monthlyCost: 0, totalCost: 0 }), [data]);
+  const actingClient = data?.actingWorkspaceId ? data.clients.find((client) => client.id === data.actingWorkspaceId) ?? null : null;
   const money = (value: number) => new Intl.NumberFormat("es-ES", {
     style: "currency", currency: data?.currency || "USD", minimumFractionDigits: 3,
   }).format(value);
@@ -85,6 +100,25 @@ export default function AdminDashboard() {
     });
     setBusy(null);
     if (response.ok) await load();
+  }
+
+  // Abre el CRM del cliente con la sesión del operador (sin su contraseña).
+  async function enter(client: Client) {
+    setBusy(`enter:${client.id}`); setNotice("");
+    const response = await fetch(`/api/v1/admin/clients/${client.id}/enter`, { method: "POST" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { setBusy(null); setNotice(result.error || `No se pudo entrar en el CRM de ${client.name}.`); return; }
+    clearCrmCaches();
+    window.location.assign(result.redirect || "/pipeline");
+  }
+
+  async function leave() {
+    setBusy("leave"); setNotice("");
+    const response = await fetch("/api/v1/admin/leave", { method: "POST" });
+    setBusy(null);
+    if (!response.ok) { setNotice("No se pudo salir del CRM del cliente."); return; }
+    clearCrmCaches();
+    await load();
   }
 
   async function toggleModule(client: Client, key: ModuleKey) {
@@ -158,6 +192,45 @@ export default function AdminDashboard() {
         </div>
       </header>
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+        {actingClient && (
+          <section role="status" className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center">
+            <p className="flex-1 text-sm text-amber-900">Ahora estás dentro del CRM de <strong>{actingClient.name}</strong>. Al abrir Pipeline, WhatsApp o Ajustes ves y cambias los datos de este cliente.</p>
+            <div className="flex gap-2">
+              <a href="/pipeline" className="btn-primary min-h-10 flex-1 justify-center sm:flex-none"><ArrowRight className="mr-1 inline" size={16} />Ir a su CRM</a>
+              <button type="button" className="btn-ghost min-h-10 flex-1 sm:flex-none" disabled={busy === "leave"} onClick={() => void leave()}><Undo2 className="mr-1 inline" size={16} />{busy === "leave" ? "Saliendo…" : "Salir de su CRM"}</button>
+            </div>
+          </section>
+        )}
+
+        {data && data.clients.length > 0 && (
+          <section className="card p-4" aria-labelledby="quick-enter-title">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <LogIn size={18} className="text-brand-600" />
+              <h2 id="quick-enter-title" className="font-semibold">Entrar en el CRM de un cliente</h2>
+              <span className="text-xs text-slate-500">Lo abres como administrador, sin su contraseña.</span>
+            </div>
+            {data.clients.length > 6 && (
+              <input className="input mb-2" type="search" value={quickFilter} onChange={(event) => setQuickFilter(event.target.value)} placeholder="Buscar cliente…" aria-label="Buscar cliente" />
+            )}
+            <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {data.clients
+                .filter((client) => !quickFilter.trim() || client.name.toLowerCase().includes(quickFilter.trim().toLowerCase()))
+                .map((client) => (
+                  <li key={client.id}>
+                    <button type="button" onClick={() => void enter(client)} disabled={Boolean(busy?.startsWith("enter:"))}
+                      className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left ring-1 transition hover:ring-brand-300 ${data.actingWorkspaceId === client.id ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-200"}`}>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-slate-900">{client.name}</span>
+                        <span className="block truncate text-xs text-slate-500">{data.actingWorkspaceId === client.id ? "Estás dentro" : client.isBlocked ? "Bloqueado" : client.email}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-brand-600">{busy === `enter:${client.id}` ? "Entrando…" : <>Entrar<ArrowRight size={15} /></>}</span>
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        )}
+
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {[[Phone, "Llamadas acumuladas", totals.calls], [MessageCircle, "WhatsApp acumulados", totals.whatsapp], [Wallet, "Coste hoy", money(totals.cost)], [Wallet, "Coste mensual", money(totals.monthlyCost)], [Wallet, "Coste total", money(totals.totalCost)]].map(([Icon, label, value]: any) => (
             <div key={label} className="card flex items-center gap-4 p-4"><div className="rounded-xl bg-brand-50 p-3 text-brand-600"><Icon size={21} /></div><div><p className="text-xs text-slate-500">{label}</p><p className="text-xl font-semibold">{value}</p></div></div>
@@ -185,6 +258,14 @@ export default function AdminDashboard() {
             {(data?.clients ?? []).map((client) => (
               <article key={client.id} className={`card p-5 ${client.isBlocked ? "border-red-200 bg-red-50/40" : ""}`}>
                 <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label={`Nombre de ${client.name}`} className="input min-w-0 flex-1 font-semibold" maxLength={120} value={names[client.id] ?? ""} onChange={(event) => setNames((current) => ({ ...current, [client.id]: event.target.value }))} /><button className="btn-ghost shrink-0" disabled={busy === `name:${client.id}`} onClick={() => saveName(client)}>{busy === `name:${client.id}` ? "Guardando…" : "Guardar nombre"}</button>{client.isBlocked ? <span className="w-fit rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="mt-1 truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <button type="button" className="btn-primary min-h-11 justify-center" disabled={Boolean(busy?.startsWith("enter:"))} onClick={() => void enter(client)}>
+                    <LogIn className="mr-1.5 inline" size={16} />{busy === `enter:${client.id}` ? "Entrando…" : data?.actingWorkspaceId === client.id ? "Volver a su CRM" : "Entrar en su CRM"}
+                  </button>
+                  {data?.actingWorkspaceId === client.id
+                    ? <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Estás dentro</span>
+                    : client.lastOperatorAccess ? <span className="text-xs text-slate-400">Último acceso de operador: {accessDate(client.lastOperatorAccess.at)} · {client.lastOperatorAccess.email}</span> : <span className="text-xs text-slate-400">Abre su CRM como administrador, sin su contraseña.</span>}
+                </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">{[["Llamadas totales", client.callsTotal], ["Minutos totales", client.minutesTotal], ["WhatsApp totales", client.whatsappTotal], ["Coste hoy", money(client.totalCostToday)], ["Coste mensual", money(client.totalCostMonthly)], ["Coste total", money(client.totalCost)]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3 ring-1 ring-slate-100"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold">{value}</p></div>)}</div>
                 <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Módulos</p>
