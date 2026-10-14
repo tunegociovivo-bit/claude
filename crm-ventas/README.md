@@ -128,7 +128,11 @@ Login inicial: `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (por defecto
      (`assistant-request`) y el CRM lo construye con el prompt del cliente y
      las herramientas de agendado (`tool-calls` vuelven al CRM, que crea la
      cita). Al colgar, `end-of-call-report` guarda transcripción y resumen.
-4. **WhatsApp (WAHA)**:
+4. **WhatsApp (WAHA)**: en `/admin`, ficha del cliente → **WhatsApp** →
+   «Activar WhatsApp» (mismo servidor que otro cliente, o dirección + API key;
+   se comprueba antes de guardar y la clave queda cifrada). Después el cliente
+   conecta sus números con el QR en Pipeline → WhatsApp → Teléfonos.
+   Detalle técnico:
    - Levanta una sesión WAHA para el número del cliente y guarda URL/API
      key/sesión en Ajustes → WhatsApp.
    - Configura en WAHA el webhook que muestra Ajustes, con eventos `message`,

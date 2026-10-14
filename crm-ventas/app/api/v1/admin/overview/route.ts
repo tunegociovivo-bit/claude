@@ -7,6 +7,7 @@ import { getGlobalPrompt, saveGlobalPrompt } from "@/lib/admin/config";
 import { readModules } from "@/lib/modules";
 import { readAiLimitUsd } from "@/lib/content/ai-budget";
 import { API_PROVIDERS, apiKeysStatus } from "@/lib/api-keys";
+import { whatsappServerStatus } from "@/lib/admin/whatsapp-server";
 
 function madridDayStart() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -85,6 +86,7 @@ export async function GET() {
       contentAiLimitUsd: readAiLimitUsd(workspace.settings),
       apiKeys: apiKeysStatus(workspace.settings),
       lastOperatorAccess: lastOperatorAccess(workspace.settings),
+      whatsappServer: whatsappServerStatus(workspace.settings),
       ...usage,
     };
   });

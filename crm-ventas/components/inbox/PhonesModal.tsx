@@ -641,7 +641,9 @@ export default function PhonesModal({ onClose }: { onClose: () => void }) {
               {!lines && <div className="flex justify-center p-8 text-slate-400"><Loader2 className="animate-spin" /></div>}
               {lines?.length === 0 && (
                 <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                  El servicio de WhatsApp de este negocio aún no está aprovisionado. Contacta con Negocio Vivo para activarlo.
+                  {isOperator
+                    ? "El WhatsApp de este negocio aún no está activado. Actívalo en el panel de administración: ficha del cliente → WhatsApp → «Activar WhatsApp»."
+                    : "El servicio de WhatsApp de este negocio aún no está aprovisionado. Contacta con Negocio Vivo para activarlo."}
                 </p>
               )}
               {lines?.map((line) => (
