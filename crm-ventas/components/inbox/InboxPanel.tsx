@@ -11,12 +11,18 @@ import {
   Bot,
   Check,
   CheckCheck,
+  CheckSquare,
   Clock,
+  Copy,
+  CornerUpRight,
   Hand,
   KanbanSquare,
   Loader2,
   MailWarning,
   MessageCirclePlus,
+  Mic,
+  MoreVertical,
+  PhoneCall,
   RefreshCw,
   Search,
   Send,
@@ -28,6 +34,17 @@ import {
 } from "lucide-react";
 import { useAgentName } from "@/components/AgentNameContext";
 import PhonesModal from "@/components/inbox/PhonesModal";
+import LeadPanel, { type LeadContact } from "@/components/inbox/LeadPanel";
+import MessageMedia, { Lightbox, type MediaMeta } from "@/components/inbox/MessageMedia";
+import VoiceComposer, { voiceRecordingSupported } from "@/components/inbox/VoiceComposer";
+import {
+  EMPTY_LEADS,
+  findStatus,
+  forwardButtonLabel,
+  LeadStatusChip,
+  type ForwardTargetOption,
+  type LeadsUi,
+} from "@/components/inbox/leads-ui";
 import {
   Avatar,
   AI_MODE_LABEL,
@@ -57,7 +74,7 @@ type ConversationItem = {
   optedOut: boolean;
   archived: boolean;
   humanActive: boolean;
-  contact: { id: string; name: string; stage: string; phone: string | null } | null;
+  contact: { id: string; name: string; stage: string; phone: string | null; leadStatus?: string | null; attempts?: number } | null;
   pushName: string | null;
 };
 
@@ -95,7 +112,7 @@ type Thread = {
     humanUntil: string | null;
     lastInboundAt: string | null;
   };
-  contact: { id: string; name: string; phone: string | null; stage: string; notes: string | null } | null;
+  contact: LeadContact | null;
   pushName: string | null;
   line: { id: string; label: string; phone: string | null; aiMode: string; active: boolean; lastStatus: string | null } | null;
   messages: ThreadMessage[];
@@ -134,6 +151,37 @@ function Ticks({ ack }: { ack: number | null }) {
   if (ack !== null && ack >= 3) return <CheckCheck size={13} className="text-sky-200" aria-label="Leído" />;
   if (ack === 2) return <CheckCheck size={13} aria-label="Entregado" />;
   return <Check size={13} aria-label="Enviado" />;
+}
+
+const MAX_SELECT = 20;
+
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+}
+
+function isCoarsePointer() {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
+// Resumen de lo seleccionado para la confirmación: «2 fotos, 1 nota de voz y 1 texto».
+function selectionSummary(messages: ThreadMessage[]) {
+  const counts = new Map<string, number>();
+  const names: Record<string, [string, string]> = {
+    image: ["foto", "fotos"],
+    sticker: ["sticker", "stickers"],
+    video: ["vídeo", "vídeos"],
+    voice: ["nota de voz", "notas de voz"],
+    audio: ["audio", "audios"],
+    document: ["documento", "documentos"],
+    text: ["texto", "textos"],
+  };
+  for (const m of messages) {
+    const kind = (m.meta?.media?.kind as string) || "text";
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].map(([k, n]) => `${n} ${n === 1 ? names[k]?.[0] ?? k : names[k]?.[1] ?? k}`);
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} y ${parts[parts.length - 1]}`;
 }
 
 export default function InboxPanel({
@@ -177,6 +225,25 @@ export default function InboxPanel({
   const sendKey = useRef<{ text: string; key: string } | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [newChatLine, setNewChatLine] = useState<string>("");
+  // Módulo «Leads y reenvíos»
+  const [leads, setLeads] = useState<LeadsUi>(EMPTY_LEADS);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [selectMode, setSelectMode] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [confirmTarget, setConfirmTarget] = useState<ForwardTargetOption | null>(null);
+  const [forwarding, setForwarding] = useState(false);
+  const forwardKey = useRef<{ sig: string; key: string } | null>(null);
+  const [toast, setToast] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ id: string; media: MediaMeta } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const suppressClick = useRef(false);
+  const pushedHistory = useRef(false);
+  const afterClose = useRef<(() => void) | null>(null);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [canRecord, setCanRecord] = useState(false);
+  useEffect(() => setCanRecord(voiceRecordingSupported()), []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -186,13 +253,15 @@ export default function InboxPanel({
   const loadList = useCallback(async () => {
     const params = new URLSearchParams({ line: lineFilter, filter });
     if (debouncedQuery) params.set("q", debouncedQuery);
+    if (statusFilter) params.set("status", statusFilter);
     const { ok, data } = await jsonFetch(`/api/v1/inbox/conversations?${params}`);
     if (ok) {
       setConversations(data.conversations ?? []);
       setLines(data.lines ?? []);
+      setLeads(data.leads?.enabled ? data.leads : EMPTY_LEADS);
     }
     setListLoaded(true);
-  }, [lineFilter, filter, debouncedQuery]);
+  }, [lineFilter, filter, debouncedQuery, statusFilter]);
 
   const loadThread = useCallback(async (id: string) => {
     const { ok, data } = await jsonFetch<Thread>(`/api/v1/inbox/conversations/${id}`);
@@ -252,7 +321,77 @@ export default function InboxPanel({
   useEffect(() => {
     setText("");
     setNotice(null);
+    setSelectMode(false);
+    setPicked([]);
+    setConfirmTarget(null);
+    setMenuOpen(false);
+    setLightbox(null);
+    setVoiceActive(false);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!confirmTarget) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !forwarding) setConfirmTarget(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmTarget, forwarding]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), toast.tone === "ok" ? 3500 : 8000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Móvil: el chat abierto ocupa toda la pantalla (como WhatsApp). El botón
+  // «atrás» del teléfono cierra el chat en vez de salir de la página.
+  const showChatNow = Boolean(selectedId) || Boolean(newChat);
+  useEffect(() => {
+    if (!showChatNow || !isMobileViewport()) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [showChatNow]);
+
+  useEffect(() => {
+    const onPop = () => {
+      if (!pushedHistory.current) return;
+      pushedHistory.current = false;
+      // Cierra también lo que hubiera abierto encima (foto, confirmación…).
+      setLightbox(null);
+      setConfirmTarget(null);
+      setVoiceActive(false);
+      setSelectedId(null);
+      setNewChat(null);
+      const next = afterClose.current;
+      afterClose.current = null;
+      if (next) setTimeout(next, 0);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    if (showChatNow && isMobileViewport() && !pushedHistory.current) {
+      window.history.pushState({ ...(window.history.state ?? {}), crmInboxChat: true }, "");
+      pushedHistory.current = true;
+    }
+  }, [showChatNow]);
+
+  // `then` se ejecuta cuando el chat ya está cerrado (tras el «atrás» del historial).
+  function closeChat(then?: () => void) {
+    if (pushedHistory.current) {
+      afterClose.current = then ?? null;
+      window.history.back(); // popstate cierra el chat
+      return;
+    }
+    setSelectedId(null);
+    setNewChat(null);
+    then?.();
+  }
 
   const linesById = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines]);
   const multiLine = lines.length > 1;
@@ -302,6 +441,37 @@ export default function InboxPanel({
       setNotice({ tone: "error", text: data.outbound?.lastError ?? "WhatsApp no aceptó el mensaje" });
     }
     await Promise.all([loadThread(selectedId), loadList()]);
+  }
+
+  async function sendVoice(blob: Blob, idempotencyKey: string): Promise<boolean> {
+    if (!selectedId) return false;
+    setNotice(null);
+    const form = new FormData();
+    const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+    form.append("audio", blob, `nota.${ext}`);
+    form.append("idempotencyKey", idempotencyKey.replace(/[^A-Za-z0-9_-]/g, ""));
+    let ok = false;
+    let data: any = null;
+    try {
+      const res = await fetch(`/api/v1/inbox/conversations/${selectedId}/voice`, { method: "POST", body: form, cache: "no-store" });
+      ok = res.ok;
+      data = await res.json().catch(() => ({}));
+    } catch {
+      data = { error: "Sin conexión con el CRM: la nota de voz no se ha enviado." };
+    }
+    if (!ok) {
+      setNotice({ tone: "error", text: errorText(data, "No se pudo enviar la nota de voz") });
+      return false;
+    }
+    const status = data.outbound?.status;
+    if (status === "queued") {
+      const at = data.outbound?.scheduledAt ? hhmm(data.outbound.scheduledAt) : "";
+      setNotice({ tone: "info", text: `Nota de voz programada para las ${at} (ritmo anti-baneo).` });
+    } else if (status === "failed") {
+      setNotice({ tone: "error", text: data.outbound?.lastError ?? "WhatsApp no aceptó la nota de voz" });
+    }
+    await Promise.all([loadThread(selectedId), loadList()]);
+    return true;
   }
 
   async function startNewChat(e: React.FormEvent) {
@@ -378,6 +548,140 @@ export default function InboxPanel({
     await loadThread(thread.conversation.id);
   }
 
+  // ------- Selección y reenvío («ENVIAR A») -------
+  function togglePick(id: string) {
+    setPicked((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= MAX_SELECT) {
+        setToast({ tone: "error", text: `Máximo ${MAX_SELECT} mensajes por envío` });
+        return prev;
+      }
+      return [...prev, id];
+    });
+  }
+
+  function startSelect(firstId?: string) {
+    setSelectMode(true);
+    setMenuOpen(false);
+    setPicked(firstId ? [firstId] : []);
+    if (isCoarsePointer() && "vibrate" in navigator) {
+      try {
+        navigator.vibrate(15);
+      } catch {}
+    }
+  }
+
+  function exitSelect() {
+    setSelectMode(false);
+    setPicked([]);
+    setConfirmTarget(null);
+  }
+
+  // Mantener pulsado un mensaje (como en WhatsApp) entra en modo selección.
+  function pressHandlers(id: string) {
+    if (!canForward) return {};
+    const cancel = () => {
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+      pressStart.current = null;
+    };
+    return {
+      onPointerDown: (e: React.PointerEvent) => {
+        // Un toque nuevo empieza limpio: tras mantener pulsado, algunos móviles
+        // no generan el «click» final y no debe tragarse el siguiente toque.
+        suppressClick.current = false;
+        if (selectMode || e.button > 0) return;
+        pressStart.current = { x: e.clientX, y: e.clientY };
+        pressTimer.current = setTimeout(() => {
+          pressTimer.current = null;
+          suppressClick.current = true;
+          startSelect(id);
+        }, 450);
+      },
+      onPointerMove: (e: React.PointerEvent) => {
+        const s0 = pressStart.current;
+        if (s0 && Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 10) cancel();
+      },
+      onPointerUp: cancel,
+      onPointerCancel: cancel,
+      onPointerLeave: cancel,
+      onContextMenu: (e: React.MouseEvent) => {
+        if (isCoarsePointer()) e.preventDefault();
+      },
+      onClickCapture: (e: React.MouseEvent) => {
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (selectMode) {
+          e.preventDefault();
+          e.stopPropagation();
+          togglePick(id);
+        }
+      },
+    };
+  }
+
+  async function copySelected() {
+    const msgs = (thread?.messages ?? []).filter((m) => picked.includes(m.id));
+    const textOut = msgs.map((m) => (m.meta?.media?.kind ? m.meta.media.caption || "" : m.body)).filter(Boolean).join("\n\n");
+    if (!textOut) {
+      setToast({ tone: "error", text: "Lo seleccionado no tiene texto para copiar" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(textOut);
+      setToast({ tone: "ok", text: "Texto copiado" });
+    } catch {
+      setToast({ tone: "error", text: "El navegador no deja copiar aquí" });
+    }
+  }
+
+  async function doForward(target: ForwardTargetOption) {
+    if (!selectedId || !picked.length || forwarding) return;
+    // Orden del chat (no el orden en que se tocaron).
+    const ordered = (thread?.messages ?? []).filter((m) => picked.includes(m.id)).map((m) => m.id);
+    const sig = `${selectedId}|${target.id}|${ordered.join(",")}`;
+    if (!forwardKey.current || forwardKey.current.sig !== sig) forwardKey.current = { sig, key: randomKey() };
+    setForwarding(true);
+    let ok = false;
+    let data: any = null;
+    try {
+      ({ ok, data } = await jsonFetch(`/api/v1/inbox/conversations/${selectedId}/forward`, {
+        method: "POST",
+        body: JSON.stringify({ messageIds: ordered, targetId: target.id, idempotencyKey: forwardKey.current.key }),
+      }));
+    } catch {
+      data = { error: "Sin conexión con el CRM. Vuelve a pulsar (no se duplicará)." };
+    } finally {
+      setForwarding(false);
+      setConfirmTarget(null);
+    }
+    if (!data?.results) {
+      setToast({ tone: "error", text: errorText(data, "No se pudo reenviar") });
+      return;
+    }
+    forwardKey.current = null;
+    const results = data.results as Array<{ id: string; ok: boolean; error?: string }>;
+    const sent = results.filter((r) => r.ok).length;
+    if (ok && sent === ordered.length) {
+      setToast({ tone: "ok", text: `✓ ${sent === 1 ? "Enviado" : `${sent} enviados`} a ${target.label}` });
+      exitSelect();
+    } else {
+      const firstError = results.find((r) => !r.ok)?.error;
+      setToast({
+        tone: "error",
+        text: `${sent ? `${sent} de ${ordered.length} enviados a ${target.label}. ` : ""}${firstError ?? "Algunos mensajes no se enviaron."}`,
+      });
+      // Quedan seleccionados solo los que faltan, para reintentarlos.
+      const done = new Set(results.filter((r) => r.ok).map((r) => r.id));
+      setPicked(ordered.filter((id) => !done.has(id)));
+    }
+    if (selectedId) await loadThread(selectedId);
+  }
+
   function onComposerKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     const coarse = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey || (!coarse && !e.shiftKey))) {
@@ -401,12 +705,18 @@ export default function InboxPanel({
   const draft = conv?.aiDraft && conv.aiDraftCurrent ? conv.aiDraft : null;
   const lastMessage = thread?.messages[thread.messages.length - 1];
   const waitingReply = lastMessage?.direction === "in" && !thread?.outbound.some((o) => o.status === "queued" || o.status === "sending");
-  const showChat = Boolean(selectedId) || Boolean(newChat);
+  const showChat = showChatNow;
+  // Destinos de «ENVIAR A» que tienen sentido desde este chat (no el propio número).
+  const forwardTargets = leads.enabled
+    ? leads.forwardTargets.filter((t) => !line?.phone || t.phone.slice(-9) !== line.phone.replace(/\D/g, "").slice(-9))
+    : [];
+  const canForward = forwardTargets.length > 0 && Boolean(thread);
+  const pickedMessages = (thread?.messages ?? []).filter((m) => picked.includes(m.id));
 
   return (
-    <div className={clsx("flex min-h-[28rem] flex-col", heightClass)}>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className={clsx("min-w-0 items-center gap-2", hideTitleOnMobile ? "hidden md:flex" : "flex")}>
+    <div className={clsx("flex min-h-[22rem] flex-col md:min-h-[28rem]", heightClass)}>
+      <div className={clsx("mb-3 items-center justify-between gap-2", hideTitleOnMobile ? "hidden md:flex" : "flex")}>
+        <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-lg font-semibold sm:text-xl">{title}</h1>
           {unreadTotal > 0 && (
             <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-white">{unreadTotal}</span>
@@ -416,7 +726,7 @@ export default function InboxPanel({
           <button className="btn-ghost" onClick={() => void loadList()} title="Recargar" aria-label="Recargar">
             <RefreshCw size={15} />
           </button>
-          <button className="btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50" onClick={() => setPhonesOpen(true)}>
+          <button className="btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50" onClick={() => setPhonesOpen(true)} aria-label="Teléfonos" title="Teléfonos">
             <Smartphone size={15} />
             <span className="hidden sm:inline">Teléfonos</span>
             {lines.length > 0 && <span className="text-slate-500">{lines.length}</span>}
@@ -432,7 +742,7 @@ export default function InboxPanel({
               <button
                 onClick={() => setLineFilter("all")}
                 className={clsx(
-                  "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
+                  "flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
                   lineFilter === "all" ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"
                 )}
               >
@@ -444,7 +754,7 @@ export default function InboxPanel({
                   onClick={() => setLineFilter(l.id)}
                   title={`${lineStatusText(l)} · IA: ${AI_MODE_LABEL[l.aiMode] ?? l.aiMode}`}
                   className={clsx(
-                    "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
+                    "flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
                     lineFilter === l.id ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"
                   )}
                 >
@@ -455,6 +765,15 @@ export default function InboxPanel({
                   )}
                 </button>
               ))}
+              {hideTitleOnMobile && (
+                <button
+                  onClick={() => setPhonesOpen(true)}
+                  className="flex min-h-8 shrink-0 items-center gap-1.5 rounded-full border border-dashed border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 md:hidden"
+                  aria-label="Teléfonos"
+                >
+                  <Smartphone size={13} /> Teléfonos
+                </button>
+              )}
             </div>
             <label className="relative block">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -465,13 +784,32 @@ export default function InboxPanel({
                 onChange={(e) => setQuery(e.target.value)}
               />
             </label>
-            <div className="-mx-1 flex gap-1 overflow-x-auto px-1">
+            <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5">
+              {leads.enabled && (
+                <select
+                  aria-label="Filtrar por estado del lead"
+                  className={clsx(
+                    "h-8 shrink-0 rounded-md border px-2 text-xs font-medium",
+                    statusFilter ? "border-brand-400 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-600"
+                  )}
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="">Estado: todos</option>
+                  <option value="none">Sin estado</option>
+                  {leads.statuses.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {FILTERS.map((f) => (
                 <button
                   key={f.id}
                   onClick={() => setFilter(f.id)}
                   className={clsx(
-                    "shrink-0 rounded-md px-2 py-1 text-xs",
+                    "min-h-8 shrink-0 rounded-md px-2.5 py-1 text-xs",
                     filter === f.id ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"
                   )}
                 >
@@ -492,7 +830,7 @@ export default function InboxPanel({
             )}
             {listLoaded && lines.length > 0 && conversations.length === 0 && (
               <p className="p-4 text-sm text-slate-500">
-                {filter === "all" && !debouncedQuery
+                {filter === "all" && !debouncedQuery && !statusFilter
                   ? "Cuando alguien escriba a cualquiera de tus números aparecerá aquí."
                   : "No hay conversaciones con este filtro."}
               </p>
@@ -538,6 +876,12 @@ export default function InboxPanel({
                       )}
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-1">
+                      {leads.enabled && <LeadStatusChip status={findStatus(leads.statuses, c.contact?.leadStatus)} />}
+                      {leads.enabled && (c.contact?.attempts ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600" title="Intentos de contacto">
+                          <PhoneCall size={10} /> {c.contact!.attempts}
+                        </span>
+                      )}
                       {multiLine && l && (
                         <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
                           <StatusDot status={l.lastStatus} paused={l.paused} active={l.active} className="h-1.5 w-1.5" />
@@ -573,7 +917,14 @@ export default function InboxPanel({
         </aside>
 
         {/* ------- Conversación ------- */}
-        <section className={clsx("min-w-0 flex-1 flex-col", showChat ? "flex" : "hidden md:flex")}>
+        <section
+          className={clsx(
+            "relative min-w-0 flex-1 flex-col",
+            showChat
+              ? "flex max-md:fixed max-md:inset-x-0 max-md:top-0 max-md:z-50 max-md:h-[100dvh] max-md:bg-white"
+              : "hidden md:flex"
+          )}
+        >
           {!showChat && (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-slate-400">
               <ShieldCheck size={28} className="text-slate-300" />
@@ -587,11 +938,11 @@ export default function InboxPanel({
 
           {newChat && (
             <>
-              <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-3">
+              <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-3 max-md:pt-[max(0.75rem,env(safe-area-inset-top))]">
                 <button
                   type="button"
-                  onClick={() => setNewChat(null)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"
+                  onClick={() => closeChat()}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"
                   aria-label="Volver"
                 >
                   <ArrowLeft size={18} />
@@ -609,7 +960,7 @@ export default function InboxPanel({
                   nuevas/día» activado (Teléfonos → Avanzado), con calentamiento, sin enlaces en el primer mensaje y en horario comercial.
                 </p>
               </div>
-              <form onSubmit={startNewChat} className="border-t border-slate-200 p-3">
+              <form onSubmit={startNewChat} className="border-t border-slate-200 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <label className="mb-2 flex items-center gap-2 text-xs text-slate-600">
                   Enviar desde
                   <select
@@ -647,73 +998,182 @@ export default function InboxPanel({
 
           {selectedId && !newChat && (
             <>
-              <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2.5 sm:px-4">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"
-                  aria-label="Volver a conversaciones"
-                >
-                  <ArrowLeft size={18} />
-                </button>
-                <Avatar name={displayName} seed={thread?.conversation.phone ?? selectedId} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold">{displayName}</div>
-                  <div className="flex items-center gap-1.5 truncate text-xs text-slate-500">
-                    {!line && conv?.lineId && <span className="text-amber-700">El número de este chat ya no está en la bandeja</span>}
-                    {line && (
-                      <>
-                        <StatusDot status={line.lastStatus} active={line.active} className="h-1.5 w-1.5" />
-                        <span className="truncate">
-                          vía {line.label}
-                          {line.phone ? ` · ${formatPhone(line.phone)}` : ""}
-                        </span>
-                      </>
+              {selectMode ? (
+                <div className="flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-2.5 max-md:pt-[max(0.625rem,env(safe-area-inset-top))] sm:px-4">
+                  <button
+                    type="button"
+                    onClick={exitSelect}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-emerald-800 hover:bg-emerald-100"
+                    aria-label="Salir de la selección"
+                  >
+                    <X size={20} />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-emerald-900">
+                      {picked.length ? `${picked.length} seleccionado${picked.length === 1 ? "" : "s"}` : "Toca los mensajes para elegirlos"}
+                    </div>
+                    <div className="truncate text-xs text-emerald-800/80">Fotos, audios, archivos o textos · máx. {MAX_SELECT}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void copySelected()}
+                    disabled={!picked.length}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+                    aria-label="Copiar texto seleccionado"
+                    title="Copiar texto"
+                  >
+                    <Copy size={18} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 border-b border-slate-200 px-2 py-2 max-md:pt-[max(0.5rem,env(safe-area-inset-top))] sm:gap-2 sm:px-4 sm:py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => closeChat()}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"
+                    aria-label="Volver a conversaciones"
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                  <Avatar name={displayName} seed={thread?.conversation.phone ?? selectedId} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{displayName}</div>
+                    <div className="flex items-center gap-1.5 truncate text-xs text-slate-500">
+                      {!line && conv?.lineId && <span className="text-amber-700">El número de este chat ya no está en la bandeja</span>}
+                      {line && (
+                        <>
+                          <StatusDot status={line.lastStatus} active={line.active} className="h-1.5 w-1.5" />
+                          <span className="truncate">
+                            vía {line.label}
+                            {line.phone ? ` · ${formatPhone(line.phone)}` : ""}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+                    {thread?.contact && columns.length > 0 && !leads.enabled && (
+                      <select
+                        className="hidden rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 sm:block"
+                        value={thread.contact.stage}
+                        onChange={(e) => void changeStage(e.target.value)}
+                        title="Columna del pipeline"
+                      >
+                        {columns.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {canForward && (
+                      <button
+                        className="flex h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                        onClick={() => startSelect()}
+                        title="Seleccionar mensajes para reenviar"
+                        aria-label="Seleccionar mensajes para reenviar"
+                      >
+                        <CheckSquare size={18} />
+                        <span className="hidden lg:inline">Seleccionar</span>
+                      </button>
+                    )}
+                    {/* Escritorio: acciones a la vista. En el móvil van en el menú «⋯». */}
+                    <div className="hidden items-center gap-1 md:flex">
+                      {onOpenBoard && (
+                        <button className="btn-ghost h-10 px-2" onClick={onOpenBoard} title="Ver tablero" aria-label="Ver tablero">
+                          <KanbanSquare size={16} />
+                        </button>
+                      )}
+                      {conv && (
+                        <button
+                          className="btn-ghost h-10 px-2"
+                          onClick={() => void patchConversation({ archived: !conv.archived })}
+                          title={conv.archived ? "Desarchivar" : "Archivar"}
+                          aria-label={conv.archived ? "Desarchivar" : "Archivar"}
+                        >
+                          {conv.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+                        </button>
+                      )}
+                      {conv && (
+                        <button
+                          className="btn-ghost h-10 px-2"
+                          onClick={() => void patchConversation({ unread: true })}
+                          title="Marcar como no leído"
+                          aria-label="Marcar como no leído"
+                        >
+                          <MailWarning size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {conv && (
+                      <div className="relative md:hidden">
+                        <button
+                          className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+                          onClick={() => setMenuOpen((v) => !v)}
+                          aria-label="Más opciones"
+                          aria-expanded={menuOpen}
+                        >
+                          <MoreVertical size={20} />
+                        </button>
+                        {menuOpen && (
+                          <>
+                            <button className="fixed inset-0 z-40 cursor-default" aria-label="Cerrar menú" onClick={() => setMenuOpen(false)} />
+                            <div className="absolute right-0 top-11 z-40 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-lg">
+                              {canForward && (
+                                <button className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50" onClick={() => startSelect()}>
+                                  <CheckSquare size={16} /> Seleccionar mensajes
+                                </button>
+                              )}
+                              <button
+                                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                                onClick={() => {
+                                  setMenuOpen(false);
+                                  void patchConversation({ unread: true });
+                                }}
+                              >
+                                <MailWarning size={16} /> Marcar como no leído
+                              </button>
+                              <button
+                                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                                onClick={() => {
+                                  setMenuOpen(false);
+                                  void patchConversation({ archived: !conv.archived });
+                                }}
+                              >
+                                {conv.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />} {conv.archived ? "Desarchivar" : "Archivar"}
+                              </button>
+                              {onOpenBoard && (
+                                <button
+                                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                                  onClick={() => {
+                                    setMenuOpen(false);
+                                    closeChat(onOpenBoard);
+                                  }}
+                                >
+                                  <KanbanSquare size={16} /> Ver tablero
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {thread?.contact && columns.length > 0 && (
-                    <select
-                      className="hidden rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 sm:block"
-                      value={thread.contact.stage}
-                      onChange={(e) => void changeStage(e.target.value)}
-                      title="Columna del pipeline"
-                    >
-                      {columns.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {onOpenBoard && (
-                    <button className="btn-ghost h-9 px-2" onClick={onOpenBoard} title="Ver tablero" aria-label="Ver tablero">
-                      <KanbanSquare size={16} />
-                    </button>
-                  )}
-                  {conv && (
-                    <button
-                      className="btn-ghost h-9 px-2"
-                      onClick={() => void patchConversation({ archived: !conv.archived })}
-                      title={conv.archived ? "Desarchivar" : "Archivar"}
-                      aria-label={conv.archived ? "Desarchivar" : "Archivar"}
-                    >
-                      {conv.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
-                    </button>
-                  )}
-                  {conv && (
-                    <button
-                      className="btn-ghost h-9 px-2"
-                      onClick={() => void patchConversation({ unread: true })}
-                      title="Marcar como no leído"
-                      aria-label="Marcar como no leído"
-                    >
-                      <MailWarning size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
+
+              {leads.enabled && thread?.contact && !selectMode && (
+                <LeadPanel
+                  contact={thread.contact}
+                  statuses={leads.statuses}
+                  columns={columns}
+                  onSaved={() => {
+                    if (selectedId) void loadThread(selectedId);
+                    void loadList();
+                  }}
+                  onError={(t) => setToast({ tone: "error", text: t })}
+                />
+              )}
 
               {conv && (conv.optedOut || line?.aiMode === "auto") && (
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs sm:px-4">
@@ -770,7 +1230,16 @@ export default function InboxPanel({
                   const newDay = !prev || new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString();
                   const lineChanged = multiLine && prev && prev.lineId !== m.lineId && m.lineId;
                   const out = m.direction === "out";
-                  const origin = m.meta?.sonia ? "ai" : m.meta?.fromPhone ? (m.meta?.apiSent ? "api" : "phone") : "manual";
+                  const media: MediaMeta | null = m.meta?.media?.kind ? (m.meta.media as MediaMeta) : null;
+                  const origin = m.meta?.sonia
+                    ? "ai"
+                    : m.meta?.leadWelcome
+                      ? "lead"
+                      : m.meta?.fromPhone
+                        ? m.meta?.apiSent
+                          ? "api"
+                          : "phone"
+                        : "manual";
                   return (
                     <div key={m.id}>
                       {newDay && (
@@ -781,11 +1250,48 @@ export default function InboxPanel({
                       {lineChanged && (
                         <div className="my-2 text-center text-[11px] text-slate-400">— por {linesById.get(m.lineId!)?.label ?? "otro número"} —</div>
                       )}
-                      <div className={clsx("flex", out ? "justify-end" : "justify-start")}>
+                      <div
+                        {...pressHandlers(m.id)}
+                        {...(selectMode
+                          ? {
+                              role: "checkbox",
+                              "aria-checked": picked.includes(m.id),
+                              "aria-label": `${out ? "Enviado" : "Recibido"} a las ${hhmm(m.createdAt)}: ${m.body.slice(0, 60)}`,
+                              tabIndex: 0,
+                              onKeyDown: (e: React.KeyboardEvent) => {
+                                if (e.key === " " || e.key === "Enter") {
+                                  e.preventDefault();
+                                  togglePick(m.id);
+                                }
+                              },
+                            }
+                          : {})}
+                        className={clsx(
+                          "-mx-2 flex items-center gap-2 rounded-xl px-2 py-0.5 transition-colors",
+                          out ? "justify-end" : "justify-start",
+                          canForward && "[@media(pointer:coarse)]:select-none",
+                          selectMode && "cursor-pointer",
+                          selectMode && picked.includes(m.id) && "bg-emerald-100/70"
+                        )}
+                        style={canForward ? { WebkitTouchCallout: "none" } : undefined}
+                      >
+                        {selectMode && (
+                          <span
+                            className={clsx(
+                              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2",
+                              out && "order-first",
+                              picked.includes(m.id) ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white"
+                            )}
+                            aria-hidden
+                          >
+                            {picked.includes(m.id) && <Check size={14} strokeWidth={3} />}
+                          </span>
+                        )}
                         <div
                           className={clsx(
-                            "max-w-[88%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[72%]",
-                            out ? "rounded-br-md bg-brand-500 text-white" : "rounded-bl-md bg-white text-slate-800"
+                            "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-[15px] leading-snug shadow-sm sm:max-w-[72%] sm:text-sm",
+                            out ? "rounded-br-md bg-brand-500 text-white" : "rounded-bl-md bg-white text-slate-800",
+                            media && "px-1.5 pt-1.5"
                           )}
                         >
                           {out && origin === "ai" && (
@@ -793,13 +1299,40 @@ export default function InboxPanel({
                               <Bot size={11} /> {agentName}
                             </span>
                           )}
+                          {out && origin === "lead" && (
+                            <span className="mb-0.5 flex items-center gap-1 text-[11px] font-medium opacity-80">
+                              <Sparkles size={11} /> Primer mensaje automático al lead
+                            </span>
+                          )}
                           {out && origin === "phone" && (
                             <span className="mb-0.5 flex items-center gap-1 text-[11px] font-medium opacity-80">
                               <Smartphone size={11} /> Desde el móvil
                             </span>
                           )}
-                          {m.body}
-                          <span className={clsx("mt-0.5 flex items-center justify-end gap-1 text-[10px]", out ? "text-white/70" : "text-slate-400")}>
+                          {media ? (
+                            <>
+                              <MessageMedia
+                                messageId={m.id}
+                                media={media}
+                                out={out}
+                                interactive={!selectMode}
+                                onOpenImage={(id, md) => setLightbox({ id, media: md })}
+                              />
+                              {media.caption && <span className="block px-1.5">{media.caption}</span>}
+                            </>
+                          ) : (
+                            m.body
+                          )}
+                          {Array.isArray(m.meta?.forwards) && m.meta.forwards.length > 0 && (
+                            <span className={clsx("mt-1 flex flex-wrap gap-1 px-0.5 text-[10px] font-medium", out ? "text-white/80" : "text-emerald-700")}>
+                              {[...new Set<string>(m.meta.forwards.map((f: any) => String(f.label)))].map((label) => (
+                                <span key={label} className="inline-flex items-center gap-0.5">
+                                  <CornerUpRight size={10} /> Enviado a {label}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          <span className={clsx("mt-0.5 flex items-center justify-end gap-1 px-1 text-[10px]", out ? "text-white/70" : "text-slate-400")}>
                             {hhmm(m.createdAt)}
                             {out && <Ticks ack={m.ack} />}
                           </span>
@@ -856,8 +1389,33 @@ export default function InboxPanel({
                 <div ref={bottomRef} />
               </div>
 
+              {/* ------- Reenvío de lo seleccionado ------- */}
+              {selectMode && (
+                <div className="border-t border-emerald-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                  <p className="mb-2 text-xs text-slate-500">
+                    {picked.length
+                      ? `Se enviará ${selectionSummary(pickedMessages)} desde ${line?.label ?? "este número"}.`
+                      : "Elige los mensajes y pulsa a quién enviarlos."}
+                  </p>
+                  <div className={clsx("grid gap-2", forwardTargets.length > 1 && "sm:grid-cols-2 lg:grid-cols-3")}>
+                    {forwardTargets.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={!picked.length || forwarding}
+                        onClick={() => setConfirmTarget(t)}
+                        className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold tracking-wide text-white shadow-sm transition-colors hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-slate-200 disabled:text-slate-400"
+                      >
+                        <CornerUpRight size={17} />
+                        {forwardButtonLabel(t.label)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* ------- Propuesta de la IA ------- */}
-              {conv && (!conv.optedOut || conv.canReplyAfterOptOut) && line?.aiMode !== "off" && (aiBusy || drafting || draft || waitingReply) && (
+              {!selectMode && conv && (!conv.optedOut || conv.canReplyAfterOptOut) && line?.aiMode !== "off" && (aiBusy || drafting || draft || waitingReply) && (
                 <div className="border-t border-violet-100 bg-violet-50/60 px-3 py-2.5 sm:px-4">
                   {aiBusy || drafting ? (
                     <p className="flex items-center gap-2 text-xs text-violet-800">
@@ -903,13 +1461,17 @@ export default function InboxPanel({
                 </div>
               )}
 
+              {!selectMode && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   void send(text);
                 }}
-                className="border-t border-slate-200 p-3"
+                className="border-t border-slate-200 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
               >
+                {voiceActive ? (
+                  <VoiceComposer onCancel={() => setVoiceActive(false)} onSend={sendVoice} />
+                ) : (
                 <div className="flex items-end gap-2">
                   <textarea
                     ref={textareaRef}
@@ -926,10 +1488,26 @@ export default function InboxPanel({
                       <Undo2 size={15} />
                     </button>
                   )}
-                  <button className="btn-primary h-10 w-10 shrink-0 px-0" disabled={sending || !text.trim() || (conv?.optedOut && !conv.canReplyAfterOptOut)} aria-label="Enviar">
-                    {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                  </button>
+                  {!text.trim() && canRecord && !(conv?.optedOut && !conv.canReplyAfterOptOut) ? (
+                    <button
+                      type="button"
+                      className="btn-primary h-10 w-10 shrink-0 px-0"
+                      onClick={() => {
+                        setNotice(null);
+                        setVoiceActive(true);
+                      }}
+                      aria-label="Grabar nota de voz"
+                      title="Grabar nota de voz"
+                    >
+                      <Mic size={17} />
+                    </button>
+                  ) : (
+                    <button className="btn-primary h-10 w-10 shrink-0 px-0" disabled={sending || !text.trim() || (conv?.optedOut && !conv.canReplyAfterOptOut)} aria-label="Enviar">
+                      {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    </button>
+                  )}
                 </div>
+                )}
                 {notice ? (
                   <p className={clsx("mt-2 text-xs", notice.tone === "error" ? "text-red-600" : notice.tone === "ok" ? "text-emerald-700" : "text-slate-600")}>
                     {notice.text}
@@ -944,8 +1522,52 @@ export default function InboxPanel({
                   )
                 )}
               </form>
+              )}
             </>
           )}
+
+          {toast && (
+            <div
+              role="status"
+              className={clsx(
+                "pointer-events-none absolute inset-x-3 top-16 z-30 mx-auto max-w-md rounded-xl px-4 py-3 text-sm font-medium shadow-lg max-md:top-[calc(env(safe-area-inset-top)+4rem)]",
+                toast.tone === "ok" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+              )}
+            >
+              {toast.text}
+            </div>
+          )}
+
+          {confirmTarget && (
+            <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Confirmar envío">
+              <button className="absolute inset-0 bg-slate-900/40" aria-label="Cancelar" onClick={() => !forwarding && setConfirmTarget(null)} />
+              <div className="relative w-full max-w-md rounded-t-2xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl sm:rounded-2xl">
+                <h3 className="text-base font-semibold">{forwardButtonLabel(confirmTarget.label)}</h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  Se enviará {selectionSummary(pickedMessages)} a <strong>{confirmTarget.label}</strong> ({formatPhone(confirmTarget.phone)}) desde{" "}
+                  <strong>{line?.label ?? "este número"}</strong>
+                  {line?.phone ? ` (${formatPhone(line.phone)})` : ""}.
+                </p>
+                <div className="mt-5 grid grid-cols-2 gap-2">
+                  <button type="button" className="btn-ghost min-h-12 border border-slate-200" disabled={forwarding} onClick={() => setConfirmTarget(null)}>
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    autoFocus
+                    className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    disabled={forwarding}
+                    onClick={() => void doForward(confirmTarget)}
+                  >
+                    {forwarding ? <Loader2 size={16} className="animate-spin" /> : <CornerUpRight size={16} />}
+                    {forwarding ? "Enviando…" : "Enviar"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {lightbox && <Lightbox messageId={lightbox.id} media={lightbox.media} onClose={() => setLightbox(null)} />}
         </section>
       </div>
 

@@ -5,6 +5,8 @@ import { isSameOrigin } from "@/lib/auth";
 import { sendSeen } from "@/lib/waha";
 import { inboxError, requireInboxUser } from "@/lib/inbox/api";
 import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
+import { publicMessageMeta } from "@/lib/inbox/media-core";
+import { readAttempts } from "@/lib/leads/config";
 import {
   fillPlaceholderContactNames,
   isPlaceholderName,
@@ -42,13 +44,25 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       conversation.contactId
         ? prisma.contact.findFirst({
             where: { id: conversation.contactId, workspaceId },
-            select: { id: true, name: true, phone: true, stage: true, notes: true, source: true },
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true,
+              stage: true,
+              notes: true,
+              source: true,
+              leadStatus: true,
+              leadStatusAt: true,
+              leadInfo: true,
+              contactAttempts: true,
+            },
           })
         : Promise.resolve(null),
       conversation.lineId ? prisma.whatsappLine.findFirst({ where: { id: conversation.lineId, workspaceId } }) : Promise.resolve(null),
     ]);
 
-    let contact = contactRow;
+    let contact = contactRow ? { ...contactRow, contactAttempts: readAttempts(contactRow.contactAttempts) } : null;
     let pushName: string | null = null;
     if (!contact || isPlaceholderName(contact.name, contact.phone)) {
       pushName = (await latestPushNames(workspaceId, [conversation.phone])).get(conversation.phone) ?? null;
@@ -101,7 +115,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       line: line
         ? { id: line.id, label: line.label, phone: line.phone, aiMode: line.aiMode, active: line.active, lastStatus: line.lastStatus }
         : null,
-      messages: messages.reverse(),
+      // Sin claves internas de almacenamiento: los archivos se piden por id de mensaje.
+      messages: messages.reverse().map((m) => ({ ...m, meta: publicMessageMeta(m.meta) })),
       outbound,
     });
   } catch (error) {

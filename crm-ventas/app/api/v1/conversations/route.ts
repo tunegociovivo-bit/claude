@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isSameOrigin, requireWorkspaceId, unauthorized } from "@/lib/auth";
 import { backfillConversations } from "@/lib/inbox/conversations";
 import { describeDecision, enqueueOutbound, processIfDue } from "@/lib/inbox/outbound";
+import { publicMessageMeta } from "@/lib/inbox/media-core";
 
 // GET  → lista de conversaciones (o mensajes de un hilo con ?phone=)
 // POST → responder manualmente a un hilo
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "asc" },
       take: 200,
     });
-    return NextResponse.json({ messages });
+    return NextResponse.json({ messages: messages.map((m) => ({ ...m, meta: publicMessageMeta(m.meta) })) });
   }
 
   // Agrupar por teléfono con el último mensaje de cada hilo

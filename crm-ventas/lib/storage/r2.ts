@@ -12,7 +12,7 @@
  *    funciona sin configurar nada y las URLs son públicas para Meta/WordPress.
  */
 import crypto from "crypto";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "@/lib/prisma";
 
@@ -142,6 +142,26 @@ export async function downloadBuffer(s3Key: string): Promise<Buffer> {
   const chunks: Buffer[] = [];
   // @ts-expect-error AsyncIterable en Node 18+
   for await (const chunk of resp.Body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+/** Tamaño de un archivo del bucket (sin descargarlo). */
+export async function objectSize(s3Key: string): Promise<number | null> {
+  if (!isS3Enabled()) return null;
+  try {
+    const head = await client().send(new HeadObjectCommand({ Bucket: bucket(), Key: s3Key }));
+    return typeof head.ContentLength === "number" ? head.ContentLength : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Trozo [start, end] de un archivo del bucket (para peticiones Range de audio/vídeo). */
+export async function downloadRange(s3Key: string, start: number, end: number): Promise<Buffer> {
+  const resp = await client().send(new GetObjectCommand({ Bucket: bucket(), Key: s3Key, Range: `bytes=${start}-${end}` }));
+  if (!resp.Body) throw new Error(`Body vacío al descargar ${s3Key}`);
+  const chunks: Buffer[] = [];
+  for await (const chunk of resp.Body as AsyncIterable<Uint8Array>) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks);
 }
 

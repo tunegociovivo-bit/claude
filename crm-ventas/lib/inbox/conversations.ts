@@ -20,6 +20,9 @@ export async function upsertConversationOnInbound(opts: {
   messageId: string;
   body: string;
   at: Date;
+  // Mensaje que no pide respuesta (sticker): no pasa a ser «el mensaje a
+  // responder», así no invalida la respuesta o la propuesta de la IA en curso.
+  passive?: boolean;
 }) {
   return prisma.conversation.upsert({
     where: { workspaceId_phone: { workspaceId: opts.workspaceId, phone: opts.phone } },
@@ -42,8 +45,7 @@ export async function upsertConversationOnInbound(opts: {
       ...(opts.contactId ? { contactId: opts.contactId } : {}),
       unread: { increment: 1 },
       lastMessageAt: opts.at,
-      lastInboundAt: opts.at,
-      lastInboundId: opts.messageId,
+      ...(opts.passive ? {} : { lastInboundAt: opts.at, lastInboundId: opts.messageId }),
       lastPreview: preview(opts.body),
       lastDirection: "in",
       archived: false,

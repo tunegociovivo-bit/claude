@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isSameOrigin } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
@@ -16,6 +16,8 @@ import {
 import { listLines } from "@/lib/inbox/lines";
 import { describeDecision, enqueueOutbound, processIfDue } from "@/lib/inbox/outbound";
 import { findOrCreateContactByPhone } from "@/lib/contacts";
+import { getLeadsState } from "@/lib/leads/settings";
+import { readAttempts } from "@/lib/leads/config";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,23 @@ export async function GET(req: NextRequest) {
     const filter = params.get("filter") ?? "all";
     const q = (params.get("q") ?? "").trim().slice(0, 80);
 
+    const leads = await getLeadsState(workspaceId);
+    const statusFilter = leads.enabled ? (params.get("status") ?? "").slice(0, 60) : "";
+
     const where: Prisma.ConversationWhereInput = { workspaceId };
+    if (statusFilter) {
+      // Estado del lead: está en la ficha del contacto. Se resuelve en SQL con
+      // un JOIN (sin listas enormes de ids) y limitado a lo que puede mostrarse.
+      const archived = filter === "archived";
+      const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT c."id" FROM "Conversation" c
+        LEFT JOIN "Contact" k ON k."id" = c."contactId" AND k."workspaceId" = c."workspaceId"
+        WHERE c."workspaceId" = ${workspaceId} AND c."archived" = ${archived}
+          AND ${statusFilter === "none" ? Prisma.sql`k."leadStatus" IS NULL` : Prisma.sql`k."leadStatus" = ${statusFilter}`}
+        ORDER BY c."lastMessageAt" DESC
+        LIMIT 2000`;
+      where.id = { in: rows.map((r) => r.id) };
+    }
     if (lineId && lineId !== "all") where.lineId = lineId;
     if (filter === "archived") where.archived = true;
     else where.archived = false;
@@ -69,10 +87,13 @@ export async function GET(req: NextRequest) {
     const contacts = contactIds.length
       ? await prisma.contact.findMany({
           where: { workspaceId, id: { in: contactIds } },
-          select: { id: true, name: true, stage: true, phone: true },
+          select: { id: true, name: true, stage: true, phone: true, leadStatus: true, contactAttempts: true },
         })
       : [];
-    const contactById = new Map(contacts.map((c) => [c.id, c]));
+    // Al navegador solo va el nº de intentos de contacto (no la lista entera).
+    const contactById = new Map(
+      contacts.map(({ contactAttempts, ...c }) => [c.id, { ...c, attempts: readAttempts(contactAttempts).length }])
+    );
     // Nombre real de WhatsApp para los chats sin nombre (y se guarda en la ficha).
     const needName = rows.filter((r) => {
       const c = r.contactId ? contactById.get(r.contactId) : null;
@@ -140,6 +161,9 @@ export async function GET(req: NextRequest) {
       totals: {
         unreadChats: unreadByLine.reduce((sum, u) => sum + u._count._all, 0),
       },
+      leads: leads.enabled
+        ? { enabled: true, statuses: leads.statuses, forwardTargets: leads.forwardTargets.map(({ id, label, phone }) => ({ id, label, phone })) }
+        : { enabled: false, statuses: [], forwardTargets: [] },
     });
   } catch (error) {
     return inboxError(error);

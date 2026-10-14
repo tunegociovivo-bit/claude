@@ -2,12 +2,15 @@ import { prisma } from "@/lib/prisma";
 
 // Módulos opcionales del CRM. Se activan por workspace desde el panel de
 // operador y se guardan en Workspace.settings.modules.
-export const CONTENT_MODULES = ["editorial", "seo"] as const;
+//  - editorial / seo: módulos de contenidos.
+//  - leads: estados de lead, botones «ENVIAR A» y entrada de leads desde Make.
+export const CONTENT_MODULES = ["editorial", "seo", "leads"] as const;
 export type ContentModule = (typeof CONTENT_MODULES)[number];
 
 export const MODULE_LABELS: Record<ContentModule, string> = {
   editorial: "Editorial",
   seo: "Publicador SEO",
+  leads: "Leads y reenvíos",
 };
 
 export type EnabledModules = Record<ContentModule, boolean>;
@@ -17,6 +20,7 @@ export function readModules(settings: unknown): EnabledModules {
   return {
     editorial: raw.editorial === true,
     seo: raw.seo === true,
+    leads: raw.leads === true,
   };
 }
 

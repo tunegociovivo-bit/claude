@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, KeyRound, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
+import { Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, Forward, KeyRound, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Wallet } from "lucide-react";
 
 type KeySource = "client" | "negociovivo" | "none";
 type KeyStatus = { source: KeySource; masked: string; negocioVivoAvailable: boolean };
@@ -16,15 +16,17 @@ type Client = {
   callCost: number; whatsappCost: number; totalCost: number;
   callCostToday: number; whatsappCostToday: number; totalCostToday: number;
   callCostMonthly: number; whatsappCostMonthly: number; totalCostMonthly: number;
-  modules: { editorial: boolean; seo: boolean };
+  modules: { editorial: boolean; seo: boolean; leads: boolean };
   contentAiCostMonthly: number;
   contentAiLimitUsd: number;
   apiKeys?: ClientApiKeys;
 };
 
-const MODULES: Array<{ key: "editorial" | "seo"; label: string; hint: string; icon: typeof Newspaper }> = [
+type ModuleKey = "editorial" | "seo" | "leads";
+const MODULES: Array<{ key: ModuleKey; label: string; hint: string; icon: typeof Newspaper }> = [
   { key: "editorial", label: "Editorial", hint: "Calendario de redes con IA y publicación en Facebook/Instagram", icon: CalendarRange },
   { key: "seo", label: "Publicador SEO", hint: "Artículos de blog con IA publicados en su WordPress", icon: Newspaper },
+  { key: "leads", label: "Leads y reenvíos", hint: "Estado de cada lead, botones «ENVIAR A» para reenviar mensajes y entrada de leads desde Make", icon: Forward },
 ];
 type Overview = {
   globalPrompt: string;
@@ -85,7 +87,7 @@ export default function AdminDashboard() {
     if (response.ok) await load();
   }
 
-  async function toggleModule(client: Client, key: "editorial" | "seo") {
+  async function toggleModule(client: Client, key: ModuleKey) {
     const enable = !client.modules?.[key];
     setBusy(`module:${client.id}:${key}`); setNotice("");
     const response = await fetch(`/api/v1/admin/clients/${client.id}`, {
@@ -185,7 +187,7 @@ export default function AdminDashboard() {
                 <div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><input aria-label={`Nombre de ${client.name}`} className="input min-w-0 flex-1 font-semibold" maxLength={120} value={names[client.id] ?? ""} onChange={(event) => setNames((current) => ({ ...current, [client.id]: event.target.value }))} /><button className="btn-ghost shrink-0" disabled={busy === `name:${client.id}`} onClick={() => saveName(client)}>{busy === `name:${client.id}` ? "Guardando…" : "Guardar nombre"}</button>{client.isBlocked ? <span className="w-fit rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">Bloqueado</span> : <span className="w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">Activo</span>}</div><p className="mt-1 truncate text-sm text-slate-500">{client.email}</p></div><button disabled={busy === client.id} onClick={() => toggle(client)} className={`rounded-lg px-3 py-2 text-sm font-medium ${client.isBlocked ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>{client.isBlocked ? <><CheckCircle2 className="mr-1 inline" size={15} />Activar</> : <><Ban className="mr-1 inline" size={15} />Bloquear</>}</button></div>
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">{[["Llamadas totales", client.callsTotal], ["Minutos totales", client.minutesTotal], ["WhatsApp totales", client.whatsappTotal], ["Coste hoy", money(client.totalCostToday)], ["Coste mensual", money(client.totalCostMonthly)], ["Coste total", money(client.totalCost)]].map(([label, value]) => <div key={label} className="rounded-xl bg-white p-3 ring-1 ring-slate-100"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold">{value}</p></div>)}</div>
                 <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Módulos de contenidos</p>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Módulos</p>
                   <div className="flex flex-wrap gap-2">
                     {MODULES.map(({ key, label, hint, icon: Icon }) => {
                       const on = Boolean(client.modules?.[key]);

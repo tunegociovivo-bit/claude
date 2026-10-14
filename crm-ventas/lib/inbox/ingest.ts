@@ -7,8 +7,13 @@ import { lineForSession } from "@/lib/inbox/lines";
 import { touchConversationOnOutbound, upsertConversationOnInbound } from "@/lib/inbox/conversations";
 import { recordHumanReply } from "@/lib/inbox/learning";
 import { scheduleConversationAi } from "@/lib/inbox/ai";
-import { cancelQueuedAutoReplies } from "@/lib/inbox/outbound";
+import { cancelQueuedAutoReplies, cancelQueuedLeadWelcome } from "@/lib/inbox/outbound";
 import { isOptOutMessage } from "@/lib/inbox/text";
+import { extractMedia, extractSpecialText, mediaBody } from "@/lib/inbox/media-core";
+import { attachStoredMedia, pendingMedia, storeWhatsappMedia } from "@/lib/inbox/media";
+import { getLeadsState } from "@/lib/leads/settings";
+import { isForwardTargetPhone } from "@/lib/leads/config";
+import type { ExtractedMedia } from "@/lib/inbox/media-core";
 import {
   extractAck,
   extractAlternatePhone,
@@ -59,8 +64,17 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
 
   const rawFrom = String(payload?.from ?? payload?.chatId ?? "");
   const rawTo = String(payload?.to ?? "");
-  const text = extractBody(payload);
   const externalId = extractMessageId(payload);
+  // Fotos, audios, vídeos y documentos se guardan (antes se ignoraban). La
+  // ubicación y las tarjetas de contacto se guardan como texto.
+  const media = extractMedia(payload);
+  const special = media ? "" : extractSpecialText(payload);
+  let text = special || extractBody(payload);
+  if (media) {
+    const plainBody = typeof payload?.body === "string" && !looksLikeBase64(payload.body) ? payload.body.trim() : "";
+    media.caption = (media.caption || plainBody).slice(0, 4000);
+    text = mediaBody(media);
+  }
   if (!text) return { ok: true, empty: true };
 
   const threadRaw = fromMe ? rawTo : rawFrom;
@@ -77,15 +91,25 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
     select: { phone: true },
   });
   if (ownNumbers.some((l) => l.phone && l.phone === threadPhone)) return { ok: true, ignored: "own-number" };
+  // Los destinos de «ENVIAR A» (equipo, clínica asociada…) no son clientes: lo
+  // que se les reenvía no abre chats en la bandeja ni activa a la IA.
+  const leads = await getLeadsState(ws.id);
+  if (leads.forwardTargets.length && isForwardTargetPhone(leads.forwardTargets, threadPhone)) {
+    return { ok: true, ignored: "forward-target" };
+  }
 
   const contactPhone = threadRaw.includes("@lid") ? extractAlternatePhone(payload, countryCode) ?? threadPhone : threadPhone;
 
   if (externalId) {
     const dupe = await prisma.message.findFirst({
       where: { workspaceId: ws.id, externalId },
-      select: { id: true, direction: true, body: true, createdAt: true, contactId: true },
+      select: { id: true, direction: true, body: true, createdAt: true, contactId: true, meta: true },
     });
     if (dupe) {
+      // El primer intento se cortó mientras descargaba el archivo: se reintenta.
+      if (media && (dupe.meta as any)?.media?.pending) {
+        await downloadInto(ws.id, line, dupe.id, media);
+      }
       // Reintento de WAHA tras un fallo a medias: completar lo que faltase
       // (conversación y programación de la IA) sin duplicar el mensaje.
       if (dupe.direction === "in" && !fromMe) {
@@ -154,7 +178,7 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
         body: text,
         externalId: externalId || null,
         lineId: line.id,
-        meta: { fromPhone: true, apiSent: isApiSent(payload) },
+        meta: { fromPhone: true, apiSent: isApiSent(payload), ...(media ? { media: pendingMedia(media) } : {}) },
       },
     });
     // No cambia el número del chat: las respuestas siguen saliendo por el
@@ -171,7 +195,7 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
     });
     if (!isApiSent(payload)) {
       // Respuesta escrita a mano en el móvil: la IA también aprende de ella y
-      // se aparta de este chat un par de horas.
+      // se aparta de este chat un par de horas (los archivos no enseñan estilo).
       const conversation = await prisma.conversation.findUnique({
         where: { workspaceId_phone: { workspaceId: ws.id, phone: threadPhone } },
         select: { id: true, aiDraft: true },
@@ -183,16 +207,19 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
         });
         await cancelQueuedAutoReplies({ conversationId: conversation.id }, "Respondido a mano desde el móvil");
       }
-      await recordHumanReply({
-        workspaceId: ws.id,
-        lineId: line.id,
-        phone: threadPhone,
-        finalText: text,
-        aiDraft: conversation?.aiDraft ?? null,
-        source: "phone",
-        at: message.createdAt,
-      }).catch(() => undefined);
+      if (!media && !special) {
+        await recordHumanReply({
+          workspaceId: ws.id,
+          lineId: line.id,
+          phone: threadPhone,
+          finalText: text,
+          aiDraft: conversation?.aiDraft ?? null,
+          source: "phone",
+          at: message.createdAt,
+        }).catch(() => undefined);
+      }
     }
+    if (media) await downloadInto(ws.id, line, message.id, media);
     return { ok: true, recorded: "out" };
   }
 
@@ -223,7 +250,8 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
   }
   if (contact.stage === "nuevos") await moveContactToStage(contact.id, "conversacion");
 
-  const optOut = isOptOutMessage(text);
+  // La baja solo se detecta en texto escrito (nunca en el nombre de un archivo).
+  const optOut = media ? isOptOutMessage(media.caption) : isOptOutMessage(text);
   const message = await prisma.message.create({
     data: {
       workspaceId: ws.id,
@@ -238,24 +266,54 @@ export async function ingestWhatsappEvent(ws: Ws, body: any): Promise<IngestResu
         from: rawFrom,
         session: line.sessionName,
         autoReplyStatus: optOut ? "opted-out" : line.aiMode === "auto" ? "processing" : "disabled",
+        ...(media ? { media: pendingMedia(media) } : {}),
       },
     },
   });
-  return finalizeInbound(ws.id, line, {
+  // Primero queda guardado el mensaje (y la conversación): si WAHA reintenta
+  // mientras se descarga el archivo, el reintento lo ve como duplicado.
+  const result = await finalizeInbound(ws.id, line, {
     messageId: message.id,
     body: text,
     at: message.createdAt,
     phone: threadPhone,
     chatId: threadRaw,
     contactId: contact.id,
+    optOut,
+    // Un sticker no pide respuesta: se guarda sin despertar a la IA.
+    skipAi: media?.kind === "sticker",
   });
+  if (media) await downloadInto(ws.id, line, message.id, media);
+  return result;
+}
+
+async function downloadInto(workspaceId: string, line: { id: string; sessionName: string }, messageId: string, media: ExtractedMedia) {
+  const stored = await storeWhatsappMedia({ workspaceId, lineId: line.id, session: line.sessionName, media });
+  await attachStoredMedia(messageId, stored).catch((error) =>
+    console.error("[whatsapp-media] no se pudo adjuntar el archivo:", error?.message)
+  );
+}
+
+// WEBJS deja una miniatura en base64 en el cuerpo de algunos mensajes con archivo.
+function looksLikeBase64(value: string): boolean {
+  const v = value.trim();
+  return v.length > 200 && /^[A-Za-z0-9+/=]+$/.test(v);
 }
 
 // Pasos posteriores a guardar un entrante (idempotentes ante reintentos).
 async function finalizeInbound(
   workspaceId: string,
   line: { id: string; aiMode: string },
-  m: { messageId: string; body: string; at: Date; phone: string; chatId: string; contactId: string | null }
+  m: {
+    messageId: string;
+    body: string;
+    at: Date;
+    phone: string;
+    chatId: string;
+    contactId: string | null;
+    skipAi?: boolean;
+    optOut?: boolean;
+  }
 ): Promise<IngestResult> {
   const conversation = await upsertConversationOnInbound({
     workspaceId,
@@ -266,13 +324,18 @@ async function finalizeInbound(
     messageId: m.messageId,
     body: m.body,
     at: m.at,
+    passive: m.skipAi,
   });
+  // Sticker: no cambia nada de lo que la IA estaba haciendo.
+  if (m.skipAi) return { ok: true };
 
   // Respuesta automática aún no enviada a un mensaje anterior: se cancela y se
   // vuelve a generar con el contexto completo (una sola respuesta, no dos).
   await cancelQueuedAutoReplies({ conversationId: conversation.id }, "Sustituida: el cliente escribió de nuevo");
+  // Si el lead escribe antes de que salga su primer mensaje automático, ya no hace falta.
+  await cancelQueuedLeadWelcome(conversation.id, "El lead ya ha escrito: no hace falta el primer mensaje");
 
-  if (isOptOutMessage(m.body)) {
+  if (m.optOut ?? isOptOutMessage(m.body)) {
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: { optedOut: true, optedOutAt: new Date(), aiStatus: "idle", aiDraft: null, aiDueAt: null },

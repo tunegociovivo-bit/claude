@@ -35,6 +35,43 @@ Hub.Negociovivo, empaquetado como producto independiente y multi-cliente.
 - **Worker**: arranca en `instrumentation.ts` (cada 3 s). Las reclamaciones son
   atómicas, así que varias instancias no duplican envíos.
 
+## Leads y reenvíos (módulo opcional, se activa por cliente en `/admin`)
+
+- **Entrada de leads desde Make** (`POST /api/webhooks/leads/<token>`, JSON): cada
+  escenario de Meta Lead Ads añade un módulo HTTP con `telefono`, `nombre`, `email`,
+  `linea` (teléfono o nombre del número del CRM que lleva el lead), `tratamiento`,
+  `campana`, `lead_id` y `respuestas`. El lead entra en «Nuevos» con estado «Nuevo»,
+  se asigna a ese número y recibe su «Primer mensaje a los leads» (Teléfonos →
+  Avanzado, con `{nombre}` y `{tratamiento}`), por la cola anti-baneo (necesita
+  «Chats nuevos/día» > 0). Un reintento con el mismo `lead_id` no duplica nada. La
+  URL (con el token) se ve y se regenera en Ajustes → Leads y reenvíos.
+- **ENVIAR A**: en un chat se seleccionan (mantener pulsado o «Seleccionar») fotos,
+  audios, vídeos, documentos o textos y se reenvían a un destino de Ajustes desde el
+  mismo número del chat (WAHA Plus: sendImage/sendVideo/sendVoice/sendFile). Los
+  destinos no abren chats en la bandeja ni activan a la IA.
+- **Estado del lead**: desplegable en cada chat y en el pipeline (lista editable en
+  Ajustes), «Información adicional» y respuestas del formulario de Meta.
+- **Intentos de contacto**: cada lead lleva la lista de intentos con su hora («Intento
+  ahora» o a la hora elegida); el número se ve en la bandeja y en el pipeline.
+- Si el lead escribe (o alguien del equipo le escribe) antes de que salga su primer
+  mensaje automático —p. ej. aplazado a las 9:00—, ese mensaje se cancela.
+
+## Notas de voz desde el CRM
+
+En cualquier chat, con la caja vacía, el botón del micrófono graba una nota de voz
+(se escucha antes de enviarla). El servidor solo acepta grabaciones de audio reales
+(webm, ogg, mp4/m4a, wav, mp3, aac, amr), las convierte a OGG/Opus con ffmpeg y
+salen por la cola anti-baneo del número del chat como nota de voz de WhatsApp.
+
+## Multimedia de WhatsApp
+
+Los mensajes con archivo se guardan (antes se ignoraban): el CRM descarga el archivo de
+WAHA al recibir el evento (`payload.media.url`, solo la ruta `/api/files/…` del WAHA
+configurado) y lo guarda en el almacenamiento (`STORAGE_*` o BD, máx. 30 MB). Se sirven
+solo con sesión del negocio en `/api/v1/inbox/media/<mensaje>` (con Range y miniatura
+WebP de las fotos). WAHA debe tener la descarga de multimedia activada (por defecto lo
+está). La IA ve «[El cliente ha enviado una foto…]», no el archivo.
+
 ## Stack
 
 Next.js 14 (App Router) · TypeScript · Prisma + PostgreSQL · NextAuth ·

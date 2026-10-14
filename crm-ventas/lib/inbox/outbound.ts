@@ -1,7 +1,9 @@
 import "server-only";
 import type { OutboundMessage, WhatsappLine } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { sendSeen, sendText, setTyping, WahaSendError } from "@/lib/waha";
+import { sendMedia, sendSeen, sendText, setTyping, WahaSendError } from "@/lib/waha";
+import { downloadBuffer } from "@/lib/storage/r2";
+import type { StoredMedia } from "@/lib/inbox/media-core";
 import { bodyFingerprint } from "@/lib/inbox/text";
 import { madridDayStart } from "@/lib/inbox/time";
 import {
@@ -96,9 +98,13 @@ async function safetyCounters(opts: {
 }
 
 // Último envío hecho o ya programado en la línea (para encadenar el ritmo).
+// Solo cuenta lo programado para los próximos minutos: un primer mensaje a un
+// lead aplazado a la franja de mañana no debe retrasar las respuestas de hoy
+// (al enviarse, el ritmo se vuelve a comprobar con lo realmente enviado).
+const PACING_HORIZON_MS = 15 * 60_000;
 async function lastScheduledOnLine(line: WhatsappLine): Promise<Date | null> {
   const pending = await prisma.outboundMessage.findFirst({
-    where: { lineId: line.id, status: { in: PENDING } },
+    where: { lineId: line.id, status: { in: PENDING }, scheduledAt: { lte: new Date(Date.now() + PACING_HORIZON_MS) } },
     orderBy: { scheduledAt: "desc" },
     select: { scheduledAt: true },
   });
@@ -133,6 +139,7 @@ export async function enqueueOutbound(opts: {
   idempotencyKey?: string | null;
   minDelayMs?: number;
   critical?: boolean;
+  media?: StoredMedia | null; // nota de voz grabada en el CRM
 }): Promise<EnqueueResult> {
   if (opts.idempotencyKey) {
     const existing = await prisma.outboundMessage.findUnique({ where: { idempotencyKey: opts.idempotencyKey } });
@@ -217,6 +224,7 @@ export async function enqueueOutbound(opts: {
     replyToId: opts.replyToId ?? null,
     userId: opts.userId ?? null,
     idempotencyKey: opts.idempotencyKey ?? null,
+    ...(opts.media ? { media: opts.media as any } : {}),
   };
 
   if (decision.kind === "block") {
@@ -226,9 +234,11 @@ export async function enqueueOutbound(opts: {
     return { outbound, decision };
   }
 
-  if (opts.origin === "manual") {
-    // Una persona responde: lo que la IA tuviera programado para este chat sobra.
+  if (opts.origin === "manual" && !(opts.idempotencyKey ?? "").startsWith(LEAD_WELCOME_KEY_PREFIX)) {
+    // Una persona responde: lo que la IA tuviera programado para este chat sobra,
+    // y también el primer mensaje automático al lead si aún no había salido.
     await cancelQueuedAutoReplies({ conversationId: conversation.id }, "Sustituida por una respuesta del equipo");
+    await cancelQueuedLeadWelcome(conversation.id, "Sustituido: el equipo ya ha escrito a este lead");
   }
 
   const minAt = new Date(now.getTime() + (opts.minDelayMs ?? 0));
@@ -360,24 +370,43 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
     // Simulación humana: marcar leído, «escribiendo…» y pausa proporcional
     // (señales de cortesía: si fallan, no impiden el envío).
     const signal = (fn: () => Promise<unknown>) => fn().catch(() => undefined);
+    const media = (outbound.media as StoredMedia | null) ?? null;
+    // Nota de voz: el archivo se lee ANTES de cualquier señal (si falla, no salió nada).
+    const voiceData = media?.key ? await downloadBuffer(media.key) : null;
     await signal(() => sendSeen({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId }));
-    await signal(() =>
-      setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: true })
-    );
-    await sleep(typingDelayMs(outbound.body, outbound.origin === "auto" ? "auto" : "manual"));
-    await signal(() =>
-      setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: false })
-    );
+    if (voiceData) {
+      // Una nota de voz ya está grabada: solo una pausa breve, sin «escribiendo…».
+      await sleep(1_200 + jitter(1_500));
+    } else {
+      await signal(() =>
+        setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: true })
+      );
+      await sleep(typingDelayMs(outbound.body, outbound.origin === "auto" ? "auto" : "manual"));
+      await signal(() =>
+        setTyping({ workspaceId: line.workspaceId, session: line.sessionName, chatId: outbound.chatId, typing: false })
+      );
+    }
 
     let messageId: string;
     sendStarted = true;
     try {
-      ({ messageId } = await sendText({
-        workspaceId: line.workspaceId,
-        to: outbound.chatId,
-        text: outbound.body,
-        session: line.sessionName,
-      }));
+      ({ messageId } =
+        voiceData && media
+          ? await sendMedia({
+              workspaceId: line.workspaceId,
+              session: line.sessionName,
+              to: outbound.chatId,
+              kind: "voice",
+              data: voiceData,
+              mimetype: media.mimetype,
+              filename: media.filename ?? "nota-de-voz.ogg",
+            })
+          : await sendText({
+              workspaceId: line.workspaceId,
+              to: outbound.chatId,
+              text: outbound.body,
+              session: line.sessionName,
+            }));
     } catch (error) {
       return await handleSendFailure(outbound, line, error);
     }
@@ -403,10 +432,10 @@ export async function processOutbound(id: string): Promise<OutboundMessage | nul
   }
 }
 
-async function handleSendFailure(outbound: OutboundMessage, line: WhatsappLine, error: unknown) {
+// Cortacircuitos del número tras un fallo de envío (también lo usa el reenvío).
+export async function noteLineSendFailure(line: WhatsappLine, error: unknown) {
   const reason = error instanceof Error ? error.message : String(error);
   const status = error instanceof WahaSendError ? error.status : null;
-  const ambiguous = error instanceof WahaSendError ? error.ambiguous : true;
   const failures = line.consecutiveFailures + 1;
   await prisma.whatsappLine.update({ where: { id: line.id }, data: { consecutiveFailures: failures, lastStatusAt: null } });
   if (isSevereSendError(reason, status)) {
@@ -414,6 +443,15 @@ async function handleSendFailure(outbound: OutboundMessage, line: WhatsappLine, 
   } else if (failures >= 3) {
     await pauseLine(line, 30, `${failures} envíos seguidos fallidos`);
   }
+}
+
+export { LINE_LOCK_MS };
+
+async function handleSendFailure(outbound: OutboundMessage, line: WhatsappLine, error: unknown) {
+  const reason = error instanceof Error ? error.message : String(error);
+  const status = error instanceof WahaSendError ? error.status : null;
+  const ambiguous = error instanceof WahaSendError ? error.ambiguous : true;
+  await noteLineSendFailure(line, error);
   const attempts = outbound.attempts + 1;
   if (ambiguous) {
     // Puede que haya salido: nunca se reintenta solo (evita duplicados al cliente).
@@ -451,6 +489,22 @@ async function handleSendFailure(outbound: OutboundMessage, line: WhatsappLine, 
   });
 }
 
+// El primer mensaje automático a un lead sobra si el lead ya ha escrito o si
+// alguien del equipo le ha escrito antes (p. ej. estaba aplazado a la mañana).
+export async function cancelQueuedLeadWelcome(conversationId: string, reason: string) {
+  return prisma.outboundMessage.updateMany({
+    where: { conversationId, status: "queued", origin: "manual", userId: null, idempotencyKey: { startsWith: LEAD_WELCOME_KEY_PREFIX } },
+    data: { status: "canceled", lastError: reason },
+  });
+}
+
+// Primer mensaje automático a un lead de Make: sale con las reglas de un envío
+// manual, pero no es una persona contestando (no aparta a la IA ni le enseña estilo).
+export const LEAD_WELCOME_KEY_PREFIX = "lead:";
+function isLeadWelcome(outbound: Pick<OutboundMessage, "origin" | "userId" | "idempotencyKey">) {
+  return outbound.origin === "manual" && !outbound.userId && (outbound.idempotencyKey ?? "").startsWith(LEAD_WELCOME_KEY_PREFIX);
+}
+
 async function recordSent(
   outbound: OutboundMessage,
   conversation: { id: string; contactId: string | null },
@@ -471,7 +525,12 @@ async function recordSent(
       createdAt: sentAt,
       meta: {
         outboundId: outbound.id,
-        ...(outbound.origin === "auto" ? { sonia: true } : { manual: true, userId: outbound.userId }),
+        ...(outbound.media ? { media: { ...(outbound.media as Record<string, unknown>), pending: false } } : {}),
+        ...(outbound.origin === "auto"
+          ? { sonia: true }
+          : isLeadWelcome(outbound)
+            ? { leadWelcome: true }
+            : { manual: true, userId: outbound.userId }),
       },
     },
   });
@@ -482,7 +541,7 @@ async function recordSent(
     body: outbound.body,
     at: sentAt,
   });
-  if (outbound.origin === "manual") {
+  if (outbound.origin === "manual" && !isLeadWelcome(outbound)) {
     // Una persona respondió: el borrador queda resuelto y la IA automática
     // de este chat se aparta 2 h para no pisar a la persona.
     await prisma.conversation.update({
@@ -494,15 +553,18 @@ async function recordSent(
         humanUntil: new Date(sentAt.getTime() + 2 * 3600_000),
       },
     });
-    await recordHumanReply({
-      workspaceId: outbound.workspaceId,
-      lineId: line.id,
-      phone: outbound.phone,
-      finalText: outbound.body,
-      aiDraft: outbound.aiDraft,
-      source: "crm",
-      at: message.createdAt,
-    }).catch((error) => console.error("[inbox-learning] no se pudo registrar:", error?.message));
+    // Una nota de voz no enseña estilo de escritura.
+    if (!outbound.media) {
+      await recordHumanReply({
+        workspaceId: outbound.workspaceId,
+        lineId: line.id,
+        phone: outbound.phone,
+        finalText: outbound.body,
+        aiDraft: outbound.aiDraft,
+        source: "crm",
+        at: message.createdAt,
+      }).catch((error) => console.error("[inbox-learning] no se pudo registrar:", error?.message));
+    }
   }
   if (outbound.replyToId) {
     const inbound = await prisma.message.findUnique({ where: { id: outbound.replyToId }, select: { meta: true } });

@@ -8,6 +8,7 @@ import { lineAgeDays, lineRiskScore, warmupNewChatCap } from "@/lib/inbox/safety
 import { madridDayStart } from "@/lib/inbox/time";
 import { ensureSessionStarted, extraSessionName, isOwnSessionName } from "@/lib/waha-connection";
 import { toSafetyState } from "@/lib/inbox/lines";
+import { getEnabledModules } from "@/lib/modules";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function GET() {
           active: line.active,
           aiMode: line.aiMode,
           instructions: line.instructions ?? "",
+          leadWelcome: line.leadWelcome ?? "",
           dailyLimit: line.dailyLimit,
           hourlyLimit: line.hourlyLimit,
           newChatsPerDay: line.newChatsPerDay,
@@ -60,8 +62,10 @@ export async function GET() {
         };
       })
     );
+    const modules = await getEnabledModules(user.workspaceId);
     return Response.json({
       lines: items,
+      leadsModule: modules.leads,
       canManage: user.isAdmin,
       isOperator: user.isOperator,
       maxLines: MAX_LINES_PER_WORKSPACE,

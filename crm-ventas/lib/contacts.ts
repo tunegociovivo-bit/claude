@@ -6,7 +6,7 @@ export async function findOrCreateContactByPhone(opts: {
   workspaceId: string;
   phone: string; // normalizado (o chatId @lid)
   name?: string;
-  source: "whatsapp" | "llamada" | "manual";
+  source: "whatsapp" | "llamada" | "manual" | "meta";
 }) {
   const { workspaceId, phone } = opts;
   const isChatId = phone.includes("@");
