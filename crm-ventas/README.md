@@ -72,6 +72,23 @@ solo con sesión del negocio en `/api/v1/inbox/media/<mensaje>` (con Range y min
 WebP de las fotos). WAHA debe tener la descarga de multimedia activada (por defecto lo
 está). La IA ve «[El cliente ha enviado una foto…]», no el archivo.
 
+## Modo operador («Entrar» en el CRM de un cliente)
+
+En `/admin`, «Entrar en el CRM de un cliente» (arriba) o «Entrar en su CRM» (en
+cada ficha) abre el CRM de ese cliente como ADMIN con la sesión del operador,
+sin usuario ni contraseña del cliente. La cabecera (móvil) y el menú lateral
+(escritorio) quedan en ámbar con «Modo operador» y el botón «Volver al panel».
+
+- La sesión (JWT de NextAuth) pasa a apuntar al workspace del cliente y guarda
+  el de origen (`lib/admin/acting-core.ts`; cookie en `lib/admin/acting.ts`).
+- Cada petición y cada página se revalida en BD (`resolveSessionMember` en
+  `lib/auth.ts`): solo vale si el usuario sigue existiendo y su email sigue
+  siendo de operador. Retirar a un operador corta el acceso al instante.
+- Entra también en clientes bloqueados (soporte); sus usuarios siguen fuera.
+- El operador no aparece en la lista de usuarios del cliente. Cada entrada queda
+  registrada en los ajustes del cliente (`operatorAccess`, 20 últimas) y el
+  panel muestra el último acceso.
+
 ## Stack
 
 Next.js 14 (App Router) · TypeScript · Prisma + PostgreSQL · NextAuth ·
@@ -97,8 +114,9 @@ Login inicial: `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (por defecto
 
 ## Alta de un cliente nuevo
 
-1. **Workspace**: crea workspace + usuario (hoy: ejecutando el seed con otras
-   variables, o insertando en BD; UI de alta pendiente de la siguiente fase).
+1. **Workspace**: en `/admin` → «Añadir cliente» (crea el workspace y su
+   usuario administrador). Con «Entrar» lo configuras tú mismo sin su contraseña
+   (ver «Modo operador»).
 2. **Ajustes → Negocio y prompt**: nombre, información del negocio (servicios,
    precios, dirección…), horario e instrucciones específicas. Esto ES el prompt
    de SONIA para ese cliente.

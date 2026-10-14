@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { isSameOrigin, requireOperator } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { authOptions, isSameOrigin, requireOperator } from "@/lib/auth";
 import { calculateUsageOverview } from "@/lib/admin/usage";
 import { getGlobalPrompt, saveGlobalPrompt } from "@/lib/admin/config";
 import { readModules } from "@/lib/modules";
@@ -30,6 +31,12 @@ function madridMonthStart() {
   }).formatToParts(new Date(`${value("year")}-${value("month")}-01T12:00:00Z`))
     .find((part) => part.type === "timeZoneName")?.value.replace("GMT", "") || "+00:00";
   return new Date(`${value("year")}-${value("month")}-01T00:00:00${offset}`);
+}
+
+function lastOperatorAccess(settings: unknown): { email: string; at: string } | null {
+  const list = (settings as any)?.operatorAccess;
+  const last = Array.isArray(list) ? list[0] : null;
+  return last && typeof last.email === "string" && typeof last.at === "string" ? { email: last.email, at: last.at } : null;
 }
 
 export async function GET() {
@@ -77,11 +84,16 @@ export async function GET() {
       contentAiCostMonthly: contentAiByWorkspace.get(workspace.id) ?? 0,
       contentAiLimitUsd: readAiLimitUsd(workspace.settings),
       apiKeys: apiKeysStatus(workspace.settings),
+      lastOperatorAccess: lastOperatorAccess(workspace.settings),
       ...usage,
     };
   });
+  // Cliente en cuyo CRM está ahora el operador («Entrar»), si lo hay.
+  const session = await getServerSession(authOptions);
+  const actingWorkspaceId = (session?.user as any)?.operatorActing === true ? ((session?.user as any)?.workspaceId as string) : null;
   return NextResponse.json({
     since: since.toISOString(),
+    actingWorkspaceId,
     currency: "EUR",
     rates: { callMinuteRate, whatsappMessageRate },
     globalPrompt: await getGlobalPrompt(),

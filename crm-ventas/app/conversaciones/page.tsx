@@ -1,6 +1,5 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { resolveSessionMember } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import InboxPanel from "@/components/inbox/InboxPanel";
 import { getWorkspaceSettings } from "@/lib/settings";
@@ -10,9 +9,10 @@ export const dynamic = "force-dynamic";
 // Bandeja unificada de WhatsApp (todos los números del negocio). También
 // disponible como pestaña dentro de /pipeline.
 export default async function ConversacionesPage() {
-  const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  if (!workspaceId) redirect("/login");
+  // Revalidado en BD (usuario aún miembro, workspace no bloqueado u operador).
+  const member = await resolveSessionMember();
+  if (!member) redirect("/login");
+  const workspaceId = member.workspaceId;
   const settings = await getWorkspaceSettings(workspaceId);
   return (
     <AppShell>

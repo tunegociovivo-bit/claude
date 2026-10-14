@@ -17,6 +17,8 @@ import {
   ChevronDown,
   CalendarRange,
   Newspaper,
+  ShieldCheck,
+  Undo2,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: typeof KanbanSquare; module?: "editorial" | "seo" };
@@ -43,7 +45,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [agentName, setAgentName] = useState("Paula");
   const [order, setOrder] = useState<NavItem[]>(NAV);
   const [modules, setModules] = useState<Modules>({ editorial: false, seo: false, leads: false });
+  // Operador de Negocio Vivo dentro del CRM de este cliente («Entrar» en /admin).
+  const [acting, setActing] = useState<{ workspaceName: string } | null>(null);
+  const [leaving, setLeaving] = useState(false);
   const nav = order.filter((item) => !item.module || modules[item.module]);
+
+  async function leaveClient() {
+    setLeaving(true);
+    try {
+      const response = await fetch("/api/v1/admin/leave", { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      try { sessionStorage.removeItem(MODULES_CACHE_KEY); } catch {}
+      window.location.assign(response.ok ? result.redirect || "/admin" : "/admin");
+    } catch {
+      setLeaving(false);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -57,6 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       .then((d) => {
         setLogo(d?.logoDataUrl ?? null);
         setAgentName(d?.agentName || "Paula");
+        setActing(d?.operatorActing && typeof d.operatorActing.workspaceName === "string" ? { workspaceName: d.operatorActing.workspaceName } : null);
         if (d?.modules) {
           const next = { editorial: d.modules.editorial === true, seo: d.modules.seo === true, leads: d.modules.leads === true };
           setModules(next);
@@ -123,20 +141,33 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <AgentNameProvider name={agentName}>
     <div className="min-h-screen md:flex">
-      <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur md:hidden">
+      <header className={clsx("sticky top-0 z-30 flex h-16 items-center gap-3 border-b px-4 backdrop-blur md:hidden", acting ? "border-amber-200 bg-amber-50/95" : "border-slate-200 bg-white/95")}>
         {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logo} alt="Logo del negocio" className="h-9 w-9 rounded-xl object-cover" />
         ) : (
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500 font-bold text-white">P</div>
         )}
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">CRM Ventas</div>
-          <div className="truncate text-xs text-slate-500">{agentName.toUpperCase()}</div>
-        </div>
-        <button onClick={() => signOut({ callbackUrl: "/login" })} className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Cerrar sesión">
-          <LogOut size={18} />
-        </button>
+        {acting ? (
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-amber-950">{acting.workspaceName}</div>
+            <div className="flex items-center gap-1 truncate text-xs font-medium text-amber-800"><ShieldCheck size={12} className="shrink-0" />Modo operador</div>
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">CRM Ventas</div>
+            <div className="truncate text-xs text-slate-500">{agentName.toUpperCase()}</div>
+          </div>
+        )}
+        {acting ? (
+          <button onClick={() => void leaveClient()} disabled={leaving} className="ml-auto flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white disabled:opacity-60" aria-label="Volver al panel de administración">
+            <Undo2 size={16} />{leaving ? "Saliendo…" : "Panel"}
+          </button>
+        ) : (
+          <button onClick={() => signOut({ callbackUrl: "/login" })} className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Cerrar sesión">
+            <LogOut size={18} />
+          </button>
+        )}
       </header>
       <aside className="hidden w-16 shrink-0 flex-col border-r border-slate-200 bg-white md:flex lg:w-56">
         <div className="flex items-center justify-center gap-2 px-2 py-5 lg:justify-start lg:px-4">
@@ -157,6 +188,25 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="text-xs text-slate-500">{agentName.toUpperCase()}</div>
           </div>
         </div>
+        {acting && (
+          <div className="mx-2 mb-3 rounded-lg border border-amber-200 bg-amber-50 p-1.5 lg:p-2.5">
+            <p className="hidden text-xs leading-snug text-amber-900 lg:block">
+              <span className="flex items-center gap-1 font-semibold"><ShieldCheck size={13} />Modo operador</span>
+              Estás dentro del CRM de <strong>{acting.workspaceName}</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={() => void leaveClient()}
+              disabled={leaving}
+              title={`Estás dentro del CRM de ${acting.workspaceName}. Volver al panel de administración`}
+              aria-label="Volver al panel de administración"
+              className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md bg-amber-600 px-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60 lg:mt-2"
+            >
+              <Undo2 size={15} />
+              <span className="hidden lg:inline">{leaving ? "Saliendo…" : "Volver al panel"}</span>
+            </button>
+          </div>
+        )}
         <nav className="flex-1 space-y-1 px-2">
           {nav.map(({ href, label, icon: Icon }, index) => (
             <div key={href} className="group flex items-center gap-1">

@@ -61,43 +61,63 @@ export const authOptions: NextAuthOptions = {
       (session.user as any).id = token.uid;
       (session.user as any).workspaceId = token.workspaceId;
       (session.user as any).role = token.role;
+      // Operador de Negocio Vivo dentro del CRM de un cliente (ver lib/admin/acting-core.ts).
+      (session.user as any).operatorActing = token.operatorActing === true;
       return session;
     },
   },
 };
 
-// Devuelve el workspaceId de la sesión actual o lanza 401 (vía throw).
-// Revalida contra BD que el usuario sigue existiendo en ese workspace: un JWT
-// de un usuario eliminado deja de servir en la siguiente petición.
-export async function requireWorkspaceId(): Promise<string> {
-  const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!workspaceId || !userId) throw new Error("UNAUTHORIZED");
-  const exists = await prisma.user.findFirst({
+export type SessionMember = {
+  workspaceId: string;
+  userId: string;
+  role: string;
+  email: string;
+  operatorActing: boolean;
+};
+
+// Miembro del workspace de la sesión, revalidado en BD en cada petición (un JWT
+// de un usuario eliminado o de un workspace bloqueado deja de servir).
+// Modo operador: el usuario es de Negocio Vivo y no pertenece al workspace del
+// cliente; se acepta solo si su email sigue siendo de operador y el workspace
+// existe. Entra como ADMIN, también en clientes bloqueados (soporte).
+export async function resolveSessionMember(session?: unknown): Promise<SessionMember | null> {
+  const current = (session === undefined ? await getServerSession(authOptions) : session) as any;
+  const workspaceId = current?.user?.workspaceId as string | undefined;
+  const userId = current?.user?.id as string | undefined;
+  if (!workspaceId || !userId) return null;
+  if (current?.user?.operatorActing === true) {
+    const [operator, workspace] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { email: true } }),
+      prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } }),
+    ]);
+    if (!operator || !workspace || !isOperatorEmail(operator.email)) return null;
+    return { workspaceId, userId, role: "ADMIN", email: operator.email, operatorActing: true };
+  }
+  const user = await prisma.user.findFirst({
     where: { id: userId, workspaceId, workspace: { isBlocked: false } },
-    select: { id: true },
+    select: { role: true, email: true },
   });
-  if (!exists) throw new Error("UNAUTHORIZED");
-  return workspaceId;
+  if (!user) return null;
+  return { workspaceId, userId, role: user.role, email: user.email, operatorActing: false };
+}
+
+// Devuelve el workspaceId de la sesión actual o lanza 401 (vía throw).
+export async function requireWorkspaceId(): Promise<string> {
+  const member = await resolveSessionMember();
+  if (!member) throw new Error("UNAUTHORIZED");
+  return member.workspaceId;
 }
 
 export async function requireWorkspaceAdmin(): Promise<{
   workspaceId: string;
   userId: string;
 }> {
-  const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!workspaceId || !userId) throw new Error("UNAUTHORIZED");
-
-  // Revalidamos el rol en BD para que una sesión antigua no conserve permisos.
-  const user = await prisma.user.findFirst({
-    where: { id: userId, workspaceId, workspace: { isBlocked: false } },
-    select: { role: true },
-  });
-  if (!user || user.role !== "ADMIN") throw new Error("FORBIDDEN");
-  return { workspaceId, userId };
+  // El rol se revalida en BD para que una sesión antigua no conserve permisos.
+  const member = await resolveSessionMember();
+  if (!member) throw new Error("UNAUTHORIZED");
+  if (member.role !== "ADMIN") throw new Error("FORBIDDEN");
+  return { workspaceId: member.workspaceId, userId: member.userId };
 }
 
 // Operador de Negocio Vivo (rol global, distinto del ADMIN de workspace).

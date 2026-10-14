@@ -37,7 +37,8 @@ export const POST = withApi({ module: "seo" }, async (req, { params, api }) => {
   const b = await parseBody(req, Body);
   const set = (data: Record<string, any>) => prisma.seoBlogPost.updateMany({ where: { id: p.id, workspaceId: ws }, data });
   const generated = !!p.content;
-  const who = api.userId ? (await prisma.user.findFirst({ where: { id: api.userId, workspaceId: ws }, select: { name: true, email: true } }).then((u) => u?.name || u?.email || "")) : "";
+  // api.userId ya viene revalidado: miembro del workspace u operador de Negocio Vivo dentro del cliente.
+  const who = api.userId ? (await prisma.user.findUnique({ where: { id: api.userId }, select: { name: true, email: true } }).then((u) => u?.name || u?.email || "")) : "";
 
   switch (b.action) {
     case "schedule": {

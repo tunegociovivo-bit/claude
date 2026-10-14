@@ -1,7 +1,5 @@
 import "server-only";
-import { getServerSession } from "next-auth";
-import { authOptions, isOperatorEmail } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { isOperatorEmail, resolveSessionMember } from "@/lib/auth";
 import { WahaUrlNotAllowedError, WhatsappNotConfiguredError } from "@/lib/waha";
 import { WahaSelfServiceError } from "@/lib/waha-connection";
 import { OutboundError } from "@/lib/inbox/outbound";
@@ -17,22 +15,15 @@ export type InboxUser = {
 
 // Usuario del workspace revalidado en BD (rol incluido) en cada petición.
 export async function requireInboxUser(): Promise<InboxUser> {
-  const session = await getServerSession(authOptions);
-  const workspaceId = (session?.user as any)?.workspaceId as string | undefined;
-  const userId = (session?.user as any)?.id as string | undefined;
-  if (!workspaceId || !userId) throw new Error("UNAUTHORIZED");
-  const user = await prisma.user.findFirst({
-    where: { id: userId, workspaceId, workspace: { isBlocked: false } },
-    select: { role: true, email: true },
-  });
-  if (!user) throw new Error("UNAUTHORIZED");
+  const member = await resolveSessionMember();
+  if (!member) throw new Error("UNAUTHORIZED");
   return {
-    workspaceId,
-    userId,
-    role: user.role,
-    email: user.email,
-    isAdmin: user.role === "ADMIN",
-    isOperator: isOperatorEmail(user.email),
+    workspaceId: member.workspaceId,
+    userId: member.userId,
+    role: member.role,
+    email: member.email,
+    isAdmin: member.role === "ADMIN",
+    isOperator: isOperatorEmail(member.email),
   };
 }
 
