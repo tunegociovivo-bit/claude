@@ -650,6 +650,7 @@ export default function MobileFarmClient() {
   const [sharedPhones, setSharedPhones] = useState<SharedMobilePhone[]>([]);
   const [clientStorageScope, setClientStorageScope] = useState("");
   const [canManagePhones, setCanManagePhones] = useState(false);
+  const [canEditPhones, setCanEditPhones] = useState(false);
   const [fleetOpen, setFleetOpen] = useState<{ id: string; serials: string[] } | null>(null);
   const [phonesLoading, setPhonesLoading] = useState(true);
   const [phonesError, setPhonesError] = useState<string | null>(null);
@@ -666,6 +667,7 @@ export default function MobileFarmClient() {
       setSharedPhones(Array.isArray(payload?.items) ? payload.items : []);
       setClientStorageScope(typeof payload?.clientStorageScope === "string" ? payload.clientStorageScope : "");
       setCanManagePhones(Boolean(payload?.canManage));
+      setCanEditPhones(Boolean(payload?.canEditPhones ?? payload?.canManage));
     } catch (loadError) {
       setPhonesError(loadError instanceof Error ? loadError.message : "No se ha podido cargar el inventario de teléfonos");
     } finally {
@@ -788,7 +790,7 @@ export default function MobileFarmClient() {
       <SharedPhoneInventory
         items={sharedPhones}
         connectedDevices={devices.map((device) => ({ serial: device.serial, name: device.name || "Android" }))}
-        canManage={canManagePhones}
+        canManage={canEditPhones}
         loading={phonesLoading}
         error={phonesError}
         onReload={loadSharedPhones}

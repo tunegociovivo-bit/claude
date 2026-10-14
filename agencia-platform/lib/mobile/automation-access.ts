@@ -3,6 +3,20 @@ import { prisma } from "@/lib/db/prisma";
 import { userCanAccessPlatform } from "@/lib/platforms-server";
 import { sharedPhonesFromLeads, type SharedMobilePhone } from "@/lib/mobile/shared-phones";
 
+export const MOBILE_OPERATOR_REQUIRED = "Necesitas permiso de F - Móviles: pide a un administrador que te añada en Plataformas → F - Móviles → Acceso.";
+
+/**
+ * Quién puede manejar los móviles (controlarlos, crear y aprobar automatizaciones):
+ * los administradores y los trabajadores añadidos expresamente al acceso de F - Móviles.
+ * Si la plataforma está abierta a todo el workspace sin nadie asignado, el resto solo puede mirar.
+ */
+export function canOperateMobileFarm(settings: unknown, userId: string, role: string | null | undefined): boolean {
+  if (role === "ADMIN") return true;
+  const config = (settings as any)?.platforms?.mobile_farm;
+  if (config && config.enabled === false) return false;
+  return Array.isArray(config?.memberIds) && config.memberIds.includes(userId);
+}
+
 export async function loadMobileAutomationAccess(
   workspaceId: string,
   userId: string | undefined,
@@ -19,9 +33,9 @@ export async function loadMobileAutomationAccess(
   if (!workspace || !membership) {
     throw new ApiError(403, "forbidden", "No perteneces a este workspace");
   }
-  const canManage = membership.role === "ADMIN";
+  const canManage = canOperateMobileFarm(workspace.settings, userId, membership.role);
   if (options.manager && !canManage) {
-    throw new ApiError(403, "forbidden", "Solo los administradores pueden aprobar automatizaciones");
+    throw new ApiError(403, "forbidden", MOBILE_OPERATOR_REQUIRED);
   }
   const leads = (workspace.settings as any)?.leads ?? {};
   return { workspace, canManage, phones: sharedPhonesFromLeads(leads) };

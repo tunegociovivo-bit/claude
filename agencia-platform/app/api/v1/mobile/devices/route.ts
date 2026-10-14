@@ -5,6 +5,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { prisma } from "@/lib/db/prisma";
 import { userCanAccessPlatform } from "@/lib/platforms-server";
+import { canOperateMobileFarm } from "@/lib/mobile/automation-access";
 import {
   normalizedPhone,
   PRINCIPAL_PHONE_KEY,
@@ -45,7 +46,8 @@ async function loadContext(workspaceId: string, userId: string | undefined) {
     prisma.membership.findFirst({ where: { workspaceId, userId }, select: { role: true } })
   ]);
   if (!workspace || !membership) throw new ApiError(403, "forbidden", "No perteneces a este workspace");
-  return { workspace, canManage: membership.role === "ADMIN" };
+  // canManage = puede manejar móviles (admin o trabajador con permiso); canEditPhones = solo admin (inventario).
+  return { workspace, canManage: canOperateMobileFarm(workspace.settings, userId, membership.role), canEditPhones: membership.role === "ADMIN" };
 }
 
 function requireManager(canManage: boolean) {
@@ -86,18 +88,18 @@ function moveSerialToTarget(leads: any, targetKey: string, serial: string | null
 export const dynamic = "force-dynamic";
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
-  const { workspace, canManage } = await loadContext(api.workspaceId, api.userId);
+  const { workspace, canManage, canEditPhones } = await loadContext(api.workspaceId, api.userId);
   const leads = (workspace.settings as any)?.leads ?? {};
   const clientStorageScope = createHash("sha256")
     .update(`${api.workspaceId}:${api.userId}`)
     .digest("hex")
     .slice(0, 20);
-  return NextResponse.json({ canManage, clientStorageScope, items: sharedPhonesFromLeads(leads) });
+  return NextResponse.json({ canManage, canEditPhones, clientStorageScope, items: sharedPhonesFromLeads(leads) });
 });
 
 export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
-  const { workspace, canManage } = await loadContext(api.workspaceId, api.userId);
-  requireManager(canManage);
+  const { workspace, canEditPhones } = await loadContext(api.workspaceId, api.userId);
+  requireManager(canEditPhones);
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.issues[0]?.message ?? "Datos no válidos");
 
@@ -132,8 +134,8 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
 });
 
 export const PATCH = withApi({ scope: "*", rate: "admin" }, async (req, { api }) => {
-  const { workspace, canManage } = await loadContext(api.workspaceId, api.userId);
-  requireManager(canManage);
+  const { workspace, canEditPhones } = await loadContext(api.workspaceId, api.userId);
+  requireManager(canEditPhones);
   const parsed = updateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.issues[0]?.message ?? "Datos no válidos");
 

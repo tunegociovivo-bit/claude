@@ -43,7 +43,7 @@ export default function RemoteStationView({ storageScope }: { storageScope: stri
     <section className="space-y-4" aria-label="Móviles de la estación">
       <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900">
         <p className="flex items-center gap-2 font-bold"><Monitor className="h-4 w-4" /> Acceso remoto a la estación de móviles</p>
-        <p>Este ordenador no tiene móviles conectados por USB, así que ves los de la estación: el ordenador donde están enchufados, que debe tener abierta la página Móviles (o el agente de escritorio). Las imágenes se actualizan cada segundo y medio; {canManage ? "toca la pantalla para pulsar, arrastra para deslizar y usa los botones de abajo." : "solo los administradores pueden controlar los móviles."}</p>
+        <p>Este ordenador no tiene móviles conectados por USB, así que ves los de la estación: el ordenador donde están enchufados, que debe tener abierta la página Móviles (o el agente de escritorio). Las imágenes se actualizan cada segundo y medio; {canManage ? "toca la pantalla para pulsar, arrastra para deslizar y usa los botones de abajo." : "para controlarlos necesitas permiso: un administrador debe añadirte en Plataformas → F - Móviles → Acceso."}</p>
         {!loading && devices.length > 0 && !anyOnline && <p className="mt-1 font-semibold text-amber-800">Ahora mismo la estación no está enviando nada: comprueba que el ordenador de los móviles está encendido con la página Móviles abierta.</p>}
       </div>
       {error && <p role="alert" className="rounded-xl bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</p>}
