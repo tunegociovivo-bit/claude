@@ -91,6 +91,8 @@ import { FacebookNavigationError, launchFacebookForAutomation, openFacebookUrl, 
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
 import { isMobileBusy, isNewerBuild, loadResumeSerials, saveResumeSerials } from "@/components/mobile/mobile-busy";
+import { canvasToJpeg, stationUploadInterval, type RemoteCommand } from "@/components/mobile/station-host";
+import RemoteStationView from "@/components/mobile/RemoteStationView";
 import { checkThreadEngagement, inspectCommentThreadNavigation, postCommentThreadMessage, threadRunnerDiagnostics } from "@/components/mobile/comment-thread-runner";
 import { serializeThreadCheck } from "@/lib/mobile/thread-check-schema";
 import { createPacedDependencies } from "@/components/mobile/mobile-pace";
@@ -796,7 +798,7 @@ export default function MobileFarmClient() {
       <details className="rounded-2xl border border-indigo-200 bg-white shadow-sm">
         <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-indigo-900">Configurar encargo común <span className="ml-2 font-normal text-slate-500">· Automatización en varios móviles</span></summary>
       {newVersion && <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">Hay una versión nueva del Hub. La página se recargará sola en cuanto los móviles terminen lo que están haciendo y volverá a abrir sus pantallas.</p>}
-      <MobileFleetAutomationPanel devices={devices.map(d => { const shared = sharedPhones.find(p => p.deviceSerial === d.serial); return { deviceSerial: d.serial, label: shared?.phone ? `${shared.phone}${d.name ? ` · ${d.name}` : ""}` : d.name || "Android", phoneKey: shared?.key }; })} canManage={canManagePhones} onOpen={serials => setFleetOpen({ id: crypto.randomUUID(), serials })} />
+      <MobileFleetAutomationPanel devices={devices.length ? devices.map(d => { const shared = sharedPhones.find(p => p.deviceSerial === d.serial); return { deviceSerial: d.serial, label: shared?.phone ? `${shared.phone}${d.name ? ` · ${d.name}` : ""}` : d.name || "Android", phoneKey: shared?.key }; }) : sharedPhones.filter(p => p.active && p.deviceSerial).map(p => ({ deviceSerial: p.deviceSerial!, label: p.phone || p.label || p.sessionName || "Android", phoneKey: p.key }))} canManage={canManagePhones} onOpen={serials => { if (devices.length) setFleetOpen({ id: crypto.randomUUID(), serials }); }} />
       </details>
 
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -811,7 +813,13 @@ export default function MobileFarmClient() {
       </div>
 
       {devices.length === 0 ? (
-        <EmptyState onConnect={requestDevice} disabled={!supported || discovering} />
+        <>
+          <RemoteStationView storageScope={clientStorageScope} />
+          <details className="rounded-2xl border bg-white shadow-sm">
+            <summary className="cursor-pointer px-5 py-3 text-sm font-bold text-slate-800">¿Este es el ordenador de los móviles? Conéctalos por USB</summary>
+            <div className="p-3"><EmptyState onConnect={requestDevice} disabled={!supported || discovering} /></div>
+          </details>
+        </>
       ) : (
         <section className={`grid items-start gap-5 ${DEVICE_GRID_CLASSES[deviceColumns]}`} aria-label="Móviles conectados">
           {devices.map((device) => (
@@ -1201,8 +1209,9 @@ function MobileDeviceCard({
       assertCurrentSessionAttempt();
       if (!video) throw new Error("El móvil no ha entregado una señal de vídeo");
 
+      // Captura habilitada: la pantalla se puede enviar reducida a otros ordenadores.
       const renderer = WebGLVideoFrameRenderer.isSupported
-        ? new WebGLVideoFrameRenderer()
+        ? new WebGLVideoFrameRenderer(undefined, true)
         : new BitmapVideoFrameRenderer();
       const canvas = renderer.canvas as HTMLCanvasElement;
       canvas.className = "block max-h-[72vh] max-w-full select-none rounded-lg";
@@ -1274,6 +1283,60 @@ function MobileDeviceCard({
       setError(friendlyError(controlError));
     }
   }
+
+  // ---------- Acceso remoto: esta estación comparte la pantalla y obedece órdenes remotas ----------
+  const sendKeyRef = useRef(sendKey);
+  sendKeyRef.current = sendKey;
+  const workingRef = useRef(working);
+  workingRef.current = working;
+  const [remoteNote, setRemoteNote] = useState<string | null>(null);
+  useEffect(() => {
+    const serial = linkedPhone?.active ? linkedPhone.deviceSerial : null;
+    if (status !== "mirroring" || !canManage || !serial) return;
+    let stopped = false;
+    let wanted: boolean = false;
+    let last: number = 0;
+    const runCommand = async (command: RemoteCommand) => {
+      const controller = clientRef.current?.controller;
+      if (!controller) return;
+      if (workingRef.current === "working") { setRemoteNote("Se ignoró una orden remota: el móvil está publicando un trabajo."); return; }
+      const video = sizeRef.current;
+      const touch = createMobileTouchInput({ controller, readDisplaySize: async () => `Physical size: ${video.width}x${video.height}`, videoSize: () => sizeRef.current, wait: waitForAndroidUi });
+      switch (command.type) {
+        case "tap": await touch.tap({ x: command.x, y: command.y }); break;
+        case "swipe": await touch.swipe({ x: command.x, y: command.y }, { x: command.x2, y: command.y2 }); break;
+        case "back": await sendKeyRef.current(AndroidKeyCode.AndroidBack); break;
+        case "home": await sendKeyRef.current(AndroidKeyCode.AndroidHome); break;
+        case "recents": await sendKeyRef.current(AndroidKeyCode.AndroidAppSwitch); break;
+        case "text": await controller.setClipboard({ sequence: BigInt(Date.now()), paste: true, content: command.text }); break;
+        case "openUrl": { const adb = adbRef.current; if (adb) await runAdbCommand(adb, ["timeout", "25", "am", "start", "-a", "android.intent.action.VIEW", "-d", command.url]).catch(() => undefined); break; }
+      }
+      setRemoteNote(null);
+    };
+    void (async () => {
+      while (!stopped) {
+        if (Date.now() - last >= stationUploadInterval(wanted)) {
+          last = Date.now();
+          try {
+            const canvas = screenMountRef.current?.querySelector("canvas") as HTMLCanvasElement | null;
+            const video = sizeRef.current;
+            const image: string | undefined = canvas ? canvasToJpeg(canvas, wanted ? 540 : 240) : undefined;
+            const response: Response = await fetch("/api/v1/mobile/station/snapshot", {
+              method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal: AbortSignal.timeout(15_000),
+              body: JSON.stringify({ deviceSerial: serial, image, width: video.width || canvas?.width || 1, height: video.height || canvas?.height || 1, working: workingRef.current })
+            });
+            const data: any = await response.json().catch(() => null);
+            wanted = Boolean(data?.wanted);
+            const pending: RemoteCommand[] = Array.isArray(data?.commands) ? data.commands : [];
+            for (const command of pending) { try { await runCommand(command); } catch { /* orden fallida: no detiene la estación */ } }
+            if (pending.length) last = Date.now() - stationUploadInterval(true) + 500; // mostrar enseguida el resultado
+          } catch { /* sin conexión: se reintenta */ }
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+      }
+    })();
+    return () => { stopped = true; };
+  }, [status, canManage, linkedPhone?.active, linkedPhone?.deviceSerial]);
 
   async function pasteText() {
     const controller = clientRef.current?.controller;
@@ -1736,6 +1799,7 @@ function MobileDeviceCard({
             <p className={`mt-0.5 truncate text-[11px] font-semibold ${linkedPhone ? "text-indigo-700" : "text-amber-700"}`}>
               {linkedPhone ? `${linkedPhone.label || linkedPhone.sessionName} · ${linkedPhone.phone || "número pendiente"}` : "Sin número compartido asociado"}
             </p>
+            {remoteNote && <p role="status" className="mt-0.5 text-[11px] text-amber-700">{remoteNote}</p>}
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
