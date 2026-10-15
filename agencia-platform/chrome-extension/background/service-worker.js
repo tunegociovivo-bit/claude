@@ -22,6 +22,7 @@
  */
 
 import { inspectInstagramPage, buildInstagramLead, discoverInstagramCandidates } from "./instagram-prospector.mjs";
+import { isTabTemporarilyBusy, retryTabOperation } from "./tab-retry.mjs";
 
 const HUB_BASE_DEFAULT = "https://hub.negociovivo.app";
 const OFFSCREEN_PATH = "offscreen/offscreen.html";
@@ -962,10 +963,10 @@ async function processInstagramProspectorJob(job) {
     const leads = previous.leads || [];
     let skipped = previous.skipped || [];
     let cursor = Number(previous.cursor) || 0;
-    tab = await chrome.tabs.create({ url: "https://www.instagram.com/", active: true });
+    tab = await retryTabOperation(() => chrome.tabs.create({ url: "https://www.instagram.com/", active: true }));
     const io = {
       navigate: async (url) => {
-        await chrome.tabs.update(tab.id, { url });
+        await retryTabOperation(() => chrome.tabs.update(tab.id, { url }));
         await waitForTabComplete(tab.id, 25000);
         await new Promise((resolve) => setTimeout(resolve, 2500));
       },
@@ -993,7 +994,7 @@ async function processInstagramProspectorJob(job) {
         if (page.error) skipped.push(`@${source.handle}: ${page.error}`);
         else leads.push(buildInstagramLead(source, page, config));
       } catch (error) {
-        if (/iniciar sesion|verificar|limitado temporalmente/.test(String(error?.message))) throw error;
+        if (isTabTemporarilyBusy(error) || /iniciar sesion|verificar|limitado temporalmente/.test(String(error?.message))) throw error;
         skipped.push(`@${source.handle}: ${String(error?.message || error)}`);
       }
       await reportInstagramProspectorResult({
@@ -1011,9 +1012,14 @@ async function processInstagramProspectorJob(job) {
     });
     if (completed) notify("Prospector Instagram", `${valid} perfiles cumplen las reglas de ${cursor} revisados`);
   } catch (error) {
-    await reportInstagramProspectorResult({ id: job.id, status: "FAILED", error: String(error?.message || error).slice(0, 900) }).catch(() => {});
+    const busy = isTabTemporarilyBusy(error);
+    await reportInstagramProspectorResult({
+      id: job.id, status: busy ? "RUNNING" : "FAILED",
+      ...(busy ? { notice: "Chrome tiene las pestanas temporalmente bloqueadas. Busqueda pausada; se reintentara automaticamente conservando el avance." }
+        : { error: String(error?.message || error).slice(0, 900) })
+    }).catch(() => {});
   } finally {
-    if (tab?.id) await chrome.tabs.remove(tab.id).catch(() => {});
+    if (tab?.id) await retryTabOperation(() => chrome.tabs.remove(tab.id)).catch(() => {});
   }
 }
 
