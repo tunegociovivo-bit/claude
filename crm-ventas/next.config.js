@@ -1,8 +1,9 @@
 /** @type {import('next').NextConfig} */
 
 // Paquetes con binarios nativos (módulos de contenidos: imágenes, rótulos y
-// vídeo). No se empaquetan con webpack: Node los carga de node_modules.
-const NATIVE_PACKAGES = ["@napi-rs/canvas", "sharp", "ffmpeg-static"];
+// vídeo) y el navegador del radar de subastas. No se empaquetan con webpack:
+// Node los carga de node_modules en tiempo de ejecución.
+const NATIVE_PACKAGES = ["@napi-rs/canvas", "sharp", "ffmpeg-static", "playwright-core"];
 
 const nextConfig = {
   reactStrictMode: true,

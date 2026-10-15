@@ -83,3 +83,17 @@ export function registerContentWorkers() {
   t2.unref();
   state.__contentTimers.push(t2);
 }
+
+// Radar de subastas: cada minuto encola las revisiones programadas que tocan y
+// procesa una de la cola. El lease evita que varias instancias dupliquen.
+export function registerRadarWorker() {
+  const state = globalThis as typeof globalThis & { __radarTimer?: ReturnType<typeof setInterval> };
+  if (state.__radarTimer) return;
+  const run = async () => {
+    const { runRadarTick } = await import("@/lib/radar/worker");
+    await runRadarTick().catch((error) => console.error("[radar] tick failed:", error?.message));
+  };
+  setTimeout(() => void run(), 50_000).unref();
+  state.__radarTimer = setInterval(() => void run(), 60_000);
+  state.__radarTimer.unref();
+}

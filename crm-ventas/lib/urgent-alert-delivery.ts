@@ -12,6 +12,7 @@ const LABELS: Record<string, string> = {
   CRM_MESSAGE_ERROR: "El CRM no pudo procesar o responder un mensaje",
   WHATSAPP_LINE_PAUSED: "Un número de WhatsApp se ha pausado por seguridad (anti-baneo)",
   WHATSAPP_LINE_DOWN: "Un número de WhatsApp se ha desconectado",
+  RADAR_PORTAL_ATTENTION: "El radar de subastas necesita que revises el acceso a uno o varios portales",
 };
 
 export async function notifyWorkspaceUrgentAlert(workspaceId: string, code: string, detail = "") {

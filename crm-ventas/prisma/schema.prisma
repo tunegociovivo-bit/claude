@@ -40,6 +40,14 @@ model Workspace {
   editorialPublications  EditorialPublication[]
   metaConnections        MetaConnection[]
   seoBlogSites           SeoBlogSite[]
+
+  // Radar de subastas (módulo «radar»): portales de subastas de coches que se
+  // revisan a diario y avisan cuando aparece un coche que cumple una búsqueda.
+  radarConfig   RadarConfig?
+  radarSources  RadarSource[]
+  radarSearches RadarSearch[]
+  radarListings RadarListing[]
+  radarRuns     RadarRun[]
 }
 
 model UrgentAlertState {
@@ -119,24 +127,24 @@ model User {
 // Tarjeta del pipeline. `stage` es el id de columna del kanban
 // (nuevos | conversacion | citas | cerrados por defecto).
 model Contact {
-  id          String   @id @default(cuid())
-  workspaceId String
-  name        String
-  phone       String?
-  email       String?
-  stage       String   @default("nuevos")
-  order       Int      @default(0)
-  source      String   @default("manual") // manual | whatsapp | llamada | meta
-  notes       String?  @db.Text
+  id              String    @id @default(cuid())
+  workspaceId     String
+  name            String
+  phone           String?
+  email           String?
+  stage           String    @default("nuevos")
+  order           Int       @default(0)
+  source          String    @default("manual") // manual | whatsapp | llamada | meta
+  notes           String?   @db.Text
   // Módulo «Leads y reenvíos»: estado comercial del lead (id de la lista
   // configurable en Ajustes) y datos del formulario de Meta que llegan por Make.
-  leadStatus   String?
-  leadStatusAt DateTime?
-  leadInfo     Json?
+  leadStatus      String?
+  leadStatusAt    DateTime?
+  leadInfo        Json?
   // Intentos de contacto: [{ id, at, by, byName, note }] (el nº de intentos es la longitud).
   contactAttempts Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   appointments Appointment[]
@@ -787,4 +795,142 @@ model SeoBlogLog {
 
   @@index([postId, createdAt])
   @@index([workspaceId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// RADAR DE SUBASTAS (portales B2B de coches de ocasión)
+// ---------------------------------------------------------------------------
+
+// Configuración del radar de un negocio: horas de revisión y destinos de aviso.
+model RadarConfig {
+  workspaceId  String    @id
+  times        String[]  @default(["08:00"]) // horas (Europe/Madrid) HH:MM
+  days         Int[]     @default([1, 2, 3, 4, 5, 6, 7]) // 1 = lunes … 7 = domingo
+  notifyPhones String[]  @default([]) // WhatsApp (E.164 sin +)
+  notifyEmails String[]  @default([])
+  lastSlotKey  String? // última franja programada lanzada (evita duplicados)
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Un portal de subastas con los accesos del negocio. La URL y la forma de
+// entrar las fija el código (lib/radar/portals.ts), no el usuario.
+model RadarSource {
+  id                  String         @id @default(cuid())
+  workspaceId         String
+  portal              String // clave del catálogo: auto1, bca, openlane…
+  enabled             Boolean        @default(true)
+  usernameEnc         String?        @db.Text // cifrado (ENCRYPTION_KEY)
+  passwordEnc         String?        @db.Text // cifrado
+  sessionEnc          String?        @db.Text // cookies de la última sesión buenas (cifradas)
+  sessionSavedAt      DateTime?
+  status              String         @default("pending") // pending|ok|login_failed|attention|blocked|error
+  statusDetail        String?        @db.Text
+  lastRunAt           DateTime?
+  lastOkAt            DateTime?
+  lastCount           Int?
+  consecutiveFailures Int            @default(0)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  workspace           Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  listings            RadarListing[]
+
+  @@unique([workspaceId, portal])
+}
+
+// Búsqueda guardada: condiciones que debe cumplir un coche para avisar.
+model RadarSearch {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  name           String
+  active         Boolean      @default(true)
+  criteria       Json         @default("{}")
+  notifyWhatsapp Boolean      @default(true)
+  notifyEmail    Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  matches        RadarMatch[]
+
+  @@index([workspaceId])
+}
+
+// Coche visto en un portal (normalizado). Se actualiza en cada revisión.
+model RadarListing {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  sourceId       String
+  portal         String
+  externalId     String
+  url            String?      @db.Text
+  title          String
+  make           String?
+  model          String?
+  version        String?
+  year           Int?
+  km             Int?
+  price          Int? // euros
+  priceLabel     String? // «Precio de salida», «Puja actual», «Compra ya»…
+  fuel           String? // diesel|gasolina|hibrido|hibrido_enchufable|electrico|glp|gnc|otro
+  gearbox        String? // manual|automatico
+  powerCv        Int?
+  bodyType       String?
+  color          String?
+  country        String? // ISO-2
+  location       String?
+  auctionEndsAt  DateTime?
+  imageUrl       String?      @db.Text
+  raw            Json?
+  active         Boolean      @default(true)
+  firstSeenAt    DateTime     @default(now())
+  lastSeenAt     DateTime     @default(now())
+  priceChangedAt DateTime?
+  previousPrice  Int?
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  source         RadarSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  matches        RadarMatch[]
+
+  @@unique([workspaceId, portal, externalId])
+  @@index([workspaceId, active, lastSeenAt])
+  @@index([sourceId, lastSeenAt])
+}
+
+// Coche que cumple una búsqueda (una vez por búsqueda y coche).
+model RadarMatch {
+  id          String       @id @default(cuid())
+  workspaceId String
+  searchId    String
+  listingId   String
+  status      String       @default("new") // new|seen|interesting|discarded
+  notifiedAt  DateTime?
+  notifyError String?
+  createdAt   DateTime     @default(now())
+  search      RadarSearch  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  listing     RadarListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([searchId, listingId])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, notifiedAt])
+}
+
+// Una revisión (programada o manual) de los portales de un negocio.
+model RadarRun {
+  id          String    @id @default(cuid())
+  workspaceId String
+  trigger     String // schedule|manual|test
+  sourceId    String? // solo ese portal (prueba de acceso)
+  status      String    @default("queued") // queued|running|ok|partial|error|cancelled
+  leaseUntil  DateTime?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  found       Int       @default(0)
+  newCount    Int       @default(0)
+  matched     Int       @default(0)
+  summary     Json? // por portal: {portal, status, found, error}
+  error       String?   @db.Text
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([status, createdAt])
 }

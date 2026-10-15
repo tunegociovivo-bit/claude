@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signOut } from "next-auth/react";
-import { ArrowRight, Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, Forward, KeyRound, LogIn, LogOut, MessageCircle, Newspaper, Phone, Plus, RefreshCw, Undo2, Wallet } from "lucide-react";
+import { ArrowRight, Ban, Bot, Building2, CalendarRange, CheckCircle2, ChevronDown, Forward, KeyRound, LogIn, LogOut, MessageCircle, Newspaper, Phone, Plus, Radar, RefreshCw, Undo2, Wallet } from "lucide-react";
 
 type KeySource = "client" | "negociovivo" | "none";
 type KeyStatus = { source: KeySource; masked: string; negocioVivoAvailable: boolean };
@@ -16,7 +16,7 @@ type Client = {
   callCost: number; whatsappCost: number; totalCost: number;
   callCostToday: number; whatsappCostToday: number; totalCostToday: number;
   callCostMonthly: number; whatsappCostMonthly: number; totalCostMonthly: number;
-  modules: { editorial: boolean; seo: boolean; leads: boolean };
+  modules: { editorial: boolean; seo: boolean; leads: boolean; radar: boolean };
   contentAiCostMonthly: number;
   contentAiLimitUsd: number;
   apiKeys?: ClientApiKeys;
@@ -24,11 +24,12 @@ type Client = {
   whatsappServer?: { configured: boolean; host: string | null };
 };
 
-type ModuleKey = "editorial" | "seo" | "leads";
+type ModuleKey = "editorial" | "seo" | "leads" | "radar";
 const MODULES: Array<{ key: ModuleKey; label: string; hint: string; icon: typeof Newspaper }> = [
   { key: "editorial", label: "Editorial", hint: "Calendario de redes con IA y publicación en Facebook/Instagram", icon: CalendarRange },
   { key: "seo", label: "Publicador SEO", hint: "Artículos de blog con IA publicados en su WordPress", icon: Newspaper },
   { key: "leads", label: "Leads y reenvíos", hint: "Estado de cada lead, botones «ENVIAR A» para reenviar mensajes y entrada de leads desde Make", icon: Forward },
+  { key: "radar", label: "Radar de subastas", hint: "Revisa a diario los portales de subastas de coches y avisa de los que cumplen las condiciones del cliente", icon: Radar },
 ];
 type Overview = {
   globalPrompt: string;

@@ -4,13 +4,15 @@ import { prisma } from "@/lib/prisma";
 // operador y se guardan en Workspace.settings.modules.
 //  - editorial / seo: módulos de contenidos.
 //  - leads: estados de lead, botones «ENVIAR A» y entrada de leads desde Make.
-export const CONTENT_MODULES = ["editorial", "seo", "leads"] as const;
+//  - radar: radar de subastas de coches (revisa portales B2B y avisa de coches).
+export const CONTENT_MODULES = ["editorial", "seo", "leads", "radar"] as const;
 export type ContentModule = (typeof CONTENT_MODULES)[number];
 
 export const MODULE_LABELS: Record<ContentModule, string> = {
   editorial: "Editorial",
   seo: "Publicador SEO",
   leads: "Leads y reenvíos",
+  radar: "Radar de subastas",
 };
 
 export type EnabledModules = Record<ContentModule, boolean>;
@@ -21,6 +23,7 @@ export function readModules(settings: unknown): EnabledModules {
     editorial: raw.editorial === true,
     seo: raw.seo === true,
     leads: raw.leads === true,
+    radar: raw.radar === true,
   };
 }
 
