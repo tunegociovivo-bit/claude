@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, Filter, Instagram, Play, RotateCcw, Save, Search, ShieldCheck, Target, Trash2 } from "lucide-react";
+import { Copy, Download, Filter, Instagram, Loader2, Play, RotateCcw, Save, Search, ShieldCheck, Sparkles, Target, Trash2 } from "lucide-react";
 
 type SourceType = "followers" | "likers" | "comments" | "hashtag" | "location";
 
@@ -133,6 +133,10 @@ async function waitForInstagramJob(jobId: string, signal: AbortSignal, onProgres
 
 export default function InstagramProspectorClient() {
   const [campaign, setCampaign] = useState("Restaurantes Madrid - influencers food");
+  const [searchPrompt, setSearchPrompt] = useState("");
+  const [configuring, setConfiguring] = useState(false);
+  const [promptMessage, setPromptMessage] = useState("");
+  const [promptError, setPromptError] = useState("");
   const [sourceType, setSourceType] = useState<SourceType>("followers");
   const [target, setTarget] = useState("@madridfoodies");
   const [limit, setLimit] = useState(250);
@@ -244,7 +248,7 @@ export default function InstagramProspectorClient() {
   }, [emailKeywords, leads, requiredSignalCount, requireIntentSignal, requireContact]);
 
   async function scan() {
-    if (running) return;
+    if (running || configuring) return;
     setRunning(true);
     setLeads([]);
     setNotice("");
@@ -303,6 +307,35 @@ export default function InstagramProspectorClient() {
     setNegativeFilters(preset.negativeFilters);
     setPresetName(preset.builtIn ? `${preset.name} copia` : preset.name);
     setStatus(`Plantilla aplicada: ${preset.name}`);
+  }
+
+  async function configureFromPrompt() {
+    if (running || configuring || searchPrompt.trim().length < 10) return;
+    setConfiguring(true);
+    setPromptError("");
+    setPromptMessage("");
+    try {
+      const response = await fetch("/api/v1/instagram-prospector/configure", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: searchPrompt.trim() }), signal: AbortSignal.timeout(60000)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.config) throw new Error(data?.message || "No se pudo preparar el formulario.");
+      applyPreset({ ...data.config, id: "", name: data.config.campaign, description: "Configuracion desde descripcion" });
+      setSelectedPresetId("");
+      setPresetName(data.config.campaign);
+      setLeads([]);
+      setQuery("");
+      setShowDiscarded(false);
+      setContactFilter("all");
+      setNotice("");
+      setStatus("Formulario preparado");
+      setPromptMessage(data.notice || "Formulario actualizado.");
+    } catch (error: any) {
+      setPromptError(error?.name === "TimeoutError" ? "La IA ha tardado demasiado. Vuelve a intentarlo." : error?.message || "No se pudo preparar el formulario.");
+    } finally {
+      setConfiguring(false);
+    }
   }
 
   function savePreset() {
@@ -380,16 +413,32 @@ export default function InstagramProspectorClient() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={reset} className="inline-flex items-center gap-2 rounded-xl border bg-white px-4 py-2 text-sm font-semibold">
+            <button onClick={reset} disabled={running || configuring} className="inline-flex items-center gap-2 rounded-xl border bg-white px-4 py-2 text-sm font-semibold disabled:opacity-60">
               <RotateCcw className="h-4 w-4" />
               Limpiar
             </button>
-            <button onClick={scan} disabled={running} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+            <button onClick={scan} disabled={running || configuring || !target.trim()} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
               <Play className="h-4 w-4" />
               {running ? "Escaneando..." : "Iniciar escaneo"}
             </button>
           </div>
         </header>
+
+        <section className="mb-5 border-b border-slate-200 pb-5" aria-label="Preparar busqueda con IA">
+          <label htmlFor="instagram-search-prompt" className="block text-sm font-semibold text-slate-900">Describe a quien quieres encontrar</label>
+          <textarea id="instagram-search-prompt" value={searchPrompt} onChange={(e) => setSearchPrompt(e.target.value)} disabled={configuring || running} maxLength={4000} rows={3}
+            placeholder="Busca 100 posibles franquiciados de supermercados en Espana, con email publico y senales claras de inversion."
+            className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-60" />
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={configureFromPrompt} disabled={configuring || running || searchPrompt.trim().length < 10}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+              {configuring ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {configuring ? "Preparando..." : "Rellenar formulario"}
+            </button>
+            {promptMessage && <p role="status" className="text-sm text-emerald-800">{promptMessage}</p>}
+            {promptError && <p role="alert" className="text-sm text-red-700">{promptError}</p>}
+          </div>
+        </section>
 
         <section className="mb-5 grid gap-3 md:grid-cols-4">
           <Metric label="Leads validos" value={metrics.total} />
