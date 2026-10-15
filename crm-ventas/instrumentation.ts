@@ -1,8 +1,9 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { registerUrgentAlertMonitor, registerInboxWorker, registerContentWorkers } = await import("./instrumentation-node");
+    const { registerUrgentAlertMonitor, registerInboxWorker, registerContentWorkers, registerRadarWorker } = await import("./instrumentation-node");
     registerUrgentAlertMonitor();
     if (process.env.INBOX_WORKER_DISABLED !== "1") registerInboxWorker();
     if (process.env.CONTENT_WORKERS_DISABLED !== "1") registerContentWorkers();
+    if (process.env.RADAR_WORKER_DISABLED !== "1") registerRadarWorker();
   }
 }

@@ -17,11 +17,12 @@ import {
   ChevronDown,
   CalendarRange,
   Newspaper,
+  Radar,
   ShieldCheck,
   Undo2,
 } from "lucide-react";
 
-type NavItem = { href: string; label: string; icon: typeof KanbanSquare; module?: "editorial" | "seo" };
+type NavItem = { href: string; label: string; icon: typeof KanbanSquare; module?: "editorial" | "seo" | "radar" };
 
 const NAV: NavItem[] = [
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
@@ -31,10 +32,11 @@ const NAV: NavItem[] = [
   // Módulos de contenidos: solo aparecen si Negocio Vivo los activa.
   { href: "/editorial", label: "Editorial", icon: CalendarRange, module: "editorial" },
   { href: "/publicador-seo", label: "Blog SEO", icon: Newspaper, module: "seo" },
+  { href: "/radar", label: "Radar subastas", icon: Radar, module: "radar" },
   { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
 
-type Modules = { editorial: boolean; seo: boolean; leads: boolean };
+type Modules = { editorial: boolean; seo: boolean; leads: boolean; radar: boolean };
 const MODULES_CACHE_KEY = "crm-ventas:modules";
 
 const NAV_ORDER_KEY = "crm-ventas:navigation-order";
@@ -44,7 +46,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [logo, setLogo] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("Paula");
   const [order, setOrder] = useState<NavItem[]>(NAV);
-  const [modules, setModules] = useState<Modules>({ editorial: false, seo: false, leads: false });
+  const [modules, setModules] = useState<Modules>({ editorial: false, seo: false, leads: false, radar: false });
   // Operador de Negocio Vivo dentro del CRM de este cliente («Entrar» en /admin).
   const [acting, setActing] = useState<{ workspaceName: string } | null>(null);
   const [leaving, setLeaving] = useState(false);
@@ -65,7 +67,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const cached = JSON.parse(sessionStorage.getItem(MODULES_CACHE_KEY) ?? "null");
-      if (cached && typeof cached === "object") setModules({ editorial: cached.editorial === true, seo: cached.seo === true, leads: cached.leads === true });
+      if (cached && typeof cached === "object") setModules({ editorial: cached.editorial === true, seo: cached.seo === true, leads: cached.leads === true, radar: cached.radar === true });
     } catch {
       // Sin caché: se pinta el menú base hasta que responda el servidor.
     }
@@ -76,7 +78,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setAgentName(d?.agentName || "Paula");
         setActing(d?.operatorActing && typeof d.operatorActing.workspaceName === "string" ? { workspaceName: d.operatorActing.workspaceName } : null);
         if (d?.modules) {
-          const next = { editorial: d.modules.editorial === true, seo: d.modules.seo === true, leads: d.modules.leads === true };
+          const next = { editorial: d.modules.editorial === true, seo: d.modules.seo === true, leads: d.modules.leads === true, radar: d.modules.radar === true };
           setModules(next);
           try { sessionStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(next)); } catch {}
         }

@@ -13,6 +13,61 @@ Hub.Negociovivo, empaquetado como producto independiente y multi-cliente.
 | **Calendario** | Vista mensual con todas las citas (de llamadas, de WhatsApp y manuales). Crear y cancelar citas. |
 | **Llamadas** | Registro de llamadas atendidas por SONIA con transcripción y resumen. |
 | **Ajustes** | Configuración por cliente: información del negocio, prompt específico, horario, voz, Vapi y WAHA. Genera las URLs de webhook a pegar en Vapi y WAHA. |
+| **Radar de subastas** (opcional) | Revisa a diario los portales B2B de subastas de coches del cliente y le avisa (WhatsApp/email) de los coches que cumplen sus condiciones. Se activa por cliente en `/admin`. |
+
+## Radar de subastas (módulo opcional, se activa por cliente en `/admin`)
+
+Para clientes que compran coches en subastas B2B (Auto1, BCA, Ayvens, OPENLANE,
+Autorola, Manheim, Arval, 2ndMove, Santander, BMW…). El cliente guarda sus
+accesos, define qué coches le interesan y el CRM revisa los portales cada día y
+le avisa de los que encajan. **El radar solo lee: nunca puja ni compra.**
+
+- **Portales** (`/radar` → Portales): el administrador del negocio guarda usuario
+  y contraseña de cada portal (cifrados con `ENCRYPTION_KEY`; la contraseña no se
+  vuelve a mostrar). «Probar acceso» hace una revisión de ese portal al momento.
+  La URL de acceso, la de la lista de coches y cómo se detecta la sesión las fija
+  el catálogo del código (`lib/radar/portals.ts`), no el usuario.
+- **Búsquedas** (`/radar` → Búsquedas): condiciones que debe cumplir un coche —
+  marca, modelo, años, km, precio, potencia, combustible, cambio, país, portales,
+  palabras obligatorias/excluidas. Cada búsqueda avisa por WhatsApp y/o email.
+- **Resultados**: los coches encontrados, con foto, datos, precio, portal y enlace;
+  se marcan como interesantes / vistos / descartados. Al crear o editar una
+  búsqueda se cruza contra el stock ya visto (sin avisar por esos; el aviso es
+  solo para coches nuevos).
+- **Avisos** (`/radar` → Avisos): horas y días de revisión (hora de España) y los
+  teléfonos/emails a los que avisar. Un solo mensaje agrupa todos los coches nuevos
+  del pase (no un aviso por coche).
+
+Cómo funciona por dentro:
+
+- **Navegador** (`lib/radar/browser.ts`): un Chrome remoto por CDP. Por defecto
+  reutiliza la cuenta de **Browserless.io** que el Hub ya usa para scraping: basta
+  con tener `BROWSERLESS_API_KEY` en el entorno del CRM y construye el endpoint CDP
+  solo (`BROWSERLESS_WS_HOST` para fijar el host/región; por defecto
+  `chrome.browserless.io`). Alternativas: `RADAR_BROWSER_WS_URL` (endpoint CDP
+  explícito) o `RADAR_CHROMIUM_PATH` (Chromium local en desarrollo). Un navegador
+  nuevo por portal (si uno se cuelga, no afecta a los demás). Bloquea el acceso a
+  la red interna (anti-SSRF) y no descarga imágenes/vídeos/fuentes.
+- **Acceso** (`lib/radar/login.ts`): inicio de sesión genérico (rechaza cookies,
+  encuentra usuario/contraseña, formularios en dos pasos, detecta captcha/2FA/
+  bloqueos). **Un solo intento por revisión**: si las credenciales fallan, el
+  portal se marca `login_failed` y no se reintenta hasta que alguien las cambie
+  (para no bloquear la cuenta del cliente). La sesión (cookies) se guarda cifrada
+  y se reutiliza mientras valga.
+- **Recogida** (`lib/radar/collect.ts` + `extract-json.ts`): escucha las respuestas
+  JSON que la web del portal pide a su API y saca los coches por sinónimos de campo
+  en varios idiomas; recorre páginas (scroll / «ver más» / «siguiente»). Si no hay
+  JSON reconocible, lee las fichas visibles con IA (`ai-extract.ts`, modelo rápido).
+- **Coincidencias y avisos** (`match.ts`, `notify.ts`): crea un match por (búsqueda,
+  coche) sin duplicar y avisa solo de los coches nuevos.
+- **Programador** (`worker.ts`, arranca en `instrumentation.ts`): cada minuto encola
+  las revisiones que tocan por franja horaria (clave de franja para no duplicar) y
+  procesa la cola con *lease* distribuido (una instancia a la vez). Las revisiones
+  manuales y las pruebas de un portal usan el mismo motor (`run.ts`).
+
+Pruebas: `tests/radar-criteria.test.ts` y `tests/radar-extract.test.ts` (unitarias)
+y `scripts/radar-e2e/` (e2e con un portal ficticio y Chromium real: acceso →
+recogida → guardado → coincidencias, sin duplicar y con la contraseña cifrada).
 
 ## Bandeja de WhatsApp unificada (Pipeline → «WhatsApp unificado»)
 

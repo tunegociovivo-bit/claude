@@ -1,0 +1,45 @@
+# Plan B del Radar de subastas: ejecutar Chromium DENTRO del contenedor del CRM,
+# en vez de usar Browserless.io (opción por defecto vía BROWSERLESS_API_KEY).
+#
+# NO está activo: este Dockerfile vive en deploy/ para que Railway no lo detecte
+# solo (Railway solo mira la raíz del servicio). Para usarlo, ver
+# deploy/README-radar-navegador.md. El contexto de build es la carpeta
+# crm-ventas/ (raíz del servicio del CRM en Railway).
+#
+# No se ha validado contra el build real de Railway; pruébalo en un servicio de
+# staging antes de apuntar producción aquí.
+
+FROM node:20-bookworm-slim
+
+# Chromium del sistema + fuentes y librerías que necesita para arrancar headless.
+# Se instala el navegador del SO (no el de Playwright) para no descargar 150 MB
+# en cada build y tener las dependencias nativas resueltas por apt.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      chromium \
+      fonts-liberation fonts-noto-color-emoji fonts-noto-cjk \
+      ca-certificates \
+      libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+      libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production \
+    # playwright-core NO debe intentar descargar su propio Chromium.
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    # El radar lanza este binario (lib/radar/browser.ts → RADAR_CHROMIUM_PATH).
+    RADAR_CHROMIUM_PATH=/usr/bin/chromium
+
+WORKDIR /app
+
+# Instala dependencias con la lockfile (capa cacheable).
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+# Resto del código y build de Next (incluye `prisma generate`).
+COPY . .
+RUN npm run build
+
+EXPOSE 3000
+
+# Igual que el `start` de package.json: aplica el esquema y arranca Next.
+CMD ["npm", "run", "start"]
