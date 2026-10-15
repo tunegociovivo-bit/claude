@@ -21,6 +21,8 @@
  * reunión.
  */
 
+import { inspectInstagramPage, buildInstagramLead, discoverInstagramCandidates } from "./instagram-prospector.mjs";
+
 const HUB_BASE_DEFAULT = "https://hub.negociovivo.app";
 const OFFSCREEN_PATH = "offscreen/offscreen.html";
 const NOTIF_POLL_MIN = 2;
@@ -946,88 +948,8 @@ async function ensureAccountancyAlarm() {
   await chrome.alarms.create("accountancy-invoices", { periodInMinutes: 0.5 });
 }
 
-function parseInstagramTargets(value) {
-  return String(value || "")
-    .split(/[\n,;]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      if (item.startsWith("#")) return null;
-      if (/^https?:\/\//i.test(item)) {
-        try {
-          const url = new URL(item);
-          const handle = url.pathname.split("/").filter(Boolean)[0];
-          return handle ? { handle, url: `https://www.instagram.com/${handle}/` } : null;
-        } catch {
-          return null;
-        }
-      }
-      const handle = item.replace(/^@/, "").split(/[/?#]/)[0];
-      return handle ? { handle, url: `https://www.instagram.com/${handle}/` } : null;
-    })
-    .filter(Boolean);
-}
-
-function parseProspectorKeywords(value) {
-  return String(value || "").split(/[\n,;]/).map((item) => item.trim().toLowerCase()).filter(Boolean);
-}
-
-function emailKeywordMatch(email, keywords) {
-  const normalized = String(email || "").toLowerCase();
-  return keywords.find((keyword) => normalized.includes(keyword)) || "";
-}
-
-async function readInstagramProfile(tabId, source, config) {
-  await chrome.tabs.update(tabId, { url: source.url });
-  await waitForTabComplete(tabId);
-  await new Promise((resolve) => setTimeout(resolve, 4500));
-  const [{ result } = {}] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      const text = document.body?.innerText || "";
-      const title = document.querySelector('meta[property="og:title"]')?.content || document.title || "";
-      const description = document.querySelector('meta[name="description"]')?.content || document.querySelector('meta[property="og:description"]')?.content || "";
-      const links = [...document.querySelectorAll("a[href]")].map((a) => a.href).filter(Boolean);
-      return { text, title, description, links, url: location.href };
-    }
-  });
-  const haystack = `${result?.title || ""}\n${result?.description || ""}\n${result?.text || ""}\n${(result?.links || []).join("\n")}`;
-  const emails = [...new Set(haystack.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [])];
-  const emailKeywords = parseProspectorKeywords(config.emailKeywords);
-  const email = emails.find((item) => !emailKeywords.length || emailKeywordMatch(item, emailKeywords)) || "";
-  if (emailKeywords.length && !email) return null;
-  const phone = (haystack.match(/(?:\+34\s?)?(?:[6789]\d[\s.-]?){4}\d/g) || [])[0] || "";
-  const website = (result?.links || []).find((url) => !/instagram\.com|facebook\.com|cdninstagram\.com/i.test(url)) || "";
-  const intentKeywords = parseProspectorKeywords(config.intentSignals);
-  const signals = [];
-  if (email) signals.push("Email publico");
-  if (phone) signals.push("Telefono publico");
-  if (website) signals.push("Web enlazada");
-  if (intentKeywords.some((keyword) => haystack.toLowerCase().includes(keyword))) signals.push("Intencion franquicia");
-  if (/franquicia|franquiciado|autoempleo|inversion|negocio propio|expansion/i.test(haystack)) signals.push("Interes negocio");
-  const required = Number(config.requiredSignalCount) || 1;
-  const requireIntent = config.requireIntentSignal !== false;
-  const missingSignals = [];
-  if (signals.length < required) missingSignals.push(`Menos de ${required} senales`);
-  if (requireIntent && !signals.some((signal) => /intencion|franquicia|inversion|negocio|expansion/i.test(signal))) missingSignals.push("Sin intencion franquicia/inversion");
-  return {
-    name: String(result?.title || source.handle).replace(/\s*•\s*Instagram.*$/i, "").trim() || source.handle,
-    handle: `@${source.handle}`,
-    email,
-    phone,
-    website,
-    city: config.country || "",
-    source: source.url,
-    tag: "Agente interno",
-    score: Math.min(95, 40 + signals.length * 14 + (email ? 12 : 0)),
-    status: missingSignals.length ? "Insuficiente" : "Valido",
-    signals: [...new Set(signals)],
-    missingSignals
-  };
-}
-
 async function reportInstagramProspectorResult(payload) {
-  const response = await authedFetch("/api/v1/instagram-prospector/agent", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const response = await authedFetch("/api/v1/instagram-prospector/agent", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error("El Hub no pudo guardar el resultado del prospector");
 }
 
@@ -1035,23 +957,59 @@ async function processInstagramProspectorJob(job) {
   let tab;
   try {
     const config = job.config || {};
-    const targets = parseInstagramTargets(config.target).slice(0, Math.min(Number(config.limit) || 25, 80));
-    const leads = [];
-    const skipped = [];
+    const previous = job.result || {};
+    let candidates = previous.candidates;
+    const leads = previous.leads || [];
+    let skipped = previous.skipped || [];
+    let cursor = Number(previous.cursor) || 0;
     tab = await chrome.tabs.create({ url: "https://www.instagram.com/", active: false });
-    for (const source of targets) {
-      const lead = await readInstagramProfile(tab.id, source, config);
-      if (lead) leads.push(lead);
-      else skipped.push(`${source.handle}: sin datos publicos que cumplan filtros`);
+    const io = {
+      navigate: async (url) => {
+        await chrome.tabs.update(tab.id, { url });
+        await waitForTabComplete(tab.id, 25000);
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      },
+      inspect: async (action) => {
+        const [execution] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: inspectInstagramPage, args: [action] });
+        if (!execution?.result) throw new Error("No se pudo leer la pagina de Instagram");
+        return execution.result;
+      },
+      pause: () => new Promise((resolve) => setTimeout(resolve, 1500))
+    };
+    if (!Array.isArray(candidates)) {
+      ({ candidates, skipped } = await discoverInstagramCandidates(config, io, async (found) => {
+        await reportInstagramProspectorResult({ id: job.id, status: "RUNNING", leads, skipped, cursor, notice: `Recopilando audiencia: ${found} perfiles encontrados.` });
+      }));
     }
+    // Persist a bounded batch so an MV3 worker restart cannot lose a long scan.
+    const batchEnd = Math.min(cursor + 15, candidates.length);
+    const batchUntil = Date.now() + 90000;
+    for (; cursor < batchEnd && Date.now() < batchUntil; cursor++) {
+      const source = candidates[cursor];
+      try {
+        await io.navigate(source.url);
+        const page = await io.inspect("profile");
+        if (page.error && /iniciar sesion|verificar|limitado temporalmente/.test(page.error)) throw new Error(page.error);
+        if (page.error) skipped.push(`@${source.handle}: ${page.error}`);
+        else leads.push(buildInstagramLead(source, page, config));
+      } catch (error) {
+        if (/iniciar sesion|verificar|limitado temporalmente/.test(String(error?.message))) throw error;
+        skipped.push(`@${source.handle}: ${String(error?.message || error)}`);
+      }
+      await reportInstagramProspectorResult({
+        id: job.id, status: "RUNNING", leads, skipped, candidates, cursor: cursor + 1,
+        notice: `Revisados ${cursor + 1} de ${candidates.length} perfiles. ${leads.filter((lead) => lead.status === "Valido").length} cumplen las reglas.`
+      });
+    }
+    const completed = cursor >= candidates.length;
+    const valid = leads.filter((lead) => lead.status === "Valido").length;
     await reportInstagramProspectorResult({
       id: job.id,
-      status: "COMPLETED",
-      leads,
-      skipped,
-      notice: `Agente interno completado: ${leads.length} perfiles encontrados de ${targets.length} fuentes publicas.`
+      status: completed ? "COMPLETED" : "RUNNING",
+      leads, skipped, candidates, cursor,
+      notice: `${completed ? "Completado" : "En curso"}: ${cursor} de ${candidates.length} perfiles revisados; ${valid} validos y ${leads.length - valid} descartados por filtros. ${skipped.length} incidencias.`
     });
-    if (leads.length) notify("Prospector Instagram", `${leads.length} perfiles encontrados`);
+    if (completed) notify("Prospector Instagram", `${valid} perfiles cumplen las reglas de ${cursor} revisados`);
   } catch (error) {
     await reportInstagramProspectorResult({ id: job.id, status: "FAILED", error: String(error?.message || error).slice(0, 900) }).catch(() => {});
   } finally {
@@ -1064,8 +1022,8 @@ async function processInstagramProspectorQueue() {
   if (instagramProspectorBusy || !(await syncSession())) return;
   instagramProspectorBusy = true;
   try {
-    for (let attempts = 0; attempts < 3; attempts++) {
-      const response = await authedFetch("/api/v1/instagram-prospector/agent");
+    for (let attempts = 0; attempts < 1; attempts++) {
+      const response = await authedFetch("/api/v1/instagram-prospector/agent", { signal: AbortSignal.timeout(20000) });
       if (!response.ok) break;
       const data = await response.json();
       if (!data.job) break;

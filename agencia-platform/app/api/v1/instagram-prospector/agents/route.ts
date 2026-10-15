@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withApi({ scope: "*", admin: true, rate: "admin" }, async (_req, { api }) => {
+export const GET = withApi({ scope: "*", admin: true }, async (_req, { api }) => {
   const onlineSince = new Date(Date.now() - 2 * 60 * 1000);
   const agents = await prisma.instagramProspectorAgent.findMany({
     where: { workspaceId: api.workspaceId },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Download, Filter, Instagram, Play, RotateCcw, Save, Search, ShieldCheck, Target, Trash2 } from "lucide-react";
 
 type SourceType = "followers" | "likers" | "comments" | "hashtag" | "location";
@@ -18,6 +18,7 @@ type Lead = {
   status: string;
   signals: string[];
   missingSignals: string[];
+  evidence?: string[];
 };
 
 type SearchPreset = {
@@ -51,6 +52,7 @@ type AgentStatus = {
 };
 
 const PRESETS_STORAGE_KEY = "nv-instagram-prospector-presets-v1";
+const ACTIVE_JOB_KEY = "nv-instagram-prospector-active-job";
 
 const builtInPresets: SearchPreset[] = [
   {
@@ -65,8 +67,8 @@ const builtInPresets: SearchPreset[] = [
     minScore: 70,
     requiredSignalCount: 3,
     requireIntentSignal: true,
-    emailKeywords: "eroski\ncarrefour\ndia\ncoviran\nalcampo\nconsum\nbonarea",
-    intentSignals: "comenta sobre franquicias\nusa hashtag franquicias\npide info de inversion\nbio emprendedor o inversor\nsigue portales de franquicias\ninteractua con alimentacion retail\ntiene contacto publico\nubicacion objetivo",
+    emailKeywords: "",
+    intentSignals: "quiero abrir\nbusco franquicia\ninvertir en\ninformacion sobre franquicias\nemprendedor\ninversor\nnegocio propio",
     negativeFilters: "solo sigue supermercados de consumo\nofertas y cupones\nrecetas\nsorteos\ncliente habitual sin bio profesional\nperfil privado\nsin actividad reciente\nmenor de edad",
     builtIn: true
   }
@@ -81,13 +83,13 @@ const sourceLabels: Record<SourceType, string> = {
 };
 
 function hasIntentSignal(lead: Lead) {
-  return lead.signals.some((signal) => /intencion|franquicia|inversion|negocio|expansion/i.test(signal));
+  return lead.signals.some((signal) => /^(Intencion franquicia|Interes negocio)/i.test(signal));
 }
 
 function isValidLead(lead: Lead, requiredSignalCount: number, requireIntentSignal: boolean) {
   const enoughSignals = lead.signals.length >= requiredSignalCount;
   const intentOk = !requireIntentSignal || hasIntentSignal(lead);
-  return enoughSignals && intentOk;
+  return enoughSignals && intentOk && lead.status !== "Descartado";
 }
 
 function parseKeywords(value: string) {
@@ -111,15 +113,21 @@ function timeAgo(value: string) {
   return `hace ${Math.floor(seconds / 86400)} d`;
 }
 
-async function waitForInstagramJob(jobId: string) {
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 2000));
-    const response = await fetch(`/api/v1/instagram-prospector/jobs/${jobId}`, { cache: "no-store" });
+async function waitForInstagramJob(jobId: string, signal: AbortSignal, onProgress: (job: any) => void) {
+  while (!signal.aborted) {
+    const response = await fetch(`/api/v1/instagram-prospector/jobs/${jobId}`, { cache: "no-store", signal });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.message || "No se pudo consultar el estado de la busqueda");
+    onProgress(data);
     if (data.status === "COMPLETED" || data.status === "FAILED") return data;
+    await new Promise<void>((resolve) => {
+      const finish = () => { window.clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+      const timer = window.setTimeout(finish, 5000);
+      signal.addEventListener("abort", finish, { once: true });
+      if (signal.aborted) finish();
+    });
   }
-  return { status: "QUEUED", result: null, error: "La busqueda sigue en cola. El agente interno la recogera cuando este conectado." };
+  throw new DOMException("Aborted", "AbortError");
 }
 
 export default function InstagramProspectorClient() {
@@ -143,6 +151,8 @@ export default function InstagramProspectorClient() {
   const [query, setQuery] = useState("");
   const [minScore, setMinScore] = useState(0);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [showDiscarded, setShowDiscarded] = useState(false);
+  const monitor = useRef<AbortController | null>(null);
   const allPresets = useMemo(() => [...builtInPresets, ...savedPresets], [savedPresets]);
 
   useEffect(() => {
@@ -161,6 +171,49 @@ export default function InstagramProspectorClient() {
   }
 
   useEffect(() => {
+    const active = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (active) followJob(active);
+    return () => monitor.current?.abort();
+  }, []);
+
+  async function followJob(jobId: string) {
+    monitor.current?.abort();
+    const controller = new AbortController();
+    monitor.current = controller;
+    localStorage.setItem(ACTIVE_JOB_KEY, jobId);
+    setRunning(true);
+    try {
+      let firstUpdate = true;
+      await waitForInstagramJob(jobId, controller.signal, (job) => {
+        if (firstUpdate && job.config) {
+          const config = job.config;
+          setSourceType(config.sourceType);
+          setTarget(config.target);
+          setLimit(config.limit);
+          setCountry(config.country);
+          setRequiredSignalCount(config.requiredSignalCount);
+          setRequireIntentSignal(config.requireIntentSignal);
+          setEmailKeywords(config.emailKeywords || "");
+          setIntentSignals(config.intentSignals || "");
+          setNegativeFilters(config.negativeFilters || "");
+        }
+        firstUpdate = false;
+        const result = job.result || {};
+        setLeads(Array.isArray(result.leads) ? result.leads : []);
+        setNotice([job.error || result.notice || "Esperando a que Chrome recoja la busqueda.", ...(Array.isArray(result.skipped) ? result.skipped.slice(0, 3) : [])].join(" · "));
+        setStatus(job.status === "FAILED" ? "Busqueda interrumpida" : job.status === "COMPLETED" ? "Busqueda completada" : job.status === "QUEUED" ? "En cola" : "Revisando audiencia");
+      });
+      localStorage.removeItem(ACTIVE_JOB_KEY);
+    } catch (error: any) {
+      if (controller.signal.aborted) return;
+      setStatus("No se pudo consultar la busqueda");
+      setNotice(error?.message || "Recarga para recuperar el avance de la busqueda.");
+    } finally {
+      if (!controller.signal.aborted) setRunning(false);
+    }
+  }
+
+  useEffect(() => {
     refreshAgentStatus().catch(() => {});
     const timer = window.setInterval(() => refreshAgentStatus().catch(() => {}), 15000);
     return () => window.clearInterval(timer);
@@ -172,17 +225,18 @@ export default function InstagramProspectorClient() {
     return leads.filter((lead) => {
       const haystack = `${lead.name} ${lead.handle} ${lead.email} ${lead.phone} ${lead.city} ${lead.tag} ${lead.status} ${lead.signals.join(" ")}`.toLowerCase();
       const emailMatch = !emailKeywordList.length || getEmailKeywordMatch(lead.email, emailKeywordList);
-      return haystack.includes(q) && lead.score >= minScore && Boolean(emailMatch) && isValidLead(lead, requiredSignalCount, requireIntentSignal);
+      return haystack.includes(q) && lead.score >= minScore && (showDiscarded || (Boolean(emailMatch) && isValidLead(lead, requiredSignalCount, requireIntentSignal)));
     });
-  }, [emailKeywords, leads, minScore, query, requiredSignalCount, requireIntentSignal]);
+  }, [emailKeywords, leads, minScore, query, requiredSignalCount, requireIntentSignal, showDiscarded]);
 
   const metrics = useMemo(() => {
-    const valid = leads.filter((lead) => isValidLead(lead, requiredSignalCount, requireIntentSignal));
+    const emailTerms = parseKeywords(emailKeywords);
+    const valid = leads.filter((lead) => isValidLead(lead, requiredSignalCount, requireIntentSignal) && (!emailTerms.length || getEmailKeywordMatch(lead.email, emailTerms)));
     const email = valid.filter((lead) => lead.email).length;
     const phone = valid.filter((lead) => lead.phone).length;
     const score = valid.length ? Math.round(valid.reduce((sum, lead) => sum + lead.score, 0) / valid.length) : 0;
     return { total: valid.length, email, phone, score };
-  }, [leads, requiredSignalCount, requireIntentSignal]);
+  }, [emailKeywords, leads, requiredSignalCount, requireIntentSignal]);
 
   async function scan() {
     if (running) return;
@@ -211,14 +265,10 @@ export default function InstagramProspectorClient() {
         return;
       }
       setStatus("Agente interno trabajando");
-      const job = await waitForInstagramJob(data.jobId);
-      const result = job.result || {};
-      setLeads(Array.isArray(result.leads) ? result.leads : []);
-      setNotice(result.notice || job.error || data.notice || "");
-      setStatus(job.status === "COMPLETED" ? `Completado: ${Array.isArray(result.leads) ? result.leads.length : 0} perfiles encontrados` : "Error en agente interno");
+      await followJob(data.jobId);
     } catch (error: any) {
       setStatus(error?.message || "Error en la busqueda");
-      setNotice("El agente interno no ha podido completar esta busqueda. Revisa que haya una sesion de Instagram conectada y que las fuentes sean accesibles.");
+      setNotice(error?.message || "El agente interno no ha podido completar esta busqueda.");
     } finally {
       setRunning(false);
     }
@@ -496,7 +546,7 @@ export default function InstagramProspectorClient() {
                       {agentStatus?.onlineAgents ? "Chrome conectado" : "Chrome no conectado"}
                     </h3>
                     <p className="mt-1 text-xs text-slate-600">
-                      Para seguidores, comentarios y likes completos hace falta la extension actualizada y conectada.
+                      La recopilacion de audiencias requiere la extension 0.21.28 o posterior y una sesion abierta en Instagram.
                     </p>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-bold ${agentStatus?.onlineAgents ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
@@ -575,6 +625,10 @@ export default function InstagramProspectorClient() {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />
+              Mostrar tambien descartados ({leads.length} perfiles leidos)
+            </label>
             <label className="relative min-w-[260px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrar por nombre, email, ciudad o senal" className="w-full rounded-xl border py-2 pl-9 pr-3 text-sm" />
@@ -638,6 +692,7 @@ export default function InstagramProspectorClient() {
 function LeadReasons({ lead }: { lead: Lead }) {
   return (
     <div className="max-w-md space-y-1">
+      {lead.evidence?.map((text, index) => <p key={index} className="break-words text-xs text-slate-600">{text}</p>)}
       <div className="flex flex-wrap gap-1">
         {lead.signals.map((signal) => (
           <span key={signal} className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">{signal}</span>

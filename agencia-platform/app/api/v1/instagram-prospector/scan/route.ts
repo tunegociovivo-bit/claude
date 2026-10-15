@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ApiError } from "@/lib/api/auth";
 import { withApi } from "@/lib/api/handler";
 import { prisma } from "@/lib/db/prisma";
-import { runInternalInstagramScan } from "@/lib/instagram-prospector/internal-scan";
+import { supportsAudienceDiscovery, MIN_INSTAGRAM_AGENT_VERSION } from "@/lib/instagram-prospector/agent-version";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,14 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) throw new ApiError(400, "validation_error", parsed.error.message);
 
+  const agents = await prisma.instagramProspectorAgent.findMany({
+    where: { workspaceId: api.workspaceId, lastHeartbeatAt: { gte: new Date(Date.now() - 2 * 60 * 1000) } },
+    select: { version: true }
+  });
+  const onlineAgents = agents.filter((agent) => supportsAudienceDiscovery(agent.version)).length;
+  if (!onlineAgents) throw new ApiError(409, "agent_required", agents.length
+    ? `Actualiza la extension a ${MIN_INSTAGRAM_AGENT_VERSION} o posterior. La version conectada no recopila audiencias.`
+    : "No hay una extension conectada capaz de recopilar audiencias. Conecta Chrome y vuelve a intentarlo.");
   const job = await prisma.instagramProspectorJob.create({
     data: {
       workspaceId: api.workspaceId,
@@ -30,29 +38,6 @@ export const POST = withApi({ scope: "*", admin: true, rate: "admin" }, async (r
       config: parsed.data
     }
   });
-  const onlineSince = new Date(Date.now() - 2 * 60 * 1000);
-  const onlineAgents = await prisma.instagramProspectorAgent.count({
-    where: { workspaceId: api.workspaceId, lastHeartbeatAt: { gte: onlineSince } }
-  });
-  if (!onlineAgents) {
-    const result = await runInternalInstagramScan(parsed.data);
-    await prisma.instagramProspectorJob.update({
-      where: { id: job.id },
-      data: {
-        status: "COMPLETED",
-        result,
-        finishedAt: new Date()
-      }
-    });
-    return NextResponse.json({
-      jobId: job.id,
-      status: "COMPLETED",
-      onlineAgents: 1,
-      fallbackMode: "internal_public_web",
-      result,
-      notice: "No habia agente interno conectado. He usado el motor publico propio de la plataforma para esta busqueda."
-    }, { status: 202 });
-  }
   return NextResponse.json({
     jobId: job.id,
     status: job.status,
