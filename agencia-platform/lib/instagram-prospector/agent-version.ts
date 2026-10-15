@@ -1,4 +1,4 @@
-export const MIN_INSTAGRAM_AGENT_VERSION = "0.21.28";
+export const MIN_INSTAGRAM_AGENT_VERSION = "0.21.29";
 
 export function supportsAudienceDiscovery(version: string | null) {
   if (!version || !/^\d+\.\d+\.\d+$/.test(version)) return false;

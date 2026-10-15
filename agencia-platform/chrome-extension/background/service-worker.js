@@ -962,7 +962,7 @@ async function processInstagramProspectorJob(job) {
     const leads = previous.leads || [];
     let skipped = previous.skipped || [];
     let cursor = Number(previous.cursor) || 0;
-    tab = await chrome.tabs.create({ url: "https://www.instagram.com/", active: false });
+    tab = await chrome.tabs.create({ url: "https://www.instagram.com/", active: true });
     const io = {
       navigate: async (url) => {
         await chrome.tabs.update(tab.id, { url });

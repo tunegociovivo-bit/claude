@@ -92,3 +92,15 @@ test("hashtag results inspect post authors and retain evidence of the source", a
   assert.equal(result.candidates[0].handle, "author");
   assert.deepEqual(result.candidates[0].signals, ["Publica en hashtag"]);
 });
+
+test("a loading follower list is not treated as exhausted after five empty polls", async () => {
+  let calls = 0;
+  const result = await discoverInstagramCandidates({ target: "@retail", sourceType: "followers", limit: 20 }, {
+    navigate: async () => {}, pause: async () => {}, inspect: async (action) => {
+      if (action === "open-followers") return { opened: true };
+      if (calls++ < 7) return { profiles: [], loading: true };
+      return { profiles: Array.from({ length: 20 }, (_, i) => ({ url: `https://www.instagram.com/person${i}/` })) };
+    }
+  });
+  assert.equal(result.candidates.length, 20);
+});

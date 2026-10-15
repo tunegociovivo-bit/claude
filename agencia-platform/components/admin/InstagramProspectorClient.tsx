@@ -546,7 +546,7 @@ export default function InstagramProspectorClient() {
                       {agentStatus?.onlineAgents ? "Chrome conectado" : "Chrome no conectado"}
                     </h3>
                     <p className="mt-1 text-xs text-slate-600">
-                      La recopilacion de audiencias requiere la extension 0.21.28 o posterior y una sesion abierta en Instagram.
+                      La recopilacion de audiencias requiere la extension 0.21.29 o posterior y una sesion abierta en Instagram.
                     </p>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-bold ${agentStatus?.onlineAgents ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
@@ -670,7 +670,7 @@ export default function InstagramProspectorClient() {
                     </td>
                     <td><span className="rounded-full bg-pink-50 px-2 py-1 text-xs font-semibold text-pink-700">{lead.tag}</span><small className="block pt-1 text-slate-500">{lead.city} - {lead.source}</small></td>
                     <td className="font-bold text-emerald-700">{lead.score}</td>
-                    <td><ValidationBadge lead={lead} requiredSignalCount={requiredSignalCount} requireIntentSignal={requireIntentSignal} /></td>
+                    <td><ValidationBadge lead={lead} requiredSignalCount={requiredSignalCount} requireIntentSignal={requireIntentSignal} emailKeywords={emailKeywords} /></td>
                     <td><LeadReasons lead={lead} /></td>
                   </tr>
                 )) : (
@@ -725,8 +725,9 @@ function SignalList({ title, value, tone }: { title: string; value: string; tone
   );
 }
 
-function ValidationBadge({ lead, requiredSignalCount, requireIntentSignal }: { lead: Lead; requiredSignalCount: number; requireIntentSignal: boolean }) {
-  const valid = isValidLead(lead, requiredSignalCount, requireIntentSignal);
+function ValidationBadge({ lead, requiredSignalCount, requireIntentSignal, emailKeywords }: { lead: Lead; requiredSignalCount: number; requireIntentSignal: boolean; emailKeywords: string }) {
+  const emailTerms = parseKeywords(emailKeywords);
+  const valid = isValidLead(lead, requiredSignalCount, requireIntentSignal) && (!emailTerms.length || getEmailKeywordMatch(lead.email, emailTerms));
   return (
     <span className={`rounded-full px-2 py-1 text-xs font-semibold ${valid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
       {valid ? "Valido" : "No pasa reglas"}

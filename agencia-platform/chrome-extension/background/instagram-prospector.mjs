@@ -99,7 +99,7 @@ export function inspectInstagramPage(action) {
   }
   const scrollables = [...root.querySelectorAll("div, ul")].filter((el) => el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 100 && /auto|scroll/.test(getComputedStyle(el).overflowY));
   const scroller = scrollables.sort((a, b) => b.scrollHeight - a.scrollHeight)[0] || (action === "members" ? null : document.scrollingElement);
-  if (scroller) scroller.scrollTop += Math.max(300, scroller.clientHeight * 0.8);
+  if (scroller) scroller.scrollTop = scroller.scrollHeight;
   return { profiles, posts, loading: Boolean(root.querySelector('[role="progressbar"]')) };
 }
 
@@ -191,7 +191,7 @@ export async function discoverInstagramCandidates(config, io, progress = async (
       for (const row of data.profiles || []) seenRows.add(row.url);
       for (const post of data.posts || []) posts.add(post);
       mergeCandidates(candidates, data.profiles || [], source, Math.min(limit, initialCount + perSourceLimit));
-      idle = size === seenRows.size + posts.size ? idle + 1 : 0;
+      idle = !data.loading && !data.waiting && size === seenRows.size + posts.size ? idle + 1 : 0;
       if (round % 8 === 0) await progress(candidates.length);
       // Discovery feeds stop after enough posts; each author is inspected below.
       if (mode === "posts" && posts.size >= perSourceLimit) break;
