@@ -40,11 +40,14 @@ le avisa de los que encajan. **El radar solo lee: nunca puja ni compra.**
 
 Cómo funciona por dentro:
 
-- **Navegador** (`lib/radar/browser.ts`): un Chrome remoto por CDP
-  (`RADAR_BROWSER_WS_URL`, p. ej. Browserless en Railway) o un Chromium local en
-  desarrollo (`RADAR_CHROMIUM_PATH`). Un navegador nuevo por portal (si uno se
-  cuelga, no afecta a los demás). Bloquea el acceso a la red interna (anti-SSRF) y
-  no descarga imágenes/vídeos/fuentes.
+- **Navegador** (`lib/radar/browser.ts`): un Chrome remoto por CDP. Por defecto
+  reutiliza la cuenta de **Browserless.io** que el Hub ya usa para scraping: basta
+  con tener `BROWSERLESS_API_KEY` en el entorno del CRM y construye el endpoint CDP
+  solo (`BROWSERLESS_WS_HOST` para fijar el host/región; por defecto
+  `chrome.browserless.io`). Alternativas: `RADAR_BROWSER_WS_URL` (endpoint CDP
+  explícito) o `RADAR_CHROMIUM_PATH` (Chromium local en desarrollo). Un navegador
+  nuevo por portal (si uno se cuelga, no afecta a los demás). Bloquea el acceso a
+  la red interna (anti-SSRF) y no descarga imágenes/vídeos/fuentes.
 - **Acceso** (`lib/radar/login.ts`): inicio de sesión genérico (rechaza cookies,
   encuentra usuario/contraseña, formularios en dos pasos, detecta captcha/2FA/
   bloqueos). **Un solo intento por revisión**: si las credenciales fallan, el

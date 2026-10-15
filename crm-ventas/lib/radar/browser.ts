@@ -2,22 +2,41 @@ import "server-only";
 import type { Browser, BrowserContext } from "playwright-core";
 import { isPrivateHost } from "./net-guard";
 
-// Navegador del radar. En producción se conecta a un Chrome remoto (servicio
-// Browserless en el mismo proyecto de Railway) por CDP: así el CRM no necesita
-// Chrome instalado. En local/tests lanza el Chromium indicado.
-//   RADAR_BROWSER_WS_URL  ws(s)://…/chromium?token=…   (Browserless v2)
-//   RADAR_CHROMIUM_PATH   ruta a un Chromium local
+// Navegador del radar. En producción se conecta a un Chrome remoto por CDP, así
+// el CRM (nixpacks) no necesita Chrome instalado. Fuentes, por orden:
+//   RADAR_BROWSER_WS_URL  ws(s)://…?token=…   endpoint CDP explícito
+//   BROWSERLESS_API_KEY   la MISMA clave de Browserless.io que ya usa el Hub
+//                         para el scraping; se construye el endpoint CDP solo
+//                         (host en BROWSERLESS_WS_HOST, por defecto el del Hub).
+//   RADAR_CHROMIUM_PATH   ruta a un Chromium local (solo desarrollo/tests).
 //   RADAR_PROXY_URL       proxy opcional (http://usuario:clave@host:puerto)
 
+// Host de Browserless.io para el endpoint CDP. El Hub usa chrome.browserless.io;
+// en cuentas v2 regionales sería production-sfo/lon.browserless.io.
+const DEFAULT_BROWSERLESS_HOST = "chrome.browserless.io";
+
+/** Endpoint CDP (wss) resuelto: el explícito, o el de Browserless.io si hay clave. */
+export function resolveWsEndpoint(): string | null {
+  if (process.env.RADAR_BROWSER_WS_URL) return process.env.RADAR_BROWSER_WS_URL;
+  const key = process.env.BROWSERLESS_API_KEY;
+  if (key) {
+    const host = process.env.BROWSERLESS_WS_HOST || DEFAULT_BROWSERLESS_HOST;
+    return `wss://${host}?token=${encodeURIComponent(key)}`;
+  }
+  return null;
+}
+
 export class RadarBrowserUnavailableError extends Error {
-  constructor(message = "El navegador del radar no está configurado (falta RADAR_BROWSER_WS_URL). Avisa a Negocio Vivo.") {
+  constructor(
+    message = "El navegador del radar no está configurado. Añade BROWSERLESS_API_KEY (la misma clave de Browserless.io del Hub) o RADAR_BROWSER_WS_URL en el entorno del CRM."
+  ) {
     super(message);
     this.name = "RadarBrowserUnavailableError";
   }
 }
 
 export function radarBrowserConfigured(): boolean {
-  return Boolean(process.env.RADAR_BROWSER_WS_URL || process.env.RADAR_CHROMIUM_PATH);
+  return Boolean(resolveWsEndpoint() || process.env.RADAR_CHROMIUM_PATH);
 }
 
 const USER_AGENT =
@@ -41,7 +60,7 @@ function proxySettings(): { server: string; username?: string; password?: string
 /** Abre un navegador nuevo (uno por portal: si un portal lo cuelga, no afecta a los demás). */
 export async function openBrowser(): Promise<Browser> {
   const { chromium } = await import("playwright-core");
-  const ws = process.env.RADAR_BROWSER_WS_URL;
+  const ws = resolveWsEndpoint();
   if (ws) {
     let endpoint = ws;
     const proxy = process.env.RADAR_PROXY_URL;
