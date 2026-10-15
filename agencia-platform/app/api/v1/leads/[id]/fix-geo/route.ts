@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api/auth";
 import { geocodeAddress } from "@/lib/bubui/geocode";
 import { getCompetitorRanking } from "@/lib/leads/competitors";
 import { renderTemplate } from "@/lib/leads/template-engine";
+import { uniqueSequenceSteps } from "@/lib/leads/sequences";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -75,7 +76,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (_req, { params
         where: { leadId: lead.id, status: "active", lead: { workspaceId: api.workspaceId } },
         include: { sequence: { include: { steps: { orderBy: { order: "asc" } } } } }
       });
-      if (asg.length === 1) sourceBody = asg[0].sequence.steps[asg[0].currentStep]?.templateBody ?? null;
+      if (asg.length === 1) sourceBody = uniqueSequenceSteps(asg[0].sequence.steps)[asg[0].currentStep]?.templateBody ?? null;
     }
     const needsRanking = m.kind === "ranking" || (sourceBody ? POS_RE.test(sourceBody) : false);
     try {

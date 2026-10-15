@@ -7371,10 +7371,10 @@ function SequencesView() {
           <button
             onClick={() => setReactivateOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-medium"
-            title="Enrola en una secuencia a los leads contactados hace tiempo que no llegaron a cliente"
+            title="Envía los siguientes pasos de una secuencia a los leads de un nicho que no han contestado"
           >
             <RefreshCw className="h-4 w-4" />
-            Reactivar leads fríos
+            Reactivar por nicho
           </button>
           <button
             onClick={() => setCreateOpen(true)}
@@ -7424,85 +7424,207 @@ function SequencesView() {
   );
 }
 
-/** Reactivación de leads fríos: enrola en una secuencia los leads contactados
- *  hace tiempo que no llegaron a cliente. */
-function ReactivateModal({
-  open,
-  onClose,
-  sequences
-}: {
-  open: boolean;
-  onClose: () => void;
-  sequences: any[];
-}) {
+type NicheOption = { key: string; keyword: string; searches: number; leads: number; contacted: number; responded: number; lastSearchAt: string };
+type SequenceOption = { id: string; name: string; isDefault: boolean; steps: { number: number; delayDays: number; preview: string }[] };
+type NichePreview = {
+  niche: { key: string; keyword: string; searches: number; leads: number };
+  sequence: { id: string; name: string; steps: { number: number; delayDays: number; preview: string }[] };
+  options: { fromStep: number; minDaysSinceContact: number; includeUnanswered: boolean };
+  eligibleCount: number;
+  eligibleSample: { id: string; name: string; lastSentAt: string }[];
+  excluded: { reason: string; label: string; count: number }[];
+  progress: { active: number; completed: number; paused: number; stopped: number; byStep: Record<string, number>; pausedReasons: Record<string, number> };
+};
+
+const fmtN = (n: number) => n.toLocaleString("es-ES");
+
+/** Reactivar la secuencia de un nicho: los leads que recibieron el primer
+ *  mensaje y no cerraron conversación reciben los pasos siguientes. */
+function ReactivateModal({ open, onClose }: { open: boolean; onClose: () => void; sequences?: any[] }) {
+  const [niches, setNiches] = useState<NicheOption[]>([]);
+  const [sequences, setSequences] = useState<SequenceOption[]>([]);
+  const [niche, setNiche] = useState("");
   const [sequenceId, setSequenceId] = useState("");
-  const [days, setDays] = useState(60);
+  const [fromStep, setFromStep] = useState(2);
+  const [minDays, setMinDays] = useState(2);
+  const [includeUnanswered, setIncludeUnanswered] = useState(false);
+  const [preview, setPreview] = useState<NichePreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ total: number; enrolled: number; failed: number } | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef(0);
+
   useEffect(() => {
-    if (open) {
-      setResult(null);
-      setError(null);
-      setSequenceId(sequences[0]?.id ?? "");
-    }
-  }, [open, sequences]);
+    if (!open) return;
+    setDone(null);
+    setError(null);
+    setPreview(null);
+    fetch("/api/v1/leads/sequences/reactivate-niche", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Error ${r.status}`))))
+      .then((d) => {
+        setNiches(d.niches ?? []);
+        setSequences(d.sequences ?? []);
+        const seq = (d.sequences ?? []).find((item: SequenceOption) => item.isDefault) ?? d.sequences?.[0];
+        setSequenceId((current) => current || seq?.id || "");
+        setNiche((current) => current || d.niches?.[0]?.key || "");
+      })
+      .catch((e) => setError(e?.message ?? "No se pudieron cargar los nichos"));
+  }, [open]);
+
+  const sequence = sequences.find((item) => item.id === sequenceId) ?? null;
+  useEffect(() => {
+    if (sequence && fromStep > sequence.steps.length) setFromStep(Math.min(2, sequence.steps.length));
+  }, [sequence, fromStep]);
+
+  useEffect(() => {
+    if (!open || !niche || !sequenceId) return;
+    const id = ++requestRef.current;
+    setLoadingPreview(true);
+    setError(null);
+    const params = new URLSearchParams({ niche, sequenceId, fromStep: String(fromStep), minDays: String(minDays), includeUnanswered: includeUnanswered ? "1" : "0" });
+    const timer = setTimeout(() => {
+      fetch(`/api/v1/leads/sequences/reactivate-niche?${params}`, { cache: "no-store" })
+        .then(async (r) => {
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j?.error?.message ?? `Error ${r.status}`);
+          return j as NichePreview;
+        })
+        .then((d) => { if (id === requestRef.current) setPreview(d); })
+        .catch((e) => { if (id === requestRef.current) { setPreview(null); setError(e?.message ?? "Error al calcular"); } })
+        .finally(() => { if (id === requestRef.current) setLoadingPreview(false); });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [open, niche, sequenceId, fromStep, minDays, includeUnanswered]);
 
   async function run() {
-    if (!sequenceId) { setError("Elige una secuencia."); return; }
+    if (!preview || preview.eligibleCount === 0) return;
+    const ok = confirm(`¿Enviar a ${fmtN(preview.eligibleCount)} leads de «${preview.niche.keyword}» la secuencia «${preview.sequence.name}» desde el paso ${fromStep}?\n\nSe encolan poco a poco y respetan el ritmo y los límites de la cola de WhatsApp. Se detiene sola si el lead responde.`);
+    if (!ok) return;
     setBusy(true);
     setError(null);
-    setResult(null);
     try {
-      const r = await fetch("/api/v1/leads/sequences/reactivate", {
+      const r = await fetch("/api/v1/leads/sequences/reactivate-niche", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sequenceId, olderThanDays: days })
+        body: JSON.stringify({ niche, sequenceId, fromStep, minDaysSinceContact: minDays, includeUnanswered })
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) setError(j?.error?.message ?? `Error ${r.status}`);
-      else setResult({ total: j.total, enrolled: j.enrolled, failed: j.failed });
+      if (!r.ok) throw new Error(j?.error?.message ?? `Error ${r.status}`);
+      setPreview(j);
+      setDone(`Secuencia reactivada para ${fmtN(j.applied?.total ?? 0)} leads (${fmtN(j.applied?.created ?? 0)} nuevos, ${fmtN(j.applied?.resumed ?? 0)} retomados). Se encolan unos 10 por minuto; la cola los envía con su ritmo, horario y límite diario.`);
     } catch (e: any) {
-      setError(e?.message ?? "Error de red");
+      setError(e?.message ?? "No se pudo reactivar");
     }
     setBusy(false);
   }
 
+  const selectedNiche = niches.find((item) => item.key === niche) ?? null;
+  const progress = preview?.progress;
+  const hasProgress = !!progress && progress.active + progress.completed + progress.paused + progress.stopped > 0;
+
   return (
-    <Modal open={open} onClose={onClose} title="Reactivar leads fríos" size="sm" footer={
+    <Modal open={open} onClose={onClose} title="Reactivar secuencia por nicho" size="lg" footer={
       <>
         <button onClick={onClose} className="px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50">Cerrar</button>
-        <button onClick={run} disabled={busy || !sequenceId} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+        <button onClick={run} disabled={busy || loadingPreview || !preview || preview.eligibleCount === 0} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-          Reactivar
+          {preview ? `Reactivar ${fmtN(preview.eligibleCount)} leads` : "Reactivar"}
         </button>
       </>
     }>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <p className="text-xs text-slate-500">
-          Enrola en la secuencia elegida a los leads <strong>contactados o que respondieron</strong> hace más de los días indicados y que <strong>no llegaron a cliente</strong> (excluye bajas). Ideal para recuperar los "ahora no".
+          Envía los siguientes mensajes de la secuencia a los leads del nicho que recibieron el primero y no han cerrado conversación.
+          Quedan fuera los bloqueados o no interesados y los que ya hablan con un comercial. Las autorrespuestas de WhatsApp Business no cuentan como respuesta.
         </p>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Secuencia</label>
-          {sequences.length === 0 ? (
-            <p className="text-sm text-amber-700">No hay secuencias. Crea una primero.</p>
-          ) : (
-            <select value={sequenceId} onChange={(e) => setSequenceId(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm">
-              {sequences.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="block text-xs font-medium text-slate-700">Nicho
+            <select value={niche} onChange={(e) => { setNiche(e.target.value); setDone(null); }} className="mt-1 w-full px-3 py-2 rounded-lg border bg-white text-sm">
+              {niches.length === 0 && <option value="">Sin búsquedas</option>}
+              {niches.map((item) => (
+                <option key={item.key} value={item.key}>{item.keyword} · {fmtN(item.contacted + item.responded)} contactados</option>
               ))}
             </select>
+            {selectedNiche && <span className="mt-1 block text-[11px] font-normal text-slate-500">{fmtN(selectedNiche.leads)} leads en {selectedNiche.searches} búsqueda{selectedNiche.searches === 1 ? "" : "s"}</span>}
+          </label>
+          <label className="block text-xs font-medium text-slate-700">Secuencia
+            <select value={sequenceId} onChange={(e) => { setSequenceId(e.target.value); setDone(null); }} className="mt-1 w-full px-3 py-2 rounded-lg border bg-white text-sm">
+              {sequences.length === 0 && <option value="">No hay secuencias activas</option>}
+              {sequences.map((item) => (
+                <option key={item.id} value={item.id}>{item.name} ({item.steps.length} pasos)</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {sequence && (
+          <fieldset className="rounded-lg border p-3">
+            <legend className="px-1 text-xs font-medium text-slate-700">Empezar en el paso</legend>
+            <div className="space-y-1.5">
+              {sequence.steps.map((step) => (
+                <label key={step.number} className={`flex gap-2 rounded-md p-1.5 text-xs ${fromStep === step.number ? "bg-brand-50" : ""} ${step.number < fromStep ? "opacity-50" : ""}`}>
+                  <input type="radio" name="fromStep" checked={fromStep === step.number} onChange={() => { setFromStep(step.number); setDone(null); }} className="mt-0.5 accent-brand-600" />
+                  <span className="shrink-0 font-semibold text-slate-700">Paso {step.number}{step.number > 1 ? ` · +${step.delayDays}d` : ""}</span>
+                  <span className="line-clamp-2 text-slate-600">{step.preview}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">El primer paso que se envía sale ya; los siguientes, con su retraso contado desde que se envía el anterior.</p>
+          </fieldset>
+        )}
+
+        <div className="grid sm:grid-cols-2 gap-3 text-xs">
+          <label className="flex items-center gap-2 text-slate-700">
+            Último mensaje hace al menos
+            <input type="number" min={0} max={60} value={minDays} onChange={(e) => setMinDays(Math.max(0, Math.min(60, Number(e.target.value) || 0)))} className="w-16 px-2 py-1 rounded border bg-white text-sm" />
+            días
+          </label>
+          <label className="flex items-start gap-2 text-slate-700">
+            <input type="checkbox" checked={includeUnanswered} onChange={(e) => setIncludeUnanswered(e.target.checked)} className="mt-0.5 accent-brand-600" />
+            Incluir también a los que escribieron y nadie les ha contestado
+          </label>
+        </div>
+
+        <div className="rounded-xl border bg-slate-50 p-3">
+          {loadingPreview && !preview ? (
+            <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Calculando…</div>
+          ) : preview ? (
+            <div className={`space-y-3 ${loadingPreview ? "opacity-60" : ""}`}>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold text-slate-900">{fmtN(preview.eligibleCount)}</span>
+                <span className="text-sm text-slate-600">leads recibirán la secuencia desde el paso {preview.options.fromStep}</span>
+              </div>
+              {preview.excluded.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quedan fuera</div>
+                  <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-slate-600">
+                    {preview.excluded.map((item) => (
+                      <li key={item.reason} className="flex justify-between gap-2"><span>{item.reason === "recent" ? `Contactados hace menos de ${preview.options.minDaysSinceContact} días` : item.label}</span><span className="font-medium tabular-nums text-slate-800">{fmtN(item.count)}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {preview.eligibleSample.length > 0 && (
+                <p className="text-[11px] text-slate-500">Por ejemplo: {preview.eligibleSample.slice(0, 6).map((lead) => lead.name).join(", ")}{preview.eligibleCount > 6 ? "…" : ""}</p>
+              )}
+              {hasProgress && progress && (
+                <div className="rounded-lg border bg-white p-2 text-xs text-slate-600">
+                  <div className="mb-0.5 font-semibold text-slate-700">Esta secuencia en el nicho</div>
+                  En marcha {fmtN(progress.active)}{Object.keys(progress.byStep).length ? ` (${Object.entries(progress.byStep).map(([step, count]) => step === "0" ? `${fmtN(count)} por encolar` : `${fmtN(count)} en paso ${step}`).join(", ")})` : ""} · completadas {fmtN(progress.completed)} · detenidas por respuesta o baja {fmtN(progress.stopped)} · en pausa {fmtN(progress.paused)}
+                  {progress.paused > 0 && (
+                    <ul className="mt-1 list-disc pl-4 text-[11px] text-slate-500">
+                      {Object.entries(progress.pausedReasons).slice(0, 4).map(([reason, count]) => <li key={reason}>{fmtN(count)} · {reason}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Elige un nicho y una secuencia.</p>
           )}
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Contactados hace más de (días)</label>
-          <input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value) || 60)} className="w-full px-3 py-2 rounded-lg border bg-white text-sm" />
-        </div>
-        {result && (
-          <div className="text-xs rounded-lg border p-2.5 bg-emerald-50 border-emerald-200 text-emerald-800">
-            ✓ {result.enrolled} lead(s) reactivado(s){result.failed > 0 ? ` · ${result.failed} omitido(s) (ya en secuencia o excluidos)` : ""}.
-          </div>
-        )}
+        {done && <div className="text-xs rounded-lg border p-2.5 bg-emerald-50 border-emerald-200 text-emerald-800">✓ {done}</div>}
         {error && <p className="text-xs text-rose-600">{error}</p>}
       </div>
     </Modal>

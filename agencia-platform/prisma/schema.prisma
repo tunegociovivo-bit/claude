@@ -2051,6 +2051,9 @@ model LeadSequenceAssignment {
   startedAt     DateTime  @default(now())
   completedAt   DateTime?
   stoppedReason String? // respuesta_recibida | manual | excluded | max_attempts
+  // Último mensaje encolado por la secuencia: el siguiente paso espera a que
+  // este se ENVÍE de verdad y cuenta su retraso desde ese envío.
+  lastMessageId String?
 
   lead     Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   sequence LeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)

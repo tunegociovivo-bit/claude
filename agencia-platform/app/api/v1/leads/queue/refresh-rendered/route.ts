@@ -21,6 +21,7 @@ import { withApi } from "@/lib/api/handler";
 import { renderTemplate } from "@/lib/leads/template-engine";
 import { getCompetitorRanking } from "@/lib/leads/competitors";
 import { fillBusinessName, findUnresolvedPlaceholders, resolveBusinessName } from "@/lib/leads/placeholders";
+import { uniqueSequenceSteps } from "@/lib/leads/sequences";
 
 const POS_RE = /\{\{\s*(posicion|competidor_top|competidores_por_delante)\s*\}\}/;
 
@@ -57,7 +58,7 @@ export const POST = withApi({ scope: "*", rate: "admin" }, async (req, { api }) 
       const arr = byLead.get(leadId) ?? [];
       if (arr.length !== 1) { seqBodyByLead.set(leadId, null); continue; } // 0 o varias → ambiguo
       const a = arr[0];
-      const step = a.sequence.steps[a.currentStep];
+      const step = uniqueSequenceSteps(a.sequence.steps)[a.currentStep];
       seqBodyByLead.set(leadId, step?.templateBody ?? null);
     }
   }
