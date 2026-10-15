@@ -25,7 +25,7 @@ vi.mock("@/lib/db/prisma", () => ({
         return null;
       })
     },
-    leadInboxMessage: { findFirst: vi.fn(async () => db.inbox[0] ?? null) }
+    leadInboxMessage: { findMany: vi.fn(async () => db.inbox) }
   }
 }));
 
@@ -134,9 +134,17 @@ describe("procesador de secuencias", () => {
     expect(db.enqueued[0].body).toBe("Te dejé un mensaje el otro día");
   });
 
+  it("un saludo automático de WhatsApp Business no detiene la secuencia", async () => {
+    db.assignments = [assignment()];
+    db.inbox = [{ body: "Gracias por comunicarte con Clínica Sol. ¿En qué podemos ayudarte?" }];
+    db.messages.set("m0", { id: "m0", leadId: "lead1", status: "sent", sentAt: new Date(now.getTime() - 2 * DAY), scheduledAt: null, lastError: null });
+    const result = await processSequencesTick({ workspaceId: "ws" });
+    expect(result).toMatchObject({ stopped: 0, advanced: 1 });
+  });
+
   it("se detiene si el lead respondió de verdad desde que empezó", async () => {
     db.assignments = [assignment()];
-    db.inbox = [{ id: "in1" }];
+    db.inbox = [{ body: "Sí, me interesa, llámame mañana" }];
     db.messages.set("m0", { id: "m0", leadId: "lead1", status: "sent", sentAt: new Date(now.getTime() - 2 * DAY), scheduledAt: null, lastError: null });
     const result = await processSequencesTick({ workspaceId: "ws" });
     expect(result.stopped).toBe(1);

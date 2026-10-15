@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { enqueueMessage, SENT_STATUSES } from "./send-queue";
 import { EMAIL_ONLY_REASON, isEmailOnlyLead } from "./email-only";
 import { normalizePhone } from "./waha";
+import { looksLikeAutomaticGreeting } from "./auto-greeting";
 
 type StepLike = {
   order: number;
@@ -213,7 +214,7 @@ export async function processSequencesTick(opts: {
       // que llegan sin lead asociado (p. ej. números ocultos de WhatsApp).
       if (nextStep?.stopIfResponded !== false) {
         const phones = phonesOf(a.lead);
-        const reply = await prisma.leadInboxMessage.findFirst({
+        const replies = await prisma.leadInboxMessage.findMany({
           where: {
             workspaceId: opts.workspaceId,
             direction: "in",
@@ -224,9 +225,10 @@ export async function processSequencesTick(opts: {
               { OR: [{ classification: null }, { classification: { not: "auto_reply" } }] }
             ]
           },
-          select: { id: true }
+          select: { body: true },
+          take: 10
         });
-        if (reply) {
+        if (replies.some((reply) => !looksLikeAutomaticGreeting(reply.body))) {
           await stop("respuesta_recibida");
           continue;
         }

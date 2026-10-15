@@ -11,6 +11,7 @@ import { buildCommercialReplyAlert } from "./commercial-reply-alert";
 import { COMMERCIAL_PHONE, COMMERCIAL_PROJECT } from "./commercial-handoff";
 import { mergeLeadConversationItems, type LeadConversationItem } from "./conversation-items";
 import { isExplicitRejectionReply, isOptOutReply, normalizedReply } from "./reply-classification";
+import { looksLikeAutomaticGreeting } from "./auto-greeting";
 
 export type InboxClass =
   | "interested"
@@ -27,7 +28,7 @@ function isAutomaticReply(text: string) {
   const standardAutoReply = /(estamos.?ausentes|fuera.?de.?oficina|out of office|no se encuentra disponible|respuesta autom)/.test(text);
   const acknowledgement = /(gracias por contactar(?:nos)?|hemos recibido (?:tu|su) mensaje)/.test(text);
   const operationalDetail = /(horario de atenci[oó]n|nos pondremos en contacto|responderemos (?:lo antes|en breve)|cita.*(?:enlace|link))/.test(text);
-  return standardAutoReply || (acknowledgement && operationalDetail);
+  return standardAutoReply || (acknowledgement && operationalDetail) || looksLikeAutomaticGreeting(text);
 }
 
 /**

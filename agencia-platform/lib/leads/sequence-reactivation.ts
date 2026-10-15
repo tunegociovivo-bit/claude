@@ -17,6 +17,8 @@ import { normalizePhone } from "./waha";
 import { suppressionHash } from "./suppressions";
 import { isEmailOnlyLead } from "./email-only";
 import { stepDelayMs, uniqueSequenceSteps } from "./sequences";
+import { arrivedAsInstantAutoReply, looksLikeAutomaticGreeting } from "./auto-greeting";
+import { isPermanentNoContactReply } from "./reply-classification";
 
 // Fuentes que no son nichos de captación por WhatsApp.
 const NON_NICHE_SOURCES = new Set(["jobs", "franchises", "trade_fair_exhibitors", "linkedin"]);
@@ -57,6 +59,8 @@ export type ReactivationLeadFacts = {
   blocked: boolean;
   /** Primera respuesta real (no autorrespuesta) del lead. */
   firstGenuineInboundAt: Date | null;
+  /** Hay algún mensaje entrante (aunque sea automático) en su conversación. */
+  inboundSeen: boolean;
   /** Alguien del equipo escribió después de esa respuesta. */
   humanReplyAfterInbound: boolean;
   conversationStatus: string | null;
@@ -82,7 +86,9 @@ export function classifyReactivationLead(facts: ReactivationLeadFacts, opts: Rea
   if (facts.isClient || facts.contactStatus === "client") return no("client");
   if (facts.emailOnly) return no("emailOnly");
   if (facts.handedToCommercial || ["followup", "resolved"].includes(facts.conversationStatus ?? "")) return no("conversation");
-  const replied = Boolean(facts.firstGenuineInboundAt) || facts.contactStatus === "responded";
+  // «Respondido» sin ningún mensaje entrante localizado: se trata como respuesta
+  // real (lado seguro). Si lo que hay son solo autorrespuestas, no lo es.
+  const replied = Boolean(facts.firstGenuineInboundAt) || (facts.contactStatus === "responded" && !facts.inboundSeen);
   if (replied && facts.humanReplyAfterInbound) return no("conversation");
   if (replied && !opts.includeUnanswered) return no("unanswered");
   if (!facts.hasPhone) return no("noPhone");
@@ -123,6 +129,19 @@ export function templatePattern(template: string): RegExp | null {
   if (!normalized) return null;
   const parts = normalized.split(/\{\{\s*[a-z_]+\s*\}\}/i).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(`^${parts.join(".*")}$`, "i");
+}
+
+/**
+ * Tipo de un mensaje entrante a efectos de la reactivación: baja/rechazo,
+ * automático (saludo de WhatsApp Business, aunque la IA lo marcara como
+ * interés) o respuesta real.
+ */
+export function inboundKind(message: { classification: string | null; body: string; receivedAt: Date }, lastOutboundAt: Date | null): "negative" | "auto" | "genuine" {
+  if (message.classification === "opt_out" || isPermanentNoContactReply(message.body)) return "negative";
+  if (message.classification === "auto_reply" || looksLikeAutomaticGreeting(message.body)) return "auto";
+  if (BLOCKING_CLASSIFICATIONS.has(message.classification ?? "")) return "negative";
+  if (arrivedAsInstantAutoReply(message.body, message.receivedAt, lastOutboundAt)) return "auto";
+  return "genuine";
 }
 
 function chunk<T>(items: T[], size = 4000): T[][] {
@@ -309,8 +328,15 @@ export async function analyzeNicheReactivation(input: ReactivationRequest) {
     const leadMessages = messagesByLead.get(lead.id) ?? [];
     const sentDates = leadMessages.filter((message) => SENT.has(message.status) && message.sentAt).map((message) => message.sentAt!.getTime());
     const thread = (inboxByLead.get(lead.id) ?? []).sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
-    const genuineInbound = thread.filter((message) => message.direction === "in" && message.classification !== "auto_reply");
-    const firstGenuine = genuineInbound[0]?.receivedAt ?? null;
+    const outboundTimes = [
+      ...leadMessages.filter((message) => message.sentAt).map((message) => message.sentAt!.getTime()),
+      ...thread.filter((message) => message.direction === "out").map((message) => message.receivedAt.getTime())
+    ].sort((a, b) => a - b);
+    const inbound = thread.filter((message) => message.direction === "in").map((message) => {
+      const lastOut = outboundTimes.filter((time) => time <= message.receivedAt.getTime()).pop();
+      return { message, kind: inboundKind(message, lastOut ? new Date(lastOut) : null) };
+    });
+    const firstGenuine = inbound.find((item) => item.kind === "genuine")?.message.receivedAt ?? null;
     const humanReply = Boolean(firstGenuine) && thread.some((message) => message.direction === "out" && message.receivedAt > firstGenuine! && isHumanOutbound(message, automated));
     const own = assignmentsByLead.get(lead.id) ?? [];
     const thisSequence = own.find((row) => row.sequenceId === sequence.id) ?? null;
@@ -323,8 +349,9 @@ export async function analyzeNicheReactivation(input: ReactivationRequest) {
       hasPhone: phones.length > 0,
       blocked: blockedLeadIds.has(lead.id) || suppressedHashes.has(suppressionHash("lead", lead.id)) ||
         phones.some((phone) => blockedPhones.has(phone) || suppressedHashes.has(suppressionHash("phone", phone))) ||
-        thread.some((message) => message.direction === "in" && BLOCKING_CLASSIFICATIONS.has(message.classification ?? "")),
+        inbound.some((item) => item.kind === "negative"),
       firstGenuineInboundAt: firstGenuine,
+      inboundSeen: inbound.length > 0,
       humanReplyAfterInbound: humanReply,
       conversationStatus: metaStatus,
       lastSentAt: sentDates.length ? new Date(Math.max(...sentDates)) : null,
