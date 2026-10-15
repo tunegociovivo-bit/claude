@@ -41,6 +41,15 @@ it("an outdated extension cannot claim new searches", async () => {
   expect(db.instagramProspectorJob.findFirst).not.toHaveBeenCalled();
 });
 
+it("persists the contact requirement instead of dropping the search option", async () => {
+  db.instagramProspectorAgent.findMany.mockResolvedValue([{ version: "0.21.31" }]);
+  db.instagramProspectorJob.create.mockResolvedValue({ id: "job-a", status: "QUEUED" });
+  await POST(request("POST", { sourceType: "followers", target: "@retail", limit: 30, requireContact: false }), {} as any);
+  expect(db.instagramProspectorJob.create).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({ config: expect.objectContaining({ requireContact: false }) })
+  }));
+});
+
 it("resumes the agent's existing job with its saved audience and cursor", async () => {
   const checkpoint = { cursor: 15, candidates: [{ handle: "person" }], leads: [] };
   db.instagramProspectorJob.findFirst.mockResolvedValue({ id: "job-a", config: { limit: 100 }, result: checkpoint });

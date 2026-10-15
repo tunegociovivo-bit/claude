@@ -33,6 +33,7 @@ type SearchPreset = {
   minScore: number;
   requiredSignalCount: number;
   requireIntentSignal: boolean;
+  requireContact?: boolean;
   emailKeywords: string;
   intentSignals: string;
   negativeFilters: string;
@@ -86,10 +87,10 @@ function hasIntentSignal(lead: Lead) {
   return lead.signals.some((signal) => /^(Intencion franquicia|Interes negocio)/i.test(signal));
 }
 
-function isValidLead(lead: Lead, requiredSignalCount: number, requireIntentSignal: boolean) {
+function isValidLead(lead: Lead, requiredSignalCount: number, requireIntentSignal: boolean, requireContact = true) {
   const enoughSignals = lead.signals.length >= requiredSignalCount;
   const intentOk = !requireIntentSignal || hasIntentSignal(lead);
-  return enoughSignals && intentOk && lead.status !== "Descartado";
+  return enoughSignals && intentOk && (!requireContact || Boolean(lead.email || lead.phone)) && lead.status !== "Descartado";
 }
 
 function parseKeywords(value: string) {
@@ -138,6 +139,7 @@ export default function InstagramProspectorClient() {
   const [country, setCountry] = useState("Espana");
   const [requiredSignalCount, setRequiredSignalCount] = useState(2);
   const [requireIntentSignal, setRequireIntentSignal] = useState(true);
+  const [requireContact, setRequireContact] = useState(true);
   const [emailKeywords, setEmailKeywords] = useState("");
   const [intentSignals, setIntentSignals] = useState("email publico\ntelefono publico\nweb activa\nbio profesional\nactividad reciente");
   const [negativeFilters, setNegativeFilters] = useState("perfil privado\nsin datos publicos\nduplicados");
@@ -152,6 +154,7 @@ export default function InstagramProspectorClient() {
   const [minScore, setMinScore] = useState(0);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [showDiscarded, setShowDiscarded] = useState(false);
+  const [contactFilter, setContactFilter] = useState("all");
   const monitor = useRef<AbortController | null>(null);
   const allPresets = useMemo(() => [...builtInPresets, ...savedPresets], [savedPresets]);
 
@@ -193,6 +196,7 @@ export default function InstagramProspectorClient() {
           setCountry(config.country);
           setRequiredSignalCount(config.requiredSignalCount);
           setRequireIntentSignal(config.requireIntentSignal);
+          setRequireContact(config.requireContact !== false);
           setEmailKeywords(config.emailKeywords || "");
           setIntentSignals(config.intentSignals || "");
           setNegativeFilters(config.negativeFilters || "");
@@ -225,18 +229,19 @@ export default function InstagramProspectorClient() {
     return leads.filter((lead) => {
       const haystack = `${lead.name} ${lead.handle} ${lead.email} ${lead.phone} ${lead.city} ${lead.tag} ${lead.status} ${lead.signals.join(" ")}`.toLowerCase();
       const emailMatch = !emailKeywordList.length || getEmailKeywordMatch(lead.email, emailKeywordList);
-      return haystack.includes(q) && lead.score >= minScore && (showDiscarded || (Boolean(emailMatch) && isValidLead(lead, requiredSignalCount, requireIntentSignal)));
+      const contactMatch = contactFilter === "all" || (contactFilter === "email" && Boolean(lead.email)) || (contactFilter === "phone" && Boolean(lead.phone));
+      return contactMatch && haystack.includes(q) && lead.score >= minScore && (showDiscarded || (Boolean(emailMatch) && isValidLead(lead, requiredSignalCount, requireIntentSignal, requireContact)));
     });
-  }, [emailKeywords, leads, minScore, query, requiredSignalCount, requireIntentSignal, showDiscarded]);
+  }, [contactFilter, emailKeywords, leads, minScore, query, requiredSignalCount, requireIntentSignal, requireContact, showDiscarded]);
 
   const metrics = useMemo(() => {
     const emailTerms = parseKeywords(emailKeywords);
-    const valid = leads.filter((lead) => isValidLead(lead, requiredSignalCount, requireIntentSignal) && (!emailTerms.length || getEmailKeywordMatch(lead.email, emailTerms)));
+    const valid = leads.filter((lead) => isValidLead(lead, requiredSignalCount, requireIntentSignal, requireContact) && (!emailTerms.length || getEmailKeywordMatch(lead.email, emailTerms)));
     const email = valid.filter((lead) => lead.email).length;
     const phone = valid.filter((lead) => lead.phone).length;
     const score = valid.length ? Math.round(valid.reduce((sum, lead) => sum + lead.score, 0) / valid.length) : 0;
     return { total: valid.length, email, phone, score };
-  }, [emailKeywords, leads, requiredSignalCount, requireIntentSignal]);
+  }, [emailKeywords, leads, requiredSignalCount, requireIntentSignal, requireContact]);
 
   async function scan() {
     if (running) return;
@@ -248,7 +253,7 @@ export default function InstagramProspectorClient() {
       const response = await fetch("/api/v1/instagram-prospector/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceType, target, limit, country, requiredSignalCount, requireIntentSignal, emailKeywords, intentSignals, negativeFilters })
+        body: JSON.stringify({ sourceType, target, limit, country, requiredSignalCount, requireIntentSignal, requireContact, emailKeywords, intentSignals, negativeFilters })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.message || "No se pudo completar la busqueda");
@@ -292,6 +297,7 @@ export default function InstagramProspectorClient() {
     setMinScore(preset.minScore);
     setRequiredSignalCount(preset.requiredSignalCount);
     setRequireIntentSignal(preset.requireIntentSignal);
+    setRequireContact(preset.requireContact !== false);
     setEmailKeywords(preset.emailKeywords || "");
     setIntentSignals(preset.intentSignals);
     setNegativeFilters(preset.negativeFilters);
@@ -314,6 +320,7 @@ export default function InstagramProspectorClient() {
       minScore,
       requiredSignalCount,
       requireIntentSignal,
+      requireContact,
       emailKeywords,
       intentSignals,
       negativeFilters
@@ -514,14 +521,10 @@ export default function InstagramProspectorClient() {
                 </label>
               </section>
 
-              <div className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-2">
-                {["Email", "Telefono", "Web", "Ubicacion", "Solo perfiles negocio", "Quitar duplicados"].map((item) => (
-                  <label key={item} className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <input type="checkbox" defaultChecked className="h-4 w-4 rounded border-slate-300" />
-                    {item}
-                  </label>
-                ))}
-              </div>
+              <label className="flex items-center gap-2 border bg-slate-50 p-4 text-sm font-medium text-slate-700">
+                <input type="checkbox" checked={requireContact} onChange={(e) => setRequireContact(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                Exigir email o telefono publico
+              </label>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="block text-sm font-medium text-slate-700">
@@ -612,6 +615,9 @@ export default function InstagramProspectorClient() {
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-pink-700">Resultados</p>
               <h2 className="text-xl font-bold">Leads cualificados</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {leads.length} perfiles leidos · {leads.filter((lead) => lead.email).length} con email publico · {leads.filter((lead) => lead.phone).length} con telefono publico
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={copyCsv} className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm font-semibold">
@@ -625,6 +631,14 @@ export default function InstagramProspectorClient() {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
+            <label className="inline-flex items-center gap-2 border px-3 py-2 text-sm">
+              Contacto
+              <select value={contactFilter} onChange={(e) => setContactFilter(e.target.value)} className="bg-transparent">
+                <option value="all">Todos</option>
+                <option value="email">Con email publico</option>
+                <option value="phone">Con telefono publico</option>
+              </select>
+            </label>
             <label className="inline-flex items-center gap-2 text-sm">
               <input type="checkbox" checked={showDiscarded} onChange={(e) => setShowDiscarded(e.target.checked)} />
               Mostrar tambien descartados ({leads.length} perfiles leidos)
@@ -670,7 +684,7 @@ export default function InstagramProspectorClient() {
                     </td>
                     <td><span className="rounded-full bg-pink-50 px-2 py-1 text-xs font-semibold text-pink-700">{lead.tag}</span><small className="block pt-1 text-slate-500">{lead.city} - {lead.source}</small></td>
                     <td className="font-bold text-emerald-700">{lead.score}</td>
-                    <td><ValidationBadge lead={lead} requiredSignalCount={requiredSignalCount} requireIntentSignal={requireIntentSignal} emailKeywords={emailKeywords} /></td>
+                    <td><ValidationBadge lead={lead} requiredSignalCount={requiredSignalCount} requireIntentSignal={requireIntentSignal} requireContact={requireContact} emailKeywords={emailKeywords} /></td>
                     <td><LeadReasons lead={lead} /></td>
                   </tr>
                 )) : (
@@ -725,9 +739,9 @@ function SignalList({ title, value, tone }: { title: string; value: string; tone
   );
 }
 
-function ValidationBadge({ lead, requiredSignalCount, requireIntentSignal, emailKeywords }: { lead: Lead; requiredSignalCount: number; requireIntentSignal: boolean; emailKeywords: string }) {
+function ValidationBadge({ lead, requiredSignalCount, requireIntentSignal, requireContact, emailKeywords }: { lead: Lead; requiredSignalCount: number; requireIntentSignal: boolean; requireContact: boolean; emailKeywords: string }) {
   const emailTerms = parseKeywords(emailKeywords);
-  const valid = isValidLead(lead, requiredSignalCount, requireIntentSignal) && (!emailTerms.length || getEmailKeywordMatch(lead.email, emailTerms));
+  const valid = isValidLead(lead, requiredSignalCount, requireIntentSignal, requireContact) && (!emailTerms.length || getEmailKeywordMatch(lead.email, emailTerms));
   return (
     <span className={`rounded-full px-2 py-1 text-xs font-semibold ${valid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
       {valid ? "Valido" : "No pasa reglas"}

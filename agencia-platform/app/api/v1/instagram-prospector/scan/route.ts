@@ -14,6 +14,7 @@ const schema = z.object({
   country: z.string().trim().max(80).default("Espana"),
   requiredSignalCount: z.number().int().min(1).max(8).default(2),
   requireIntentSignal: z.boolean().default(true),
+  requireContact: z.boolean().default(true),
   emailKeywords: z.string().max(2000).default(""),
   intentSignals: z.string().max(4000).default(""),
   negativeFilters: z.string().max(4000).default("")

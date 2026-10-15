@@ -47,7 +47,7 @@ test("duplicate profiles merge provenance without creating duplicate intent fact
 test("following a franchise account and a Meta footer link do not prove intent or contact", () => {
   const lead = buildInstagramLead({ handle: "person", signals: ["Sigue a @franquicias"] }, {
     text: "Consumidor habitual", links: ["https://about.meta.com/", "https://www.instagram.com/legal/privacy/"]
-  }, { requiredSignalCount: 2, requireIntentSignal: true });
+  }, { requiredSignalCount: 2, requireIntentSignal: true, requireContact: false });
   assert.equal(lead.website, "");
   assert.equal(lead.email, "");
   assert.equal(lead.status, "Insuficiente");
@@ -57,9 +57,28 @@ test("following a franchise account and a Meta footer link do not prove intent o
 test("actual comment intent plus follower relationship meets multiple factors", () => {
   const lead = buildInstagramLead({ handle: "person", signals: ["Sigue a @retail"], evidence: ["Quiero abrir una franquicia. Busco informacion para invertir."] }, {
     text: "Mi perfil", links: []
-  }, { requiredSignalCount: 2, requireIntentSignal: true });
+  }, { requiredSignalCount: 2, requireIntentSignal: true, requireContact: false });
   assert.equal(lead.status, "Valido");
   assert.equal(lead.signals.filter((s) => s.startsWith("Intencion")).length, 1);
+});
+
+test("generic entrepreneur bio and an affiliate link are not franchise intent", () => {
+  const lead = buildInstagramLead({ handle: "person", signals: ["Sigue a @franchise"] }, {
+    text: "Emprendedor y creador de contenido", links: ["https://supplements.test/?coupon=example"]
+  }, { requiredSignalCount: 3, requireIntentSignal: true, intentSignals: "emprendedor\ninversor" });
+  assert.equal(lead.status, "Insuficiente");
+  assert.ok(!lead.signals.includes("Intencion franquicia/inversion"));
+  assert.ok(lead.missingSignals.includes("Sin email ni telefono publico"));
+});
+
+test("an observed franchise signal and website cannot replace a required email or phone", () => {
+  const source = { handle: "person", signals: ["Sigue a @franchise"] };
+  const page = { text: "Busco franquicia para invertir", links: ["https://business.test/"] };
+  const rejected = buildInstagramLead(source, page, { requiredSignalCount: 3, requireIntentSignal: true });
+  assert.equal(rejected.status, "Insuficiente");
+  const accepted = buildInstagramLead(source, { ...page, text: page.text + " contacto@business.test" }, { requiredSignalCount: 3, requireIntentSignal: true });
+  assert.equal(accepted.status, "Valido");
+  assert.ok(accepted.evidence.some((text) => text.startsWith("Senal observada:")));
 });
 
 test("email filter searches observed addresses only and records exclusions", () => {

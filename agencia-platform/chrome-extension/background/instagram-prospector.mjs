@@ -145,11 +145,14 @@ export function buildInstagramLead(source, page, config) {
   if (website) signals.push("Web enlazada");
   const intentText = `${profileText}\n${evidenceText}`.toLowerCase();
   // One observed intent contributes one factor, even if it matches several keywords.
-  const hasIntent = /franquiciad[oa]|invertir|inversor|inversion|inversión|emprendedor|negocio propio|abrir (?:una |mi )?(?:franquicia|tienda|supermercado)|informaci[oó]n sobre franquicias/i.test(intentText)
-    || keywords(config.intentSignals).some((k) => intentText.includes(k));
+  const explicitIntent = intentText.match(/\b(?:franquiciad[oa]s?|invertir|inversor(?:a|es|as)?|inversi[oó]n|negocio propio|abrir (?:una |mi )?(?:franquicia|tienda|supermercado)|informaci[oó]n sobre franquicias)\b/i);
+  const customIntent = keywords(config.intentSignals).find((k) =>
+    !/^(?:emprendedor(?:a|es|as)?|email publico|telefono publico|web activa|bio profesional|actividad reciente)$/.test(k) && intentText.includes(k));
+  const hasIntent = Boolean(explicitIntent || customIntent);
   if (hasIntent) signals.push("Intencion franquicia/inversion");
   const unique = [...new Set(signals)];
   const missingSignals = [];
+  if (config.requireContact !== false && !email && !phone) missingSignals.push("Sin email ni telefono publico");
   const excluded = keywords(config.negativeFilters).find((term) => intentText.includes(term));
   if (excluded) missingSignals.push(`Filtro negativo: ${excluded}`);
   if (emailTerms.length && !email) missingSignals.push("Email no coincide con el filtro");
@@ -160,7 +163,7 @@ export function buildInstagramLead(source, page, config) {
     handle: `@${source.handle}`, email, phone, website, city: "", source: source.source || source.url,
     tag: "Agente interno", score: Math.min(95, 40 + unique.length * 10 + (hasIntent ? 15 : 0)),
     status: excluded ? "Descartado" : missingSignals.length ? "Insuficiente" : "Valido", signals: unique, missingSignals,
-    evidence: source.evidence || []
+    evidence: [...(source.evidence || []), ...(hasIntent ? [`Senal observada: ${explicitIntent?.[0] || customIntent}`] : [])]
   };
 }
 
