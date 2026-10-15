@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
+import { uniqueSequenceSteps } from "@/lib/leads/sequences";
 
 export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
   // Siembra idempotente de la secuencia automática de captación de Bubui:
@@ -57,7 +58,8 @@ Si prefieres que te lo cuente en 2 minutos por teléfono, dímelo y te llamo. �
     include: { steps: { orderBy: { order: "asc" } } },
     orderBy: { createdAt: "asc" }
   });
-  return NextResponse.json({ items });
+  // Importaciones antiguas duplicaron pasos: se muestran como se ejecutan (uno por orden).
+  return NextResponse.json({ items: items.map((item) => ({ ...item, steps: uniqueSequenceSteps(item.steps) })) });
 });
 
 const createSchema = z.object({
