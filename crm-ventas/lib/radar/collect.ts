@@ -22,6 +22,7 @@ export type CollectOptions = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const MAX_JSON_BYTES = 12 * 1024 * 1024; // respuestas de la API del portal más grandes se ignoran
 const MORE_BUTTON = /^(ver m[aá]s|cargar m[aá]s|mostrar m[aá]s|load more|show more|voir plus|mehr anzeigen|mehr laden)/i;
 const NEXT_BUTTON = /^(siguiente|next|suivant|weiter|›|»|>)$/i;
 
@@ -35,7 +36,19 @@ function attachJsonSniffer(page: Page, opts: CollectOptions, sink: Map<string, E
         const type = (response.headers()["content-type"] || "").toLowerCase();
         if (!type.includes("json")) return;
         if (!response.ok() && response.status() !== 206) return;
-        const body = await response.json().catch(() => null);
+        // No cargar en memoria respuestas enormes (protege de OOM si un portal
+        // devuelve un JSON gigantesco): se mira Content-Length y, si falta, el
+        // tamaño del cuerpo ya recibido antes de parsear.
+        const declared = Number(response.headers()["content-length"] || 0);
+        if (declared > MAX_JSON_BYTES) return;
+        const buf = await response.body().catch(() => null);
+        if (!buf || buf.byteLength > MAX_JSON_BYTES) return;
+        let body: unknown = null;
+        try {
+          body = JSON.parse(buf.toString("utf8"));
+        } catch {
+          return;
+        }
         if (!body) return;
         for (const v of extractVehiclesFromJson(body, opts.map)) {
           if (!sink.has(v.externalId)) sink.set(v.externalId, v);

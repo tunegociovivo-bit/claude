@@ -47,7 +47,7 @@ export async function notifyNewMatches(workspaceId: string, matches: NewMatch[])
   if (matches.length === 0) return { notified: 0, errors: [] };
   const listingIds = [...new Set(matches.map((m) => m.listingId))];
   const listings = await prisma.radarListing.findMany({
-    where: { id: { in: listingIds } },
+    where: { workspaceId, id: { in: listingIds } },
     select: { id: true, title: true, portal: true, url: true, price: true, priceLabel: true, km: true, year: true, fuel: true, location: true, auctionEndsAt: true },
   });
   const byId = new Map(listings.map((l) => [l.id, l] as const));
@@ -98,7 +98,7 @@ export async function notifyNewMatches(workspaceId: string, matches: NewMatch[])
   // registra el error, pero no se repite el aviso para no saturar al cliente).
   const now = new Date();
   await prisma.radarMatch.updateMany({
-    where: { id: { in: rows.map((m) => m.matchId) } },
+    where: { workspaceId, id: { in: rows.map((m) => m.matchId) } },
     data: { notifiedAt: now, notifyError: errors.length ? errors.join(" | ").slice(0, 500) : null },
   });
 

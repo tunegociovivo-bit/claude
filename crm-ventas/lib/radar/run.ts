@@ -164,8 +164,21 @@ export async function executeRun(runId: string): Promise<void> {
   try {
     if (!radarBrowserConfigured()) throw new RadarBrowserUnavailableError();
 
+    // Salvo en una prueba explícita de un portal («Probar acceso», trigger
+    // "test"), NO se reintentan los portales cuyo acceso ha fallado o está
+    // bloqueado/pendiente de intervención (login_failed/blocked/attention):
+    // reintentar una contraseña incorrecta podría bloquear la cuenta real del
+    // cliente. Al cambiar las credenciales, saveSourceCredentials deja el
+    // estado en "pending" y vuelve a entrar en las revisiones. "error" sí se
+    // reintenta (suele ser un fallo transitorio del portal o de la red).
+    const isTest = run.trigger === "test";
     const sources = await prisma.radarSource.findMany({
-      where: { workspaceId, enabled: true, ...(run.sourceId ? { id: run.sourceId } : {}) },
+      where: {
+        workspaceId,
+        enabled: true,
+        ...(run.sourceId ? { id: run.sourceId } : {}),
+        ...(isTest ? {} : { status: { notIn: ["login_failed", "blocked", "attention"] } }),
+      },
       select: { id: true, portal: true, enabled: true, usernameEnc: true, passwordEnc: true, consecutiveFailures: true },
       orderBy: { portal: "asc" },
     });
@@ -233,8 +246,14 @@ export async function executeRun(runId: string): Promise<void> {
 
 /** Crea un run (programado/manual/prueba) si no hay otro en curso. */
 export async function enqueueRun(workspaceId: string, trigger: "schedule" | "manual" | "test", sourceId?: string): Promise<{ runId: string | null; reason?: string }> {
+  // Una en cola (aún sin lease, leaseUntil = null) o una en curso con lease
+  // vigente bloquean una nueva. (Un `gt` sobre leaseUntil excluiría las NULL,
+  // así que las encoladas se comprueban por estado.)
   const active = await prisma.radarRun.findFirst({
-    where: { workspaceId, status: { in: ["queued", "running"] }, leaseUntil: { gt: new Date(Date.now() - RUN_LEASE_MS) } },
+    where: {
+      workspaceId,
+      OR: [{ status: "queued" }, { status: "running", leaseUntil: { gt: new Date(Date.now() - RUN_LEASE_MS) } }],
+    },
     select: { id: true },
   });
   if (active) return { runId: null, reason: "Ya hay una revisión en curso." };

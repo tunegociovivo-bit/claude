@@ -93,8 +93,10 @@ export async function newRadarContext(browser: Browser, storageState?: unknown):
       return route.abort();
     }
     if (protocol === "data:" || protocol === "blob:" || protocol === "about:") return route.continue();
-    // Solo para pruebas locales con portales simulados (nunca en Railway).
-    const allowPrivate = process.env.RADAR_ALLOW_PRIVATE_HOSTS === "1";
+    // Solo para pruebas locales con portales simulados. Se ignora en producción,
+    // igual que el catálogo de portales de prueba: nunca desactiva el bloqueo
+    // anti-SSRF en Railway.
+    const allowPrivate = process.env.RADAR_ALLOW_PRIVATE_HOSTS === "1" && process.env.NODE_ENV !== "production";
     if (!["http:", "https:", "wss:", "ws:"].includes(protocol) || (!allowPrivate && isPrivateHost(host))) return route.abort("blockedbyclient");
     // Imágenes, fuentes y vídeos no hacen falta: menos datos y más rápido.
     const type = route.request().resourceType();

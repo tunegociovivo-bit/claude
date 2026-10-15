@@ -61,10 +61,14 @@ export function criteriaErrors(c: RadarCriteria): string[] {
   if (c.priceMin !== null && c.priceMax !== null && c.priceMin > c.priceMax) errors.push("El precio mínimo es mayor que el máximo.");
   const now = new Date().getFullYear() + 1;
   for (const y of [c.yearMin, c.yearMax]) if (y !== null && (y < 1950 || y > now)) errors.push(`El año ${y} no es válido.`);
+  // Al menos una condición que acote de verdad (excluir palabras por sí solo no
+  // cuenta: dejaría pasar casi todos los coches).
   const hasAny =
-    c.makes.length || c.models.length || c.keywords.length || c.yearMin || c.yearMax || c.kmMax !== null ||
-    c.priceMax !== null || c.fuels.length || c.gearboxes.length || c.powerMinCv;
-  if (!hasAny) errors.push("Pon al menos una condición (marca, modelo, precio, km, año…): sin ninguna avisaría de todos los coches.");
+    c.makes.length || c.models.length || c.keywords.length ||
+    c.yearMin || c.yearMax || c.kmMin !== null || c.kmMax !== null ||
+    c.priceMin !== null || c.priceMax !== null || c.powerMinCv ||
+    c.fuels.length || c.gearboxes.length || c.countries.length || c.portals.length;
+  if (!hasAny) errors.push("Pon al menos una condición (marca, modelo, precio, km, año, combustible, país…): sin ninguna avisaría de todos los coches.");
   return errors;
 }
 

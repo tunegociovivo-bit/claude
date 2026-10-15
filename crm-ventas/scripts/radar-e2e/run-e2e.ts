@@ -117,6 +117,25 @@ async function main() {
   console.log("tras contraseña mala:", src3.status, src3.statusDetail);
   assert.equal(src3.status, "login_failed", "credenciales malas → login_failed");
 
+  // H1: una revisión posterior NO debe reintentar un portal con login_failed
+  // (evita bloquear la cuenta real del cliente). La fuente no se toca.
+  const r4 = await enqueueRun(ws.id, "manual");
+  await executeRun(r4.runId!);
+  const run4 = await prisma.radarRun.findUnique({ where: { id: r4.runId! } });
+  const src4 = await prisma.radarSource.findUniqueOrThrow({ where: { id: source.id } });
+  const summary4 = (run4?.summary as Array<{ portal: string }>) ?? [];
+  console.log("run4 summary:", JSON.stringify(summary4), "lastRunAt igual:", src4.lastRunAt?.getTime() === src3.lastRunAt?.getTime());
+  assert.ok(!summary4.some((s) => s.portal === "testportal"), "una revisión normal NO reintenta el portal con login_failed");
+  assert.equal(src4.lastRunAt?.getTime(), src3.lastRunAt?.getTime(), "no se vuelve a tocar el portal fallido");
+
+  // Pero una PRUEBA explícita del portal sí lo reintenta (el usuario ha revisado
+  // las credenciales). Con la contraseña aún mala, vuelve a fallar.
+  const r5 = await enqueueRun(ws.id, "test", source.id);
+  await executeRun(r5.runId!);
+  const src5 = await prisma.radarSource.findUniqueOrThrow({ where: { id: source.id } });
+  assert.ok((src5.lastRunAt?.getTime() ?? 0) > (src4.lastRunAt?.getTime() ?? 0), "la prueba explícita sí reintenta el portal");
+  console.log("prueba explícita reintenta:", src5.status);
+
   await prisma.workspace.delete({ where: { id: ws.id } });
   await prisma.$disconnect();
   console.log("\nE2E OK ✅");
