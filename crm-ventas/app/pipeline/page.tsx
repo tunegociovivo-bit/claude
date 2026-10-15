@@ -6,7 +6,7 @@ import AppShell from "@/components/AppShell";
 import PipelineWorkspace from "./PipelineWorkspace";
 import { classifyCallIntent } from "@/lib/calls";
 import { getLeadsState } from "@/lib/leads/settings";
-import { readAttempts } from "@/lib/leads/config";
+import { readAttempts, readLeadInfo } from "@/lib/leads/config";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +51,9 @@ export default async function PipelinePage({
     source: c.source,
     notes: c.notes,
     leadStatus: c.leadStatus,
+    email: c.email,
+    // Datos del formulario de Meta (los 5 más recientes) para la tarjeta y la ficha.
+    leadEntries: readLeadInfo(c.leadInfo).entries.slice(0, 5),
     attempts: readAttempts(c.contactAttempts).length,
     nextAppointment: c.appointments[0]?.startsAt?.toISOString() ?? null,
     callSummary: c.calls[0]?.summary ?? null,

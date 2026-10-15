@@ -187,6 +187,7 @@ export type LeadPayload = {
   leadId: string | null;
   form: string | null;
   adName: string | null;
+  adset: string | null;
   fields: Array<{ label: string; value: string }>;
   message: string | null; // primer mensaje opcional (sustituye a la plantilla del número)
   sendWelcome: boolean;
@@ -263,6 +264,10 @@ export function parseLeadPayload(input: unknown): { ok: true; lead: LeadPayload 
       const a = pick(body, ["anuncio", "ad_name", "adName"]);
       return a ? cleanLabel(a, 200) : null;
     })(),
+    adset: (() => {
+      const a = pick(body, ["conjunto", "adset", "adset_name", "adsetName"]);
+      return a ? cleanLabel(a, 200) : null;
+    })(),
     fields,
     message: (() => {
       const m = pick(body, ["mensaje", "message", "primer_mensaje"]);
@@ -280,6 +285,7 @@ export type LeadInfoEntry = {
   treatment: string | null;
   form: string | null;
   adName: string | null;
+  adset?: string | null;
   lineLabel: string | null;
   fields: Array<{ label: string; value: string }>;
 };

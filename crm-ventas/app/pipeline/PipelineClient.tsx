@@ -23,6 +23,7 @@ import clsx from "clsx";
 import type { PipelineColumn } from "@/lib/settings";
 import { useAgentName } from "@/components/AgentNameContext";
 import { findStatus, LeadStatusChip, LeadStatusSelect, type LeadStatusOption } from "@/components/inbox/leads-ui";
+import LeadDetails, { leadAnswersSummary, leadHeadline, type LeadInfoEntryView } from "@/components/inbox/LeadDetails";
 
 type Card = {
   id: string;
@@ -33,6 +34,8 @@ type Card = {
   source: string;
   notes: string | null;
   leadStatus?: string | null;
+  email?: string | null;
+  leadEntries?: LeadInfoEntryView[];
   attempts?: number;
   nextAppointment: string | null;
   callSummary: string | null;
@@ -134,6 +137,12 @@ function ContactCard({
               <PhoneCall size={11} /> {card.attempts} {card.attempts === 1 ? "intento" : "intentos"}
             </span>
           )}
+        </div>
+      )}
+      {card.leadEntries && card.leadEntries.length > 0 && (
+        <div className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs leading-5 text-slate-600">
+          <span className="font-semibold text-slate-800">{leadHeadline(card.leadEntries[0])}</span>
+          {leadAnswersSummary(card.leadEntries[0]) && <span className="line-clamp-2 block">{leadAnswersSummary(card.leadEntries[0])}</span>}
         </div>
       )}
       {card.nextAppointment && (
@@ -481,6 +490,12 @@ export default function PipelineClient({
               <div className="mb-3 block text-sm font-medium text-slate-700">
                 Estado del lead
                 <LeadStatusSelect statuses={leadStatuses} value={editStatus} onChange={setEditStatus} className="mt-1 w-full" />
+              </div>
+            )}
+            {((editing.leadEntries?.length ?? 0) > 0 || editing.email) && (
+              <div className="mb-3">
+                <p className="mb-1.5 text-sm font-medium text-slate-700">Datos del lead</p>
+                <LeadDetails entries={editing.leadEntries ?? []} email={editing.email} />
               </div>
             )}
             <label className="block text-sm font-medium text-slate-700">
