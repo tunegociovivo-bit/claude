@@ -57,6 +57,7 @@ export async function ingestLead(
     treatment: lead.treatment,
     form: lead.form,
     adName: lead.adName,
+    adset: lead.adset,
     lineLabel: line?.label ?? null,
     fields: [
       ...(lead.email ? [{ label: "Email", value: lead.email }] : []),

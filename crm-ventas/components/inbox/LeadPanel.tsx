@@ -2,20 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { Check, ChevronDown, ClipboardList, Loader2, Mail, Megaphone, PhoneCall, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, Loader2, Megaphone, PhoneCall, Plus, Trash2 } from "lucide-react";
 import { jsonFetch } from "@/components/inbox/ui";
 import { LeadStatusSelect, type LeadStatusOption } from "@/components/inbox/leads-ui";
-
-type LeadInfoEntry = {
-  id: string | null;
-  at: string;
-  campaign: string | null;
-  treatment: string | null;
-  form: string | null;
-  adName: string | null;
-  lineLabel: string | null;
-  fields: Array<{ label: string; value: string }>;
-};
+import LeadDetails, { leadAnswersSummary, leadHeadline, leadWhen, type LeadInfoEntryView } from "@/components/inbox/LeadDetails";
 
 export type LeadContact = {
   id: string;
@@ -26,7 +16,7 @@ export type LeadContact = {
   notes: string | null;
   leadStatus?: string | null;
   leadStatusAt?: string | null;
-  leadInfo?: { entries?: LeadInfoEntry[] } | null;
+  leadInfo?: { entries?: LeadInfoEntryView[] } | null;
   contactAttempts?: Attempt[];
 };
 
@@ -50,10 +40,6 @@ function attemptWhen(iso: string) {
 }
 
 type Column = { id: string; label: string };
-
-function when(iso: string) {
-  return new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-}
 
 // Barra del lead bajo la cabecera del chat: estado (desplegable), columna del
 // pipeline e «Información adicional» con los datos del formulario de Meta.
@@ -201,16 +187,25 @@ export default function LeadPanel({
           <ChevronDown size={14} className={clsx("transition-transform", open && "rotate-180")} />
         </button>
       </div>
-      {!open && latest && (latest.treatment || latest.campaign) && (
-        <p className="flex items-center gap-1.5 truncate px-3 pb-2 text-[11px] text-slate-500 sm:px-4">
-          <Megaphone size={11} className="shrink-0" />
-          <span className="truncate">
-            Lead de {latest.treatment || latest.campaign} · {when(latest.at)}
+      {!open && latest && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex w-full items-start gap-1.5 px-3 pb-2 text-left text-xs text-slate-600 sm:px-4"
+          aria-label="Ver todos los datos del lead"
+        >
+          <Megaphone size={13} className="mt-0.5 shrink-0 text-brand-600" />
+          <span className="min-w-0 flex-1">
+            <span className="font-semibold text-slate-800">{leadHeadline(latest)}</span>
+            <span className="text-slate-500"> · {leadWhen(latest.at)}</span>
+            {leadAnswersSummary(latest) && <span className="line-clamp-2 block text-slate-700">{leadAnswersSummary(latest)}</span>}
+            {contact.email && <span className="block truncate text-slate-500">{contact.email}</span>}
           </span>
-        </p>
+        </button>
       )}
       {open && (
         <div className="max-h-[50dvh] space-y-3 overflow-y-auto border-t border-slate-100 px-3 py-3 sm:px-4">
+          <LeadDetails entries={entries} email={contact.email} />
           <div ref={attemptsRef} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-slate-700">
@@ -299,33 +294,6 @@ export default function LeadPanel({
             {notesSaved && <span className="text-xs text-emerald-700">Guardado</span>}
             {notesDirty && !savingNotes && <span className="text-xs text-amber-700">Sin guardar</span>}
           </div>
-          {contact.email && (
-            <p className="flex items-center gap-1.5 text-xs text-slate-600">
-              <Mail size={13} /> <a className="underline" href={`mailto:${contact.email}`}>{contact.email}</a>
-            </p>
-          )}
-          {entries.map((e, i) => (
-            <div key={`${e.id ?? "x"}-${i}`} className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700 ring-1 ring-slate-100">
-              <p className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-semibold text-slate-800">
-                <Megaphone size={12} />
-                {e.treatment || e.campaign || "Formulario de Meta"}
-                <span className="font-normal text-slate-500">{when(e.at)}</span>
-                {e.lineLabel && <span className="font-normal text-slate-500">· {e.lineLabel}</span>}
-              </p>
-              {e.campaign && e.treatment && <p className="text-slate-500">Campaña: {e.campaign}</p>}
-              {e.adName && <p className="text-slate-500">Anuncio: {e.adName}</p>}
-              {e.fields.length > 0 && (
-                <dl className="mt-1.5 space-y-1">
-                  {e.fields.map((f, j) => (
-                    <div key={j}>
-                      <dt className="text-slate-500">{f.label}</dt>
-                      <dd className="font-medium text-slate-800">{f.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-            </div>
-          ))}
         </div>
       )}
     </div>

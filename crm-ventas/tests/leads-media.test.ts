@@ -292,3 +292,12 @@ test("solo se convierten grabaciones de audio reales (nunca listas HLS/DASH)", (
   assert.equal(sniffAudioFormat(Buffer.from("ffconcat version 1.0\nfile /etc/passwd")), null);
   assert.equal(sniffAudioFormat(Buffer.from("corto")), null);
 });
+
+test("lead de Make: guarda el conjunto de anuncios («conjunto» o adset_name)", () => {
+  const a = parseLeadPayload({ telefono: "+34 600 000 000", conjunto: "CAMPAÑAS - 2026 PIXEL" });
+  assert.equal(a.ok && a.lead.adset, "CAMPAÑAS - 2026 PIXEL");
+  const b = parseLeadPayload({ phone_number: "600000000", adset_name: "Conjunto B" });
+  assert.equal(b.ok && b.lead.adset, "Conjunto B");
+  const c = parseLeadPayload({ telefono: "600000000" });
+  assert.equal(c.ok && c.lead.adset, null);
+});
