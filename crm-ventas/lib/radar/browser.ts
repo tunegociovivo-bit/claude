@@ -57,13 +57,18 @@ function proxySettings(): { server: string; username?: string; password?: string
   }
 }
 
-/** Abre un navegador nuevo (uno por portal: si un portal lo cuelga, no afecta a los demás). */
-export async function openBrowser(): Promise<Browser> {
+/**
+ * Abre un navegador nuevo (uno por portal: si un portal lo cuelga, no afecta a
+ * los demás). `useProxy` enruta ESTE navegador por RADAR_PROXY_URL; se activa
+ * solo para los portales marcados (los que bloquean la IP de centro de datos),
+ * para no gastar proxy residencial en los que ya funcionan directos.
+ */
+export async function openBrowser(useProxy = false): Promise<Browser> {
   const { chromium } = await import("playwright-core");
   const ws = resolveWsEndpoint();
   if (ws) {
     let endpoint = ws;
-    const proxy = process.env.RADAR_PROXY_URL;
+    const proxy = useProxy ? process.env.RADAR_PROXY_URL : undefined;
     // Browserless acepta el proxy como parámetro de la conexión.
     if (proxy && !/[?&]--proxy-server=/.test(endpoint)) {
       try {
@@ -80,7 +85,7 @@ export async function openBrowser(): Promise<Browser> {
   return chromium.launch({
     executablePath,
     headless: true,
-    proxy: proxySettings(),
+    proxy: useProxy ? proxySettings() : undefined,
     args: ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
   });
 }

@@ -161,6 +161,28 @@ async function clickByText(frame: Frame, re: RegExp, scope = "button, input[type
   return false;
 }
 
+const TERMS_CHECKBOX = /(term|condic|acept|accept|agree|consent|privac|legal|gtc|t&c|cgv|cgu|rgpd|gdpr)/i;
+
+/** Marca casillas de "acepto condiciones" visibles sin marcar (solo si el portal lo exige). */
+async function acceptTermsCheckboxes(frame: Frame) {
+  const boxes = frame.locator("input[type=checkbox]");
+  const n = Math.min(await boxes.count().catch(() => 0), 12);
+  for (let i = 0; i < n; i++) {
+    const b = boxes.nth(i);
+    if (!(await b.isVisible().catch(() => false))) continue;
+    if (await b.isChecked().catch(() => false)) continue;
+    const meta = (
+      ((await b.getAttribute("name").catch(() => "")) || "") +
+      " " + ((await b.getAttribute("id").catch(() => "")) || "") +
+      " " + ((await b.getAttribute("value").catch(() => "")) || "")
+    ).toLowerCase();
+    if (!TERMS_CHECKBOX.test(meta)) continue;
+    await b.check({ timeout: 2_000 }).catch(async () => {
+      await b.click({ timeout: 2_000 }).catch(() => undefined);
+    });
+  }
+}
+
 async function submit(frame: Frame, field: Locator) {
   const form = field.locator("xpath=ancestor::form[1]");
   if ((await form.count().catch(() => 0)) > 0) {
@@ -217,7 +239,7 @@ export async function detectBlockers(page: Page): Promise<LoginOutcome | null> {
  */
 export async function genericLogin(
   page: Page,
-  opts: { loginUrl: string; username: string; password: string; isLoggedIn: (page: Page) => Promise<boolean>; beforeFill?: (page: Page) => Promise<void> }
+  opts: { loginUrl: string; username: string; password: string; isLoggedIn: (page: Page) => Promise<boolean>; beforeFill?: (page: Page) => Promise<void>; acceptTerms?: boolean }
 ): Promise<LoginOutcome> {
   try {
     await page.goto(opts.loginUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
@@ -259,6 +281,7 @@ export async function genericLogin(
     fields = second;
   }
   await typeLikeHuman(fields.password!, opts.password);
+  if (opts.acceptTerms) await acceptTermsCheckboxes(fields.frame);
   await sleep(400 + Math.floor(Math.random() * 600));
   await submit(fields.frame, fields.password!);
   await settle(page, 3_000);

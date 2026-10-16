@@ -17,6 +17,12 @@ export type PortalDef = {
   defaultCountry?: string | null;
   // Solo quedarse con respuestas JSON de estas rutas (reduce ruido). Vacío = todas.
   apiPathIncludes?: string[];
+  // Enrutar SOLO este portal por RADAR_PROXY_URL (proxy residencial), para los
+  // que bloquean la IP de centro de datos (Cloudflare, etc.). El resto sale directo.
+  proxy?: boolean;
+  // Marcar la casilla de "acepto condiciones" en el login cuando el portal la
+  // exige para entrar (autorizado por el cliente portal a portal).
+  acceptTerms?: boolean;
   notes?: string;
 };
 
@@ -74,6 +80,7 @@ export const PORTALS: PortalDef[] = [
     listingUrls: ["https://www.bca.es/buscar", "https://www.bca.com/en/search"],
     loggedIn: { selectors: ["a[href*='logout' i]"], textIncludes: ["Cerrar sesión", "Logout", "Mi BCA"] },
     defaultCountry: "ES",
+    proxy: true,
     apiPathIncludes: ["/api", "/search", "/vehicle", "/lot"],
     notes: "login.bca.com/login genera el token solo y redirige a login.bca.co.uk (IdentityServer AngularJS); acceso en 2 pasos (usuario→Siguiente→contraseña). Tras entrar redirige al portal del país.",
   },
@@ -117,6 +124,7 @@ export const PORTALS: PortalDef[] = [
     listingUrls: ["https://www.manheim.es/vehiculos", "https://www.manheim.es/subastas"],
     loggedIn: { selectors: ["a[href*='logout' i]", "a[href*='cerrar' i]"], textIncludes: ["Cerrar sesión", "Mi cuenta", "Mis subastas"] },
     defaultCountry: "ES",
+    acceptTerms: true,
     apiPathIncludes: ["/api", "/vehicle", "/search", "/lot", "/subasta"],
   },
   {
@@ -127,6 +135,7 @@ export const PORTALS: PortalDef[] = [
     listingUrls: ["https://www.fs-tools.es/RemaMobile/#/vehicles", "https://www.fs-tools.es/RemaMobile/#/list"],
     loggedIn: { urlIncludes: ["#/home", "#/vehicles", "#/list"], selectors: ["a[href*='logout' i]"], textIncludes: ["Cerrar sesión", "Salir"] },
     defaultCountry: "ES",
+    proxy: true,
     apiPathIncludes: ["/api", "/vehicle", "/rema", "/search", "/lot"],
     notes: "REMA 4.0 (VWFS España). El apex fs-tools.es NO resuelve; usar www.fs-tools.es. Form UserId/Password, botón ENTRAR. Confirmar la ruta de la lista tras entrar.",
   },

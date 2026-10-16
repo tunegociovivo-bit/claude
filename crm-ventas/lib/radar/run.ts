@@ -93,6 +93,7 @@ async function runOnePortal(opts: {
         username: creds.username,
         password: creds.password,
         isLoggedIn: (p) => isLoggedInFor(portal, p),
+        acceptTerms: portal.acceptTerms,
       });
       loggedIn = outcome.status === "ok";
     }
@@ -205,7 +206,8 @@ export async function executeRun(runId: string): Promise<void> {
       // Un navegador nuevo por portal (aislamiento).
       let browser: Browser | null = null;
       try {
-        browser = await openBrowser();
+        // Proxy residencial solo para los portales que lo necesitan (anti-bot por IP).
+        browser = await openBrowser(!!getPortal(source.portal)?.proxy);
         const { summary, newListingIds } = await runOnePortal({ workspaceId, source, browser, allowAi: true, deadline });
         summaries.push(summary);
         allNewIds.push(...newListingIds);
