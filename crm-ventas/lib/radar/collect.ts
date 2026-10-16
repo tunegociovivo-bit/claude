@@ -13,7 +13,7 @@ import { aiExtractVehicles } from "./ai-extract";
 // JSON vistos y a dónde aterrizó cada página de listado. Acotado para no crecer.
 export type CollectDebug = {
   endpoints: { url: string; bytes: number | null }[];
-  pages: { requested: string; finalUrl: string; title: string }[];
+  pages: { requested: string; finalUrl: string; title: string; links?: { href: string; text: string }[] }[];
 };
 
 export type CollectOptions = {
@@ -131,7 +131,25 @@ export async function collectVehicles(page: Page, opts: CollectOptions): Promise
     await settle(page, 2_000);
     await dismissCookies(page);
     if (opts.debug && opts.debug.pages.length < 10) {
-      opts.debug.pages.push({ requested: url, finalUrl: page.url(), title: (await page.title().catch(() => "")) || "" });
+      // También los enlaces de navegación (mismo host) para descubrir la ruta del listado.
+      const links = await page
+        .evaluate(() => {
+          const host = location.hostname;
+          const seen = new Set<string>();
+          const out: { href: string; text: string }[] = [];
+          for (const a of Array.from(document.querySelectorAll("a[href]")) as HTMLAnchorElement[]) {
+            const href = a.href;
+            if (!/^https?:/.test(href)) continue;
+            try { if (new URL(href).hostname !== host) continue; } catch { continue; }
+            if (seen.has(href)) continue;
+            seen.add(href);
+            out.push({ href: href.slice(0, 160), text: (a.innerText || "").replace(/\s+/g, " ").trim().slice(0, 30) });
+            if (out.length >= 30) break;
+          }
+          return out;
+        })
+        .catch(() => [] as { href: string; text: string }[]);
+      opts.debug.pages.push({ requested: url, finalUrl: page.url(), title: (await page.title().catch(() => "")) || "", links });
     }
     await paginate(page, opts, sink);
     opts.log(`${url} → ${sink.size} coche(s) acumulados`);

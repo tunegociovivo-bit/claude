@@ -30,7 +30,7 @@ export type PortalSummary = {
     postLoginUrl?: string;
     snippet?: string;
     endpoints?: { url: string; bytes: number | null }[];
-    pages?: { requested: string; finalUrl: string; title: string }[];
+    pages?: { requested: string; finalUrl: string; title: string; links?: { href: string; text: string }[] }[];
   };
 };
 

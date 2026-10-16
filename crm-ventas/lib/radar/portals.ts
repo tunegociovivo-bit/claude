@@ -25,11 +25,15 @@ export const PORTALS: PortalDef[] = [
     key: "auto1",
     name: "AUTO1.com",
     hosts: ["auto1.com"],
-    loginUrl: "https://www.auto1.com/es/login",
+    // El listado de comprador exige el login de MERCHANT: /es/login dejaba el
+    // listado redirigiendo a /es/merchant/signin (falso positivo de sesión).
+    loginUrl: "https://www.auto1.com/es/merchant/signin",
     listingUrls: ["https://www.auto1.com/es/car-search", "https://www.auto1.com/es/auction"],
-    loggedIn: { selectors: ["[data-testid*='account' i]", "a[href*='logout' i]", "[class*='myAccount' i]"], textIncludes: ["Cerrar sesión", "Mi cuenta"] },
+    // Marcadores estrictos: la página de signin es /merchant/signin, así que NO
+    // se usa la URL (daría falso positivo); solo enlace de salir / texto de sesión.
+    loggedIn: { selectors: ["a[href*='logout' i]", "a[href*='signout' i]"], textIncludes: ["Cerrar sesión", "Mis pujas", "Mis favoritos"] },
     defaultCountry: null,
-    apiPathIncludes: ["/search", "/catalog", "/auction", "/api"],
+    apiPathIncludes: ["/search", "/catalog", "/auction", "/api", "/lot", "/vehicle"],
   },
   {
     key: "autobiz",
@@ -56,11 +60,11 @@ export const PORTALS: PortalDef[] = [
     name: "Ayvens Carmarket",
     hosts: ["carmarket.ayvens.com", "ayvens.com"],
     loginUrl: "https://carmarket.ayvens.com/login",
-    listingUrls: ["https://carmarket.ayvens.com/en/car-search", "https://carmarket.ayvens.com/en/lots"],
-    loggedIn: { selectors: ["a[href*='logout' i]", "[class*='myAccount' i]"], textIncludes: ["Logout", "My account", "Mi cuenta"] },
+    listingUrls: ["https://carmarket.ayvens.com/es-es/", "https://carmarket.ayvens.com/es-es/vehicles"],
+    loggedIn: { urlIncludes: ["/es-es"], selectors: ["a[href*='logout' i]", "[class*='myAccount' i]"], textIncludes: ["Mis favoritos", "Cerrar sesión", "Ventas EN VIVO"] },
     defaultCountry: null,
-    apiPathIncludes: ["/api", "/search", "/lot", "/vehicle", "/catalog"],
-    notes: "Carmarket usa buscador con parámetros; confirmar la ruta /car-search tras entrar.",
+    apiPathIncludes: ["/api", "/search", "/lot", "/vehicle", "/catalog", "/auction", "/subasta"],
+    notes: "Tras login aterriza en /es-es/ (logueado: «Mis favoritos», «Ventas EN VIVO»). Confirmar ruta del listado y su API con el diagnóstico.",
   },
   {
     key: "bca",
@@ -89,11 +93,11 @@ export const PORTALS: PortalDef[] = [
     name: "Arval Remarketing",
     hosts: ["remktg.arval.com", "arval.com"],
     loginUrl: "https://remktg.arval.com/buyer/#/login",
-    listingUrls: ["https://remktg.arval.com/buyer/#/vehicles", "https://remktg.arval.com/buyer/#/catalog"],
-    loggedIn: { urlIncludes: ["#/home", "#/vehicles", "#/dashboard"], selectors: ["a[href*='logout' i]"], textIncludes: ["Cerrar sesión", "Logout"] },
+    listingUrls: ["https://remktg.arval.com/buyer/#/sales-events", "https://remktg.arval.com/buyer/#/buy-now"],
+    loggedIn: { urlIncludes: ["#/sales-events", "#/buy-now", "#/ongoing", "#/awarded", "#/home", "#/vehicles", "#/dashboard"], selectors: ["a[href*='logout' i]"], textIncludes: ["Sales Events", "Buy Now", "Awarded vehicles", "Ongoing negotiations", "Cerrar sesión"] },
     defaultCountry: "ES",
-    apiPathIncludes: ["/api", "/vehicle", "/catalog", "/search", "/lot"],
-    notes: "SPA (MotorTrade). El documento ponía aryal.com por error: el dominio bueno es remktg.arval.com.",
+    apiPathIncludes: ["/api", "/vehicle", "/catalog", "/search", "/lot", "/sales", "/event", "/buy"],
+    notes: "SPA (MotorTrade). El dominio bueno es remktg.arval.com. Tras login aterriza en /buyer/#/sales-events (logueado: «Sales Events», «Buy Now», «Awarded vehicles»).",
   },
   {
     key: "bmw",
@@ -132,9 +136,10 @@ export const PORTALS: PortalDef[] = [
     hosts: ["2ndmove.eu", "b2b.2ndmove.eu"],
     loginUrl: "https://b2b.2ndmove.eu/es/login",
     listingUrls: ["https://b2b.2ndmove.eu/es/vehiculos", "https://b2b.2ndmove.eu/es/home"],
-    loggedIn: { selectors: ["a[href*='logout' i]"], textIncludes: ["Cerrar sesión", "Mi cuenta"] },
+    loggedIn: { urlIncludes: ["/es/home", "/home", "/vehiculos"], selectors: ["a[href*='logout' i]"], textIncludes: ["Cerrar sesión", "Mi cuenta"] },
     defaultCountry: null,
     apiPathIncludes: ["/api", "/vehicle", "/search", "/catalog"],
+    notes: "Tras login aterriza en /es/home. Confirmar ruta del listado y su API con el diagnóstico.",
   },
   {
     key: "santander",
