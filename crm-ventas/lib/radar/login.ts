@@ -142,7 +142,7 @@ async function findLoginFields(page: Page): Promise<{ frame: Frame; user: Locato
 }
 
 const LOGIN_LINK = /^(iniciar sesi[oó]n|acceder|accede|acceso|entrar|login|log in|sign in|connexion|se connecter|anmelden|mi cuenta|acceso clientes|área de clientes|area clientes|identif[ií]cate)$/i;
-const NEXT_BUTTON = /^(siguiente|continuar|next|continue|weiter|suivant|valider)$/i;
+const NEXT_BUTTON = /^(siguiente|continuar|next|continue|weiter|suivant|valider|acceder|accede|acceso|entrar|aceptar|iniciar sesi[oó]n|log in|login|sign in|connexion|se connecter|anmelden)$/i;
 const SUBMIT_BUTTON = /^(iniciar sesi[oó]n|acceder|accede|entrar|login|log in|sign in|connexion|se connecter|anmelden|enviar|submit|ok|continuar|continue|valider|weiter)$/i;
 
 async function clickByText(frame: Frame, re: RegExp, scope = "button, input[type=submit], a, [role=button]"): Promise<boolean> {
