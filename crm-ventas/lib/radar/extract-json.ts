@@ -304,13 +304,25 @@ export function extractVehiclesFromEmbeddedHtml(json: unknown, opts: VehicleMapO
   walk(json, 0);
 
   const out = new Map<string, ExtractedVehicle>();
-  const anchor = /<a\b([^>]*)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi;
-  for (const html of htmls) {
+  const anchor = /<a\b([^>]*)href=\\?["']([^"'\\]+)\\?["']([^>]*)>([\s\S]*?)<\/a>/gi;
+  for (const rawHtml of htmls) {
+    // El campo suele venir doble-codificado en JSON (comillas escapadas \" y \/),
+    // a veces envuelto en comillas. Lo des-escapamos a HTML limpio antes de leer.
+    let html = rawHtml;
+    if (/\\["'\/]|\\n|\\u00/i.test(html)) {
+      try {
+        html = JSON.parse(html.trim().startsWith('"') ? html : `"${html.replace(/"/g, '\\"')}"`);
+      } catch {
+        html = html.replace(/\\\//g, "/").replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\n/g, " ").replace(/\\t/g, " ");
+      }
+    }
     let m: RegExpExecArray | null;
     while ((m = anchor.exec(html))) {
       const attrs = `${m[1]} ${m[3]}`;
-      const href = m[2];
-      const title = m[4].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const href = m[2].replace(/\\\//g, "/");
+      const decodeEntities = (s: string) =>
+        s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+      const title = decodeEntities(m[4].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
       if (!VEHICLE_HREF.test(href)) continue;
       if (!title || title.length < 3 || title.length > 180 || !/[a-záéíóúü]/i.test(title)) continue;
       const dataId = (attrs.match(/data-id=["']([^"']+)["']/i) || [])[1];
