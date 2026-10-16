@@ -3,7 +3,7 @@ import type { Browser, BrowserContext, Page } from "playwright-core";
 import { prisma } from "@/lib/prisma";
 import { openBrowser, newRadarContext, closeQuietly, radarBrowserConfigured, RadarBrowserUnavailableError } from "./browser";
 import { genericLogin, type LoginOutcome } from "./login";
-import { collectVehicles } from "./collect";
+import { collectVehicles, type CollectDebug } from "./collect";
 import { getPortal, jsonUrlFilterFor, urlBelongsToPortal, type PortalDef } from "./portals";
 import { upsertListing, deactivateStale, saveSession, loadSession, sourceCredentials } from "./store";
 import { evaluateMatches, type NewMatch } from "./match";
@@ -24,6 +24,14 @@ export type PortalSummary = {
   found: number;
   newCount: number;
   detail?: string;
+  // Diagnóstico (se guarda en el summary del run para afinar cada portal):
+  // dónde aterrizó el login, páginas de listado visitadas y endpoints JSON vistos.
+  debug?: {
+    postLoginUrl?: string;
+    snippet?: string;
+    endpoints?: { url: string; bytes: number | null }[];
+    pages?: { requested: string; finalUrl: string; title: string }[];
+  };
 };
 
 async function isLoggedInFor(portal: PortalDef, page: Page): Promise<boolean> {
@@ -70,6 +78,8 @@ async function runOnePortal(opts: {
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
 
+    const debug: CollectDebug = { endpoints: [], pages: [] };
+
     // Con sesión guardada, probar directamente la lista; si no hay sesión, iniciarla.
     let outcome: LoginOutcome = { status: "ok" };
     let loggedIn = false;
@@ -90,11 +100,14 @@ async function runOnePortal(opts: {
     if (!loggedIn) {
       const status = outcome.status === "ok" ? "error" : outcome.status;
       const detail = outcome.status === "ok" ? "No se pudo confirmar la sesión" : outcome.detail;
+      // Diagnóstico: a dónde aterrizó el intento y qué se ve, para afinar el
+      // detector de sesión o descubrir un login en varios pasos.
+      const snippet = ((await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "")) || "").replace(/\s+/g, " ").trim().slice(0, 400);
       await prisma.radarSource.update({
         where: { id: source.id },
         data: { status, statusDetail: detail.slice(0, 500), lastRunAt: new Date(), consecutiveFailures: { increment: 1 } },
       });
-      return { summary: { portal: portal.key, status, found: 0, newCount: 0, detail }, newListingIds: [] };
+      return { summary: { portal: portal.key, status, found: 0, newCount: 0, detail, debug: { postLoginUrl: page.url(), snippet, endpoints: debug.endpoints, pages: debug.pages } }, newListingIds: [] };
     }
 
     // Sesión buena: guardarla para la próxima vez.
@@ -112,6 +125,7 @@ async function runOnePortal(opts: {
       jsonUrlFilter: jsonUrlFilterFor(portal),
       allowAi: opts.allowAi,
       log,
+      debug,
     });
 
     const seenStart = new Date();
@@ -132,7 +146,7 @@ async function runOnePortal(opts: {
       where: { id: source.id },
       data: { status: "ok", statusDetail: null, lastRunAt: new Date(), lastOkAt: new Date(), lastCount: vehicles.length, consecutiveFailures: 0 },
     });
-    return { summary: { portal: portal.key, status: "ok", found: vehicles.length, newCount }, newListingIds };
+    return { summary: { portal: portal.key, status: "ok", found: vehicles.length, newCount, debug: { postLoginUrl: page.url(), endpoints: debug.endpoints, pages: debug.pages } }, newListingIds };
   } catch (error) {
     const detail = (error as Error).message?.split("\n")[0]?.slice(0, 300) ?? "Error";
     await prisma.radarSource.update({

@@ -9,6 +9,13 @@ import { aiExtractVehicles } from "./ai-extract";
 //  2) recorre las páginas de resultados (scroll, «Ver más», «Siguiente»);
 //  3) si no hay JSON reconocible, lee las fichas visibles con IA (si se permite).
 
+// Diagnóstico ligero (se cuelga del summary del run): inventario de endpoints
+// JSON vistos y a dónde aterrizó cada página de listado. Acotado para no crecer.
+export type CollectDebug = {
+  endpoints: { url: string; bytes: number | null }[];
+  pages: { requested: string; finalUrl: string; title: string }[];
+};
+
 export type CollectOptions = {
   workspaceId: string;
   listingUrls: string[];
@@ -19,6 +26,7 @@ export type CollectOptions = {
   jsonUrlFilter?: (url: string) => boolean;
   allowAi: boolean;
   log: (msg: string) => void;
+  debug?: CollectDebug; // si se pasa, se rellena con el inventario de la recogida
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -32,8 +40,16 @@ function attachJsonSniffer(page: Page, opts: CollectOptions, sink: Map<string, E
     void (async () => {
       try {
         const url = response.url();
-        if (opts.jsonUrlFilter && !opts.jsonUrlFilter(url)) return;
         const type = (response.headers()["content-type"] || "").toLowerCase();
+        // Diagnóstico: apunta TODO endpoint JSON visto (antes del filtro), con su
+        // tamaño declarado, para descubrir la llamada de datos real del listado.
+        if (opts.debug && type.includes("json") && opts.debug.endpoints.length < 60) {
+          const short = url.slice(0, 300);
+          if (!opts.debug.endpoints.some((e) => e.url === short)) {
+            opts.debug.endpoints.push({ url: short, bytes: Number(response.headers()["content-length"] || 0) || null });
+          }
+        }
+        if (opts.jsonUrlFilter && !opts.jsonUrlFilter(url)) return;
         if (!type.includes("json")) return;
         if (!response.ok() && response.status() !== 206) return;
         // No cargar en memoria respuestas enormes (protege de OOM si un portal
@@ -114,6 +130,9 @@ export async function collectVehicles(page: Page, opts: CollectOptions): Promise
     }
     await settle(page, 2_000);
     await dismissCookies(page);
+    if (opts.debug && opts.debug.pages.length < 10) {
+      opts.debug.pages.push({ requested: url, finalUrl: page.url(), title: (await page.title().catch(() => "")) || "" });
+    }
     await paginate(page, opts, sink);
     opts.log(`${url} → ${sink.size} coche(s) acumulados`);
   }
