@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { openBrowser, newRadarContext, closeQuietly, radarBrowserConfigured, RadarBrowserUnavailableError } from "./browser";
 import { genericLogin, type LoginOutcome } from "./login";
 import { collectVehicles, type CollectDebug } from "./collect";
-import { getPortal, jsonUrlFilterFor, urlBelongsToPortal, type PortalDef } from "./portals";
+import { getPortal, jsonUrlFilterFor, urlBelongsToPortal, portalFallbackUrl, type PortalDef } from "./portals";
 import { upsertListing, deactivateStale, saveSession, loadSession, sourceCredentials } from "./store";
 import { evaluateMatches, type NewMatch } from "./match";
 import { notifyNewMatches } from "./notify";
@@ -123,6 +123,7 @@ async function runOnePortal(opts: {
       map: {
         baseUrl: portal.listingUrls[0],
         defaultCountry: portal.defaultCountry ?? null,
+        urlFor: portal.urlFor,
       },
       jsonUrlFilter: jsonUrlFilterFor(portal),
       allowAi: opts.allowAi,
@@ -133,9 +134,13 @@ async function runOnePortal(opts: {
     const seenStart = new Date();
     const newListingIds: string[] = [];
     let newCount = 0;
+    const fallbackUrl = portalFallbackUrl(portal);
     for (const v of vehicles) {
       // Descarta enlaces que no sean del propio portal.
       if (v.url && !urlBelongsToPortal(portal, v.url)) v.url = null;
+      // Sin ficha propia del coche: enlaza a la zona de subastas del portal (ya
+      // logueado) para que el cliente pueda ir a pujar igualmente.
+      if (!v.url && fallbackUrl) v.url = fallbackUrl;
       const r = await upsertListing({ workspaceId, sourceId: source.id, portal: portal.key, vehicle: v });
       if (r.isNew) {
         newCount++;

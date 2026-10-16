@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { getPortal } from "./portals";
+import { getPortal, portalFallbackUrl } from "./portals";
 
 export type MatchView = {
   matchId: string;
@@ -42,7 +42,12 @@ export async function listMatches(opts: {
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
   return {
-    matches: page.map((m) => ({
+    matches: page.map((m) => {
+      const portal = getPortal(m.listing.portal);
+      // Si el coche no trae ficha propia, se enlaza a la zona de subastas del
+      // portal (ya logueada) para poder ir a pujar igualmente.
+      const url = m.listing.url ?? (portal ? portalFallbackUrl(portal) : null);
+      return {
       matchId: m.id,
       status: m.status,
       searchId: m.searchId,
@@ -52,9 +57,9 @@ export async function listMatches(opts: {
       listing: {
         id: m.listing.id,
         portal: m.listing.portal,
-        portalName: getPortal(m.listing.portal)?.name ?? m.listing.portal,
+        portalName: portal?.name ?? m.listing.portal,
         title: m.listing.title,
-        url: m.listing.url,
+        url,
         make: m.listing.make,
         model: m.listing.model,
         version: m.listing.version,
@@ -72,7 +77,8 @@ export async function listMatches(opts: {
         active: m.listing.active,
         firstSeenAt: m.listing.firstSeenAt.toISOString(),
       },
-    })),
+      };
+    }),
     nextCursor: hasMore ? page[page.length - 1].id : null,
   };
 }

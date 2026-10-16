@@ -111,20 +111,27 @@ export default function ResultsView({ searches, onChanged }: { searches: SearchV
 function MatchCard({ match, onStatus }: { match: MatchView; onStatus: (id: string, status: string) => void }) {
   const l = match.listing;
   const specs = [l.year ? String(l.year) : null, l.km !== null ? fmtKm(l.km) : null, l.fuel, l.gearbox, l.powerCv ? `${l.powerCv} CV` : null].filter(Boolean);
+  // Al pinchar el coche (foto o título) se abre su ficha en el portal, en otra
+  // pestaña, para poder pujar. Si el portal no da enlace a la ficha, no es clicable.
+  const href = l.url || null;
   return (
     <div className={clsx("flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition", match.status === "discarded" ? "border-slate-200 opacity-60" : "border-slate-200")}>
       <div className="flex gap-3 p-3">
-        <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+        <CardLink href={href} title="Abrir en el portal para pujar" className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-slate-100">
           {l.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={l.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-slate-300"><Car size={24} /></div>
           )}
-        </div>
+        </CardLink>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="line-clamp-2 text-sm font-semibold text-slate-900">{l.title}</h3>
+            {href ? (
+              <a href={href} target="_blank" rel="noopener noreferrer" title="Abrir en el portal para pujar" className="line-clamp-2 text-sm font-semibold text-slate-900 hover:text-brand-700 hover:underline">{l.title}</a>
+            ) : (
+              <h3 className="line-clamp-2 text-sm font-semibold text-slate-900">{l.title}</h3>
+            )}
             {match.status === "new" && <span className="shrink-0 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">NUEVO</span>}
           </div>
           <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{specs.join(" · ")}</p>
@@ -162,6 +169,17 @@ function MatchCard({ match, onStatus }: { match: MatchView; onStatus: (id: strin
         )}
       </div>
     </div>
+  );
+}
+
+// Envuelve la foto del coche en un enlace a su ficha del portal cuando lo haya;
+// si no hay enlace, queda como un bloque normal (no clicable).
+function CardLink({ href, title, className, children }: { href: string | null; title?: string; className?: string; children: React.ReactNode }) {
+  if (!href) return <div className={className}>{children}</div>;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" title={title} className={clsx(className, "block cursor-pointer")}>
+      {children}
+    </a>
   );
 }
 

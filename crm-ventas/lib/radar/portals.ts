@@ -23,6 +23,13 @@ export type PortalDef = {
   // Marcar la casilla de "acepto condiciones" en el login cuando el portal la
   // exige para entrar (autorizado por el cliente portal a portal).
   acceptTerms?: boolean;
+  // Construye el enlace directo a la FICHA del coche en el portal (para pujar),
+  // a partir del objeto original del JSON y su id. Si no se define, o devuelve
+  // null, el coche enlaza a la zona de subastas del portal (ver fallbackUrl).
+  urlFor?: (raw: Record<string, unknown>, id: string) => string | null;
+  // URL a la que llevar un coche sin ficha propia (zona de subastas ya logueada).
+  // Si no se indica, se usa la primera de listingUrls.
+  fallbackUrl?: string;
   notes?: string;
 };
 
@@ -197,6 +204,11 @@ export function urlBelongsToPortal(portal: PortalDef, rawUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** URL de respaldo del portal (zona de subastas logueada) para coches sin ficha propia. */
+export function portalFallbackUrl(portal: PortalDef): string | null {
+  return portal.fallbackUrl ?? portal.listingUrls[0] ?? null;
 }
 
 export function jsonUrlFilterFor(portal: PortalDef): ((url: string) => boolean) | undefined {
