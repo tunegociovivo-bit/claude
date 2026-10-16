@@ -128,6 +128,7 @@ async function paginate(page: Page, opts: CollectOptions, sink: Map<string, Extr
 export async function collectVehicles(page: Page, opts: CollectOptions): Promise<ExtractedVehicle[]> {
   const sink = new Map<string, ExtractedVehicle>();
   attachJsonSniffer(page, opts, sink);
+  let aiPages = 0;
 
   for (const url of opts.listingUrls) {
     if (Date.now() > opts.deadline || sink.size >= opts.maxVehicles) break;
@@ -161,19 +162,22 @@ export async function collectVehicles(page: Page, opts: CollectOptions): Promise
       opts.debug.pages.push({ requested: url, finalUrl: page.url(), title: (await page.title().catch(() => "")) || "", links });
     }
     await paginate(page, opts, sink);
-    opts.log(`${url} → ${sink.size} coche(s) acumulados`);
-  }
-
-  // Respaldo con IA cuando el sniffer no encontró nada en las respuestas JSON.
-  if (sink.size === 0 && opts.allowAi && Date.now() < opts.deadline) {
-    opts.log("Sin JSON reconocible; leyendo las fichas visibles con IA.");
-    try {
-      const html = await page.content();
-      const aiVehicles = await aiExtractVehicles({ workspaceId: opts.workspaceId, html, pageUrl: page.url(), map: opts.map });
-      for (const v of aiVehicles) if (!sink.has(v.externalId)) sink.set(v.externalId, v);
-    } catch (error) {
-      opts.log(`La lectura con IA falló: ${(error as Error).message.slice(0, 120)}`);
+    // Respaldo con IA en ESTA página si el sniffer no sacó coches del JSON: hay
+    // portales que pintan las fichas en HTML (p. ej. 2ndMove mete el HTML en un
+    // campo "view" del JSON). Antes la IA solo leía la última página; ahora lee
+    // cada página de listado, hasta 2, para no gastar de más.
+    if (sink.size === 0 && opts.allowAi && aiPages < 2 && Date.now() < opts.deadline) {
+      aiPages++;
+      try {
+        const html = await page.content();
+        const aiVehicles = await aiExtractVehicles({ workspaceId: opts.workspaceId, html, pageUrl: page.url(), map: opts.map });
+        for (const v of aiVehicles) if (!sink.has(v.externalId)) sink.set(v.externalId, v);
+        if (aiVehicles.length) opts.log(`IA en ${url} → ${aiVehicles.length} coche(s)`);
+      } catch (error) {
+        opts.log(`La lectura con IA falló en ${url}: ${(error as Error).message.slice(0, 120)}`);
+      }
     }
+    opts.log(`${url} → ${sink.size} coche(s) acumulados`);
   }
 
   return [...sink.values()].slice(0, opts.maxVehicles);
