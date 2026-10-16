@@ -31,6 +31,7 @@ export type PortalSummary = {
     snippet?: string;
     endpoints?: { url: string; bytes: number | null }[];
     pages?: { requested: string; finalUrl: string; title: string; links?: { href: string; text: string }[] }[];
+    samples?: { url: string; vehicles: number; json: string }[];
   };
 };
 
@@ -78,7 +79,7 @@ async function runOnePortal(opts: {
     const page = await context.newPage();
     page.setDefaultTimeout(20_000);
 
-    const debug: CollectDebug = { endpoints: [], pages: [] };
+    const debug: CollectDebug = { endpoints: [], pages: [], samples: [] };
 
     // Con sesión guardada, probar directamente la lista; si no hay sesión, iniciarla.
     let outcome: LoginOutcome = { status: "ok" };
@@ -147,7 +148,7 @@ async function runOnePortal(opts: {
       where: { id: source.id },
       data: { status: "ok", statusDetail: null, lastRunAt: new Date(), lastOkAt: new Date(), lastCount: vehicles.length, consecutiveFailures: 0 },
     });
-    return { summary: { portal: portal.key, status: "ok", found: vehicles.length, newCount, debug: { postLoginUrl: page.url(), endpoints: debug.endpoints, pages: debug.pages } }, newListingIds };
+    return { summary: { portal: portal.key, status: "ok", found: vehicles.length, newCount, debug: { postLoginUrl: page.url(), endpoints: debug.endpoints, pages: debug.pages, samples: debug.samples } }, newListingIds };
   } catch (error) {
     const detail = (error as Error).message?.split("\n")[0]?.slice(0, 300) ?? "Error";
     await prisma.radarSource.update({

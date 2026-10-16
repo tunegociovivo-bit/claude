@@ -14,6 +14,9 @@ import { aiExtractVehicles } from "./ai-extract";
 export type CollectDebug = {
   endpoints: { url: string; bytes: number | null }[];
   pages: { requested: string; finalUrl: string; title: string; links?: { href: string; text: string }[] }[];
+  // Muestra truncada del JSON de los endpoints que pasan el filtro, para ver el
+  // formato real de los datos cuando el extractor no reconoce coches.
+  samples: { url: string; vehicles: number; json: string }[];
 };
 
 export type CollectOptions = {
@@ -66,7 +69,13 @@ function attachJsonSniffer(page: Page, opts: CollectOptions, sink: Map<string, E
           return;
         }
         if (!body) return;
-        for (const v of extractVehiclesFromJson(body, opts.map)) {
+        const vehicles = extractVehiclesFromJson(body, opts.map);
+        if (opts.debug && opts.debug.samples.length < 6) {
+          let js = "";
+          try { js = JSON.stringify(body).slice(0, 1500); } catch { js = ""; }
+          opts.debug.samples.push({ url: url.slice(0, 200), vehicles: vehicles.length, json: js });
+        }
+        for (const v of vehicles) {
           if (!sink.has(v.externalId)) sink.set(v.externalId, v);
         }
       } catch {
