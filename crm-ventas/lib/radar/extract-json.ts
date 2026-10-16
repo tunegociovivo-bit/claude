@@ -277,6 +277,64 @@ export function mapVehicle(raw: Record<string, unknown>, opts: VehicleMapOptions
   };
 }
 
+// Algunos portales (p. ej. 2ndMove) devuelven el listado como HTML DENTRO de un
+// campo del JSON (p. ej. {view: "<div class='vehicle'>…<a class='link-to-vehicle'
+// data-id='…' href='…/vehicle-details/ID'>Marca Modelo…</a>…"}). El extractor de
+// arrays no lo ve. Esto saca los coches de ese HTML embebido: por cada enlace a
+// ficha, título (texto del enlace), url y id. Specs parciales (lo que no haya en
+// el texto queda null), suficiente para listarlos y deduplicar.
+const VEHICLE_HREF = /vehicle|vehiculo|veh-|fahrzeug|voiture|\blot\b|detail|coche|\/car\b|auktion|subasta/i;
+const HTML_STRING_HINT = /link-to-vehicle|vehicle-details|class=["'][^"']*vehicle|\/vehicle-details\/|data-id=/i;
+
+export function extractVehiclesFromEmbeddedHtml(json: unknown, opts: VehicleMapOptions = {}): ExtractedVehicle[] {
+  const htmls: string[] = [];
+  const seen = new Set<unknown>();
+  const walk = (n: unknown, depth: number) => {
+    if (depth > 6 || htmls.length >= 6 || (n && typeof n === "object" && seen.has(n))) return;
+    if (typeof n === "string") {
+      if (n.length > 150 && /<a[\s>]/i.test(n) && HTML_STRING_HINT.test(n)) htmls.push(n);
+      return;
+    }
+    if (n && typeof n === "object") {
+      seen.add(n);
+      if (Array.isArray(n)) { for (const x of n) walk(x, depth + 1); return; }
+      for (const v of Object.values(n as Record<string, unknown>)) walk(v, depth + 1);
+    }
+  };
+  walk(json, 0);
+
+  const out = new Map<string, ExtractedVehicle>();
+  const anchor = /<a\b([^>]*)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi;
+  for (const html of htmls) {
+    let m: RegExpExecArray | null;
+    while ((m = anchor.exec(html))) {
+      const attrs = `${m[1]} ${m[3]}`;
+      const href = m[2];
+      const title = m[4].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      if (!VEHICLE_HREF.test(href)) continue;
+      if (!title || title.length < 3 || title.length > 180 || !/[a-záéíóúü]/i.test(title)) continue;
+      const dataId = (attrs.match(/data-id=["']([^"']+)["']/i) || [])[1];
+      const url = safeHttpUrl(href, opts.baseUrl);
+      const externalId = (dataId || (href.match(/(\d{4,})/) || [])[1] || hashId(title, href)).toString().replace(/\s+/g, "");
+      if (out.has(externalId)) continue;
+      // Marca/modelo aproximados desde el título (1ª palabra = marca; hasta un número = modelo).
+      const words = title.split(/\s+/);
+      const make = words[0] || null;
+      const rest = words.slice(1);
+      const cut = rest.findIndex((w) => /\d/.test(w));
+      const model = (cut > 0 ? rest.slice(0, cut) : rest.slice(0, 2)).join(" ") || null;
+      out.set(externalId, {
+        externalId, url, title, make, model, version: null,
+        year: parseYear(title), km: null, price: null, priceLabel: null,
+        fuel: null, gearbox: null, powerCv: null, bodyType: null, color: null,
+        country: opts.defaultCountry ?? null, location: null, auctionEndsAt: null, imageUrl: null,
+        raw: null,
+      });
+    }
+  }
+  return [...out.values()];
+}
+
 /** Todos los coches que hay en una respuesta JSON (sin duplicados por id). */
 export function extractVehiclesFromJson(json: unknown, opts: VehicleMapOptions = {}): ExtractedVehicle[] {
   const out = new Map<string, ExtractedVehicle>();

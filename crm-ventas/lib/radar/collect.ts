@@ -1,7 +1,7 @@
 import "server-only";
 import type { Page } from "playwright-core";
 import { dismissCookies } from "./login";
-import { extractVehiclesFromJson, type ExtractedVehicle, type VehicleMapOptions } from "./extract-json";
+import { extractVehiclesFromJson, extractVehiclesFromEmbeddedHtml, type ExtractedVehicle, type VehicleMapOptions } from "./extract-json";
 import { aiExtractVehicles } from "./ai-extract";
 
 // Recogida de coches de un portal ya con la sesión iniciada:
@@ -69,7 +69,9 @@ function attachJsonSniffer(page: Page, opts: CollectOptions, sink: Map<string, E
           return;
         }
         if (!body) return;
-        const vehicles = extractVehiclesFromJson(body, opts.map);
+        let vehicles = extractVehiclesFromJson(body, opts.map);
+        // Portales que devuelven el listado como HTML dentro del JSON (2ndMove).
+        if (vehicles.length === 0) vehicles = extractVehiclesFromEmbeddedHtml(body, opts.map);
         if (opts.debug && opts.debug.samples.length < 6) {
           let js = "";
           try { js = JSON.stringify(body).slice(0, 1500); } catch { js = ""; }
