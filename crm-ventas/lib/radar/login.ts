@@ -189,6 +189,9 @@ async function typeLikeHuman(field: Locator, value: string) {
 }
 
 const ERROR_TEXT = /(contrase[ñn]a|usuario|credenciales|password|username|login|identifiants|mot de passe|kennwort|benutzer)[^.]{0,80}(incorrect|inv[aá]lid|err[oó]ne|wrong|no v[aá]lid|no coincide|falsch|not recognized|no reconoc)|(incorrect|invalid|wrong|inv[aá]lid)[^.]{0,40}(password|contrase|credential|credencial|usuario|username|login)|cuenta (bloqueada|deshabilitada)|account (locked|disabled|blocked)/i;
+// Sesión única: algunos portales (Arval) rechazan un segundo acceso simultáneo.
+// No es contraseña mala: se reintenta en la próxima revisión (cuando no haya otra sesión).
+const SESSION_CONFLICT_TEXT = /(already a session running|there is already a session|session already (open|active|running)|ya hay una sesi[oó]n|sesi[oó]n ya (iniciada|abierta|activa)|existe una sesi[oó]n|une session est d[eé]j[aà]|bereits eine sitzung)/i;
 const BLOCKED_TEXT = /(access denied|acceso denegado|request blocked|you have been blocked|unusual traffic|tr[aá]fico inusual|pardon our interruption|are you a robot|verify you are human|verifica que eres humano|just a moment)/i;
 
 export async function detectBlockers(page: Page): Promise<LoginOutcome | null> {
@@ -266,6 +269,9 @@ export async function genericLogin(
     const blocker = await detectBlockers(page);
     if (blocker) return blocker;
     const bodyText = ((await page.locator("body").innerText({ timeout: 2_000 }).catch(() => "")) || "").slice(0, 20_000);
+    if (SESSION_CONFLICT_TEXT.test(bodyText)) {
+      return { status: "error", detail: "El portal dice que ya hay una sesión abierta de este usuario. Cierra sesión en el portal; se reintenta en la próxima revisión." };
+    }
     const stillForm = await findLoginFields(page);
     if (stillForm?.password && ERROR_TEXT.test(bodyText)) {
       return { status: "login_failed", detail: "El portal dice que el usuario o la contraseña no son correctos." };
