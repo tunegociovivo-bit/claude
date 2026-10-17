@@ -50,6 +50,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
+import MobileWebQaPanel from "@/components/mobile/MobileWebQaPanel";
 import type { MobileWorkerActivity } from "@/components/mobile/mobile-worker-activity";
 import { createMobileSessionMonitor } from "./mobile-session-monitor";
 import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
@@ -802,6 +803,8 @@ export default function MobileFarmClient() {
       {newVersion && <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">Hay una versión nueva del Hub. La página se recargará sola en cuanto los móviles terminen lo que están haciendo y volverá a abrir sus pantallas.</p>}
       <MobileFleetAutomationPanel devices={devices.length ? devices.map(d => { const shared = sharedPhones.find(p => p.deviceSerial === d.serial); return { deviceSerial: d.serial, label: shared?.phone ? `${shared.phone}${d.name ? ` · ${d.name}` : ""}` : d.name || "Android", phoneKey: shared?.key }; }) : sharedPhones.filter(p => p.active && p.deviceSerial).map(p => ({ deviceSerial: p.deviceSerial!, label: p.phone || p.label || p.sessionName || "Android", phoneKey: p.key }))} canManage={canManagePhones} onOpen={serials => { if (devices.length) setFleetOpen({ id: crypto.randomUUID(), serials }); }} />
       </details>
+
+      {canManagePhones && <MobileWebQaPanel storageScope={clientStorageScope} ready={false} configurationOnly onOpenUrl={async () => { throw new Error("Selecciona el panel de un movil conectado."); }} />}
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h2 className="text-base font-bold text-slate-900">Móviles conectados · {devices.length}</h2><p id="mobile-layout-help" className="mt-1 text-xs text-slate-500">En pantallas pequeñas se muestran menos columnas para facilitar el control.</p></div>
@@ -2014,6 +2017,16 @@ function MobileDeviceCard({
           </section>
         )}
 
+        {canManage && <MobileWebQaPanel
+          storageScope={clientStorageScope}
+          ready={status === "mirroring" && !workerEnabled && working === "idle"}
+          onOpenUrl={async (url) => {
+            const adb = adbRef.current;
+            if (!adb || status !== "mirroring" || workerEnabled || workingRef.current !== "idle") throw new Error("Abre el movil en modo diagnostico, sin trabajos activos.");
+            if (!url.startsWith("https://")) throw new Error("Solo se permiten URLs HTTPS.");
+            await runAdbCommand(adb, ["am", "start", "-a", "android.intent.action.VIEW", "-p", "com.android.chrome", "-d", url]);
+          }}
+        />}
         {linkedPhone ? (
           <>
             {canManage && <MobileUnlockPinField deviceSerial={device.serial} ready={status === "mirroring"} onSaved={clearUnlockBlock} onUnlock={async () => { const adb = adbRef.current; if (!adb) throw new Error("Abre la pantalla del móvil."); clearUnlockBlock(); await unlockDevice(adb); setError(null); }} />}

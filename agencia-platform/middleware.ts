@@ -74,6 +74,7 @@ function isPublic(pathname: string): boolean {
     pathname.startsWith("/icon") ||
     pathname.startsWith("/apple-touch-icon") ||
     pathname === "/sw.js" ||
+    pathname === "/nv-web-qa.js" ||
     pathname === "/bubui-sw.js" ||
     pathname === "/manifest.json" ||
     pathname === "/manifest.webmanifest" ||
