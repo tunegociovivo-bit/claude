@@ -77,10 +77,11 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const alertRecipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, email: true, active: true, negativeComments: true, allComments: true, syncFailures: true, publishedReplies: true }, orderBy: { email: "asc" } });
   // ¿Llegan los nombres de quien comenta en Facebook? (permiso pages_read_user_content)
   const authorWindow = { workspaceId: api.workspaceId, platform: "facebook", status: { not: "ignored_self" }, commentCreatedAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } };
+  // Indicador opcional: si falla, la bandeja se sirve igual.
   const [facebookRecent, facebookAnonymous] = before ? [null, null] : await Promise.all([
     prisma.metaAdComment.count({ where: authorWindow }),
     prisma.metaAdComment.count({ where: { ...authorWindow, authorName: null } })
-  ]);
+  ]).catch(() => [null, null] as const);
   return NextResponse.json({ items, feeds, alertRecipients, nextCursor, ...(facebookRecent === null ? {} : { facebookAuthors: { recent: facebookRecent, anonymous: facebookAnonymous } }) });
 });
 

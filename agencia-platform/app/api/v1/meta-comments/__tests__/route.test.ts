@@ -11,7 +11,7 @@ const { authenticateMock, prisma, regenerateDraftMock, deleteCommentMock, syncCo
   prisma: {
     metaCommentFeed: { findMany: vi.fn().mockResolvedValue([]) },
     metaCommentAlertRecipient: { findMany: vi.fn().mockResolvedValue([]) },
-    metaAdComment: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() }
+    metaAdComment: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), count: vi.fn(async () => 0) }
   }
 }));
 
