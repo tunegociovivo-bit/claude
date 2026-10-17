@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft, Circle, ExternalLink, Layers, Loader2, Monitor, Type, WifiOff } from "lucide-react";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
+import MobileWebQaPanel from "@/components/mobile/MobileWebQaPanel";
 
 type StationDevice = {
   key: string; label: string | null; phone: string | null; deviceSerial: string;
@@ -130,6 +131,14 @@ function RemotePhoneCard({ device, canManage, storageScope }: { device: StationD
           {note && <p role="status" className="text-[11px] text-slate-600">{note}</p>}
         </div>
       )}
+      {canManage && <MobileWebQaPanel
+        storageScope={storageScope}
+        ready={device.online && device.live && device.working === "idle"}
+        onOpenUrl={async (url) => {
+          if (!device.online || !device.live || device.working !== "idle") throw new Error("La estacion debe estar conectada y el movil sin trabajos pendientes.");
+          await sendCommand({ deviceSerial: device.deviceSerial, type: "openUrl", url });
+        }}
+      />}
       <details className="border-t">
         <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-slate-700">Automatizaciones de este móvil</summary>
         <div className="px-2 pb-2">

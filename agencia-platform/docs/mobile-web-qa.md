@@ -4,8 +4,12 @@
 
 Plantillas para distintas webs, guardadas en el navegador y separadas por el
 ambito de usuario existente. Cada plantilla admite hasta 20 URLs HTTPS de un
-unico origen y una duracion de 30 a 900 segundos. Se usa el panel de cada movil
-USB conectado en modo diagnostico, sin trabajador automatico activo. No hay
+unico origen y una duracion de 30 a 900 segundos. La URL de lanzamiento completa
+no puede superar los 2048 caracteres admitidos por el control remoto: recorridos
+con rutas largas pueden requerir menos URLs. Se usa el panel de cada movil
+USB conectado en modo diagnostico, sin trabajador automatico activo, o el panel
+remoto de la estacion con el movil conectado, visible y sin trabajos pendientes.
+Las ordenes remotas quedan en cola: confirmar su ejecucion en la pantalla. No hay
 ejecucion programada ni coordinacion simultanea de flotas en esta primera version.
 
 La apertura de Google es explicita, por movil. El operador elige el resultado y

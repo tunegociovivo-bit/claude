@@ -37,5 +37,6 @@ export function webQaLaunchUrl(input: WebQaTemplate, id: string): string {
   const url = new URL(config.urls[0]);
   url.searchParams.set("nv_test", id);
   url.hash = `nv-qa=${encodeURIComponent(JSON.stringify({ v: 1, id, urls: config.urls, seconds: config.seconds }))}`;
+  if (url.href.length > 2048) throw new Error("El recorrido supera el limite del control movil. Reduce el numero o la longitud de las URLs.");
   return url.href;
 }

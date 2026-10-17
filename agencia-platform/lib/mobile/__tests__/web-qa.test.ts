@@ -46,6 +46,9 @@ describe("web QA configuration", () => {
     expect(() => validateWebQa({ ...template, seconds: 901 })).toThrow();
     expect(() => validateWebQa({ ...template, urls: [] })).toThrow();
   });
+  it("keeps launch URLs within the existing remote station command limit", () => {
+    expect(() => webQaLaunchUrl({ ...template, urls: ["https://example.com/" + "a".repeat(1800)] }, id)).toThrow(/limite/);
+  });
 });
 
 describe("installed website runner", () => {
