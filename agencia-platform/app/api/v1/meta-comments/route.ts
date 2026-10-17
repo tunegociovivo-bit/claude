@@ -82,7 +82,7 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
     prisma.metaAdComment.count({ where: authorWindow }),
     prisma.metaAdComment.count({ where: { ...authorWindow, authorName: null } })
   ]).catch(() => [null, null] as const);
-  return NextResponse.json({ items, feeds, alertRecipients, nextCursor, ...(facebookRecent === null ? {} : { facebookAuthors: { recent: facebookRecent, anonymous: facebookAnonymous } }) });
+  return NextResponse.json({ items, feeds, alertRecipients, nextCursor, ...(facebookRecent === null ? {} : { facebookAuthors: { recent: facebookRecent, anonymous: facebookAnonymous, metaAppId: process.env.META_APP_ID ?? null } }) });
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
