@@ -5,13 +5,16 @@
  * (tocar, atrás, escribir…) que envían los usuarios remotos. Vive en memoria:
  * son datos efímeros y no se guardan en la base de datos.
  */
-export type StationSnapshot = { image: Buffer; mime: string; width: number; height: number; at: number; working: string; label: string };
+import type { WebQaReport, WebQaTemplate } from "./web-qa";
+export type StationSnapshot = { image: Buffer; mime: string; width: number; height: number; at: number; working: string; label: string; webQaAvailable?: boolean; webQaReport?: WebQaReport };
 export type StationCommand =
   | { id: string; type: "tap"; x: number; y: number; at: number; by: string }
   | { id: string; type: "swipe"; x: number; y: number; x2: number; y2: number; at: number; by: string }
   | { id: string; type: "back" | "home" | "recents"; at: number; by: string }
   | { id: string; type: "text"; text: string; at: number; by: string }
-  | { id: string; type: "openUrl"; url: string; at: number; by: string };
+  | { id: string; type: "openUrl"; url: string; at: number; by: string }
+  | { id: string; type: "startWebQa"; testId: string; config: WebQaTemplate; at: number; by: string }
+  | { id: string; type: "stopWebQa"; testId: string; at: number; by: string };
 
 const VIEWER_WINDOW_MS = 20_000;
 const COMMAND_TTL_MS = 30_000;
@@ -30,7 +33,7 @@ export function readSnapshot(workspaceId: string, serial: string): StationSnapsh
 }
 export function snapshotInfo(workspaceId: string, serial: string) {
   const snapshot = snapshots.get(key(workspaceId, serial));
-  return snapshot ? { at: snapshot.at, width: snapshot.width, height: snapshot.height, working: snapshot.working } : null;
+  return snapshot ? { at: snapshot.at, width: snapshot.width, height: snapshot.height, working: snapshot.working, webQaAvailable: snapshot.webQaAvailable ?? false, webQaReport: snapshot.webQaReport } : null;
 }
 export function markViewer(workspaceId: string, serial: string, now = Date.now()) {
   viewers.set(key(workspaceId, serial), now);

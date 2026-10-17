@@ -19,6 +19,13 @@ describe("station relay", () => {
     expect(hasViewers("w1", "s2", 5_000)).toBe(false);
   });
 
+  it("shares native QA capability and progress only inside the device workspace", () => {
+    const report = { id: "12345678-1234-1234-1234-123456789abc", status: "running" as const, startedAt: 1, seconds: 30, events: [] };
+    saveSnapshot("w1", "s1", { image: Buffer.from("a"), mime: "image/jpeg", width: 720, height: 1600, at: 1, working: "working", label: "x", webQaAvailable: true, webQaReport: report });
+    expect(snapshotInfo("w1", "s1")).toMatchObject({ webQaAvailable: true, webQaReport: report });
+    expect(snapshotInfo("w2", "s1")).toBeNull();
+  });
+
   it("hands each command to the station once and drops stale ones", () => {
     queueCommand("w1", "s1", { id: "a", type: "home", at: 1_000, by: "u" } as any);
     queueCommand("w1", "s1", { id: "b", type: "back", at: 100_000, by: "u" } as any);

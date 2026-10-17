@@ -31,12 +31,32 @@ export function webQaSearchUrl(config: WebQaTemplate): string {
   return `https://www.google.com/search?q=${encodeURIComponent(config.keyword)}`;
 }
 
-export function webQaLaunchUrl(input: WebQaTemplate, id: string): string {
+export function webQaLaunchUrl(input: WebQaTemplate, id: string, index = 0): string {
   const config = validateWebQa(input);
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Identificador de prueba invalido.");
-  const url = new URL(config.urls[0]);
+  const url = new URL(config.urls[index] ?? config.urls[0]);
   url.searchParams.set("nv_test", id);
-  url.hash = `nv-qa=${encodeURIComponent(JSON.stringify({ v: 1, id, urls: config.urls, seconds: config.seconds }))}`;
-  if (url.href.length > 2048) throw new Error("El recorrido supera el limite del control movil. Reduce el numero o la longitud de las URLs.");
   return url.href;
 }
+
+export const validatedWebQaSchema = webQaSchema.superRefine((value, context) => {
+  try { validateWebQa(value); } catch (error) {
+    context.addIssue({ code: "custom", message: error instanceof Error ? error.message : "Recorrido no valido" });
+  }
+});
+
+export const webQaReportSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["running", "completed", "stopped", "failed"]),
+  startedAt: z.number().finite().nonnegative(),
+  finishedAt: z.number().finite().nonnegative().optional(),
+  seconds: z.number().int().min(30).max(900),
+  events: z.array(z.object({
+    at: z.number().finite().nonnegative(),
+    action: z.enum(["start", "navigate", "scroll", "finish", "error"]),
+    path: z.string().max(2000).optional(),
+    detail: z.string().max(300).optional(),
+  }).strict()).max(200),
+  error: z.string().max(300).optional(),
+}).strict();
+export type WebQaReport = z.infer<typeof webQaReportSchema>;

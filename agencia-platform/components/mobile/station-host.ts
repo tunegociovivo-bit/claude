@@ -1,10 +1,13 @@
+import type { WebQaTemplate } from "@/lib/mobile/web-qa";
 /** Utilidades de la estación (ordenador con los móviles por USB) para el acceso remoto. */
 export type RemoteCommand =
   | { id: string; type: "tap"; x: number; y: number }
   | { id: string; type: "swipe"; x: number; y: number; x2: number; y2: number }
   | { id: string; type: "back" | "home" | "recents" }
   | { id: string; type: "text"; text: string }
-  | { id: string; type: "openUrl"; url: string };
+  | { id: string; type: "openUrl"; url: string }
+  | { id: string; type: "startWebQa"; testId: string; config: WebQaTemplate }
+  | { id: string; type: "stopWebQa"; testId: string };
 
 /** Reduce la pantalla a JPEG ligero (el canvas debe crearse con captura habilitada). */
 export function canvasToJpeg(canvas: HTMLCanvasElement, maxWidth: number, quality = 0.6): string | undefined {

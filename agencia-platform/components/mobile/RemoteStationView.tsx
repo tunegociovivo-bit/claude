@@ -4,10 +4,12 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { ArrowLeft, Circle, ExternalLink, Layers, Loader2, Monitor, Type, WifiOff } from "lucide-react";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import MobileWebQaPanel from "@/components/mobile/MobileWebQaPanel";
+import type { WebQaReport } from "@/lib/mobile/web-qa";
 
 type StationDevice = {
   key: string; label: string | null; phone: string | null; deviceSerial: string;
   online: boolean; live: boolean; snapshotAt: number | null; width: number | null; height: number | null; working: string | null;
+  webQaAvailable?: boolean; webQaReport?: WebQaReport | null;
 };
 
 async function sendCommand(body: Record<string, unknown>) {
@@ -133,7 +135,13 @@ function RemotePhoneCard({ device, canManage, storageScope }: { device: StationD
       )}
       {canManage && <MobileWebQaPanel
         storageScope={storageScope}
-        ready={device.online && device.live && device.working === "idle"}
+        ready={device.online && device.live && device.working === "idle" && device.webQaAvailable === true}
+        report={device.webQaReport}
+        onStart={async (config, id) => {
+          if (!device.live || !device.webQaAvailable || device.working !== "idle") throw new Error("La estacion debe estar actualizada, en modo diagnostico y sin tareas activas.");
+          await sendCommand({ deviceSerial: device.deviceSerial, type: "startWebQa", testId: id, config });
+        }}
+        onStop={async (id) => { await sendCommand({ deviceSerial: device.deviceSerial, type: "stopWebQa", testId: id }); }}
         onOpenUrl={async (url) => {
           if (!device.online || !device.live || device.working !== "idle") throw new Error("La estacion debe estar conectada y el movil sin trabajos pendientes.");
           await sendCommand({ deviceSerial: device.deviceSerial, type: "openUrl", url });

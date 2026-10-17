@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { loadMobileAutomationAccess } from "@/lib/mobile/automation-access";
 import { markViewer, queueCommand, type StationCommand } from "@/lib/mobile/station-relay";
+import { validatedWebQaSchema } from "@/lib/mobile/web-qa";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,9 @@ const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("swipe"), deviceSerial: z.string().min(1).max(160), x: point, y: point, x2: point, y2: point }).strict(),
   z.object({ type: z.enum(["back", "home", "recents"]), deviceSerial: z.string().min(1).max(160) }).strict(),
   z.object({ type: z.literal("text"), deviceSerial: z.string().min(1).max(160), text: z.string().min(1).max(2000) }).strict(),
-  z.object({ type: z.literal("openUrl"), deviceSerial: z.string().min(1).max(160), url: z.string().url().max(2048).refine((value) => /^https:\/\//i.test(value), "Solo enlaces https") }).strict()
+  z.object({ type: z.literal("openUrl"), deviceSerial: z.string().min(1).max(160), url: z.string().url().max(2048).refine((value) => /^https:\/\//i.test(value), "Solo enlaces https") }).strict(),
+  z.object({ type: z.literal("startWebQa"), deviceSerial: z.string().min(1).max(160), testId: z.string().uuid(), config: validatedWebQaSchema }).strict(),
+  z.object({ type: z.literal("stopWebQa"), deviceSerial: z.string().min(1).max(160), testId: z.string().uuid() }).strict()
 ]);
 
 /** Orden de control remoto: la ejecuta la estación en el móvil real en el siguiente envío de pantalla. */

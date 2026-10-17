@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/auth";
 import { loadMobileAutomationAccess, requireSerialLinkedToWorkspace } from "@/lib/mobile/automation-access";
 import { hasViewers, markViewer, readSnapshot, saveSnapshot, takeCommands } from "@/lib/mobile/station-relay";
 import { markDeviceSeen } from "@/lib/mobile/thread-failover";
+import { webQaReportSchema } from "@/lib/mobile/web-qa";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,9 @@ const uploadSchema = z.object({
   image: z.string().regex(/^data:image\/(jpeg|webp|png);base64,/).max(600_000).optional(),
   width: z.number().int().min(1).max(10_000),
   height: z.number().int().min(1).max(10_000),
-  working: z.string().max(40).default("idle")
+  working: z.string().max(40).default("idle"),
+  webQaAvailable: z.boolean().optional(),
+  webQaReport: webQaReportSchema.optional()
 }).strict();
 
 /** La estación sube la pantalla reducida y recoge las órdenes de los usuarios remotos. */
@@ -27,7 +30,8 @@ export const POST = withApi({ scope: "*", rate: "mobile_station" }, async (req, 
     const [header, data] = parsed.data.image.split(",", 2);
     saveSnapshot(api.workspaceId, parsed.data.deviceSerial, {
       image: Buffer.from(data ?? "", "base64"), mime: /image\/(\w+)/.exec(header ?? "")?.[0] ?? "image/jpeg",
-      width: parsed.data.width, height: parsed.data.height, at: Date.now(), working: parsed.data.working, label: phone.phone || phone.label
+      width: parsed.data.width, height: parsed.data.height, at: Date.now(), working: parsed.data.working, label: phone.phone || phone.label,
+      webQaAvailable: parsed.data.webQaAvailable, webQaReport: parsed.data.webQaReport
     });
   }
   return NextResponse.json({ ok: true, wanted: hasViewers(api.workspaceId, parsed.data.deviceSerial), commands: takeCommands(api.workspaceId, parsed.data.deviceSerial) });

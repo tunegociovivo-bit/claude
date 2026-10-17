@@ -17,7 +17,9 @@ export const GET = withApi({ scope: "*" }, async (_req, { api }) => {
       key: phone.key, label: phone.label, phone: phone.phone, deviceSerial: phone.deviceSerial,
       online: isDeviceOnline(api.workspaceId, phone.deviceSerial!, now) || live,
       live, snapshotAt: snapshot?.at ?? null, width: snapshot?.width ?? null, height: snapshot?.height ?? null,
-      working: snapshot?.working ?? null
+      working: snapshot?.working ?? null,
+      webQaAvailable: snapshot?.webQaAvailable ?? false,
+      webQaReport: snapshot?.webQaReport ?? null
     };
   });
   return NextResponse.json({ ok: true, canManage, devices });

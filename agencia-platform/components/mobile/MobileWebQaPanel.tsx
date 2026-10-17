@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, ExternalLink, FlaskConical, Save, Trash2 } from "lucide-react";
-import { validateWebQa, webQaLaunchUrl, webQaSearchUrl, type WebQaTemplate } from "@/lib/mobile/web-qa";
+import { Download, ExternalLink, FlaskConical, Save, Square, Trash2 } from "lucide-react";
+import { validateWebQa, webQaSearchUrl, type WebQaTemplate, type WebQaReport } from "@/lib/mobile/web-qa";
 
 const initial: WebQaTemplate = { name: "", keyword: "", business: "", urls: [], seconds: 120 };
 
-export default function MobileWebQaPanel({ ready, storageScope, onOpenUrl, configurationOnly = false }: {
+export default function MobileWebQaPanel({ ready, storageScope, onOpenUrl, onStart, onStop, report, configurationOnly = false }: {
   ready: boolean;
   storageScope: string;
   onOpenUrl: (url: string) => Promise<void>;
   configurationOnly?: boolean;
+  onStart?: (config: WebQaTemplate, id: string) => Promise<void>;
+  onStop?: (id: string) => Promise<void>;
+  report?: WebQaReport | null;
 }) {
   const [form, setForm] = useState(initial);
   const [urls, setUrls] = useState("");
@@ -20,8 +23,17 @@ export default function MobileWebQaPanel({ ready, storageScope, onOpenUrl, confi
   const [authorized, setAuthorized] = useState(false);
   const [searched, setSearched] = useState(false);
   const [manualClick, setManualClick] = useState(false);
+  const [requestedId, setRequestedId] = useState<string | null>(null);
+  const activeId = report?.status === "running" ? report.id : requestedId;
   const key = `nv-web-qa-templates-v1:${storageScope}`;
   const field = "w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm";
+
+  useEffect(() => {
+    if (!requestedId) return;
+    if (report?.id === requestedId) { setRequestedId(null); return; }
+    const timer = setTimeout(() => { setRequestedId(null); setMessage("La estacion no ha confirmado el inicio. Comprueba que esta actualizada y abierta en modo diagnostico."); }, 45000);
+    return () => clearTimeout(timer);
+  }, [requestedId, report?.id]);
 
   useEffect(() => {
     const load = () => {
@@ -68,27 +80,34 @@ export default function MobileWebQaPanel({ ready, storageScope, onOpenUrl, confi
       <label className="block text-xs">Negocio<input className={field} maxLength={120} value={form.business} onChange={(e) => update({ business: e.target.value })} /></label>
       <label className="block text-xs">URLs permitidas de una misma web · primera URL de entrada<textarea className={field} rows={4} maxLength={40000} placeholder={"https://tu-web.es/\nhttps://tu-web.es/servicios/"} value={urls} onChange={(e) => { setUrls(e.target.value); setAuthorized(false); setSearched(false); setManualClick(false); }} /></label>
       <label className="block text-xs">Duracion (segundos)<input className={field} type="number" min={30} max={900} step={1} value={form.seconds} onChange={(e) => update({ seconds: Number(e.target.value) })} /></label>
-      {!configurationOnly && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />Tengo autorizacion para probar esta web y he instalado el script de pruebas.</label>}
+      {!configurationOnly && <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />Tengo autorizacion para probar las URLs indicadas.</label>}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} className="inline-flex items-center gap-1 rounded border px-3 py-2 text-xs disabled:opacity-40" onClick={() => void action(() => {
           const next = config(); save([...templates.filter((t) => t.name !== next.name), next].slice(-30)); setMessage("Plantilla guardada.");
         })}><Save size={14} />Guardar plantilla</button>
-        {!configurationOnly && <button type="button" disabled={busy || !ready || !authorized} className="inline-flex items-center gap-1 rounded border px-3 py-2 text-xs disabled:opacity-40" onClick={() => void action(async () => {
+        {!configurationOnly && <button type="button" disabled={busy || Boolean(activeId) || !ready || !authorized} className="inline-flex items-center gap-1 rounded border px-3 py-2 text-xs disabled:opacity-40" onClick={() => void action(async () => {
           await onOpenUrl(webQaSearchUrl(config())); setSearched(true); setManualClick(false); setMessage("Busqueda abierta. Selecciona manualmente el resultado en el movil.");
         })}><ExternalLink size={14} />Abrir busqueda</button>}
       </div>
       {!configurationOnly && <><label className="flex items-start gap-2 text-xs"><input type="checkbox" disabled={!searched} checked={manualClick} onChange={(e) => setManualClick(e.target.checked)} />He abierto manualmente el resultado del negocio.</label>
-      <button type="button" disabled={busy || !ready || !authorized || !manualClick} className="inline-flex items-center gap-2 rounded bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-40" onClick={() => void action(async () => {
-        const id = crypto.randomUUID(); await onOpenUrl(webQaLaunchUrl(config(), id)); setManualClick(false);
-        setMessage(`Prueba ${id} preparada. Confirma el inicio en la web del movil. El informe y la parada estan en esa pantalla.`);
-      })}><FlaskConical size={16} />Preparar recorrido de prueba</button></>}
-      <details className="text-xs"><summary className="cursor-pointer py-1">Instalacion en cada web</summary>
-        <p className="my-2">La preparacion abre de nuevo la URL de entrada con una marca de prueba. No conserva ni mide el recorrido previo de Google. Sin mapa de calor conectado; las marcas no excluyen automaticamente el trafico de otras analiticas.</p>
-        <button type="button" className="inline-flex items-center gap-1 rounded border px-2 py-1.5" onClick={() => void action(async () => {
-          await navigator.clipboard.writeText(`<script defer src="${window.location.origin}/nv-web-qa.js"></script>`); setMessage("Script de instalacion copiado.");
-        })}><Copy size={14} />Copiar script de instalacion</button>
-      </details>
-      {!configurationOnly && !ready && <p className="text-xs text-amber-800">Abre la pantalla del movil y desactiva su trabajador automatico para preparar una prueba.</p>}
+      <button type="button" disabled={busy || Boolean(activeId) || !ready || !authorized || !manualClick || !onStart} className="inline-flex items-center gap-2 rounded bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-40" onClick={() => void action(async () => {
+        const id = crypto.randomUUID(); await onStart!(config(), id); setRequestedId(id); setManualClick(false);
+        setMessage("Inicio solicitado al Hub. El estado y el informe apareceran aqui; no necesitas instalar nada en la web.");
+      })}><FlaskConical size={16} />Iniciar recorrido desde el Hub</button>
+      <button type="button" disabled={busy || !activeId || !onStop} className="ml-2 inline-flex items-center gap-1 rounded border px-3 py-2 text-sm disabled:opacity-40" onClick={() => void action(async () => {
+        await onStop!(activeId!); setMessage("Parada solicitada. No cierres la estacion hasta que el estado confirme la detencion.");
+      })}><Square size={14} />Detener</button></>}
+      <p className="text-xs text-slate-600">Control desde el Hub, sin script en la web. Visitas y desplazamientos entre URLs autorizadas; no pulsa enlaces, botones ni formularios. Sin mapa de calor integrado. La marca nv_test no excluye automaticamente estas visitas de otras analiticas.</p>
+      {!configurationOnly && !ready && !activeId && <p className="text-xs text-amber-800">La estacion debe estar actualizada, con la pantalla abierta en modo de pruebas y sin trabajos pendientes. <a className="underline" href="/moviles?diagnostic=1">Abrir modo de pruebas en el ordenador USB</a></p>}
+      {!configurationOnly && report && <div className="border-t pt-2 text-xs">
+        <p role="status">Prueba {report.id.slice(0, 8)} · {({ running: "En curso", completed: "Completada", stopped: "Detenida", failed: "Error" })[report.status]} · {report.events.length} acciones</p>
+        {report.error && <p role="alert" className="mt-1 text-rose-700">{report.error}</p>}
+        <button type="button" className="mt-2 inline-flex items-center gap-1 rounded border px-2 py-1.5" onClick={() => {
+          const blob = new Blob([JSON.stringify({ ...report, synthetic: true, engine: "hub-android", heatmap: "not-configured" }, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `nv-web-qa-${report.id}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }}><Download size={14} />Descargar informe</button>
+        <details className="mt-2"><summary>Ultimas acciones</summary><ol className="max-h-48 overflow-auto">{report.events.slice(-15).map((event, index) => <li className="break-words py-1" key={`${event.at}-${index}`}>{new Date(event.at).toLocaleTimeString()} · {event.action} {event.path} {event.detail}</li>)}</ol></details>
+      </div>}
       {message && <p role="status" className="break-words text-xs text-slate-700">{message}</p>}
     </div>
   </details>;

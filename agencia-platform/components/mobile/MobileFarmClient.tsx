@@ -51,6 +51,8 @@ import PageHeader from "@/components/PageHeader";
 import ConversationRadarPanel from "@/components/mobile/ConversationRadarPanel";
 import MobileAutomationPanel from "@/components/mobile/MobileAutomationPanel";
 import MobileWebQaPanel from "@/components/mobile/MobileWebQaPanel";
+import { runHubWebQa } from "@/components/mobile/hub-web-qa-runner";
+import type { WebQaReport, WebQaTemplate } from "@/lib/mobile/web-qa";
 import type { MobileWorkerActivity } from "@/components/mobile/mobile-worker-activity";
 import { createMobileSessionMonitor } from "./mobile-session-monitor";
 import MobileFleetAutomationPanel from "@/components/mobile/MobileFleetAutomationPanel";
@@ -91,7 +93,7 @@ import { waitForFacebookSearchEntry } from "@/components/mobile/facebook-search-
 import { FacebookNavigationError, launchFacebookForAutomation, openFacebookUrl, resolveLaunchableFacebookPackage } from "@/components/mobile/facebook-android-launch";
 import { finishFacebookGroupSearch, runFacebookGroupCandidates } from "@/components/mobile/facebook-group-runner";
 import { runPageFollowBatch } from "@/components/mobile/page-follow-runner";
-import { isMobileBusy, isNewerBuild, loadResumeSerials, saveResumeSerials } from "@/components/mobile/mobile-busy";
+import { beginMobileWork, endMobileWork, isMobileBusy, isNewerBuild, loadResumeSerials, saveResumeSerials } from "@/components/mobile/mobile-busy";
 import { canvasToJpeg, stationUploadInterval, type RemoteCommand } from "@/components/mobile/station-host";
 import RemoteStationView from "@/components/mobile/RemoteStationView";
 import { checkThreadEngagement, inspectCommentThreadNavigation, postCommentThreadMessage, threadRunnerDiagnostics } from "@/components/mobile/comment-thread-runner";
@@ -906,6 +908,10 @@ function MobileDeviceCard({
 }) {
   const autoPaused = useRef(false);
   const [working, setWorking] = useState<MobileWorkerActivity>("idle");
+  const [webQaReport, setWebQaReport] = useState<WebQaReport | null>(null);
+  const webQaReportRef = useRef<WebQaReport | null>(null);
+  const webQaAbortRef = useRef<AbortController | null>(null);
+  const webQaAvailableRef = useRef(false);
   const reconnectAttempts = useRef(0);
   const unlockPendingRef = useRef<Promise<void> | null>(null);
   const [hierarchyDiagnostic, setHierarchyDiagnostic] = useState<string | null>(null);
@@ -951,6 +957,11 @@ function MobileDeviceCard({
   const sizeRef = useRef({ width: 0, height: 0 });
   const closingRef = useRef(false);
   const [status, setStatus] = useState<SessionStatus>("idle");
+  webQaAvailableRef.current = status === "mirroring" && !workerEnabled;
+  useEffect(() => {
+    if (status !== "mirroring" || workerEnabled || !canManage) webQaAbortRef.current?.abort();
+    return () => { webQaAbortRef.current?.abort(); };
+  }, [status, workerEnabled, canManage]);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState(device.name || "Android");
   const [androidVersion, setAndroidVersion] = useState<string | null>(null);
@@ -1295,6 +1306,43 @@ function MobileDeviceCard({
   const workingRef = useRef(working);
   workingRef.current = working;
   const [remoteNote, setRemoteNote] = useState<string | null>(null);
+  function startWebQa(config: WebQaTemplate, id: string) {
+    const adb = adbRef.current;
+    const controller = clientRef.current?.controller;
+    if (!adb || !controller || !webQaAvailableRef.current || workingRef.current !== "idle" || webQaAbortRef.current) throw new Error("Abre el movil en modo diagnostico, sin trabajador ni tareas activas.");
+    if (webQaReportRef.current?.id === id) return;
+    const abort = new AbortController();
+    webQaAbortRef.current = abort;
+    beginMobileWork();
+    workingRef.current = "working"; setWorking("working");
+    const publish = (report: WebQaReport) => { webQaReportRef.current = report; setWebQaReport(report); };
+    const check = () => { if (abort.signal.aborted || adbRef.current !== adb) throw new Error("La prueba se ha detenido."); };
+    void runHubWebQa(config, id, {
+      readAddress: async () => {
+        check();
+        try { await controller.injectKeyCode({ action: AndroidKeyEventAction.Down, keyCode: AndroidKeyCode.KeyL, repeat: 0, metaState: AndroidKeyEventMeta.Ctrl }); }
+        finally { await controller.injectKeyCode({ action: AndroidKeyEventAction.Up, keyCode: AndroidKeyCode.KeyL, repeat: 0, metaState: AndroidKeyEventMeta.Ctrl }); }
+        check(); await waitForAndroidUi(350); check();
+        const xml = await readAndroidUiHierarchy(adb);
+        check();
+        // Only dismiss the omnibox if Chrome actually focused it; never send Back blindly.
+        const focused = parseAndroidUiNodes(xml).some(node => node.packageName === "com.android.chrome" && /(?:^|\/)url_bar$/.test(node.resourceId) && node.focused && node.className === "android.widget.EditText");
+        if (focused) { check(); await sendKeyRef.current(AndroidKeyCode.AndroidBack); }
+        return xml;
+      },
+      readPage: async () => { check(); return readAndroidUiHierarchy(adb); },
+      openUrl: async (url) => { check(); await runAdbCommand(adb, ["timeout", "25", "am", "start", "-a", "android.intent.action.VIEW", "-p", "com.android.chrome", "-d", url]); },
+      swipe: async (from, to) => { check(); await runAdbCommand(adb, ["input", "swipe", String(from.x), String(from.y), String(to.x), String(to.y), "600"]); },
+      wait: waitForAndroidUi,
+    }, abort.signal, publish).catch((error) => {
+      publish({ id, status: "failed", startedAt: Date.now(), finishedAt: Date.now(), seconds: config.seconds, events: [], error: error instanceof Error ? error.message.slice(0, 300) : "No se pudo iniciar la prueba." });
+    }).finally(() => {
+      endMobileWork();
+      abort.abort();
+      if (webQaAbortRef.current === abort) { webQaAbortRef.current = null; workingRef.current = "idle"; setWorking("idle"); }
+    });
+  }
+  function stopWebQa(id: string) { if (webQaReportRef.current?.id === id) webQaAbortRef.current?.abort(); }
   useEffect(() => {
     const serial = linkedPhone?.active ? linkedPhone.deviceSerial : null;
     if (status !== "mirroring" || !canManage || !serial) return;
@@ -1302,9 +1350,20 @@ function MobileDeviceCard({
     let wanted: boolean = false;
     let last: number = 0;
     const runCommand = async (command: RemoteCommand) => {
+      if (command.type === "stopWebQa") { stopWebQa(command.testId); return; }
+      if (command.type === "startWebQa") {
+        try { startWebQa(command.config, command.testId); }
+        catch (error) {
+          if (!webQaAbortRef.current) {
+            const report: WebQaReport = { id: command.testId, status: "failed", startedAt: Date.now(), finishedAt: Date.now(), seconds: command.config.seconds, events: [], error: error instanceof Error ? error.message.slice(0, 300) : "No se pudo iniciar la prueba." };
+            webQaReportRef.current = report; setWebQaReport(report);
+          }
+        }
+        return;
+      }
       const controller = clientRef.current?.controller;
       if (!controller) return;
-      if (workingRef.current === "working") { setRemoteNote("Se ignoró una orden remota: el móvil está publicando un trabajo."); return; }
+      if (webQaAbortRef.current || workingRef.current === "working") { setRemoteNote("Se ignoró una orden remota: el móvil tiene una tarea activa."); return; }
       const video = sizeRef.current;
       const touch = createMobileTouchInput({ controller, readDisplaySize: async () => `Physical size: ${video.width}x${video.height}`, videoSize: () => sizeRef.current, wait: waitForAndroidUi });
       switch (command.type) {
@@ -1328,7 +1387,7 @@ function MobileDeviceCard({
             const image: string | undefined = canvas ? canvasToJpeg(canvas, wanted ? 540 : 240) : undefined;
             const response: Response = await fetch("/api/v1/mobile/station/snapshot", {
               method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal: AbortSignal.timeout(15_000),
-              body: JSON.stringify({ deviceSerial: serial, image, width: video.width || canvas?.width || 1, height: video.height || canvas?.height || 1, working: workingRef.current })
+              body: JSON.stringify({ deviceSerial: serial, image, width: video.width || canvas?.width || 1, height: video.height || canvas?.height || 1, working: workingRef.current, webQaAvailable: webQaAvailableRef.current, ...(webQaReportRef.current ? { webQaReport: webQaReportRef.current } : {}) })
             });
             const data: any = await response.json().catch(() => null);
             wanted = Boolean(data?.wanted);
@@ -2020,6 +2079,9 @@ function MobileDeviceCard({
         {canManage && <MobileWebQaPanel
           storageScope={clientStorageScope}
           ready={status === "mirroring" && !workerEnabled && working === "idle"}
+          report={webQaReport}
+          onStart={async (config, id) => startWebQa(config, id)}
+          onStop={async (id) => stopWebQa(id)}
           onOpenUrl={async (url) => {
             const adb = adbRef.current;
             if (!adb || status !== "mirroring" || workerEnabled || workingRef.current !== "idle") throw new Error("Abre el movil en modo diagnostico, sin trabajos activos.");
@@ -2075,7 +2137,7 @@ function MobileDeviceCard({
               ready={status === "mirroring" && workerEnabled}
               onEnsureReady={startMirroring}
               onExecuteJob={executeApprovedAutomation}
-              onWorkingChange={setWorking}
+              onWorkingChange={(activity) => { if (!webQaAbortRef.current) setWorking(activity); }}
               onPasteText={pasteApprovedAutomation}
               onInspectJob={!workerEnabled && status === "mirroring" && !diagnosingHierarchy ? async (job) => {
                 const probeId = `diagnostic-${crypto.randomUUID()}`;
