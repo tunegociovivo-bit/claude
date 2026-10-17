@@ -689,6 +689,7 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     const repliesByCommentId = new Map<string, MetaReply>();
     const ownExternalIds = new Set<string>(sentReplyIds);
     let facebookTargets = 0; let instagramTargets = 0; let adsWithoutPost = 0; let unsupportedTargets = 0;
+    let facebookCommentsSeen = 0; let facebookCommentsWithoutAuthor = 0;
     const coverageIssues: string[] = [];
     const targetResults: Array<{ adId: string; postId: string; platform: string; returned: number; inPeriod: number; error?: string; metaCount?: number | null; metaCountError?: string }> = [];
     const explicitAds = await fetchExplicitCampaignAds(workspaceId, campaignId, [...(options.extraAdIds ?? []), ...(options.extraPosts ?? []).map((post) => post.adId)], creativeFields, connectionToken, coverageIssues);
@@ -941,6 +942,10 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         }
         targetResults.push(targetResult);
         for (const raw of comments) {
+          if (target.platform === "facebook") {
+            facebookCommentsSeen++;
+            if (!raw.from?.name) facebookCommentsWithoutAuthor++;
+          }
           const comment = target.platform === "instagram" ? { ...raw, message: raw.text ?? "", from: { id: null, name: raw.username ?? null }, created_time: raw.timestamp } : raw;
           comment.platform = target.platform;
           if (sentReplyIds.has(String(comment.id)) || isOwnMetaComment(comment, authorizedPages, target.ownerId)) {
@@ -975,8 +980,22 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
         data: { status: "replied", repliedAt: reply.createdAt, externalReplyId: reply.id }
       })));
     }
-    const existing = unique.length ? await prisma.metaAdComment.findMany({ where: { workspaceId, externalCommentId: { in: unique.map((item) => String(item.id)) } }, select: { externalCommentId: true } }) : [];
+    const existing = unique.length ? await prisma.metaAdComment.findMany({ where: { workspaceId, externalCommentId: { in: unique.map((item) => String(item.id)) } }, select: { id: true, externalCommentId: true, authorName: true, authorId: true } }) : [];
     const existingIds = new Set(existing.map((item) => item.externalCommentId));
+    // Comentarios importados sin autor (Meta no lo daba sin el permiso
+    // pages_read_user_content): en cuanto Meta lo devuelve, se completa.
+    const discoveredById = new Map(unique.map((item) => [String(item.id), item]));
+    const authorFixes = existing.flatMap((row) => {
+      const fresh = discoveredById.get(row.externalCommentId);
+      const name = fresh?.from?.name ? String(fresh.from.name).slice(0, 200) : null;
+      return !row.authorName && name ? [{ id: row.id, authorName: name, authorId: fresh.from.id ? String(fresh.from.id) : row.authorId }] : [];
+    });
+    for (let offset = 0; offset < authorFixes.length; offset += 50) {
+      await prisma.$transaction(authorFixes.slice(offset, offset + 50).map((fix) => prisma.metaAdComment.updateMany({
+        where: { id: fix.id, workspaceId },
+        data: { authorName: fix.authorName, authorId: fix.authorId }
+      })));
+    }
     const pending = unique.filter((item) => !existingIds.has(String(item.id)));
     const processing = pending;
     let created = 0;
@@ -1010,7 +1029,15 @@ export async function syncMetaCampaignComments(workspaceId: string, campaignId: 
     if (adsWithoutPost) coverageIssues.push(`${adsWithoutPost} anuncios sin publicación accesible.`);
     const complete = coverageIssues.length === 0;
     await prisma.metaCommentFeed.update({ where: { id: feed.id }, data: { ...(complete ? { lastSyncAt: new Date() } : {}), lastError: complete ? null : `Importación incompleta: ${coverageIssues.join(" ")}`.slice(0, 2000) } });
-    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram, dynamicFacebookPosts: dynamicScan, adsSummary } };
+    // Meta solo devuelve el autor de los comentarios de Facebook con el permiso
+    // pages_read_user_content; sin él llegan como «Usuario de Meta».
+    const facebookAuthors = { seen: facebookCommentsSeen, withoutAuthor: facebookCommentsWithoutAuthor, filled: authorFixes.length };
+    const permissions = options.diagnose
+      ? await graph(workspaceId, "me/permissions", undefined, connectionToken ?? undefined)
+        .then((result: any) => (result?.data ?? []).map((item: any) => `${item.permission}:${item.status}`))
+        .catch((error: any) => [`error:${String(error?.message ?? error).slice(0, 160)}`])
+      : undefined;
+    return { discovered: unique.length, created, remaining: 0, complete, coverageIssues, facebookAuthors, diagnostics: { ads: ads.length, explicitAds: explicitAds.length, facebookTargets, instagramTargets, adsWithoutPost, unsupportedTargets, targets: targetResults, unresolvedInstagram, dynamicFacebookPosts: dynamicScan, adsSummary, ...(permissions ? { permissions } : {}) } };
   } catch (error: any) {
     const errorMessage = String(error?.message ?? error).slice(0, 2000);
     if (isMetaTransientCapacityError(error)) {

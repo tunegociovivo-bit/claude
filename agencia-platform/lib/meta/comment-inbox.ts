@@ -47,3 +47,30 @@ export function campaignOptionsForClient<T extends MetaInboxItem>(items: T[], cl
   }
   return [...campaigns.entries()].sort((a, b) => a[1].localeCompare(b[1], "es"));
 }
+
+const searchable = (value: string | null | undefined) => String(value ?? "")
+  .toLocaleLowerCase("es-ES")
+  .normalize("NFD")
+  .replace(/[̀-ͯ]/g, "")
+  .replace(/\s+/g, " ")
+  .trim();
+
+/** Búsqueda libre en la bandeja: texto del comentario, autor, anuncio, campaña o cliente. */
+export function matchesMetaCommentSearch(
+  item: { message?: string | null; authorName?: string | null; adName?: string | null; feed: MetaInboxItem["feed"] },
+  query: string
+): boolean {
+  const terms = searchable(query).split(" ").filter(Boolean);
+  if (!terms.length) return true;
+  const haystack = searchable([
+    item.message, item.authorName, item.adName, item.feed.campaignName, item.feed.displayName, item.feed.adAccountName, item.feed.clientName
+  ].join(" "));
+  return terms.every((term) => haystack.includes(term));
+}
+
+/** Enlace al comentario en Facebook (publicación «página_post» + id del comentario). */
+export function facebookCommentUrl(postId: string | null | undefined, externalCommentId: string | null | undefined): string | null {
+  if (!postId || !/^\d+_\d+$/.test(postId)) return null;
+  const commentId = String(externalCommentId ?? "").split("_").pop() ?? "";
+  return `https://www.facebook.com/${postId}${/^\d+$/.test(commentId) ? `?comment_id=${commentId}` : ""}`;
+}

@@ -7,7 +7,7 @@ import { withApi } from "@/lib/api/handler";
 import { ApiError } from "@/lib/api/auth";
 import { callerIsAdmin } from "@/lib/api/permissions";
 import { prisma } from "@/lib/db/prisma";
-import { metaAppConfigured, buildMetaLoginUrl, metaLoginRedirectUri } from "@/lib/integrations/meta-login";
+import { metaAppConfigured, buildMetaLoginUrl, metaLoginRedirectUri, META_AUTHOR_SCOPE } from "@/lib/integrations/meta-login";
 
 export const dynamic = "force-dynamic";
 
@@ -38,5 +38,6 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   settings.integrations = settings.integrations ?? {};
   settings.integrations.metaLogin = { state, at: Date.now(), returnPath, userId: api.userId };
   await prisma.workspace.update({ where: { id: api.workspaceId }, data: { settings } });
-  return NextResponse.redirect(buildMetaLoginUrl(state));
+  const wantsAuthors = new URL(req.url).searchParams.get("permissions") === "authors";
+  return NextResponse.redirect(buildMetaLoginUrl(state, wantsAuthors ? { extraScopes: [META_AUTHOR_SCOPE] } : {}));
 });

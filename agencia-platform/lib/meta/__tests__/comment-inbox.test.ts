@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { campaignOptionsForClient, filterMetaCommentInbox } from "../comment-inbox";
+import { campaignOptionsForClient, facebookCommentUrl, filterMetaCommentInbox, matchesMetaCommentSearch } from "../comment-inbox";
 
 const comments = [
   { id: "1", status: "pending", sentiment: "negative", feed: { clientName: "ESAEM Nueva", displayName: "ESAEM", campaignId: "c1", campaignName: "Grado" } },
@@ -29,5 +29,22 @@ describe("Meta comments inbox filters", () => {
   it("mantiene los filtros negativos y respondidos existentes", () => {
     expect(filterMetaCommentInbox(comments, { client: "all", campaign: "all", status: "negative" }).map((item) => item.id)).toEqual(["1"]);
     expect(filterMetaCommentInbox(comments, { client: "all", campaign: "all", status: "replied" }).map((item) => item.id)).toEqual(["3"]);
+  });
+});
+
+describe("búsqueda y enlaces de comentarios", () => {
+  const item = { message: "Buenos días, traspaso un puesto en el Mercado de La Laguna", authorName: null, adName: "Anuncio dinámico", feed: { clientName: "Eroski", displayName: null, adAccountName: "EROSKI FRANQUICIAS", campaignId: "1", campaignName: "CAMPAÑA CONVERSIÓN EROSKI 2025" } };
+
+  it("busca sin tildes ni mayúsculas en texto, campaña y cliente, con varias palabras", () => {
+    expect(matchesMetaCommentSearch(item, "mercado laguna")).toBe(true);
+    expect(matchesMetaCommentSearch(item, "conversion eroski")).toBe(true);
+    expect(matchesMetaCommentSearch(item, "  ")).toBe(true);
+    expect(matchesMetaCommentSearch(item, "laguna madrid")).toBe(false);
+  });
+
+  it("enlaza el comentario de Facebook dentro de su publicación", () => {
+    expect(facebookCommentUrl("132591756789822_1471314964191449", "1471314964191449_812345678901234")).toBe("https://www.facebook.com/132591756789822_1471314964191449?comment_id=812345678901234");
+    expect(facebookCommentUrl("18012345678901234", "18012345678901234")).toBeNull();
+    expect(facebookCommentUrl(null, "1_2")).toBeNull();
   });
 });

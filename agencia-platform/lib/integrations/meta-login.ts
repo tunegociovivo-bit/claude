@@ -27,14 +27,25 @@ export function metaLoginRedirectUri(): string {
   return `${base}/api/v1/admin/integrations/meta-login/callback`;
 }
 
-export function buildMetaLoginUrl(state: string): string {
+/**
+ * Permiso para que Meta devuelva QUIÉN comenta en las publicaciones de la
+ * página (campo `from`). Sin él los comentarios de Facebook llegan sin nombre.
+ * Va aparte del login normal: si la app de Meta aún no lo tiene habilitado,
+ * Meta rechaza el diálogo entero y no debe romper la reconexión habitual.
+ */
+export const META_AUTHOR_SCOPE = "pages_read_user_content";
+
+export function buildMetaLoginUrl(state: string, opts: { extraScopes?: string[] } = {}): string {
+  const scopes = [...new Set([...SCOPES.split(","), ...(opts.extraScopes ?? [])])].join(",");
   const params = new URLSearchParams({
     client_id: process.env.META_APP_ID!,
     redirect_uri: metaLoginRedirectUri(),
     state,
     response_type: "code",
-    scope: SCOPES
+    scope: scopes
   });
+  // Vuelve a pedir permisos que se hubieran rechazado en un login anterior.
+  if (opts.extraScopes?.length) params.set("auth_type", "rerequest");
   return `${DIALOG}?${params.toString()}`;
 }
 

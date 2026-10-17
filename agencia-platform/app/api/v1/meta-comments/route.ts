@@ -75,7 +75,13 @@ export const GET = withApi({ scope: "*" }, async (req, { api }) => {
   const nextCursor = rows.length > 300 && last ? { before: last.commentCreatedAt.toISOString(), beforeId: last.id } : null;
   const feeds = await prisma.metaCommentFeed.findMany({ where: { workspaceId: api.workspaceId }, orderBy: { createdAt: "desc" } });
   const alertRecipients = await prisma.metaCommentAlertRecipient.findMany({ where: { workspaceId: api.workspaceId }, select: { id: true, email: true, active: true, negativeComments: true, allComments: true, syncFailures: true, publishedReplies: true }, orderBy: { email: "asc" } });
-  return NextResponse.json({ items, feeds, alertRecipients, nextCursor });
+  // ¿Llegan los nombres de quien comenta en Facebook? (permiso pages_read_user_content)
+  const authorWindow = { workspaceId: api.workspaceId, platform: "facebook", status: { not: "ignored_self" }, commentCreatedAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } };
+  const [facebookRecent, facebookAnonymous] = before ? [null, null] : await Promise.all([
+    prisma.metaAdComment.count({ where: authorWindow }),
+    prisma.metaAdComment.count({ where: { ...authorWindow, authorName: null } })
+  ]);
+  return NextResponse.json({ items, feeds, alertRecipients, nextCursor, ...(facebookRecent === null ? {} : { facebookAuthors: { recent: facebookRecent, anonymous: facebookAnonymous } }) });
 });
 
 export const POST = withApi({ scope: "*" }, async (req, { api }) => {
